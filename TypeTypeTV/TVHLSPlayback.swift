@@ -146,9 +146,11 @@ final class TVHLSPlaybackController: ObservableObject {
             let detail = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey]
                 as? Error
             Task { @MainActor [weak self] in
-                self?.errorMessage = detail?.localizedDescription ??
+                guard let self, !self.isStopped,
+                      self.player.currentItem === item else { return }
+                self.errorMessage = detail?.localizedDescription ??
                     TVL10n.value("player.unavailable")
-                self?.scheduleStallRecovery(delay: 3)
+                self.scheduleStallRecovery(delay: 3)
             }
         }
 
@@ -218,8 +220,11 @@ final class TVHLSPlaybackController: ObservableObject {
                 currentPosition - originalPosition >= 0.5
             // AVPlayer may recover without our help; only replace a stream
             // that remains stalled, not one that is already playing again.
-            guard !moved, self.player.timeControlStatus != .playing ||
-                    self.errorMessage != nil else { return }
+            guard TVHLSStallPolicy.shouldRecover(
+                progressed: moved,
+                status: self.player.timeControlStatus,
+                hasFailure: self.errorMessage != nil
+            ) else { return }
             await self.restartAfterFailure()
         }
     }
@@ -275,6 +280,20 @@ final class TVHLSPlaybackController: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+/// A player may pause intentionally after reporting a stalled item.
+    /// Never restart a paused, otherwise healthy stream simply because the
+    /// earlier stall timer fired late. Conversely, an apparently "playing"
+    /// AVPlayer whose timeline has not advanced must be recoverable.
+enum TVHLSStallPolicy {
+    static func shouldRecover(progressed: Bool,
+                              status: AVPlayer.TimeControlStatus,
+                              hasFailure: Bool) -> Bool {
+        if progressed { return false }
+        if status == .paused && !hasFailure { return false }
+        return true
     }
 }
 

@@ -1,4 +1,5 @@
 import XCTest
+import AVFoundation
 @testable import TypeTypeTV
 
 final class TVHLSResumePolicyTests: XCTestCase {
@@ -6,6 +7,25 @@ final class TVHLSResumePolicyTests: XCTestCase {
         XCTAssertEqual(TVHLSResumePolicy.startSeconds(
             savedPositionMs: 97_250, durationSeconds: 300, isLive: false
         ), 97.25)
+    }
+
+    func testStallRecoveryDoesNotRestartIntentionallyPausedPlayback() {
+        XCTAssertFalse(TVHLSStallPolicy.shouldRecover(
+            progressed: false, status: .paused, hasFailure: false
+        ))
+        XCTAssertFalse(TVHLSStallPolicy.shouldRecover(
+            progressed: true, status: .playing, hasFailure: true
+        ))
+        XCTAssertTrue(TVHLSStallPolicy.shouldRecover(
+            progressed: false, status: .playing, hasFailure: false
+        ))
+        XCTAssertTrue(TVHLSStallPolicy.shouldRecover(
+            progressed: false, status: .waitingToPlayAtSpecifiedRate,
+            hasFailure: false
+        ))
+        XCTAssertTrue(TVHLSStallPolicy.shouldRecover(
+            progressed: false, status: .paused, hasFailure: true
+        ))
     }
 
     func testNeverResumeAfterEndOrForLiveStreams() {

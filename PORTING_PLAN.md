@@ -76,3 +76,32 @@ Source baseline: `TypeType-Video/TypeType-TV` branch `dev`, inspected 2026-11-13
 - A bounded mailbox prevents unbounded network-to-decoder queuing and never drops windows. Cache size and a conservative bitrate-aware target limit ahead-fetching. Download failures must not be reported as cached media.
 - Automated contract tests exercise the buffer policy, queued-window ordering/backpressure, and HTTP/segment-cache flows using a mock TypeType service. They do **not** prove playback of real 4K/HDR/AV1 TypeType content.
 - **Next validation gate:** H.264/AAC VOD playback with a running TypeType Server and physical Apple TV, followed by seek, AV sync, advanced codec/HDR and multi-minute cache fill measurements.
+
+
+## Release parity review: TypeType 1.15.0–1.17.1 / Android TV 0.4–0.6 beta (2026-11-13)
+
+Checked the official TypeType release notes and TypeType-TV releases, plus the
+Server's `v1.17.1` routes and error schemas. The Android-TV repository still
+publishes `0.x` releases; TypeType 1.17.1's mention of `1.13.0-beta.4` is
+not an Android-TV release tag currently visible there.
+
+| Feature or behavioral change | tvOS state | Further work |
+| --- | --- | --- |
+| Server SABR DELETE /api/sabr/playback/{sessionId} (1.17.1) | Implemented; transport contract test | Observe real server release/eviction on device |
+| /api/sessions/playback/{start,progress,stop} | Implemented in SABR and HLS | Verify active-session UI on server |
+| YouTube live HLS fallback (1.17.1) | Routed to streams/youtube/live | Confirm live manifest on Apple TV |
+| Typed video-unavailable (1.17.1) | Map no_playable_streams/sabr_content_unavailable to permanent error | Verify additional upstream failure codes |
+| Upstream Retry-After (1.17.0 and earlier) | SABR bounded recovery now honors header | Extend similar handling to initial HLS stream discovery |
+| Bilibili/NicoNico renewed HLS URLs (1.16.0) | AVPlayer stall refresh and position resume | Test discontinuities, expired URLs and pause/seek |
+| End screens (Android 0.6.0-beta.1, server 1.17.0) | Not implemented | Read endScreenElements API, add focusable overlay |
+| Custom seekbar icon (Android 0.5.0) | Not implemented | Account settings and tvOS overlay |
+| Subscriptions/feed channel avatar filters (Android 0.4.x) | Not implemented | New browse screen and paging |
+| Search filters videos/playlists/channels/music (Android 0.4.1) | Not implemented | Adapt search UI/API |
+| Skip unavailable videos in playlist (1.17.1) | Not implemented | Needs playlist autoplay/next controller |
+| Playback queue, repeat/shuffle, playlist next (web 1.15–1.17) | Not implemented | Separate queue state machine |
+| SponsorBlock, chapters, richer subtitle formats | Partial or absent | After first real decoder test |
+| Stream health and recovery | SABR bounded retries, HLS reconnect, explicit decoder diagnostics | Hardware test with H.264/AAC 1080p, then 4K/HDR |
+
+**Release gate:** A successful simulator build and tests are necessary, but
+actual AV sync, codec profiles, bitstreams, long seeks, and Safari/YouTube
+upstream behavior still need physical Apple TV and the user's TypeType server.
