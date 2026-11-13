@@ -100,6 +100,9 @@ struct SearchView: View {
                                     VideoCard(api: api, video: video)
                                 }
                                 .buttonStyle(.card)
+                                .videoActions(api: api, video: video) {
+                                    Task { await execute(searchedTerm) }
+                                }
                                 .accessibilityLabel(TTTheme.accessibilityText(for: video))
                             }
                         }
@@ -136,6 +139,9 @@ struct SearchView: View {
             videos = result
             recentJSON = TVRecentQueries.encode(TVRecentQueries.add(value, to: history))
             searching = false
+            let enriched = await api.withProgress(result)
+            guard requestID == identifier && !Task.isCancelled else { return }
+            videos = enriched
         } catch is CancellationError {
             return
         } catch {
