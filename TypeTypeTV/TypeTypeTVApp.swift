@@ -18,11 +18,11 @@ struct RootView: View {
         #if DEBUG
         if let preview = Self.previewMode,
            let api = try? TypeTypeAPI(address: "https://preview.invalid") {
-            if preview == "home" || preview == "home-expanded" || preview == "search" {
+            if ["home", "home-expanded", "search", "settings"].contains(preview) {
                 BrowseView(
                     instanceOrigin: "https://preview.invalid",
                     onDisconnect: {},
-                    initialSection: preview == "search" ? .search : .home,
+                    initialSection: preview == "search" ? .search : (preview == "settings" ? .settings : .home),
                     previewVideos: TVShowcaseFixtures.videos,
                     initiallyExpanded: preview == "home-expanded"
                 )

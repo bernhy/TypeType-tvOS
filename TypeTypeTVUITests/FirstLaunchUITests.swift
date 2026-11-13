@@ -9,7 +9,7 @@ final class TypeTypeTVUITests: XCTestCase {
 
     func testFirstLaunchShowsAccessibleServerSetup() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-typetype.instanceOrigin", ""]
+        app.launchArguments = ["-typetype.instanceOrigin", "", "-typetype.uiLanguage", "de"]
         app.launch()
         XCTAssertTrue(app.staticTexts["TypeType"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["Serveradresse"].exists)
@@ -23,7 +23,7 @@ final class TypeTypeTVUITests: XCTestCase {
     }
     func testHomeScreenLayoutWithoutServer() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-TypeTypeTVPreview", "home"]
+        app.launchArguments = ["-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"]
         app.launch()
         XCTAssertTrue(app.staticTexts["FÜR DICH"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["Empfehlungen"].exists)
@@ -35,7 +35,7 @@ final class TypeTypeTVUITests: XCTestCase {
 
     func testExpandedSidebarLayoutWithoutServer() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-TypeTypeTVPreview", "home-expanded"]
+        app.launchArguments = ["-TypeTypeTVPreview", "home-expanded", "-typetype.uiLanguage", "de"]
         app.launch()
         XCTAssertTrue(app.buttons["Menü einklappen"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["Empfehlungen"].exists)
@@ -47,7 +47,7 @@ final class TypeTypeTVUITests: XCTestCase {
 
     func testSearchScreenLayoutWithoutServer() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-TypeTypeTVPreview", "search"]
+        app.launchArguments = ["-TypeTypeTVPreview", "search", "-typetype.uiLanguage", "de"]
         app.launch()
         XCTAssertTrue(app.staticTexts["VIDEOS ENTDECKEN"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.textFields.firstMatch.exists)
@@ -59,13 +59,50 @@ final class TypeTypeTVUITests: XCTestCase {
 
     func testVideoDetailsLayoutWithoutServer() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-TypeTypeTVPreview", "details"]
+        app.launchArguments = ["-TypeTypeTVPreview", "details", "-typetype.uiLanguage", "de"]
         app.launch()
         XCTAssertTrue(app.staticTexts["Neuigkeiten aus der Welt der Technik"].waitForExistence(timeout: 20))
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "TypeType-tvOS-Videodetails"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testEnglishSettingsPreview() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TypeTypeTVPreview", "settings",
+                               "-typetype.uiLanguage", "en"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Settings"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Language"].firstMatch.exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "TypeType-tvOS-Settings-English"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    func testFrenchHomePreview() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TypeTypeTVPreview", "home",
+                               "-typetype.uiLanguage", "fr"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Recommandations"].waitForExistence(timeout: 20))
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "TypeType-tvOS-Accueil-Francais"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    func testSpanishSearchPreview() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TypeTypeTVPreview", "search",
+                               "-typetype.uiLanguage", "es"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["DESCUBRIR VÍDEOS"].waitForExistence(timeout: 20))
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "TypeType-tvOS-Busqueda-Espanol"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
 }

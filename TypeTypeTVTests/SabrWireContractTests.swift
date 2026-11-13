@@ -267,4 +267,16 @@ final class SabrWireContractTests: XCTestCase {
         XCTAssertTrue(TVServerAddress.isLocalHost("192.168.1.1"))
         XCTAssertFalse(TVServerAddress.isLocalHost("1.1.1.1"))
     }
+    func testCatalogSupportsMoreThanTwoLanguages() {
+        XCTAssertEqual(TVL10n.value("nav.home", language: "de"), "Start")
+        XCTAssertEqual(TVL10n.value("nav.home", language: "en"), "Home")
+        XCTAssertEqual(TVL10n.value("nav.home", language: "fr"), "Accueil")
+        XCTAssertEqual(TVL10n.value("nav.home", language: "es"), "Inicio")
+        for code in ["de", "en", "fr", "es"] {
+            XCTAssertTrue(TVLanguages.available.contains(code),
+                          "Missing compiled language resource \(code)")
+        }
+        XCTAssertEqual(TVL10n.value("nav.home", language: "unknown"), "Start")
+    }
+
 }
