@@ -15,6 +15,18 @@ struct VideoItem: Decodable, Hashable, Identifiable {
     let uploaderName: String?
     let duration: Int?
     let isLive: Bool?
+    var uploaderUrl: String? = nil
+    var watchPositionMs: Int64? = nil
+    var watched: Bool? = nil
+
+    func withProgress(_ position: Int64) -> VideoItem {
+        var result = self
+        result.watchPositionMs = max(0, position)
+        if let duration, duration > 0 {
+            result.watched = position >= Int64(duration) * 900
+        }
+        return result
+    }
 }
 
 struct HomeRecommendations: Decodable {
@@ -180,6 +192,93 @@ struct TypeTypeAPI {
             throw TypeTypeError.http(response.statusCode, "settings")
         }
         return try JSONDecoder().decode(TVServerSettings.self, from: data)
+    }
+
+    /// Progress is a separate account endpoint. Fetching it in batches avoids
+    /// 30-60 independent network requests while browsing a thumbnail grid.
+    func withProgress(_ videos: [VideoItem]) async -> [VideoItem] {
+        let uniqueURLs = Array(Set(videos.map(\.url).filter { !$0.isEmpty }))
+        guard !uniqueURLs.isEmpty, accountToken != nil else { return videos }
+        var values: [String: Int64] = [:]
+        for start in stride(from: 0, to: uniqueURLs.count, by: 100) {
+            let group = Array(uniqueURLs[start..<min(start + 100, uniqueURLs.count)])
+            do {
+                let result: [TVProgressDTO] = try await postJSON(
+                    "progress/batch", payload: TVProgressBatchWrite(videoUrls: group)
+                )
+                for item in result {
+                    if let url = item.videoUrl { values[url] = max(0, item.position) }
+                }
+            } catch {
+                // Progress is optional decoration. Do not hide videos when the
+                // server/account cannot provide saved progress.
+                return videos
+            }
+        }
+        return videos.map { row in
+            values[row.url].map { row.withProgress($0) } ?? row
+        }
+    }
+
+    func playlists() async throws -> [TVPlaylistDTO] {
+        try await get("playlists")
+    }
+
+    func playlist(_ id: String) async throws -> TVPlaylistDTO {
+        try await get("playlists/\(id)")
+    }
+
+    func createPlaylist(name: String) async throws -> TVPlaylistDTO {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { throw TypeTypeError.unexpectedResponse }
+        return try await postJSON("playlists", payload: TVCreatePlaylistWrite(name: clean))
+    }
+
+    func addToPlaylist(_ id: String, video: VideoItem) async throws {
+        guard !id.isEmpty, !id.contains("/") else {
+            throw TypeTypeError.invalidServerAddress
+        }
+        let payload = TVPlaylistVideoWrite(video: video)
+        try await writeLibrary(base.appendingPathComponent("playlists/\(id)/videos"),
+                               method: "POST", body: try JSONEncoder().encode(payload))
+    }
+
+    func blockVideo(_ video: VideoItem) async throws {
+        try await writeLibrary(
+            base.appendingPathComponent("blocked/videos"), method: "POST",
+            body: try JSONEncoder().encode(TVBlockWrite(url: video.url, name: nil,
+                                                        thumbnailUrl: nil))
+        )
+    }
+
+    func blockChannel(_ video: VideoItem) async throws {
+        guard let channel = video.uploaderUrl, !channel.isEmpty else {
+            throw TypeTypeError.unavailableFormat
+        }
+        try await writeLibrary(
+            base.appendingPathComponent("blocked/channels"), method: "POST",
+            body: try JSONEncoder().encode(
+                TVBlockWrite(url: channel, name: video.uploaderName,
+                             thumbnailUrl: nil)
+            )
+        )
+    }
+
+    private func postJSON<Reply: Decodable, Payload: Encodable>(
+        _ path: String, payload: Payload
+    ) async throws -> Reply {
+        var request = authorizedRequest(base.appendingPathComponent(path), method: "POST")
+        guard accountToken != nil else { throw TypeTypeError.http(401, path) }
+        request.httpBody = try JSONEncoder().encode(payload)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw TypeTypeError.unexpectedResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw TypeTypeError.http(http.statusCode, path)
+        }
+        return try JSONDecoder().decode(Reply.self, from: data)
     }
 
     func library(_ section: TVLibrarySection) async throws -> [VideoItem] {
