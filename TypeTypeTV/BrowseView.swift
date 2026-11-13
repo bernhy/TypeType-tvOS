@@ -35,16 +35,20 @@ struct BrowseView: View {
     let instanceOrigin: String
     let onDisconnect: () -> Void
     let previewVideos: [VideoItem]?
+    let initialSettingsGroup: TVSettingsGroup
     @State private var section: TVSection
     @State private var expanded = false
+    @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
     @FocusState private var menuFocus: TVSection?
 
     init(instanceOrigin: String, onDisconnect: @escaping () -> Void,
          initialSection: TVSection = .home, previewVideos: [VideoItem]? = nil,
-         initiallyExpanded: Bool = false) {
+         initiallyExpanded: Bool = false,
+         initialSettingsGroup: TVSettingsGroup = .playback) {
         self.instanceOrigin = instanceOrigin
         self.onDisconnect = onDisconnect
         self.previewVideos = previewVideos
+        self.initialSettingsGroup = initialSettingsGroup
         _section = State(initialValue: initialSection)
         _expanded = State(initialValue: initiallyExpanded)
     }
@@ -65,7 +69,7 @@ struct BrowseView: View {
                         case .library:
                             LibraryView(api: api)
                         case .settings:
-                            PreferencesView(api: api, onDisconnect: onDisconnect)
+                            PreferencesView(api: api, onDisconnect: onDisconnect, initialGroup: initialSettingsGroup)
                         }
                     }
                 }
@@ -146,7 +150,7 @@ struct BrowseView: View {
         .frame(width: expanded ? 355 : 98)
         .frame(maxHeight: .infinity)
         .background(TTTheme.surface)
-        .animation(.easeInOut(duration: 0.18), value: expanded)
+        .animation(navigationAnimations ? .easeInOut(duration: 0.18) : nil, value: expanded)
         .focusSection()
     }
 

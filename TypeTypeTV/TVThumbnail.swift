@@ -8,7 +8,14 @@ private final class TVThumbnailMemory {
     private init() {
         cache = NSCache<NSString, UIImage>()
         cache.countLimit = 100
-        cache.totalCostLimit = 120 * 1_048_576
+        cache.totalCostLimit = 128 * 1_048_576
+    }
+
+    func configuredCache() -> NSCache<NSString, UIImage> {
+        let selected = UserDefaults.standard.integer(forKey: "typetype.thumbnailCacheMiB")
+        let bounded = [32, 64, 128, 256].contains(selected) ? selected : 128
+        cache.totalCostLimit = bounded * 1_048_576
+        return cache
     }
 }
 
@@ -49,7 +56,7 @@ struct TVThumbnail: View {
             return
         }
         let key = url.absoluteString as NSString
-        if let cached = TVThumbnailMemory.shared.cache.object(forKey: key) {
+        if let cached = TVThumbnailMemory.shared.configuredCache().object(forKey: key) {
             bitmap = cached
             return
         }
@@ -73,7 +80,7 @@ struct TVThumbnail: View {
                   http.statusCode == 200, data.count <= 8_000_000,
                   let decoded = UIImage(data: data) else { return }
             let size = Int(decoded.size.width * decoded.size.height * 4)
-            TVThumbnailMemory.shared.cache.setObject(decoded, forKey: key, cost: size)
+            TVThumbnailMemory.shared.configuredCache().setObject(decoded, forKey: key, cost: size)
             bitmap = decoded
         } catch {
             // Images may be unavailable before authentication; text stays usable.

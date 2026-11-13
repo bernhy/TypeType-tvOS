@@ -392,6 +392,14 @@ struct PreferencesView: View {
 
     @MainActor
     private func refreshRemote() async {
+        #if DEBUG
+        if api.origin.host == "preview.invalid" {
+            let sample = #"{"hideHomeRecommendations":false,"hideContinueWatching":false,"hideRelatedVideos":false,"hideShorts":true,"hideComments":false,"disableWatchHistory":false}"#
+            remote = try? JSONDecoder().decode(TVServerSettings.self, from: Data(sample.utf8))
+            remoteError = nil
+            return
+        }
+        #endif
         guard !remoteLoading && !remoteSaving else { return }
         remoteLoading = true
         remoteError = nil

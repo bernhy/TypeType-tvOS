@@ -105,4 +105,43 @@ final class TypeTypeTVUITests: XCTestCase {
         add(screenshot)
     }
 
+    func testGermanSettingsPlaybackPanelScreenshot() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TypeTypeTVPreview", "settings",
+                               "-typetype.uiLanguage", "de"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Wiedergabe"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Maximale Videoauflösung"].firstMatch.exists)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "TypeType-tvOS-Einstellungen-Wiedergabe-DE"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
+    func testGermanSettingsContentPanelScreenshot() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TypeTypeTVPreview", "settings-content",
+                               "-typetype.uiLanguage", "de"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Inhalte"].firstMatch.waitForExistence(timeout: 20))
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "TypeType-tvOS-Einstellungen-Inhalte-DE"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
+    func testGermanSettingsPerformancePanelScreenshot() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TypeTypeTVPreview", "settings-performance",
+                               "-typetype.uiLanguage", "de"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Leistung"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Sanfte Menüanimationen"].firstMatch.exists)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "TypeType-tvOS-Einstellungen-Leistung-DE"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
+
 }

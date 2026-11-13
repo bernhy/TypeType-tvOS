@@ -279,6 +279,32 @@ final class SabrWireContractTests: XCTestCase {
         XCTAssertEqual(TVL10n.value("nav.home", language: "unknown"), "Start")
     }
 
+    func testAccountSettingsWireFlagsAndServerPatch() throws {
+        let data = Data(#"{"hideHomeRecommendations":true,"hideShorts":false,"disableWatchHistory":true,"autoplay":true}"#.utf8)
+        var settings = try JSONDecoder().decode(TVServerSettings.self, from: data)
+        XCTAssertFalse(settings.enabled(.recommendations))
+        XCTAssertTrue(settings.enabled(.shorts))
+        XCTAssertFalse(settings.enabled(.watchHistory))
+        settings.setEnabled(.recommendations, true)
+        XCTAssertTrue(settings.enabled(.recommendations))
+        XCTAssertEqual(settings.hideHomeRecommendations, false)
+        settings.setEnabled(.watchHistory, true)
+        XCTAssertEqual(settings.disableWatchHistory, false)
+        let request = try JSONEncoder().encode(["hideShorts": TVSettingValue.boolean(true)])
+        let json = try JSONSerialization.jsonObject(with: request) as? [String: Any]
+        XCTAssertEqual(json?["hideShorts"] as? Bool, true)
+    }
+
+    func testSettingsCategoryRailHasAndroidInspiredGroups() {
+        let all = TVSettingsGroup.allCases
+        XCTAssertEqual(all.first, .playback)
+        XCTAssertTrue(all.contains(.content))
+        XCTAssertTrue(all.contains(.performance))
+        XCTAssertTrue(all.contains(.language))
+        XCTAssertTrue(all.contains(.instance))
+        XCTAssertEqual(all.last, .about)
+    }
+
     func testPackagedLanguagesAndRuntimeTranslations() {
         let expected: Set<String> = ["de", "en", "fr", "es"]
         XCTAssertTrue(expected.isSubset(of: Set(TVLanguages.available)))

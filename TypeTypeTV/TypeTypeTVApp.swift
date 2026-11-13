@@ -18,13 +18,27 @@ struct RootView: View {
         #if DEBUG
         if let preview = Self.previewMode,
            let api = try? TypeTypeAPI(address: "https://preview.invalid") {
-            if ["home", "home-expanded", "search", "settings"].contains(preview) {
+            if ["home", "home-expanded", "search", "settings",
+                "settings-content", "settings-performance", "settings-language",
+                "settings-account", "settings-instance", "settings-about"].contains(preview) {
                 BrowseView(
                     instanceOrigin: "https://preview.invalid",
                     onDisconnect: {},
-                    initialSection: preview == "search" ? .search : (preview == "settings" ? .settings : .home),
+                    initialSection: preview == "search" ? .search :
+                        (preview.hasPrefix("settings") ? .settings : .home),
                     previewVideos: TVShowcaseFixtures.videos,
-                    initiallyExpanded: preview == "home-expanded"
+                    initiallyExpanded: preview == "home-expanded",
+                    initialSettingsGroup: {
+                        switch preview {
+                        case "settings-content": return .content
+                        case "settings-performance": return .performance
+                        case "settings-language": return .language
+                        case "settings-account": return .account
+                        case "settings-instance": return .instance
+                        case "settings-about": return .about
+                        default: return .playback
+                        }
+                    }()
                 )
             } else {
                 NavigationStack {
