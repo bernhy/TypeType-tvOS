@@ -18,7 +18,9 @@ enum TVServerAddress {
         }
         if !host.contains(".") && !host.contains(":") && !host.isEmpty { return true }
         let parts = host.split(separator: ".", omittingEmptySubsequences: false)
-        if parts.count == 4, let values = parts.map({ UInt8($0) }) as? [UInt8] {
+        if parts.count == 4 {
+            let values = parts.compactMap { UInt8($0) }
+            if values.count != 4 { return false }
             let a = Int(values[0]), b = Int(values[1])
             return a == 10 || a == 127 || (a == 172 && (16...31).contains(b)) ||
                    (a == 192 && b == 168) || (a == 169 && b == 254)

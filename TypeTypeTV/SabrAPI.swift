@@ -223,7 +223,7 @@ final class TypeTypeCredentials {
     func clear(for origin: URL) {
         SecItemDelete([kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "org.typetype.tvOS.auth",
-            kSecAttrAccount as String: origin.host ?? ""] as CFDictionary)
+            kSecAttrAccount as String: origin.absoluteString] as CFDictionary)
     }
 }
 
@@ -247,9 +247,7 @@ final class SabrService: @unchecked Sendable {
     init(api: TypeTypeAPI) {
         origin = api.origin
         base = api.origin.appendingPathComponent("api", isDirectory: true)
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 45
-        session = URLSession(configuration: config, delegate: SabrNoRedirectDelegate(), delegateQueue: nil)
+        session = TVNetwork.session(for: origin)
     }
 
     func bootstrap(videoURL: String) async throws -> SabrBootstrap {

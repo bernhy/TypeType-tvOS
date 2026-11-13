@@ -36,6 +36,7 @@ struct StreamInfo: Decodable {
 
 enum TypeTypeError: LocalizedError {
     case invalidServerAddress
+    case insecureHTTP
     case incompatibleServer(Int)
     case http(Int, String)
     case unexpectedResponse
@@ -44,7 +45,9 @@ enum TypeTypeError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidServerAddress:
-            return "Bitte eine gültige HTTPS-Adresse der TypeType-Instanz eingeben."
+            return "Bitte eine gültige TypeType-Serveradresse eingeben."
+        case .insecureHTTP:
+            return "HTTP ist nur für lokale Adressen erlaubt (z. B. 192.168.x.x, 10.x.x.x oder .local)."
         case .incompatibleServer(let version):
             return "Nicht unterstützte TypeType API-Version: \(version) (erwartet: 1)."
         case .http(let status, let path):
@@ -62,32 +65,26 @@ enum TypeTypeError: LocalizedError {
 struct TypeTypeAPI {
     let origin: URL
     private let base: URL
+    private let session: URLSession
 
     init(address: String) throws {
-        let value = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let components = URLComponents(string: value),
-              components.scheme?.lowercased() == "https",
-              let host = components.host, !host.isEmpty,
-              components.user == nil, components.password == nil,
-              components.query == nil, components.fragment == nil,
-              components.path.isEmpty || components.path == "/" || components.path == "/api" || components.path == "/api/"
-        else { throw TypeTypeError.invalidServerAddress }
-        var normalized = URLComponents()
-        normalized.scheme = "https"
-        normalized.host = host
-        normalized.port = components.port
-        normalized.path = "/"
-        guard let originURL = normalized.url else { throw TypeTypeError.invalidServerAddress }
-        origin = originURL
-        normalized.path = "/api/"
-        guard let apiURL = normalized.url else { throw TypeTypeError.invalidServerAddress }
-        base = apiURL
+        let text = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let scheme = URLComponents(string: text)?.scheme?.lowercased(),
+              let mode = TVConnectionMode(rawValue: scheme) else {
+            throw TypeTypeError.invalidServerAddress
+        }
+        origin = try TVServerAddress.make(hostInput: text, mode: mode)
+        base = origin.appendingPathComponent("api", isDirectory: true)
+        session = TVNetwork.session(for: origin)
     }
 
     func relativeMediaURL(_ value: String?) -> URL? {
         guard let value, !value.isEmpty else { return nil }
         if let full = URL(string: value), let scheme = full.scheme {
-            return scheme == "https" ? full : nil
+            if scheme == "https" { return full }
+            if scheme == "http", let host = full.host,
+               TVServerAddress.isLocalHost(host) { return full }
+            return nil
         }
         // TypeType generally emits absolute or origin-relative paths.
         return URL(string: value, relativeTo: origin)?.absoluteURL
@@ -155,7 +152,7 @@ struct TypeTypeAPI {
         if let bearer = TypeTypeCredentials.shared.token(for: origin) {
             request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw TypeTypeError.unexpectedResponse }
         guard (200..<300).contains(response.statusCode) else {
             throw TypeTypeError.http(response.statusCode, endpoint)

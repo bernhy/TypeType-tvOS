@@ -226,4 +226,36 @@ final class SabrWireContractTests: XCTestCase {
         XCTAssertEqual(TVRecentQueries.add(String(repeating: "X", count: 97), to: newer), newer)
     }
 
+    func testExplicitLocalHTTPOriginPolicy() throws {
+        let tests = ["192.168.0.129:8080", "10.46.104.2:8000",
+                     "172.17.0.1", "home.local:8888", "svacsa09:8080",
+                     "[fd00::1]:8080", "localhost:80"]
+        for address in tests {
+            let origin = try TVServerAddress.make(hostInput: address, mode: .http)
+            XCTAssertEqual(origin.scheme, "http")
+            XCTAssertNotNil(try? TypeTypeAPI(address: origin.absoluteString))
+        }
+        XCTAssertThrowsError(try TVServerAddress.make(
+            hostInput: "example.com", mode: .http))
+        XCTAssertThrowsError(try TVServerAddress.make(
+            hostInput: "8.8.8.8", mode: .http))
+        XCTAssertThrowsError(try TVServerAddress.make(
+            hostInput: "host.example.com", mode: .http))
+        XCTAssertThrowsError(try TVServerAddress.make(
+            hostInput: "https://home.local", mode: .http))
+    }
+
+    func testHTTPSOriginAndHostOnlyInput() throws {
+        let actual = try TVServerAddress.make(
+            hostInput: "typetype.example.org:443", mode: .https)
+        XCTAssertEqual(actual.scheme, "https")
+        XCTAssertEqual(actual.host, "typetype.example.org")
+        XCTAssertEqual(TVServerAddress.hostInput(from: actual.absoluteString),
+                       "typetype.example.org:443")
+        XCTAssertThrowsError(try TVServerAddress.make(
+            hostInput: "someone:password@server.local", mode: .https))
+        XCTAssertThrowsError(try TVServerAddress.make(
+            hostInput: "somewhere.local?session=secret", mode: .https))
+    }
+
 }
