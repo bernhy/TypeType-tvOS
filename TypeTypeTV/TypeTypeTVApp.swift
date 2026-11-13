@@ -67,19 +67,22 @@ enum TVShowcaseFixtures {
         "Ein neues Kapitel für Open Source"
     ]
 
-    static var videos: [VideoItem] {
-        (0..<24).map { number in
-            VideoItem(
-                id: "ui-preview-\(number)",
-                title: titles[number % titles.count],
-                url: "https://youtu.be/dQw4w9WgXcQ",
-                thumbnailUrl: nil,
-                uploaderName: number % 3 == 0 ? "TypeType Community" : "Beispielkanal",
-                duration: number == 7 ? nil : 340 + number * 37,
-                isLive: number == 7
+    static let videos: [VideoItem] = {
+        var samples: [VideoItem] = []
+        for number in 0..<24 {
+            let title: String = titles[number % titles.count]
+            let live: Bool = number == 7
+            let duration: Int? = live ? nil : 340 + number * 37
+            let uploader: String = number % 3 == 0 ? "TypeType Community" : "Beispielkanal"
+            let item = VideoItem(
+                id: "ui-preview-\(number)", title: title,
+                url: "https://youtu.be/dQw4w9WgXcQ", thumbnailUrl: nil,
+                uploaderName: uploader, duration: duration, isLive: live
             )
+            samples.append(item)
         }
-    }
+        return samples
+    }()
 }
 #endif
 
