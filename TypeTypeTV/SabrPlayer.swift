@@ -99,6 +99,7 @@ final class SabrPlayerController: ObservableObject {
     private var currentAPI: TypeTypeAPI?
     private var currentVideo: VideoItem?
     private var hasRecordedHistory = false
+    private var historyEnabled = false
     private var prefersPause = false
     private var requestedVideoItag: Int?
     private var requestedAudioItag: Int?
@@ -118,6 +119,7 @@ final class SabrPlayerController: ObservableObject {
         stop()
         currentAPI = api
         currentVideo = video
+        historyEnabled = false
         prefersPause = false
         playbackPositionMs = positionMs ?? 0
         failure = nil
@@ -248,8 +250,10 @@ final class SabrPlayerController: ObservableObject {
     }
 
     func recordProgress(started: Bool = false, force: Bool = false) {
-        guard isInitialized, let api = currentAPI, let video = currentVideo else { return }
+        guard isInitialized, historyEnabled,
+              let api = currentAPI, let video = currentVideo else { return }
         let position = max(0, Int64(playbackSeconds() * 1_000))
+        TVLocalProgress.shared.record(video.url, positionMs: position)
         Task {
             await progressWriter.checkpoint(
                 api: api, video: video, positionMs: position,
@@ -293,6 +297,7 @@ final class SabrPlayerController: ObservableObject {
             let settings = try? await api.accountSettings()
             let historyAllowed = settings != nil &&
                 settings?.disableWatchHistory != true && video.isLive != true
+            historyEnabled = historyAllowed
             await progressWriter.enable(historyAllowed)
             await progressWriter.flush()
             let recordedPosition = historyAllowed && explicitPositionMs == nil

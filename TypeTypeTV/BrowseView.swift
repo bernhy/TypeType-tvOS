@@ -268,22 +268,26 @@ struct HomeView: View {
 struct VideoCard: View {
     let api: TypeTypeAPI
     let video: VideoItem
+    @ObservedObject private var localProgress = TVLocalProgress.shared
 
+    private var effectivePosition: Int64? {
+        localProgress.positions[video.url] ?? video.watchPositionMs
+    }
     private var fraction: Double? {
         guard video.isLive != true,
               let duration = video.duration, duration > 0,
-              let progress = video.watchPositionMs, progress > 0 else { return nil }
+              let progress = effectivePosition, progress > 0 else { return nil }
         return max(0, min(1, Double(progress) / Double(Int64(duration) * 1_000)))
     }
     private var completed: Bool {
         // Some server versions expose a 'watched' convenience flag whose
         // duration and progress units differ. Prefer measured millisecond
         // progress and its 90% threshold whenever the position is available.
-        if video.watchPositionMs != nil { return (fraction ?? 0) >= 0.90 }
+        if effectivePosition != nil { return (fraction ?? 0) >= 0.90 }
         return video.watched == true
     }
     private var watchedTime: String? {
-        guard let progress = video.watchPositionMs, progress > 0 else { return nil }
+        guard let progress = effectivePosition, progress > 0 else { return nil }
         return TTTheme.time(Int(progress / 1_000))
     }
 

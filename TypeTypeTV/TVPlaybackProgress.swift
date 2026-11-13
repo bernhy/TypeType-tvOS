@@ -1,4 +1,20 @@
 import Foundation
+import Combine
+
+/// Ephemeral presentation state: a newly watched video's thumbnail updates
+/// immediately when returning to Home/Library, even before the server-side
+/// progress checkpoint has completed. Not stored on Apple TV disk.
+@MainActor
+final class TVLocalProgress: ObservableObject {
+    static let shared = TVLocalProgress()
+    @Published private(set) var positions: [String: Int64] = [:]
+    private init() {}
+
+    func record(_ url: String, positionMs: Int64) {
+        guard !url.isEmpty, positionMs >= 0 else { return }
+        positions[url] = positionMs
+    }
+}
 
 struct TVProgressDTO: Decodable {
     let videoUrl: String?
