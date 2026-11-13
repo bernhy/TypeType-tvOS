@@ -1,0 +1,171 @@
+import Foundation
+import SwiftUI
+
+struct LibraryVideo: Decodable {
+    let id: String?
+    let url: String?
+    let videoUrl: String?
+    let title: String
+    let thumbnail: String?
+    let channelName: String?
+    let duration: Int?
+    var link: String { url ?? videoUrl ?? "" }
+    var item: VideoItem {
+        VideoItem(id: id ?? link, title: title, url: link,
+                  thumbnailUrl: thumbnail, uploaderName: channelName,
+                  duration: duration, isLive: false)
+    }
+}
+
+struct LibraryView: View {
+    let api: TypeTypeAPI
+    @State private var section = "history"
+    @State private var videos: [LibraryVideo] = []
+    @State private var message = ""
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 30) {
+                Text("Bibliothek").font(.largeTitle.bold())
+                Picker("Bereich", selection: $section) {
+                    Text("Verlauf").tag("history")
+                    Text("Favoriten").tag("favorites")
+                    Text("Später ansehen").tag("watch-later")
+                }
+                .onChange(of: section) { _ in Task { await reload() } }
+                if !message.isEmpty { Text(message).foregroundStyle(.secondary) }
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 30), count: 4), spacing: 30) {
+                    ForEach(Array(videos.enumerated()), id: \.offset) { _, entry in
+                        NavigationLink {
+                            VideoDetailView(api: api, video: entry.item)
+                        } label: {
+                            VideoCard(api: api, video: entry.item)
+                        }
+                        .buttonStyle(.card)
+                    }
+                }
+            }
+            .padding(60)
+        }
+        .task { await reload() }
+    }
+
+    @MainActor
+    private func reload() async {
+        do {
+            videos = try await api.library(section)
+            message = videos.isEmpty ? "Noch keine Videos vorhanden." : ""
+        } catch {
+            message = "Bibliothek nicht geladen: \(error.localizedDescription)"
+        }
+    }
+}
+
+struct PreferencesView: View {
+    let api: TypeTypeAPI
+    let onDisconnect: () -> Void
+    @AppStorage("typetype.allowSoftwareDecode") private var allowSoftware = false
+    @AppStorage("typetype.maxHeight") private var maxHeight = 2160
+    @State private var loginCode: String?
+    @State private var loginLink: URL?
+    @State private var status = ""
+    @State private var poller: Task<Void, Never>?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 30) {
+                Text("TypeType Einstellungen").font(.largeTitle.bold())
+                Text("Server: \(api.origin.host ?? "")").foregroundStyle(.secondary)
+                Toggle("Softwaredecoding erlauben (standardmäßig AUS)", isOn: $allowSoftware)
+                Text("Ohne Freigabe akzeptiert TypeType nur Codecs, für die VideoToolbox Hardwaredecoding meldet.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Picker("Maximale Videoauflösung", selection: $maxHeight) {
+                    Text("4K").tag(2160)
+                    Text("1440p").tag(1440)
+                    Text("1080p").tag(1080)
+                    Text("720p").tag(720)
+                }
+                Text("Hardwaredecoder dieses Gerätes").font(.title2)
+                ForEach(["H.264", "HEVC", "VP9", "AV1"], id: \.self) { label in
+                    let name: String = {
+                        switch label {
+                        case "H.264": return "avc1"
+                        case "HEVC": return "hvc1"
+                        case "VP9": return "vp09"
+                        default: return "av01"
+                        }
+                    }()
+                    HStack {
+                        Text(label)
+                        Spacer()
+                        Text(HardwareCodec.supported(name) ? "Hardware erkannt" : "Hardware nicht erkannt")
+                            .foregroundStyle(HardwareCodec.supported(name) ? .green : .orange)
+                    }
+                }
+                Text("Eine Codec-Erkennung allein bestätigt noch nicht alle Profile, Framerates und HDR-Modi. Dafür sind zusätzliche Tests auf dem Apple TV erforderlich.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Divider()
+                Text("Anmeldung").font(.title2)
+                if TypeTypeCredentials.shared.token(for: api.origin) != nil {
+                    Text("Anmeldetoken im System-Schlüsselbund gespeichert.")
+                    Button("Lokal abmelden") {
+                        TypeTypeCredentials.shared.clear(for: api.origin)
+                        status = "Abgemeldet"
+                    }
+                }
+                Button("TypeType-Konto mit Gerätecode verbinden") {
+                    poller?.cancel()
+                    poller = Task { await startLogin() }
+                }
+                if let code = loginCode, let link = loginLink {
+                    Text("Gerätecode: \(code)").font(.title)
+                    Text(link.absoluteString).textSelection(.enabled)
+                    Text("Öffne den Link auf einem Telefon oder Computer und bestätige den Gerätecode.")
+                }
+                if !status.isEmpty { Text(status).foregroundStyle(.secondary) }
+                Button("Server wechseln", action: onDisconnect)
+            }
+            .padding(60)
+        }
+        .onDisappear { poller?.cancel() }
+    }
+
+    @MainActor
+    private func startLogin() async {
+        let service = SabrService(api: api)
+        do {
+            status = "Starte Geräteanmeldung …"
+            let flow = try await service.deviceLoginStart()
+            loginCode = flow.userCode
+            var link = api.origin.appendingPathComponent("link")
+            if var components = URLComponents(url: link, resolvingAgainstBaseURL: false) {
+                components.queryItems = [URLQueryItem(name: "code", value: flow.userCode)]
+                if let url = components.url { link = url }
+            }
+            loginLink = link
+            status = "Warte auf Bestätigung …"
+            let interval = UInt64(max(1, flow.interval)) * 1_000_000_000
+            let maxPolls = max(1, flow.expiresIn / max(1, flow.interval))
+            for _ in 0..<maxPolls {
+                try Task.checkCancellation()
+                try await Task.sleep(nanoseconds: interval)
+                let answer = try await service.deviceLoginPoll(flow.deviceCode)
+                if let token = answer.accessToken, !token.isEmpty {
+                    TypeTypeCredentials.shared.save(token, for: api.origin)
+                    status = "Anmeldung erfolgreich"
+                    loginCode = nil
+                    return
+                }
+                if answer.code == "access_denied" || answer.code == "denied" {
+                    status = "Anmeldung abgelehnt"
+                    return
+                }
+            }
+            status = "Code abgelaufen. Bitte erneut starten."
+        } catch is CancellationError {
+            return
+        } catch {
+            status = error.localizedDescription
+        }
+    }
+}

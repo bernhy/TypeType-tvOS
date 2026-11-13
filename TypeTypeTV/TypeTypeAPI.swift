@@ -109,6 +109,13 @@ struct TypeTypeAPI {
         ])
     }
 
+    func library(_ section: String) async throws -> [LibraryVideo] {
+        guard ["history", "favorites", "watch-later"].contains(section) else {
+            throw TypeTypeError.unavailableFormat
+        }
+        return try await get(section)
+    }
+
     func search(_ term: String) async throws -> SearchResults {
         try await get("search", query: [
             URLQueryItem(name: "q", value: term),

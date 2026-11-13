@@ -206,7 +206,7 @@ final class SabrPlayerController: ObservableObject {
                         newestEnd = max(newestEnd, fragment.startMs + fragment.durationMs)
                     }
                 }
-                if !isInitialized && videoLayer.isReadyForDisplay {
+                if !isInitialized && index > 0 {
                     synchronizer.setRate(1, time: CMTime(value: start, timescale: 1000))
                     isInitialized = true
                     isPlaying = true

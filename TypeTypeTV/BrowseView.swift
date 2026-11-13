@@ -19,12 +19,13 @@ struct BrowseView: View {
                 }
                 .tabItem { Label("Suche", systemImage: "magnifyingglass") }
 
-                VStack(spacing: 30) {
-                    Text("TypeType – Einstellungen").font(.largeTitle)
-                    Text(api.origin.absoluteString).font(.headline)
-                    Button("Server wechseln", action: onDisconnect)
+                NavigationStack {
+                    LibraryView(api: api)
                 }
-                .tabItem { Label("Server", systemImage: "gearshape") }
+                .tabItem { Label("Bibliothek", systemImage: "books.vertical") }
+
+                PreferencesView(api: api, onDisconnect: onDisconnect)
+                    .tabItem { Label("Einstellungen", systemImage: "gearshape") }
             }
         } else {
             VStack(spacing: 20) {
