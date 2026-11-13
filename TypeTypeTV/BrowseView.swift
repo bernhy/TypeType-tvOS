@@ -32,11 +32,13 @@ struct BrowseView: View {
     @FocusState private var menuFocus: TVSection?
 
     init(instanceOrigin: String, onDisconnect: @escaping () -> Void,
-         initialSection: TVSection = .home, previewVideos: [VideoItem]? = nil) {
+         initialSection: TVSection = .home, previewVideos: [VideoItem]? = nil,
+         initiallyExpanded: Bool = false) {
         self.instanceOrigin = instanceOrigin
         self.onDisconnect = onDisconnect
         self.previewVideos = previewVideos
         _section = State(initialValue: initialSection)
+        _expanded = State(initialValue: initiallyExpanded)
     }
 
     var body: some View {

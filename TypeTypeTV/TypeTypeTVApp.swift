@@ -16,12 +16,13 @@ struct RootView: View {
         #if DEBUG
         if let preview = Self.previewMode,
            let api = try? TypeTypeAPI(address: "https://preview.invalid") {
-            if preview == "home" || preview == "search" {
+            if preview == "home" || preview == "home-expanded" || preview == "search" {
                 BrowseView(
                     instanceOrigin: "https://preview.invalid",
                     onDisconnect: {},
                     initialSection: preview == "home" ? .home : .search,
-                    previewVideos: TVShowcaseFixtures.videos
+                    previewVideos: TVShowcaseFixtures.videos,
+                    initiallyExpanded: preview == "home-expanded"
                 )
             } else {
                 NavigationStack {
