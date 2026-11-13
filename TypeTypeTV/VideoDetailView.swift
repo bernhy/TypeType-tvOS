@@ -3,6 +3,7 @@ import SwiftUI
 struct VideoDetailView: View {
     let api: TypeTypeAPI
     let video: VideoItem
+    @Environment(\.dismiss) private var dismiss
 
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
 
@@ -60,10 +61,10 @@ struct VideoDetailView: View {
                             .buttonStyle(.borderedProminent)
                             .tint(TTTheme.accent)
 
-                            NavigationLink {
-                                PlaybackView(api: api, video: video)
+                            Button {
+                                dismiss()
                             } label: {
-                                Label("Im Player öffnen", systemImage: "arrow.up.forward.square")
+                                Label("Zurück", systemImage: "chevron.left")
                             }
                             .buttonStyle(.bordered)
                         }
@@ -76,21 +77,6 @@ struct VideoDetailView: View {
             .frame(height: 690)
             .clipped()
 
-            VStack(alignment: .leading, spacing: 18) {
-                Text("ÜBER DIESES VIDEO")
-                    .font(.subheadline.bold()).tracking(1.8)
-                    .foregroundStyle(TTTheme.muted)
-                Text(video.title)
-                    .font(.title2.bold())
-                Text(youtube
-                     ? "Wiedergabe über die bestehende SABR-Schnittstelle deines TypeType-Servers. Die native tvOS-Wiedergabe wird noch auf echter Hardware erprobt."
-                     : "Wiedergabe mit den nativen Video-Funktionen von Apple TV, sofern die Quelle ein kompatibles Format bereitstellt.")
-                    .font(.body)
-                    .foregroundStyle(TTTheme.muted)
-                    .frame(maxWidth: 960, alignment: .leading)
-            }
-            .padding(.horizontal, 90)
-            .padding(.bottom, 110)
         }
         .background(TTTheme.ink)
     }
