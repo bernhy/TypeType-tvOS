@@ -163,7 +163,6 @@ struct ServerSetupView: View {
                     .font(.title3.bold())
                 Text(report.formattedFingerprint)
                     .font(.callout.monospaced())
-                    .textSelection(.disabled)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("Zertifikatskette")
                     .font(.title3.bold())
