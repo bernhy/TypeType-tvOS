@@ -308,10 +308,12 @@ final class SabrPlayerController: ObservableObject {
                 }
             } else if !subtitlePreferenceChanged &&
                         settings?.subtitlesEnabled == true {
-                let language = TVLanguages.activeLanguage
-                if let match = availableSubtitles.first(where: {
-                    ($0.languageTag ?? "").lowercased().hasPrefix(language.lowercased())
-                }) {
+                let language = settings?.defaultSubtitleLanguage?.isEmpty == false
+                    ? (settings?.defaultSubtitleLanguage ?? TVLanguages.activeLanguage)
+                    : TVLanguages.activeLanguage
+                if let match = SabrPlaybackPreferences.preferredSubtitle(
+                    availableSubtitles, language: language
+                ) {
                     selectSubtitle(match, origin: api.origin)
                 }
             }
@@ -320,7 +322,16 @@ final class SabrPlayerController: ObservableObject {
                let selected = options.first(where: { $0.video.itag == requested }) {
                 orderedOptions = [selected] + options.filter { $0.video.itag != requested }
             } else {
-                orderedOptions = options
+                let selected = SabrPlaybackPreferences.preferredVideo(
+                    options, defaultQuality: settings?.defaultQuality,
+                    deviceMax: maximum > 0 ? maximum : 2160
+                )
+                if let selected {
+                    orderedOptions = [selected] +
+                        options.filter { $0.video.itag != selected.video.itag }
+                } else {
+                    orderedOptions = options
+                }
                 requestedVideoItag = nil
                 fixedVideoItag = nil
             }
@@ -332,7 +343,11 @@ final class SabrPlayerController: ObservableObject {
                 let audio = availableAudios.first {
                     $0.itag == requestedAudioItag &&
                     $0.audioTrackId == requestedAudioTrackId
-                } ?? option.audio
+                } ?? SabrPlaybackPreferences.preferredAudio(
+                    availableAudios,
+                    language: settings?.defaultAudioLanguage,
+                    preferOriginal: settings?.preferOriginalLanguage == true
+                ) ?? option.audio
                 let choice = SabrSelection(video: option.video, audio: audio)
                 selection = choice
                 currentVideoItag = choice.video.itag
