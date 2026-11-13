@@ -68,6 +68,11 @@ final class SabrPlayerController: ObservableObject {
     @Published var positionMs: Int64 = 0
     @Published var cachedThroughMs: Int64 = 0
     @Published var diskCacheBytes = 0
+    @Published private(set) var availableVideos: [SabrBootstrap.Video] = []
+    @Published private(set) var availableAudios: [SabrBootstrap.Audio] = []
+    @Published private(set) var currentVideoItag: Int?
+    @Published private(set) var currentAudioItag: Int?
+    @Published private(set) var fixedVideoItag: Int?
 
     let videoLayer = AVSampleBufferDisplayLayer()
     private let audioRenderer = AVSampleBufferAudioRenderer()
@@ -90,6 +95,8 @@ final class SabrPlayerController: ObservableObject {
     private var currentVideo: VideoItem?
     private var hasRecordedHistory = false
     private var prefersPause = false
+    private var requestedVideoItag: Int?
+    private var requestedAudioItag: Int?
 
     init() {
         videoLayer.videoGravity = .resizeAspect
@@ -146,6 +153,19 @@ final class SabrPlayerController: ObservableObject {
         hasQueuedFirstVideo = false
         isPlaying = false
         sessionId = ""
+    }
+
+    func selectQuality(api: TypeTypeAPI, video: VideoItem, itag: Int?) {
+        requestedVideoItag = itag
+        let position = max(0, Int64(playbackSeconds() * 1_000))
+        start(api: api, video: video, positionMs: position)
+        fixedVideoItag = itag
+    }
+
+    func selectAudio(api: TypeTypeAPI, video: VideoItem, itag: Int) {
+        requestedAudioItag = itag
+        let position = max(0, Int64(playbackSeconds() * 1_000))
+        start(api: api, video: video, positionMs: position)
     }
 
     func seek(api: TypeTypeAPI, video: VideoItem, offsetMs: Int64) {
@@ -231,12 +251,29 @@ final class SabrPlayerController: ObservableObject {
                 from: bootstrap, maxHeight: maximum > 0 ? maximum : 2160,
                 allowSoftware: allowSoftware
             )
-            guard !options.isEmpty else {
+            availableVideos = options.map(\.video)
+            availableAudios = HardwareCodec.audioCandidates(from: bootstrap)
+            let orderedOptions: [SabrSelection]
+            if let requested = requestedVideoItag,
+               let selected = options.first(where: { $0.video.itag == requested }) {
+                orderedOptions = [selected] + options.filter { $0.video.itag != requested }
+            } else {
+                orderedOptions = options
+                requestedVideoItag = nil
+                fixedVideoItag = nil
+            }
+            guard !orderedOptions.isEmpty else {
                 throw SabrFailure.unsupported(TVL10n.value("player.noHardwareFormat"))
             }
-            for (index, choice) in options.enumerated() {
+            for (index, option) in orderedOptions.enumerated() {
                 try Task.checkCancellation()
+                let audio = availableAudios.first {
+                    $0.itag == requestedAudioItag
+                } ?? option.audio
+                let choice = SabrSelection(video: option.video, audio: audio)
                 selection = choice
+                currentVideoItag = choice.video.itag
+                currentAudioItag = choice.audio.itag
                 selectionDescription = choice.description
                 hardwareDecoder = HardwareVideoDecoder(
                     display: videoLayer, allowSoftware: allowSoftware
@@ -256,7 +293,7 @@ final class SabrPlayerController: ObservableObject {
                         positionMs: positionMs, buffer: buffer
                     )
                     return
-                } catch SabrFailure.unsupported where !isInitialized && index < options.count - 1 {
+                } catch SabrFailure.unsupported where !isInitialized && index < orderedOptions.count - 1 {
                     // A codec may be reported hardware-capable even though
                     // the precise profile/level cannot create a decoder.
                     // Try the next candidate only before playback starts.
@@ -282,6 +319,7 @@ final class SabrPlayerController: ObservableObject {
                     hasQueuedFirstAudio = false
                     hasQueuedFirstVideo = false
                     isPlaying = false
+                    if fixedVideoItag != nil { fixedVideoItag = nil }
                     cachedThroughMs = positionMs
                     diskCacheBytes = 0
                     if let oldCache = segmentCache { await oldCache.clear() }

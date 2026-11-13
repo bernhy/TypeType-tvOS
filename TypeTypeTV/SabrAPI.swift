@@ -175,6 +175,25 @@ enum HardwareCodec {
 
     /// Codec-type hardware support is only a coarse probe. The actual
     /// VideoToolbox session will validate profile, level and bit depth.
+    static func audioCandidates(from stream: SabrBootstrap) -> [SabrBootstrap.Audio] {
+        let tracks = (stream.audioStreams ?? []).filter {
+            $0.deliveryMethod == "sabr" && (
+                ($0.codec ?? "").lowercased().hasPrefix("mp4a") ||
+                ($0.mimeType ?? "").lowercased().contains("audio/mp4")
+            )
+        }
+        var seen = Set<String>()
+        return tracks.filter {
+            let key = ($0.audioTrackId ?? "") + ":" + String($0.itag)
+            return seen.insert(key).inserted
+        }.sorted {
+            if ($0.isOriginal ?? false) != ($1.isOriginal ?? false) {
+                return $0.isOriginal ?? false
+            }
+            return ($0.audioTrackName ?? "") < ($1.audioTrackName ?? "")
+        }
+    }
+
     static func candidates(from stream: SabrBootstrap,
                            maxHeight: Int = 2160,
                            allowSoftware: Bool = false) -> [SabrSelection] {
@@ -196,15 +215,7 @@ enum HardwareCodec {
             if $0.fps != $1.fps { return ($0.fps ?? 0) > ($1.fps ?? 0) }
             return rank($0.codec) > rank($1.codec)
         }
-        let audio = (stream.audioStreams ?? []).filter {
-            $0.deliveryMethod == "sabr" && (
-                ($0.codec ?? "").lowercased().hasPrefix("mp4a") ||
-                ($0.mimeType ?? "").lowercased().contains("mp4")
-            )
-        }.sorted {
-            if ($0.isOriginal ?? false) != ($1.isOriginal ?? false) { return $0.isOriginal ?? false }
-            return abs($0.itag - 140) < abs($1.itag - 140)
-        }.first
+        let audio = audioCandidates(from: stream).first
         guard let audio else { return [] }
         var used = Set<Int>()
         return videos.filter { used.insert($0.itag).inserted }
