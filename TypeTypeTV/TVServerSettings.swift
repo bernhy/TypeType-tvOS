@@ -10,6 +10,9 @@ struct TVServerSettings: Decodable {
     var hideComments: Bool?
     var disableWatchHistory: Bool?
     var subtitlesEnabled: Bool?
+    var defaultSubtitleLanguage: String?
+    var defaultAudioLanguage: String?
+    var preferOriginalLanguage: Bool?
     var autoplay: Bool?
     var sponsorBlockMode: String?
     var defaultQuality: String?
