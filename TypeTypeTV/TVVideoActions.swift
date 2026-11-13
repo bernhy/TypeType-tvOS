@@ -17,6 +17,16 @@ struct TVVideoActionModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .contextMenu {
+                if let position = video.watchPositionMs, position > 0 {
+                    Button {
+                    } label: {
+                        Label(
+                            TVL10n.formatted("action.playedUntil", TTTheme.time(Int(position / 1_000))),
+                            systemImage: "clock.arrow.circlepath"
+                        )
+                    }
+                    .disabled(true)
+                }
                 Button {
                     perform {
                         try await api.setWatchLater(video: video, enabled: true)
@@ -60,7 +70,7 @@ struct TVVideoActionModifier: ViewModifier {
                 TVPlaylistPickerView(api: api, video: video) { success in
                     pickerVisible = false
                     feedback = success
-                    onChanged?()
+                    refreshAfterFeedback()
                 }
             }
             .confirmationDialog(
@@ -102,6 +112,13 @@ struct TVVideoActionModifier: ViewModifier {
             }
     }
 
+    private func refreshAfterFeedback() {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            onChanged?()
+        }
+    }
+
     private func perform(_ action: @escaping () async throws -> String) {
         guard !working else { return }
         working = true
@@ -111,7 +128,7 @@ struct TVVideoActionModifier: ViewModifier {
             do {
                 let text = try await action()
                 feedback = text
-                onChanged?()
+                refreshAfterFeedback()
             } catch {
                 errorMessage = error.localizedDescription
             }

@@ -25,7 +25,7 @@ struct TVHistoryWrite: Encodable {
         thumbnail = video.thumbnailUrl ?? ""
         duration = max(0, video.duration ?? 0)
         channelName = video.uploaderName ?? ""
-        channelUrl = ""
+        channelUrl = video.uploaderUrl ?? ""
         channelAvatar = ""
         progress = max(0, positionMs / 1_000)
     }

@@ -108,7 +108,7 @@ struct TVWatchLaterWrite: Encodable {
         thumbnail = video.thumbnailUrl ?? ""
         duration = max(0, video.duration ?? 0)
         channelName = video.uploaderName ?? ""
-        channelUrl = ""
+        channelUrl = video.uploaderUrl ?? ""
         channelAvatar = ""
     }
 }
