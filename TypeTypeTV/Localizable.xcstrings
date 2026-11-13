@@ -314,25 +314,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bild und Wiedergabe"
+            "value": "Wiedergabe"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Video and playback"
+            "value": "Playback"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Image et lecture"
+            "value": "Lecture"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vídeo y reproducción"
+            "value": "Reproducción"
           }
         }
       }
