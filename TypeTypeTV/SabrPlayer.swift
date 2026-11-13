@@ -72,6 +72,7 @@ final class SabrPlayerController: ObservableObject {
     @Published private(set) var availableAudios: [SabrBootstrap.Audio] = []
     @Published private(set) var currentVideoItag: Int?
     @Published private(set) var currentAudioItag: Int?
+    @Published private(set) var currentAudioTrackId: String?
     @Published private(set) var fixedVideoItag: Int?
 
     let videoLayer = AVSampleBufferDisplayLayer()
@@ -97,6 +98,7 @@ final class SabrPlayerController: ObservableObject {
     private var prefersPause = false
     private var requestedVideoItag: Int?
     private var requestedAudioItag: Int?
+    private var requestedAudioTrackId: String?
 
     init() {
         videoLayer.videoGravity = .resizeAspect
@@ -162,8 +164,10 @@ final class SabrPlayerController: ObservableObject {
         fixedVideoItag = itag
     }
 
-    func selectAudio(api: TypeTypeAPI, video: VideoItem, itag: Int) {
+    func selectAudio(api: TypeTypeAPI, video: VideoItem,
+                     itag: Int, trackId: String?) {
         requestedAudioItag = itag
+        requestedAudioTrackId = trackId
         let position = max(0, Int64(playbackSeconds() * 1_000))
         start(api: api, video: video, positionMs: position)
     }
@@ -268,12 +272,14 @@ final class SabrPlayerController: ObservableObject {
             for (index, option) in orderedOptions.enumerated() {
                 try Task.checkCancellation()
                 let audio = availableAudios.first {
-                    $0.itag == requestedAudioItag
+                    $0.itag == requestedAudioItag &&
+                    $0.audioTrackId == requestedAudioTrackId
                 } ?? option.audio
                 let choice = SabrSelection(video: option.video, audio: audio)
                 selection = choice
                 currentVideoItag = choice.video.itag
                 currentAudioItag = choice.audio.itag
+                currentAudioTrackId = choice.audio.audioTrackId
                 selectionDescription = choice.description
                 hardwareDecoder = HardwareVideoDecoder(
                     display: videoLayer, allowSoftware: allowSoftware
