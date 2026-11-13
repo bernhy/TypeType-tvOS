@@ -40,10 +40,14 @@ struct TVHistoryDTO: Decodable {
     let channelName: String
     let duration: Int
     let progress: Int
+    let channelUrl: String?
 
     var video: VideoItem {
-        VideoItem(id: url, title: title, url: url, thumbnailUrl: thumbnail,
-                  uploaderName: channelName, duration: duration, isLive: false)
+        var row = VideoItem(id: url, title: title, url: url, thumbnailUrl: thumbnail,
+                            uploaderName: channelName, duration: duration, isLive: false)
+        row.uploaderUrl = channelUrl
+        row.watchPositionMs = Int64(max(0, progress)) * 1_000
+        return row
     }
 }
 
@@ -53,10 +57,13 @@ struct TVFavoriteDTO: Decodable {
     let thumbnail: String
     let channelName: String
     let duration: Int
+    let channelUrl: String?
 
     var video: VideoItem {
-        VideoItem(id: videoUrl, title: title, url: videoUrl, thumbnailUrl: thumbnail,
-                  uploaderName: channelName, duration: duration, isLive: false)
+        var row = VideoItem(id: videoUrl, title: title, url: videoUrl, thumbnailUrl: thumbnail,
+                            uploaderName: channelName, duration: duration, isLive: false)
+        row.uploaderUrl = channelUrl
+        return row
     }
 }
 
@@ -66,9 +73,12 @@ struct TVWatchLaterDTO: Decodable {
     let thumbnail: String
     let channelName: String
     let duration: Int
+    let channelUrl: String?
 
     var video: VideoItem {
-        VideoItem(id: url, title: title, url: url, thumbnailUrl: thumbnail,
-                  uploaderName: channelName, duration: duration, isLive: false)
+        var row = VideoItem(id: url, title: title, url: url, thumbnailUrl: thumbnail,
+                            uploaderName: channelName, duration: duration, isLive: false)
+        row.uploaderUrl = channelUrl
+        return row
     }
 }
