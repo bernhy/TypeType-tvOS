@@ -195,6 +195,30 @@ struct TypeTypeAPI {
         return try JSONDecoder().decode(TVServerSettings.self, from: data)
     }
 
+    /// Active playback presence from TypeType Server 1.17.1.
+    /// Unlike saved /progress these calls are ephemeral now-playing signals.
+    /// They are never required for decoding and tolerate older servers.
+    func sessionPlaybackStart(_ payload: TVPlaybackPresenceVideo) async throws {
+        try await writeLibrary(
+            base.appendingPathComponent("sessions/playback/start"),
+            method: "POST", body: try JSONEncoder().encode(payload)
+        )
+    }
+
+    func sessionPlaybackProgress(_ payload: TVPlaybackPresenceVideo) async throws {
+        try await writeLibrary(
+            base.appendingPathComponent("sessions/playback/progress"),
+            method: "POST", body: try JSONEncoder().encode(payload)
+        )
+    }
+
+    func sessionPlaybackStop(_ identity: TVPlaybackPresenceIdentity) async throws {
+        try await writeLibrary(
+            base.appendingPathComponent("sessions/playback/stop"),
+            method: "POST", body: try JSONEncoder().encode(identity)
+        )
+    }
+
     /// Progress is a separate account endpoint. Fetching it in batches avoids
     /// 30-60 independent network requests while browsing a thumbnail grid.
     func withProgress(_ videos: [VideoItem]) async -> [VideoItem] {
