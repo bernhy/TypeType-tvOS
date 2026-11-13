@@ -20,7 +20,7 @@ struct RootView: View {
                 BrowseView(
                     instanceOrigin: "https://preview.invalid",
                     onDisconnect: {},
-                    initialSection: preview == "home" ? .home : .search,
+                    initialSection: preview == "search" ? .search : .home,
                     previewVideos: TVShowcaseFixtures.videos,
                     initiallyExpanded: preview == "home-expanded"
                 )

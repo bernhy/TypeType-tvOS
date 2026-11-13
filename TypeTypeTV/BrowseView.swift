@@ -102,7 +102,7 @@ struct BrowseView: View {
                             .frame(width: 50)
                         if expanded {
                             Text(item.label)
-                                .font(.headline)
+                                .font(.system(size: 22, weight: .semibold))
                                 .lineLimit(1)
                             Spacer(minLength: 0)
                         }
@@ -135,7 +135,7 @@ struct BrowseView: View {
         .padding(.horizontal, 18)
         .padding(.top, 34)
         .padding(.bottom, 42)
-        .frame(width: expanded ? 285 : 98)
+        .frame(width: expanded ? 355 : 98)
         .frame(maxHeight: .infinity)
         .background(TTTheme.surface)
         .animation(.easeInOut(duration: 0.18), value: expanded)

@@ -38,6 +38,7 @@ final class TypeTypeTVUITests: XCTestCase {
         app.launchArguments = ["-TypeTypeTVPreview", "home-expanded"]
         app.launch()
         XCTAssertTrue(app.buttons["Menü einklappen"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Empfehlungen"].exists)
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "TypeType-tvOS-Menü-ausgeklappt"
         attachment.lifetime = .keepAlways
