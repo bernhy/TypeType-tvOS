@@ -10,9 +10,11 @@ This is a native SwiftUI/tvOS starting point for the TypeType-Server **API v1**.
 - Manual TypeType HTTPS server address and `/api/instance` compatibility test (`apiVersion == 1`)
 - `/api/recommendations/home` and `/api/search` JSON decoding
 - Details screen with a player-entry action
-- **HLS-only** playback via public AVKit/AVPlayerViewController when the server response has `hlsUrl`
-- Unsigned tvOS simulator build workflow on GitHub's standard `macos-26` ARM runner, using Xcode 26.1.1
+- HLS proof-of-concept via AVKit/AVPlayerViewController for genuinely HLS-based services, not the intended YouTube engine
+- Unsigned tvOS simulator build workflow on GitHub's standard `macos-26` ARM runner, using Xcode 26.2 (which has a matching installed tvOS simulator runtime)
 - No credentials, signing certificates or Apple IDs committed or passed to CI
+
+**Agreed scope:** Apple TV 4K 2017+ only (minimum tvOS 17.0). For YouTube, port the existing TypeType SABR session/segment protocol to a native Swift media pipeline; **no server changes or HLS bridge**. Hardware-supported codecs are selected by default; software decoding will be an explicit opt-in, OFF by default.
 
 **Not yet implemented:** authenticating accounts/guest sessions, device-code login, protected recommendations, source-specific stream variants, TypeType SABR session playback, segmented audio/video merging, SponsorBlock, captions, 4K/HDR, history/favorites, playlists, quality/audio track selection, image authorization, certificate pinning, and lifecycle/persistence refinements. In particular, **most YouTube VOD content will not play yet**, because the Android client uses SABR and this starter intentionally does not claim AVPlayer can read SABR directly.
 
@@ -38,7 +40,7 @@ xcodebuild -project TypeTypeTV.xcodeproj -scheme TypeTypeTV \
 
 ## Why an independent Swift client?
 
-The Android TV client is built in Kotlin, Jetpack Compose and Media3. Its UI, player and hardware decoder logic cannot simply be recompiled for tvOS. Instead, keep the existing server protocol and re-implement screens with SwiftUI and playback with AVFoundation/AVKit. Avoid private Apple APIs entirely.
+The Android TV client is built in Kotlin, Jetpack Compose and Media3. Its UI, player and hardware decoder logic cannot simply be recompiled for tvOS. Instead, keep the existing server protocol and re-implement screens with SwiftUI. For YouTube, implement a native Swift SABR pipeline using public CoreMedia, AVFoundation and VideoToolbox hardware rendering/decoding APIs. Avoid private Apple APIs entirely.
 
 ## Cautions
 
@@ -46,3 +48,10 @@ The Android TV client is built in Kotlin, Jetpack Compose and Media3. Its UI, pl
 - The API is currently used *without* auth. Depending on your server configuration, home/search can return HTTP 401/403. This is expected until guest/device sign-in is implemented.
 - Only HTTPS server URLs are accepted in this prototype. No App Transport Security exceptions or insecure certificate bypasses.
 - Check licenses and policies of any upstream video services and the TypeType codebase before distribution. This project includes no copied images or bundled Android source.
+
+## Hardware and compatibility
+
+- Apple TV HD is out of scope. Apple TV 4K (2017) must remain supported; tvOS 27 no longer supports it, so avoid requiring tvOS 27 APIs.
+- Hardware capability must be probed on a **physical Apple TV**, including codec profile, resolution, FPS, HDR, and rendering compatibility; simulator results are not hardware evidence.
+- A19 Apple TV 4K (2026) includes AV1 hardware decode. Older devices must not silently select software-only AV1/VP9 formats.
+- The YouTube path must use the existing TypeType SABR API without modifying TypeType Server; the HLS starter code is only a temporary non-SABR demonstration.

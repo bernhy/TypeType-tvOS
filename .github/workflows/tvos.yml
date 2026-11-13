@@ -19,11 +19,12 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
-      - name: Pin the Xcode 26 toolchain
+      - name: Select Xcode 26.2 with installed tvOS runtime
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.1.1.app/Contents/Developer
+          sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
           xcodebuild -version
           xcrun --sdk appletvsimulator --show-sdk-version
+          xcrun simctl list runtimes
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project
