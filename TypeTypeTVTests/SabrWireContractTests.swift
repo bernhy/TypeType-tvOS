@@ -142,4 +142,30 @@ final class SabrWireContractTests: XCTestCase {
         }
     }
 
+    func testSabrCoverageNeverSkipsLaggingAudioOrVideo() throws {
+        var coverage = SabrPlaybackCoverage(audioItag: 140, videoItag: 137, positionMs: 0)
+        XCTAssertEqual(coverage.safeEndMs, 0)
+        try coverage.acceptVideo(SabrFragment(url: "v1", startMs: 0, durationMs: 8000))
+        XCTAssertEqual(coverage.safeEndMs, 0, "Do not advance while audio is missing")
+        try coverage.acceptAudio(SabrFragment(url: "a1", startMs: 0, durationMs: 4000))
+        XCTAssertEqual(coverage.safeEndMs, 4000)
+        try coverage.acceptAudio(SabrFragment(url: "a2", startMs: 4000, durationMs: 4000))
+        XCTAssertEqual(coverage.safeEndMs, 8000)
+        XCTAssertEqual(coverage.requestRanges.count, 2)
+        XCTAssertEqual(coverage.requestRanges.first { $0.itag == 137 }?.endMs, 8000)
+        XCTAssertThrowsError(try coverage.acceptVideo(
+            SabrFragment(url: "gap", startMs: 15000, durationMs: 4000)
+        ), "Do not announce non-contiguous media as buffered")
+    }
+
+    func testSabrCoverageAllowsOverlapAndSeekStart() throws {
+        var coverage = SabrPlaybackCoverage(audioItag: 140, videoItag: 137, positionMs: 30000)
+        try coverage.acceptAudio(SabrFragment(url: "a", startMs: 29000, durationMs: 5000))
+        try coverage.acceptVideo(SabrFragment(url: "v", startMs: 29000, durationMs: 5000))
+        XCTAssertEqual(coverage.safeEndMs, 34000)
+        XCTAssertEqual(coverage.requestRanges.first?.startMs, 30000)
+        try coverage.acceptVideo(SabrFragment(url: "vdup", startMs: 31000, durationMs: 3000))
+        XCTAssertEqual(coverage.safeEndMs, 34000)
+    }
+
 }

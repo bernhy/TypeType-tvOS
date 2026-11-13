@@ -278,12 +278,22 @@ final class SabrService: @unchecked Sendable {
             throw SabrFailure.invalidResponse("videoId")
         }
         return try await request("sabr/playback/\(videoId)", method: "POST",
-                                 body: try encoder.encode(SabrSessionRequest(selection, positionMs: positionMs)))
+                                 body: try encoder.encode(SabrSessionRequest(selection, positionMs: positionMs)),
+                                 allowedStatuses: [200, 202])
     }
 
     func seek(sessionId: String, selection: SabrSelection, positionMs: Int64) async throws -> SabrSessionReply {
         try await request("sabr/playback/\(sessionId)/seek", method: "POST",
-                          body: try encoder.encode(SabrSessionRequest(selection, positionMs: positionMs)))
+                          body: try encoder.encode(SabrSessionRequest(selection, positionMs: positionMs)),
+                          allowedStatuses: [200, 202])
+    }
+
+    /// Tell the unmodified TypeType server that the session is no longer used.
+    /// Its DELETE endpoint is idempotent and returns HTTP 204.
+    func release(sessionId: String) async throws {
+        guard !sessionId.isEmpty else { return }
+        let _: EmptyReply = try await request("sabr/playback/\(sessionId)",
+            method: "DELETE", allowedStatuses: [200, 204], allowEmpty: true)
     }
 
     func window(sessionId: String, selection: SabrSelection, generation: Int64,

@@ -68,6 +68,7 @@ final class SabrPlayerController: ObservableObject {
     private var playbackPositionMs: Int64 = 0
     private var isInitialized = false
     private var hardwareDecoder: HardwareVideoDecoder?
+    private var playbackService: SabrService?
     private var segmentCache: SabrFragmentCache?
     private var prefetchTask: Task<Void, Never>?
 
@@ -90,6 +91,12 @@ final class SabrPlayerController: ObservableObject {
     func stop() {
         running?.cancel()
         running = nil
+        let previousService = playbackService
+        playbackService = nil
+        let previousSession = sessionId
+        if let previousService, !previousSession.isEmpty {
+            Task { try? await previousService.release(sessionId: previousSession) }
+        }
         prefetchTask?.cancel()
         prefetchTask = nil
         let previousCache = segmentCache
@@ -141,6 +148,7 @@ final class SabrPlayerController: ObservableObject {
     private func run(api: TypeTypeAPI, video: VideoItem, positionMs: Int64,
                      buffer: SabrBufferSettings) async {
         let service = SabrService(api: api)
+        playbackService = service
         do {
             guard let id = VideoAddress.youtubeID(video.url) else {
                 throw SabrFailure.unsupported("kein YouTube-Video")
@@ -192,11 +200,14 @@ final class SabrPlayerController: ObservableObject {
         var videoInitLocation = ""
         var seen = Set<String>()
         var freshAttempts = 0
+        var coverage = SabrPlaybackCoverage(audioItag: choice.audio.itag,
+                                            videoItag: choice.video.itag, positionMs: start)
         while !Task.isCancelled {
             let response: SabrWindow
             do {
                 response = try await service.window(sessionId: sessionId, selection: choice,
-                                                    generation: generation, positionMs: nextTime, buffer: buffer)
+                                                    generation: generation, positionMs: nextTime,
+                                                    ranges: coverage.requestRanges, buffer: buffer)
             } catch SabrFailure.expired {
                 guard freshAttempts < 2 else { throw SabrFailure.expired }
                 freshAttempts += 1
@@ -204,6 +215,13 @@ final class SabrPlayerController: ObservableObject {
                 sessionId = renewed.sessionId
                 generation = renewed.generation
                 seen.removeAll()
+                coverage = SabrPlaybackCoverage(audioItag: choice.audio.itag,
+                                                videoItag: choice.video.itag,
+                                                positionMs: nextTime)
+                prefetchTask?.cancel()
+                let expiredCache = segmentCache
+                segmentCache = SabrFragmentCache(maxMiB: buffer.cacheMiB)
+                if let expiredCache { Task { await expiredCache.clear() } }
                 audioInitLocation = ""
                 videoInitLocation = ""
                 continue
@@ -253,7 +271,6 @@ final class SabrPlayerController: ObservableObject {
                 }
             }
 
-            var newestEnd = nextTime
             // Request order by media timeline; audio/video are interleaved in the render queue.
             let count = max(audio.segments.count, videoTrack.segments.count)
             for index in 0..<count {
@@ -279,7 +296,7 @@ final class SabrPlayerController: ObservableObject {
                         let samples = try await FragmentedMP4Reader.compressedSamples(
                             initialization: audioInit, fragment: bytes, mediaType: .audio)
                         try await enqueue(samples, audio: true)
-                        newestEnd = max(newestEnd, fragment.startMs + fragment.durationMs)
+                        try coverage.acceptAudio(fragment)
                     }
                 }
                 if index < videoTrack.segments.count {
@@ -303,7 +320,7 @@ final class SabrPlayerController: ObservableObject {
                         let samples = try await FragmentedMP4Reader.compressedSamples(
                             initialization: videoInit, fragment: bytes, mediaType: .video)
                         try await enqueue(samples, audio: false)
-                        newestEnd = max(newestEnd, fragment.startMs + fragment.durationMs)
+                        try coverage.acceptVideo(fragment)
                     }
                 }
                 if !isInitialized && index > 0 {
@@ -317,14 +334,15 @@ final class SabrPlayerController: ObservableObject {
                 isInitialized = true
                 isPlaying = true
             }
-            if response.endOfStream == true && newestEnd >= (response.durationMs ?? newestEnd) {
+            let synchronizedEnd = coverage.safeEndMs
+            if response.endOfStream == true && synchronizedEnd >= (response.durationMs ?? synchronizedEnd) {
                 state = "Ende des Videos"
                 return
             }
-            if newestEnd <= nextTime {
+            if synchronizedEnd <= nextTime {
                 throw SabrFailure.invalidResponse("SABR window not advancing")
             }
-            nextTime = newestEnd
+            nextTime = synchronizedEnd
             positionMs = nextTime
             state = "Wiedergabe läuft"
             // Make sure requests don't race ahead of playback and consume the full video.
