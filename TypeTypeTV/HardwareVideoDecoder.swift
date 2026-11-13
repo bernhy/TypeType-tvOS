@@ -29,7 +29,7 @@ final class HardwareVideoDecoder {
         format = nil
     }
 
-    func decode(_ compressed: CMSampleBuffer) throws {
+    func decode(_ compressed: CMSampleBuffer) async throws {
         guard active else { throw SabrFailure.stopped }
         guard let description = CMSampleBufferGetFormatDescription(compressed) else {
             throw SabrFailure.invalidResponse("compressed sample without format description")
@@ -57,21 +57,25 @@ final class HardwareVideoDecoder {
         }
 
         guard let session else { throw SabrFailure.invalidResponse("VideoToolbox session") }
+        // No async decode flag: the callback completes before the method returns.
+        // This allows explicit backpressure, so 4K CVPixelBuffers cannot grow without bound.
+        var frames: [(CVImageBuffer, CMTime, CMTime)] = []
+        var callbackFailure: OSStatus?
         let result = VTDecompressionSessionDecodeFrame(
             session, sampleBuffer: compressed, flags: [], infoFlagsOut: nil
-        ) { [weak self] status, _, image, pts, duration in
-            guard status == noErr, let image else {
-                Task { @MainActor [weak self] in
-                    self?.onFailure?("VideoToolbox decoding failed: \(status)")
-                }
-                return
-            }
-            Task { @MainActor [weak self] in
-                await self?.present(image, pts: pts, duration: duration)
+        ) { status, _, image, pts, duration in
+            if status == noErr, let image {
+                frames.append((image, pts, duration))
+            } else {
+                callbackFailure = status
             }
         }
-        guard result == noErr else {
-            throw SabrFailure.unsupported("Hardware decoding failed (\(result))")
+        guard result == noErr, callbackFailure == nil else {
+            throw SabrFailure.unsupported("VideoToolbox hardware decode error (\(callbackFailure ?? result))")
+        }
+        for (image, pts, duration) in frames {
+            try Task.checkCancellation()
+            await present(image, pts: pts, duration: duration)
         }
     }
 

@@ -200,7 +200,7 @@ final class TypeTypeCredentials {
     func token(for origin: URL) -> String? {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "org.typetype.tvOS.auth",
-            kSecAttrAccount as String: origin.host ?? "",
+            kSecAttrAccount as String: origin.absoluteString,
             kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
         var value: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &value) == errSecSuccess,
@@ -343,7 +343,7 @@ final class SabrService {
             req.httpBody = body ?? Data("{}".utf8)
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue(pathForError == "segment" ? "*/*" : "application/json", forHTTPHeaderField: "Accept")
         req.setValue("TypeTypeTV-tvOS/0.2", forHTTPHeaderField: "User-Agent")
         if let token = TypeTypeCredentials.shared.token(for: origin) {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

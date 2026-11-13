@@ -183,6 +183,13 @@ final class SabrPlayerController: ObservableObject {
                 continue
             }
             if let ms = response.durationMs { durationMs = ms }
+            // Start the shared clock before feeding samples: queued renderers would otherwise
+            // hit backpressure while the clock is still stopped.
+            if !isInitialized {
+                synchronizer.setRate(1, time: CMTime(value: start, timescale: 1000))
+                isInitialized = true
+                isPlaying = true
+            }
             guard let audio = response.audio, let videoTrack = response.video else {
                 throw SabrFailure.invalidResponse("SABR audio/video missing")
             }
@@ -266,7 +273,7 @@ final class SabrPlayerController: ObservableObject {
                 audioRenderer.enqueue(sample)
             } else {
                 guard let hardwareDecoder else { throw SabrFailure.invalidResponse("decoder missing") }
-                try hardwareDecoder.decode(sample)
+                try await hardwareDecoder.decode(sample)
             }
         }
     }
