@@ -32,7 +32,7 @@ struct LibraryView: View {
                     Text("Favoriten").tag("favorites")
                     Text("Später ansehen").tag("watch-later")
                 }
-                .onChange(of: section) { _ in Task { await reload() } }
+                .onChange(of: section) { Task { await reload() } }
                 if !message.isEmpty { Text(message).foregroundStyle(.secondary) }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 30), count: 4), spacing: 30) {
                     ForEach(Array(videos.enumerated()), id: \.offset) { _, entry in
@@ -119,7 +119,7 @@ struct PreferencesView: View {
                 }
                 if let code = loginCode, let link = loginLink {
                     Text("Gerätecode: \(code)").font(.title)
-                    Text(link.absoluteString).textSelection(.enabled)
+                    Text(link.absoluteString)
                     Text("Öffne den Link auf einem Telefon oder Computer und bestätige den Gerätecode.")
                 }
                 if !status.isEmpty { Text(status).foregroundStyle(.secondary) }
