@@ -13,6 +13,14 @@ enum TVSection: String, CaseIterable, Hashable {
         case .settings: return "Einstellungen"
         }
     }
+    var localizedLabel: LocalizedStringKey {
+        switch self {
+        case .home: return "nav.home"
+        case .search: return "nav.search"
+        case .library: return "nav.library"
+        case .settings: return "nav.settings"
+        }
+    }
     var icon: String {
         switch self {
         case .home: return "house.fill"
@@ -101,7 +109,7 @@ struct BrowseView: View {
                             .font(.system(size: 27))
                             .frame(width: 50)
                         if expanded {
-                            Text(item.label)
+                            Text(item.localizedLabel)
                                 .font(.system(size: 22, weight: .semibold))
                                 .lineLimit(1)
                             Spacer(minLength: 0)
@@ -173,11 +181,11 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 30) {
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 7) {
-                        Text("FÜR DICH")
+                        Text("home.forYou")
                             .font(.subheadline.bold())
                             .tracking(2.4)
                             .foregroundStyle(TTTheme.accent)
-                        Text("Empfehlungen")
+                        Text("home.recommendations")
                             .font(.system(size: 48, weight: .bold))
                     }
                     Spacer()

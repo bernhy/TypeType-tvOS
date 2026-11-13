@@ -2,9 +2,11 @@ import SwiftUI
 
 @main
 struct TypeTypeTVApp: App {
+    @AppStorage("typetype.uiLanguage") private var language = "de"
     var body: some Scene {
         WindowGroup {
             RootView()
+                .environment(\.locale, Locale(identifier: language))
         }
     }
 }
