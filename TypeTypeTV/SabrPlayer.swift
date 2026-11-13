@@ -94,6 +94,19 @@ final class SabrPlayerController: ObservableObject {
         sessionId = ""
     }
 
+    func seek(api: TypeTypeAPI, video: VideoItem, offsetMs: Int64) {
+        let seconds = CMTimeGetSeconds(synchronizer.currentTime())
+        let anchor = isInitialized && seconds.isFinite ? Int64(seconds * 1000) : playbackPositionMs
+        let upper = durationMs > 0 ? max(0, durationMs - 1_000) : Int64.max
+        start(api: api, video: video, positionMs: min(upper, max(0, anchor + offsetMs)))
+    }
+
+    func timeLabel() -> String {
+        let seconds = CMTimeGetSeconds(synchronizer.currentTime())
+        let current = isInitialized && seconds.isFinite ? Int64(seconds) : playbackPositionMs / 1000
+        return String(format: "%02d:%02d", max(0,current) / 60, max(0,current) % 60)
+    }
+
     func togglePause() {
         guard isInitialized else { return }
         let rate: Float = isPlaying ? 0 : 1
@@ -312,7 +325,12 @@ struct SabrPlayerView: View {
                         Text(engine.state)
                         Spacer()
                         Text(engine.selectionDescription)
+                        TimelineView(.periodic(from: .now, by: 1)) { _ in
+                            Text(engine.timeLabel()).monospacedDigit()
+                        }
+                        Button("−10s") { engine.seek(api: api, video: video, offsetMs: -10_000) }
                         Button(engine.isPlaying ? "Pause" : "Fortsetzen") { engine.togglePause() }
+                        Button("+30s") { engine.seek(api: api, video: video, offsetMs: 30_000) }
                     }
                     .font(.callout)
                     .padding(24)

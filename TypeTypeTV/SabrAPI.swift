@@ -170,7 +170,7 @@ enum HardwareCodec {
                 && supported($0.codec, allowSoftware: allowSoftware)
         }
         let underCap = all.filter { ($0.height ?? 0) <= maxHeight }
-        let candidates = underCap.isEmpty ? all : underCap
+        let candidates = underCap
         let rank: (String) -> Int = { s in
             if s.hasPrefix("av01") { return 4 }
             if s.hasPrefix("hvc") || s.hasPrefix("hev") { return 3 }
