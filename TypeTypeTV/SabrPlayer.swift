@@ -70,7 +70,8 @@ final class SabrPlayerController: ObservableObject {
     private var hardwareDecoder: HardwareVideoDecoder?
     private var playbackService: SabrService?
     private var segmentCache: SabrFragmentCache?
-    private var prefetchTask: Task<Void, Never>?
+    private var windowProducerTask: Task<Void, Never>?
+    private var activeMailbox: SabrWindowMailbox?
 
     init() {
         videoLayer.videoGravity = .resizeAspect
@@ -97,8 +98,10 @@ final class SabrPlayerController: ObservableObject {
         if let previousService, !previousSession.isEmpty {
             Task { try? await previousService.release(sessionId: previousSession) }
         }
-        prefetchTask?.cancel()
-        prefetchTask = nil
+        windowProducerTask?.cancel()
+        windowProducerTask = nil
+        if let activeMailbox { Task { await activeMailbox.finish(error: CancellationError()) } }
+        activeMailbox = nil
         let previousCache = segmentCache
         segmentCache = nil
         if let previousCache { Task { await previousCache.clear() } }
@@ -190,169 +193,254 @@ final class SabrPlayerController: ObservableObject {
         }
     }
 
+    /// The network stage runs independently of sample-buffer decoder pressure.
+    /// Producer sends complete metadata windows through a bounded mailbox and
+    /// downloads the compressed bytes to the disk cache before advancing.
     private func consume(service: SabrService, videoId: String,
                          choice: SabrSelection, positionMs start: Int64,
                          buffer: SabrBufferSettings) async throws {
-        var nextTime = start
+        var restartPosition = max(0, start)
+        for recoveryAttempt in 0...2 {
+            try Task.checkCancellation()
+            let mailbox = SabrWindowMailbox()
+            activeMailbox = mailbox
+            guard let cache = segmentCache else { throw SabrFailure.stopped }
+            let currentSession = sessionId
+            let currentGeneration = generation
+            let producer = Task { [weak self] in
+                guard let self else {
+                    await mailbox.finish(error: CancellationError())
+                    return
+                }
+                do {
+                    try await self.downloadWindows(
+                        service: service, sessionId: currentSession,
+                        generation: currentGeneration, choice: choice,
+                        start: restartPosition, buffer: buffer,
+                        cache: cache, mailbox: mailbox
+                    )
+                    await mailbox.finish()
+                } catch {
+                    await mailbox.finish(error: error)
+                }
+            }
+            windowProducerTask = producer
+            do {
+                try await playCachedWindows(mailbox: mailbox, service: service,
+                                            choice: choice, start: restartPosition, cache: cache)
+                producer.cancel()
+                windowProducerTask = nil
+                activeMailbox = nil
+                return
+            } catch {
+                producer.cancel()
+                await mailbox.finish(error: CancellationError())
+                windowProducerTask = nil
+                activeMailbox = nil
+                let refresh: Bool
+                if case SabrFailure.expired = error {
+                    refresh = true
+                } else if case SabrFailure.server(let status, _) = error {
+                    refresh = status == 404
+                } else {
+                    refresh = false
+                }
+                guard refresh && recoveryAttempt < 2 else { throw error }
+                let now = playbackSeconds()
+                restartPosition = now.isFinite ? max(0, Int64(now * 1_000)) : restartPosition
+                let oldSession = sessionId
+                let renewed = try await service.start(videoId: videoId, selection: choice,
+                                                      positionMs: restartPosition)
+                sessionId = renewed.sessionId
+                generation = renewed.generation
+                if oldSession != renewed.sessionId {
+                    Task { try? await service.release(sessionId: oldSession) }
+                }
+                videoLayer.flushAndRemoveImage()
+                audioRenderer.flush()
+                hardwareDecoder?.invalidate()
+                let allowSoftware = UserDefaults.standard.bool(forKey: "typetype.allowSoftwareDecode")
+                hardwareDecoder = HardwareVideoDecoder(display: videoLayer,
+                                                       allowSoftware: allowSoftware)
+                hardwareDecoder?.onFailure = { [weak self] message in
+                    self?.failure = message
+                    self?.stop()
+                }
+                synchronizer.setRate(0, time: CMTime(value: restartPosition, timescale: 1_000))
+                playbackPositionMs = restartPosition
+                isInitialized = false
+                isPlaying = false
+                cachedThroughMs = restartPosition
+                diskCacheBytes = 0
+                await cache.clear()
+                segmentCache = SabrFragmentCache(maxMiB: buffer.cacheMiB)
+                state = TVL10n.value("player.session")
+            }
+        }
+    }
+
+    /// Uses the *actual playback clock* for the server's position updates.
+    /// The bufferedRanges fields, rather than a fake forward seek, tell the
+    /// server which completed audio/video intervals are already stored.
+    private func downloadWindows(service: SabrService, sessionId: String,
+                                 generation: Int64, choice: SabrSelection,
+                                 start: Int64, buffer: SabrBufferSettings,
+                                 cache: SabrFragmentCache,
+                                 mailbox: SabrWindowMailbox) async throws {
+        var coverage = SabrPlaybackCoverage(audioItag: choice.audio.itag,
+                                            videoItag: choice.video.itag, positionMs: start)
+        var previousEnd = start
+        var first = true
+        var stalled = 0
+        let target = SabrLookaheadPolicy.targetMilliseconds(
+            buffer, videoBitrate: choice.video.bitrate
+        )
+        while !Task.isCancelled {
+            let seconds = playbackSeconds()
+            let playhead = seconds.isFinite ? max(start, Int64(max(0, seconds) * 1_000)) : start
+            if !first && !SabrLookaheadPolicy.shouldRequestMore(
+                cachedThroughMs: coverage.safeEndMs, playheadMs: playhead, targetMs: target
+            ) {
+                try await Task.sleep(nanoseconds: 250_000_000)
+                continue
+            }
+            let requested = try await service.window(
+                sessionId: sessionId, selection: choice, generation: generation,
+                positionMs: playhead,
+                ranges: coverage.requestRanges(
+                    retainFromMs: max(0, playhead - Int64(buffer.backMilliseconds))
+                ),
+                buffer: buffer
+            )
+            try Task.checkCancellation()
+            guard let audio = requested.audio, let video = requested.video else {
+                throw SabrFailure.invalidResponse("SABR window has no audio/video pair")
+            }
+
+            // Show the first window promptly. Subsequent windows are delivered
+            // only when all compressed fragments are already in the local cache.
+            let isFirstWindow = first
+            if first {
+                try await mailbox.offer(requested)
+                first = false
+            }
+            let refs = audio.segments.map {
+                SabrMediaReference(url: $0.url, itag: choice.audio.itag,
+                                   startMs: $0.startMs, durationMs: $0.durationMs)
+            } + video.segments.map {
+                SabrMediaReference(url: $0.url, itag: choice.video.itag,
+                                   startMs: $0.startMs, durationMs: $0.durationMs)
+            }
+            try await cache.preloadFully(refs, service: service,
+                                         sessionId: sessionId, generation: generation)
+            try Task.checkCancellation()
+            for part in audio.segments.sorted(by: { $0.startMs < $1.startMs }) {
+                try coverage.acceptAudio(part)
+            }
+            for part in video.segments.sorted(by: { $0.startMs < $1.startMs }) {
+                try coverage.acceptVideo(part)
+            }
+            let downloadedEnd = coverage.safeEndMs
+            cachedThroughMs = max(cachedThroughMs, downloadedEnd)
+            diskCacheBytes = await cache.bytesInUse
+
+            if downloadedEnd > previousEnd {
+                previousEnd = downloadedEnd
+                stalled = 0
+            } else {
+                stalled += 1
+                guard stalled <= 8 else {
+                    throw SabrFailure.invalidResponse("SABR window stopped advancing")
+                }
+                try await Task.sleep(nanoseconds: 350_000_000)
+                continue
+            }
+            if !isFirstWindow {
+                try await mailbox.offer(requested)
+            }
+            if requested.endOfStream == true { return }
+        }
+    }
+
+    /// Audio and video are rendered in media-time order from the queued window.
+    /// This path never calls /position, /prefetch or /segments and therefore
+    /// cannot hold up the next server window while the renderer is busy.
+    private func playCachedWindows(mailbox: SabrWindowMailbox, service: SabrService,
+                                   choice: SabrSelection, start: Int64,
+                                   cache: SabrFragmentCache) async throws {
         var audioInit = Data()
         var videoInit = Data()
         var audioInitLocation = ""
         var videoInitLocation = ""
         var seen = Set<String>()
-        var freshAttempts = 0
         var coverage = SabrPlaybackCoverage(audioItag: choice.audio.itag,
                                             videoItag: choice.video.itag, positionMs: start)
-        while !Task.isCancelled {
-            let response: SabrWindow
-            do {
-                response = try await service.window(sessionId: sessionId, selection: choice,
-                                                    generation: generation, positionMs: nextTime,
-                                                    ranges: coverage.requestRanges(
-                                                        retainFromMs: max(0, Int64(playbackSeconds() * 1_000)
-                                                                        - Int64(buffer.backMilliseconds))
-                                                    ),
-                                                    buffer: buffer)
-            } catch SabrFailure.expired {
-                guard freshAttempts < 2 else { throw SabrFailure.expired }
-                freshAttempts += 1
-                let renewed = try await service.start(videoId: videoId, selection: choice, positionMs: nextTime)
-                sessionId = renewed.sessionId
-                generation = renewed.generation
-                seen.removeAll()
-                coverage = SabrPlaybackCoverage(audioItag: choice.audio.itag,
-                                                videoItag: choice.video.itag,
-                                                positionMs: nextTime)
-                prefetchTask?.cancel()
-                let expiredCache = segmentCache
-                segmentCache = SabrFragmentCache(maxMiB: buffer.cacheMiB)
-                if let expiredCache { Task { await expiredCache.clear() } }
-                audioInitLocation = ""
-                videoInitLocation = ""
-                continue
-            }
+        while let response = try await mailbox.next() {
+            try Task.checkCancellation()
             if let ms = response.durationMs { durationMs = ms }
-            // Start the shared clock before feeding samples: queued renderers would otherwise
-            // hit backpressure while the clock is still stopped.
-            if !isInitialized {
-                synchronizer.setRate(1, time: CMTime(value: start, timescale: 1000))
-                isInitialized = true
-                isPlaying = true
-            }
-            guard let audio = response.audio, let videoTrack = response.video else {
+            guard let audio = response.audio, let video = response.video else {
                 throw SabrFailure.invalidResponse("SABR audio/video missing")
             }
             if audioInitLocation != audio.initUrl {
-                audioInit = try await service.fragmentData(audio.initUrl, sessionId: sessionId,
-                                                           itag: choice.audio.itag, generation: generation)
+                audioInit = try await service.fragmentData(
+                    audio.initUrl, sessionId: sessionId,
+                    itag: choice.audio.itag, generation: generation
+                )
                 audioInitLocation = audio.initUrl
             }
-            if videoInitLocation != videoTrack.initUrl {
-                videoInit = try await service.fragmentData(videoTrack.initUrl, sessionId: sessionId,
-                                                           itag: choice.video.itag, generation: generation)
-                videoInitLocation = videoTrack.initUrl
-            }
-            // Fill the compressed-data disk cache independently of decoder
-            // backpressure, without exceeding two simultaneous segment fetches.
-            // Server SABR windows may cap the requested 180 s of forward buffering.
-            prefetchTask?.cancel()
-            if let cache = segmentCache {
-                let refs = audio.segments.map { segment in
-                    SabrMediaReference(url: segment.url, itag: choice.audio.itag,
-                                       startMs: segment.startMs, durationMs: segment.durationMs)
-                } + videoTrack.segments.map { segment in
-                    SabrMediaReference(url: segment.url, itag: choice.video.itag,
-                                       startMs: segment.startMs, durationMs: segment.durationMs)
-                }
-                let sid = sessionId
-                let gen = generation
-                prefetchTask = Task { [weak self] in
-                    let through = await cache.prefetch(refs, service: service,
-                                                       sessionId: sid, generation: gen)
-                    if !Task.isCancelled {
-                        self?.cachedThroughMs = max(self?.cachedThroughMs ?? 0, through)
-                        self?.diskCacheBytes = await cache.bytesInUse
-                    }
-                }
-            }
-
-            // Request order by media timeline; audio/video are interleaved in the render queue.
-            let count = max(audio.segments.count, videoTrack.segments.count)
-            for index in 0..<count {
-                try Task.checkCancellation()
-                if index < audio.segments.count {
-                    let fragment = audio.segments[index]
-                    let key = "a:\(fragment.url)"
-                    if seen.insert(key).inserted {
-                        state = isInitialized ? TVL10n.value("player.playing") : TVL10n.value("player.loadingAudio")
-                        let bytes: Data
-                        if let cache = segmentCache {
-                            let sid = sessionId
-                            let gen = generation
-                            let ref = fragment.url
-                            bytes = try await cache.data(for: ref) {
-                                try await service.fragmentData(ref, sessionId: sid,
-                                                               itag: choice.audio.itag, generation: gen)
-                            }
-                        } else {
-                            bytes = try await service.fragmentData(fragment.url, sessionId: sessionId,
-                                                                  itag: choice.audio.itag, generation: generation)
-                        }
-                        let samples = try await FragmentedMP4Reader.compressedSamples(
-                            initialization: audioInit, fragment: bytes, mediaType: .audio)
-                        try await enqueue(samples, audio: true)
-                        try coverage.acceptAudio(fragment)
-                    }
-                }
-                if index < videoTrack.segments.count {
-                    let fragment = videoTrack.segments[index]
-                    let key = "v:\(fragment.url)"
-                    if seen.insert(key).inserted {
-                        state = isInitialized ? TVL10n.value("player.playing") : TVL10n.value("player.loadingVideo")
-                        let bytes: Data
-                        if let cache = segmentCache {
-                            let sid = sessionId
-                            let gen = generation
-                            let ref = fragment.url
-                            bytes = try await cache.data(for: ref) {
-                                try await service.fragmentData(ref, sessionId: sid,
-                                                               itag: choice.video.itag, generation: gen)
-                            }
-                        } else {
-                            bytes = try await service.fragmentData(fragment.url, sessionId: sessionId,
-                                                                  itag: choice.video.itag, generation: generation)
-                        }
-                        let samples = try await FragmentedMP4Reader.compressedSamples(
-                            initialization: videoInit, fragment: bytes, mediaType: .video)
-                        try await enqueue(samples, audio: false)
-                        try coverage.acceptVideo(fragment)
-                    }
-                }
-                if !isInitialized && index > 0 {
-                    synchronizer.setRate(1, time: CMTime(value: start, timescale: 1000))
-                    isInitialized = true
-                    isPlaying = true
-                }
+            if videoInitLocation != video.initUrl {
+                videoInit = try await service.fragmentData(
+                    video.initUrl, sessionId: sessionId,
+                    itag: choice.video.itag, generation: generation
+                )
+                videoInitLocation = video.initUrl
             }
             if !isInitialized {
-                synchronizer.setRate(1, time: CMTime(value: start, timescale: 1000))
+                synchronizer.setRate(1, time: CMTime(value: start, timescale: 1_000))
                 isInitialized = true
                 isPlaying = true
             }
-            let synchronizedEnd = coverage.safeEndMs
-            if response.endOfStream == true && synchronizedEnd >= (response.durationMs ?? synchronizedEnd) {
+
+            let count = max(audio.segments.count, video.segments.count)
+            for index in 0..<count {
+                try Task.checkCancellation()
+                if index < audio.segments.count {
+                    let segment = audio.segments[index]
+                    if seen.insert("a:\(segment.url)").inserted {
+                        let sid = sessionId, gen = generation
+                        let bytes = try await cache.data(for: segment.url) {
+                            try await service.fragmentData(segment.url, sessionId: sid,
+                                                           itag: choice.audio.itag, generation: gen)
+                        }
+                        let samples = try await FragmentedMP4Reader.compressedSamples(
+                            initialization: audioInit, fragment: bytes, mediaType: .audio
+                        )
+                        try await enqueue(samples, audio: true)
+                        try coverage.acceptAudio(segment)
+                    }
+                }
+                if index < video.segments.count {
+                    let segment = video.segments[index]
+                    if seen.insert("v:\(segment.url)").inserted {
+                        let sid = sessionId, gen = generation
+                        let bytes = try await cache.data(for: segment.url) {
+                            try await service.fragmentData(segment.url, sessionId: sid,
+                                                           itag: choice.video.itag, generation: gen)
+                        }
+                        let samples = try await FragmentedMP4Reader.compressedSamples(
+                            initialization: videoInit, fragment: bytes, mediaType: .video
+                        )
+                        try await enqueue(samples, audio: false)
+                        try coverage.acceptVideo(segment)
+                    }
+                }
+            }
+            positionMs = coverage.safeEndMs
+            if response.endOfStream == true {
                 state = TVL10n.value("player.end")
                 return
             }
-            if synchronizedEnd <= nextTime {
-                throw SabrFailure.invalidResponse("SABR window not advancing")
-            }
-            nextTime = synchronizedEnd
-            positionMs = nextTime
             state = TVL10n.value("player.playing")
-            // Make sure requests don't race ahead of playback and consume the full video.
-            while !Task.isCancelled && nextTime > Int64(CMTimeGetSeconds(synchronizer.currentTime()) * 1000) + 25_000 {
-                try await Task.sleep(nanoseconds: 150_000_000)
-            }
         }
     }
 
