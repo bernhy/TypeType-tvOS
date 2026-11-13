@@ -38,6 +38,7 @@ final class HardwareVideoDecoder {
     private let allowSoftware: Bool
     private var active = true
     private var recordedFirstFrame = false
+    var playbackPaused = false
 
     init(display: AVSampleBufferDisplayLayer, allowSoftware: Bool) {
         self.display = display
@@ -150,13 +151,14 @@ final class HardwareVideoDecoder {
         ) == noErr, let sample else {
             throw SabrFailure.unsupported("Cannot enqueue decoded pixel buffer")
         }
-        var cycles = 0
+        var budget = SabrRendererWaitBudget()
         while active && !display.isReadyForMoreMediaData {
             try Task.checkCancellation()
-            guard display.status != .failed && cycles < 1_000 else {
+            guard display.status != .failed,
+                  budget.shouldContinue(paused: playbackPaused, stepMilliseconds: 15)
+            else {
                 throw SabrFailure.stalled("video display stopped accepting decoded frames")
             }
-            cycles += 1
             try await Task.sleep(nanoseconds: 15_000_000)
         }
         guard active else { throw SabrFailure.stopped }

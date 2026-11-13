@@ -245,6 +245,7 @@ final class SabrPlayerController: ObservableObject {
         synchronizer.setRate(rate, time: synchronizer.currentTime())
         isPlaying.toggle()
         prefersPause = !isPlaying
+        hardwareDecoder?.playbackPaused = prefersPause
         state = isPlaying ? TVL10n.value("player.playing") : TVL10n.value("player.paused")
         recordProgress(force: true)
     }
@@ -389,6 +390,7 @@ final class SabrPlayerController: ObservableObject {
                 hardwareDecoder = HardwareVideoDecoder(
                     display: videoLayer, allowSoftware: allowSoftware
                 )
+                hardwareDecoder?.playbackPaused = prefersPause
                 state = TVL10n.value("player.session")
                 do {
                     let session = try await retryTransient {
@@ -547,6 +549,7 @@ final class SabrPlayerController: ObservableObject {
                 hardwareDecoder = HardwareVideoDecoder(
                     display: videoLayer, allowSoftware: allowSoftware
                 )
+                hardwareDecoder?.playbackPaused = prefersPause
                 playbackPositionMs = restartPosition
                 isInitialized = false
                 hasQueuedFirstAudio = false
@@ -807,32 +810,34 @@ final class SabrPlayerController: ObservableObject {
 
             switch choice {
             case .audio:
-                var waitCycles = 0
+                var budget = SabrRendererWaitBudget()
                 while !audioRenderer.isReadyForMoreMediaData {
                     try Task.checkCancellation()
                     guard audioRenderer.status != .failed else {
                         throw SabrFailure.stalled("audio renderer reported failure")
                     }
-                    guard waitCycles < 750 else {
+                    guard budget.shouldContinue(
+                        paused: prefersPause, stepMilliseconds: 20
+                    ) else {
                         throw SabrFailure.stalled("audio renderer stopped accepting samples")
                     }
-                    waitCycles += 1
                     try await Task.sleep(nanoseconds: 20_000_000)
                 }
                 audioRenderer.enqueue(audio[ai])
                 ai += 1
                 hasQueuedFirstAudio = true
             case .video:
-                var waitCycles = 0
+                var budget = SabrRendererWaitBudget()
                 while !videoLayer.isReadyForMoreMediaData {
                     try Task.checkCancellation()
                     guard videoLayer.status != .failed else {
                         throw SabrFailure.stalled("video display layer failed")
                     }
-                    guard waitCycles < 750 else {
+                    guard budget.shouldContinue(
+                        paused: prefersPause, stepMilliseconds: 20
+                    ) else {
                         throw SabrFailure.stalled("video renderer stopped accepting samples")
                     }
-                    waitCycles += 1
                     try await Task.sleep(nanoseconds: 20_000_000)
                 }
                 guard let hardwareDecoder else {
