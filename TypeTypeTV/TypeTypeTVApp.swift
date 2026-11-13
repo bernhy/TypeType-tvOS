@@ -94,11 +94,20 @@ enum TVShowcaseFixtures {
             let live: Bool = number == 7
             let duration: Int? = live ? nil : 340 + number * 37
             let uploader: String = number % 3 == 0 ? "TypeType Community" : "Beispielkanal"
-            let item = VideoItem(
+            var item = VideoItem(
                 id: "ui-preview-\(number)", title: title,
                 url: "https://youtu.be/dQw4w9WgXcQ", thumbnailUrl: nil,
                 uploaderName: uploader, duration: duration, isLive: live
             )
+            // Preview both partially viewed and completed cards in Xcode
+            // screenshot tests without requiring an account or network.
+            if let duration, !live {
+                if number % 5 == 1 {
+                    item.watchPositionMs = Int64(duration) * 420
+                } else if number % 5 == 2 {
+                    item.watchPositionMs = Int64(duration) * 950
+                }
+            }
             samples.append(item)
         }
         return samples
