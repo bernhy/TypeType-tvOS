@@ -4,11 +4,11 @@ import XCTest
 
 private final class TVAPIWireProtocol: URLProtocol {
     static let lock = NSLock()
-    static var resolver: ((URLRequest) -> (Int, Data))?
+    static var resolvers: [String: (URLRequest) -> (Int, Data)] = [:]
 
-    static func install(_ next: @escaping (URLRequest) -> (Int, Data)) {
+    static func install(host: String, _ next: @escaping (URLRequest) -> (Int, Data)) {
         lock.lock()
-        resolver = next
+        resolvers[host] = next
         lock.unlock()
     }
 
@@ -18,7 +18,7 @@ private final class TVAPIWireProtocol: URLProtocol {
 
     override func startLoading() {
         Self.lock.lock()
-        let callback = Self.resolver
+        let callback = request.url?.host.flatMap { Self.resolvers[$0] }
         Self.lock.unlock()
         guard let url = request.url, let callback else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
@@ -36,11 +36,11 @@ private final class TVAPIWireProtocol: URLProtocol {
 }
 
 final class TVAPIWireTests: XCTestCase {
-    private func fixtureAPI() throws -> TypeTypeAPI {
+    private func fixtureAPI(host: String) throws -> TypeTypeAPI {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [TVAPIWireProtocol.self]
         return try TypeTypeAPI(
-            address: "https://tv.example", session: URLSession(configuration: config),
+            address: "https://\(host)", session: URLSession(configuration: config),
             token: "fixture-token"
         )
     }
@@ -48,7 +48,7 @@ final class TVAPIWireTests: XCTestCase {
     func testSettingsAndProgressUseRealServerMethods() async throws {
         let lock = NSLock()
         var records: [(String, String, String, String?, Data?)] = []
-        TVAPIWireProtocol.install { request in
+        TVAPIWireProtocol.install(host: "settings.example") { request in
             let url = request.url!
             lock.lock()
             records.append((
@@ -66,7 +66,7 @@ final class TVAPIWireTests: XCTestCase {
             }
             return (200, Data("{}".utf8))
         }
-        let api = try fixtureAPI()
+        let api = try fixtureAPI(host: "settings.example")
         let loaded = try await api.accountSettings()
         XCTAssertEqual(loaded.defaultQuality, "1080p")
         XCTAssertEqual(loaded.subtitlesEnabled, true)
@@ -100,7 +100,7 @@ final class TVAPIWireTests: XCTestCase {
         XCTAssertEqual(progressBody?["position"] as? Int, 90_500)
     }
     func testInstanceHomeAndSearchPathsUseApiDirectory() async throws {
-        TVAPIWireProtocol.install { request in
+        TVAPIWireProtocol.install(host: "browse.example") { request in
             guard request.httpMethod == "GET" else { return (405, Data()) }
             guard let url = request.url,
                   let parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
@@ -124,7 +124,7 @@ final class TVAPIWireTests: XCTestCase {
             default: return (404, Data())
             }
         }
-        let api = try fixtureAPI()
+        let api = try fixtureAPI(host: "browse.example")
         try await api.validate()
         let home = try await api.home()
         XCTAssertTrue(home.items.isEmpty)
@@ -135,7 +135,7 @@ final class TVAPIWireTests: XCTestCase {
     func testFavoritesAndWatchLaterUseAuthenticatedWrites() async throws {
         let lock = NSLock()
         var requests: [(String, String, String?)] = []
-        TVAPIWireProtocol.install { request in
+        TVAPIWireProtocol.install(host: "actions.example") { request in
             guard let url = request.url else { return (400, Data()) }
             lock.lock()
             requests.append((
@@ -148,7 +148,7 @@ final class TVAPIWireTests: XCTestCase {
             return request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-token"
                 ? (204, Data()) : (401, Data())
         }
-        let api = try fixtureAPI()
+        let api = try fixtureAPI(host: "actions.example")
         let url = "https://www.youtube.com/watch?v=abc123def45"
         let video = VideoItem(id: url, title: "Video", url: url,
             thumbnailUrl: nil, uploaderName: nil, duration: 120, isLive: false)
