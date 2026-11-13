@@ -130,15 +130,15 @@ final class TypeTypeTVUITests: XCTestCase {
         add(shot)
     }
 
-    func testGermanSettingsPerformancePanelScreenshot() throws {
+    func testGermanSettingsDevicePanelScreenshot() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-TypeTypeTVPreview", "settings-performance",
+        app.launchArguments = ["-TypeTypeTVPreview", "settings-device",
                                "-typetype.uiLanguage", "de"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["Leistung"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Apple TV"].firstMatch.waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["Sanfte Menüanimationen"].firstMatch.exists)
         let shot = XCTAttachment(screenshot: app.screenshot())
-        shot.name = "TypeType-tvOS-Einstellungen-Leistung-DE"
+        shot.name = "TypeType-tvOS-Einstellungen-AppleTV-DE"
         shot.lifetime = .keepAlways
         add(shot)
     }

@@ -19,7 +19,7 @@ struct RootView: View {
         if let preview = Self.previewMode,
            let api = try? TypeTypeAPI(address: "https://preview.invalid") {
             if ["home", "home-expanded", "search", "settings",
-                "settings-content", "settings-performance", "settings-language",
+                "settings-content", "settings-performance", "settings-device", "settings-language",
                 "settings-account", "settings-instance", "settings-about"].contains(preview) {
                 BrowseView(
                     instanceOrigin: "https://preview.invalid",
@@ -31,7 +31,7 @@ struct RootView: View {
                     initialSettingsGroup: {
                         switch preview {
                         case "settings-content": return .content
-                        case "settings-performance": return .performance
+                        case "settings-performance", "settings-device": return .device
                         case "settings-language": return .language
                         case "settings-account": return .account
                         case "settings-instance": return .instance

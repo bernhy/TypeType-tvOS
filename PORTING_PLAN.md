@@ -68,7 +68,3 @@ Source baseline: `TypeType-Video/TypeType-TV` branch `dev`, inspected 2026-11-13
 - **Not provided by stock AVPlayer:** direct TypeType SABR/Media3 adaptive source implementation. Must be implemented or packaged as HLS.
 - **Not an Xcode SDK restriction:** free GitHub build versus paid Apple membership; core APIs are present in the SDK. Paid program affects distribution/provisioning/TestFlight and particular entitlements, not the general ability to compile SwiftUI/AVKit clients.
 - **Hardware tests:** GitHub macOS runners have simulators, not a pairing route to your private Apple TV. Physical device signing/install from your Mac VM is separate.
-
-## GitHub account situation (checked in conversation)
-
-The connected login was `bernhy`. Its installation was visible, but no write-accessible repositories were listed; the upstream `TypeType-Video/TypeType-TV` is public/read-only. This starter is delivered as a ZIP instead of making unapproved commits to upstream. Create a repository under `bernhy` and ensure GitHub app access to it. Then this starter can be committed to `main`.

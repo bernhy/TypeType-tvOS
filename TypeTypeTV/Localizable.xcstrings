@@ -5516,6 +5516,90 @@
           }
         }
       }
+    },
+    "settings.groupDevice": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple TV"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple TV"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple TV"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple TV"
+          }
+        }
+      }
+    },
+    "settings.groupDeviceHelp": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerätespezifische Optionen für Fernbedienung, SABR-Puffer, Hardware und Darstellung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device-only controls for the remote, SABR buffer, hardware and appearance."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réglages propres à cet appareil pour la télécommande, le tampon SABR, le matériel et l'affichage."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opciones de este dispositivo para mando, búfer SABR, hardware y apariencia."
+          }
+        }
+      }
+    },
+    "settings.localDeviceScope": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Einstellungen gelten nur auf diesem Apple TV und werden nicht mit dem TypeType-Konto synchronisiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These settings apply to this Apple TV only and aren't synchronized with the TypeType account."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ces réglages ne concernent que cet Apple TV et ne sont pas synchronisés avec le compte TypeType."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estos ajustes solo se aplican a este Apple TV y no se sincronizan con la cuenta TypeType."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

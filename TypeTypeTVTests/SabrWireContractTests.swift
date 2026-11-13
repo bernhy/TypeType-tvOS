@@ -299,7 +299,7 @@ final class SabrWireContractTests: XCTestCase {
         let all = TVSettingsGroup.allCases
         XCTAssertEqual(all.first, .playback)
         XCTAssertTrue(all.contains(.content))
-        XCTAssertTrue(all.contains(.performance))
+        XCTAssertTrue(all.contains(.device))
         XCTAssertTrue(all.contains(.language))
         XCTAssertTrue(all.contains(.instance))
         XCTAssertEqual(all.last, .about)

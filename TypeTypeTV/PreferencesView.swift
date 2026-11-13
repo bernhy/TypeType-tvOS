@@ -149,7 +149,7 @@ struct PreferencesView: View {
         switch group {
         case .playback: playbackPanel
         case .content: contentPanel
-        case .performance: performancePanel
+        case .device: devicePanel
         case .language: languagePanel
         case .account: accountPanel
         case .instance: instancePanel
@@ -159,7 +159,7 @@ struct PreferencesView: View {
 
     private var playbackPanel: some View {
         VStack(spacing: 24) {
-            TVSettingsCard("settings.videoQuality") {
+            TVSettingsCard("settings.videoQuality", summary: "settings.localDeviceScope") {
                 Toggle("settings.allowSoftware", isOn: $allowSoftware)
                 Text("settings.softwareWarning")
                     .font(.caption).foregroundStyle(TTTheme.muted)
@@ -171,65 +171,7 @@ struct PreferencesView: View {
                     Text("480p").tag(480)
                 }
             }
-            TVSettingsCard("settings.remote", summary: "settings.remoteHelp") {
-                TVSettingsMenuRow("settings.skipLength", selection: $skipSeconds) {
-                    ForEach([5, 10, 15, 20], id: \.self) { seconds in
-                        Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
-                    }
-                }
-            }
-            TVSettingsCard("settings.buffer", summary: "settings.bufferHelp") {
-                TVSettingsMenuRow("settings.forwardBuffer", selection: $bufferForwardSeconds) {
-                    ForEach([30, 60, 120, 180, 300, 600], id: \.self) { seconds in
-                        Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
-                    }
-                }
-                TVSettingsMenuRow("settings.backwardBuffer", selection: $bufferBackSeconds) {
-                    ForEach([30, 60, 120, 180, 300], id: \.self) { seconds in
-                        Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
-                    }
-                }
-                TVSettingsMenuRow("settings.maxCache", selection: $bufferCacheMiB) {
-                    ForEach([256, 512, 1024], id: \.self) { amount in
-                        Text("\(amount) MiB").tag(amount)
-                    }
-                }
-                Text("settings.bufferWarning")
-                    .font(.caption).foregroundStyle(TTTheme.muted)
-            }
-            TVSettingsCard("settings.hardware", summary: "settings.hardwareHelp") {
-                ForEach(["H.264", "HEVC", "VP9", "AV1"], id: \.self) { label in
-                    let codec: String = {
-                        switch label {
-                        case "H.264": return "avc1"
-                        case "HEVC": return "hvc1"
-                        case "VP9": return "vp09"
-                        default: return "av01"
-                        }
-                    }()
-                    HStack {
-                        Text(label)
-                        Spacer()
-                        Label(
-                            TVL10n.value(HardwareCodec.supported(codec)
-                                ? "settings.hardwareYes" : "settings.hardwareNo"),
-                            systemImage: HardwareCodec.supported(codec)
-                                ? "checkmark.circle" : "minus.circle"
-                        )
-                        .foregroundStyle(HardwareCodec.supported(codec) ? .green : .orange)
-                    }
-                    .padding(.vertical, 4)
-                }
-            }
-            Button("settings.reset") {
-                allowSoftware = false
-                maxHeight = 2160
-                skipSeconds = 10
-                bufferForwardSeconds = 180
-                bufferBackSeconds = 120
-                bufferCacheMiB = 512
-            }
-            .buttonStyle(.bordered)
+
         }
     }
 
@@ -272,8 +214,34 @@ struct PreferencesView: View {
         }
     }
 
-    private var performancePanel: some View {
+    private var devicePanel: some View {
         VStack(spacing: 24) {
+            TVSettingsCard("settings.remote", summary: "settings.remoteHelp") {
+                TVSettingsMenuRow("settings.skipLength", selection: $skipSeconds) {
+                    ForEach([5, 10, 15, 20], id: \.self) { seconds in
+                        Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
+                    }
+                }
+            }
+            TVSettingsCard("settings.buffer", summary: "settings.bufferHelp") {
+                TVSettingsMenuRow("settings.forwardBuffer", selection: $bufferForwardSeconds) {
+                    ForEach([30, 60, 120, 180, 300, 600], id: \.self) { seconds in
+                        Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
+                    }
+                }
+                TVSettingsMenuRow("settings.backwardBuffer", selection: $bufferBackSeconds) {
+                    ForEach([30, 60, 120, 180, 300], id: \.self) { seconds in
+                        Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
+                    }
+                }
+                TVSettingsMenuRow("settings.maxCache", selection: $bufferCacheMiB) {
+                    ForEach([256, 512, 1024], id: \.self) { amount in
+                        Text("\(amount) MiB").tag(amount)
+                    }
+                }
+                Text("settings.bufferWarning")
+                    .font(.caption).foregroundStyle(TTTheme.muted)
+            }
             TVSettingsCard("settings.performanceControls") {
                 Toggle("settings.navigationAnimations", isOn: $navigationAnimations)
                 Text("settings.navigationAnimationsHelp")
@@ -287,8 +255,38 @@ struct PreferencesView: View {
                     .font(.caption).foregroundStyle(TTTheme.muted)
             }
             TVSettingsCard("settings.hardware", summary: "settings.hardwareHelp") {
-                Text("settings.decoderNotes").foregroundStyle(TTTheme.muted)
+                ForEach(["H.264", "HEVC", "VP9", "AV1"], id: \.self) { label in
+                    let codec: String = {
+                        switch label {
+                        case "H.264": return "avc1"
+                        case "HEVC": return "hvc1"
+                        case "VP9": return "vp09"
+                        default: return "av01"
+                        }
+                    }()
+                    HStack {
+                        Text(label)
+                        Spacer()
+                        Label(
+                            TVL10n.value(HardwareCodec.supported(codec)
+                                ? "settings.hardwareYes" : "settings.hardwareNo"),
+                            systemImage: HardwareCodec.supported(codec)
+                                ? "checkmark.circle" : "minus.circle"
+                        )
+                        .foregroundStyle(HardwareCodec.supported(codec) ? .green : .orange)
+                    }
+                    .padding(.vertical, 4)
+                }
             }
+            Button("settings.reset") {
+                allowSoftware = false
+                maxHeight = 2160
+                skipSeconds = 10
+                bufferForwardSeconds = 180
+                bufferBackSeconds = 120
+                bufferCacheMiB = 512
+            }
+            .buttonStyle(.bordered)
         }
     }
 
