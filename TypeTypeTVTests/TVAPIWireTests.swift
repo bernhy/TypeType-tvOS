@@ -72,7 +72,8 @@ final class TVAPIWireTests: XCTestCase {
         XCTAssertEqual(loaded.subtitlesEnabled, true)
         _ = try await api.setAccountSetting("hideShorts", value: .boolean(true))
         let videoURL = "https://www.youtube.com/watch?v=abc123def45"
-        XCTAssertEqual(try await api.savedPosition(videoURL: videoURL), 87_654)
+        let resumed = try await api.savedPosition(videoURL: videoURL)
+        XCTAssertEqual(resumed, 87_654)
         try await api.savePosition(videoURL: videoURL, milliseconds: 90_500)
         let video = VideoItem(
             id: videoURL, title: "Video", url: videoURL,
