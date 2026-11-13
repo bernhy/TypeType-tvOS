@@ -266,7 +266,7 @@ struct VideoCard: View {
                     .frame(height: 185).frame(maxWidth: .infinity).clipped()
                 if video.isLive == true {
                     Text("LIVE").font(.caption.bold())
-                        .padding(8).background(TTColor.red).padding(8)
+                        .padding(8).background(TTTheme.accent).padding(8)
                 } else if let duration = video.duration, duration > 0 {
                     Text(TTTheme.time(duration))
                         .font(.caption.monospacedDigit())
@@ -276,7 +276,7 @@ struct VideoCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 10))
             Text(video.title).font(.headline).lineLimit(2)
             Text(video.uploaderName ?? "").font(.caption)
-                .foregroundStyle(TTColor.mid).lineLimit(1)
+                .foregroundStyle(TTTheme.muted).lineLimit(1)
         }
         .foregroundStyle(.white)
         .accessibilityElement(children: .ignore)
