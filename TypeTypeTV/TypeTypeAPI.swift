@@ -446,7 +446,8 @@ struct TypeTypeAPI {
     func stream(for video: VideoItem) async throws -> StreamInfo {
         let endpoint: String
         if video.url.contains("youtube.com") || video.url.contains("youtu.be") {
-            endpoint = "streams/youtube/sabr"
+            endpoint = video.isLive == true ?
+                "streams/youtube/live" : "streams/youtube/sabr"
         } else if video.url.contains("bilibili.com") || video.url.contains("b23.tv") {
             endpoint = "streams/bilibili"
         } else if video.url.contains("nicovideo.jp") || video.url.contains("nico.ms") {

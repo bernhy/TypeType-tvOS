@@ -9,7 +9,7 @@ struct PlaybackView: View {
 
     var body: some View {
         Group {
-            if VideoAddress.youtubeID(video.url) != nil {
+            if VideoAddress.youtubeID(video.url) != nil && video.isLive != true {
                 SabrPlayerView(api: api, video: video)
             } else if let hlsURL {
                 TVHLSPlaybackView(api: api, video: video, url: hlsURL)
@@ -25,7 +25,9 @@ struct PlaybackView: View {
             }
         }
         .task {
-            if VideoAddress.youtubeID(video.url) == nil { await prepare() }
+            if VideoAddress.youtubeID(video.url) == nil || video.isLive == true {
+                await prepare()
+            }
         }
     }
 
