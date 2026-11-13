@@ -168,9 +168,9 @@ struct ServerSetupView: View {
                     .foregroundStyle(.orange)
                 Text("certificate.untrusted")
                     .font(.title3)
-                Text("Server: \(report.origin.host ?? ""):\(report.origin.port ?? 443)")
+                Text(TVL10n.formatted("certificate.connectionValue", report.origin.host ?? "", report.origin.port ?? 443))
                     .font(.headline)
-                Text("Zertifikat: \(report.subject)")
+                Text(TVL10n.formatted("certificate.subjectValue", report.subject))
                     .font(.headline)
                 Text(report.problem)
                     .foregroundStyle(.orange)
@@ -197,7 +197,7 @@ struct ServerSetupView: View {
                             certificate = nil
                             Task { await connect() }
                         } else {
-                            message = "Der Fingerabdruck konnte nicht sicher gespeichert werden."
+                            message = TVL10n.value("certificate.saveFailed")
                             certificate = nil
                         }
                     }

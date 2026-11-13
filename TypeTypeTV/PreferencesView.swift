@@ -24,7 +24,7 @@ struct PreferencesView: View {
                         .font(.subheadline.bold()).tracking(2.2)
                         .foregroundStyle(TTTheme.accent)
                     Text("Einstellungen").font(.system(size: 52, weight: .bold))
-                    Text("Server: \(api.origin.host ?? "")")
+                    Text(TVL10n.formatted("common.serverValue", api.origin.host ?? ""))
                         .font(.callout)
                         .foregroundStyle(TTTheme.muted)
                 }
@@ -58,7 +58,7 @@ struct PreferencesView: View {
                                   subtitle: "settings.remoteHelp") {
                     Picker("settings.skipLength", selection: $skipSeconds) {
                         ForEach([5, 10, 15, 20], id: \.self) { value in
-                            Text("\(value) Sekunden").tag(value)
+                            Text(TVL10n.formatted("common.seconds", value)).tag(value)
                         }
                     }
                 }
@@ -99,7 +99,7 @@ struct PreferencesView: View {
                             Text(label)
                             Spacer()
                             Label(
-                                HardwareCodec.supported(name) ? "Hardware erkannt" : "Nicht erkannt",
+                                TVL10n.value(HardwareCodec.supported(name) ? "settings.hardwareYes" : "settings.hardwareNo"),
                                 systemImage: HardwareCodec.supported(name) ? "checkmark.circle" : "minus.circle"
                             )
                             .foregroundStyle(
@@ -118,7 +118,7 @@ struct PreferencesView: View {
                             .foregroundStyle(.green)
                         Button("settings.logout") {
                             TypeTypeCredentials.shared.clear(for: api.origin)
-                            status = "Lokale Anmeldung beendet"
+                            status = TVL10n.value("login.signedOut")
                         }
                         .buttonStyle(.bordered)
                     }
@@ -129,7 +129,7 @@ struct PreferencesView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(TTTheme.accent)
                     if let code = loginCode, let link = loginLink {
-                        Text("GERÄTECODE: \(code)")
+                        Text(TVL10n.formatted("login.deviceCode", code))
                             .font(.title.bold()).monospacedDigit()
                         Text(link.absoluteString)
                             .font(.callout)
@@ -170,7 +170,7 @@ struct PreferencesView: View {
     private func startLogin() async {
         let service = SabrService(api: api)
         do {
-            status = "Starte Geräteanmeldung …"
+            status = TVL10n.value("login.starting")
             let flow = try await service.deviceLoginStart()
             loginCode = flow.userCode
             var link = api.origin.appendingPathComponent("link")
@@ -179,7 +179,7 @@ struct PreferencesView: View {
                 if let url = components.url { link = url }
             }
             loginLink = link
-            status = "Warte auf Bestätigung …"
+            status = TVL10n.value("login.waiting")
             let interval = UInt64(max(1, flow.interval)) * 1_000_000_000
             let maxPolls = max(1, flow.expiresIn / max(1, flow.interval))
             for _ in 0..<maxPolls {
@@ -188,16 +188,16 @@ struct PreferencesView: View {
                 let answer = try await service.deviceLoginPoll(flow.deviceCode)
                 if let token = answer.accessToken, !token.isEmpty {
                     TypeTypeCredentials.shared.save(token, for: api.origin)
-                    status = "Anmeldung erfolgreich"
+                    status = TVL10n.value("login.success")
                     loginCode = nil
                     return
                 }
                 if answer.code == "access_denied" || answer.code == "denied" {
-                    status = "Anmeldung abgelehnt"
+                    status = TVL10n.value("login.denied")
                     return
                 }
             }
-            status = "Code abgelaufen. Bitte erneut starten."
+            status = TVL10n.value("login.expired")
         } catch is CancellationError {
             return
         } catch {
