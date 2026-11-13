@@ -68,12 +68,12 @@ struct PreferencesView: View {
                                   subtitle: "settings.bufferHelp") {
                     Picker("settings.forwardBuffer", selection: $bufferForwardSeconds) {
                         ForEach([30, 60, 120, 180, 300, 600], id: \.self) { value in
-                            Text("\(value) Sekunden").tag(value)
+                            Text(TVL10n.formatted("common.seconds", value)).tag(value)
                         }
                     }
                     Picker("settings.backwardBuffer", selection: $bufferBackSeconds) {
                         ForEach([30, 60, 120, 180, 300], id: \.self) { value in
-                            Text("\(value) Sekunden").tag(value)
+                            Text(TVL10n.formatted("common.seconds", value)).tag(value)
                         }
                     }
                     Picker("settings.maxCache", selection: $bufferCacheMiB) {

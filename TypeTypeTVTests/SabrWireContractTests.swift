@@ -279,4 +279,15 @@ final class SabrWireContractTests: XCTestCase {
         XCTAssertEqual(TVL10n.value("nav.home", language: "unknown"), "Start")
     }
 
+    func testPackagedLanguagesAndRuntimeTranslations() {
+        let expected: Set<String> = ["de", "en", "fr", "es"]
+        XCTAssertTrue(expected.isSubset(of: Set(TVLanguages.available)))
+        XCTAssertEqual(TVL10n.value("nav.search", language: "de"), "Suche")
+        XCTAssertEqual(TVL10n.value("nav.search", language: "en"), "Search")
+        XCTAssertEqual(TVL10n.value("nav.search", language: "fr"), "Recherche")
+        XCTAssertEqual(TVL10n.value("nav.search", language: "es"), "Buscar")
+        XCTAssertEqual(TVL10n.value("home.recommendations", language: "fr"), "Recommandations")
+        XCTAssertEqual(TVL10n.value("home.recommendations", language: "es"), "Recomendaciones")
+    }
+
 }
