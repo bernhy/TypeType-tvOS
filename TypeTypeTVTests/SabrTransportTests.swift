@@ -160,4 +160,26 @@ final class SabrTransportTests: XCTestCase {
         XCTAssertEqual(count, 0)
         await cache.clear()
     }
+    func testServer1171ReleaseImmediatelyFreesSabrSession() async throws {
+        let lock = NSLock()
+        var requests: [(String, String)] = []
+        MockSabrProtocol.use { request in
+            lock.lock()
+            requests.append((request.httpMethod ?? "", request.url?.path ?? ""))
+            lock.unlock()
+            // The new server release endpoint is idempotent (HTTP 204).
+            return (204, Data())
+        }
+        let service = try fixtureService()
+        try await service.release(sessionId: "session-token")
+        try await service.release(sessionId: "session-token")
+        try await service.release(sessionId: "")
+        let captured = lock.withLock { requests }
+        XCTAssertEqual(captured.count, 2)
+        XCTAssertTrue(captured.allSatisfy { $0.0 == "DELETE" })
+        XCTAssertTrue(captured.allSatisfy {
+            $0.1 == "/api/sabr/playback/session-token"
+        })
+    }
+
 }
