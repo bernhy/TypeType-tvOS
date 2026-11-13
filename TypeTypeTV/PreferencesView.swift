@@ -75,6 +75,10 @@ struct PreferencesView: View {
         .padding(.top, 46)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TTTheme.ink)
+        // Initial focus belongs to the selected settings category, not Home.
+        .onAppear {
+            if focusedGroup == nil { focusedGroup = group }
+        }
         .task(id: group) {
             if group == .content && remote == nil { await refreshRemote() }
             if group == .instance && instanceInfo == nil { await refreshInstance() }
@@ -285,6 +289,8 @@ struct PreferencesView: View {
                 bufferForwardSeconds = 180
                 bufferBackSeconds = 120
                 bufferCacheMiB = 512
+                navigationAnimations = true
+                thumbnailCacheMiB = 128
             }
             .buttonStyle(.bordered)
         }

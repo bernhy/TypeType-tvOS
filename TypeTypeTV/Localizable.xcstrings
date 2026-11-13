@@ -958,25 +958,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wiedergabeeinstellungen auf Standard zurücksetzen"
+            "value": "Lokale Geräteeinstellungen zurücksetzen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reset playback settings"
+            "value": "Reset local device settings"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Réinitialiser les réglages de lecture"
+            "value": "Réinitialiser les réglages de cet appareil"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restablecer ajustes de reproducción"
+            "value": "Restablecer los ajustes locales del dispositivo"
           }
         }
       }
@@ -5597,6 +5597,34 @@
           "stringUnit": {
             "state": "translated",
             "value": "Estos ajustes solo se aplican a este Apple TV y no se sincronizan con la cuenta TypeType."
+          }
+        }
+      }
+    },
+    "settings.groupAccount": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuenta"
           }
         }
       }

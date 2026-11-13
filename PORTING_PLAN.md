@@ -5,6 +5,7 @@
 - **Direct SABR playback on tvOS for YouTube:** implement native Swift session manager, segment transport, demux/timestamps, buffering, seeking, and audio/video synchronization. Feed compressed samples to public CoreMedia/AVFoundation/VideoToolbox hardware decoders/renderers. Other video services can still use native HLS as appropriate.
 - **Hardware-first:** only hardware-supported codecs/profiles/resolution/frame rates/HDR enabled by default; software decoding strictly optional and OFF by default. Probe real-device capabilities, not merely SDK or simulator support. New A19 Apple TV 4K (2026) has AV1 hardware decode; do not assume AV1 hardware support on prior generations.
 - Do not require private Apple APIs, client-specific proxy servers, paid runtime entitlements, or modifications to existing TypeType upstream code.
+- **Settings split:** common content preferences are read/written through the unchanged TypeType Server `GET/PUT /api/settings` endpoints, with error rollback; hardware-first codec selection, resolution policy, Siri Remote seek intervals, SABR buffer/cache, animations, thumbnail memory and language choice remain local to each Apple TV. The settings UI mirrors Android TV's category rail and options panel.
 
 ## First milestones
 

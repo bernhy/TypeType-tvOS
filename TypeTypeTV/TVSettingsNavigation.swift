@@ -22,7 +22,7 @@ enum TVSettingsGroup: String, CaseIterable, Identifiable {
         case .content: return "settings.groupContent"
         case .device: return "settings.groupDevice"
         case .language: return "settings.language"
-        case .account: return "settings.account"
+        case .account: return "settings.groupAccount"
         case .instance: return "settings.groupInstance"
         case .about: return "settings.groupAbout"
         }
