@@ -70,6 +70,10 @@ final class TVHLSPlaybackController: ObservableObject {
     private var lastPositionMs: Int64 = 0
     private var retryCount = 0
     private var lastRecoveryAttempt: Date?
+    private var recoveryInFlight = false
+    // Incrementing on teardown invalidates network replies that arrive after
+    // a user leaves or a different HLS player item has been installed.
+    private var playbackGeneration: UInt64 = 0
     private var isStopped = false
     private var initialSeekFinished = false
 
@@ -79,6 +83,7 @@ final class TVHLSPlaybackController: ObservableObject {
         self.video = video
         self.streamURL = url
         isStopped = false
+        let generation = playbackGeneration
         historyRecorded = false
         retryCount = 0
         lastRecoveryAttempt = nil
@@ -94,7 +99,8 @@ final class TVHLSPlaybackController: ObservableObject {
         historyEnabled = allowed
         await progressWriter.enable(allowed)
         let saved = allowed ? (try? await api.savedPosition(videoURL: video.url)) : nil
-        guard !Task.isCancelled, !isStopped else { return }
+        guard !Task.isCancelled, !isStopped,
+              playbackGeneration == generation else { return }
         let seconds = TVHLSResumePolicy.startSeconds(
             savedPositionMs: saved, durationSeconds: video.duration,
             isLive: video.isLive == true
@@ -266,6 +272,7 @@ final class TVHLSPlaybackController: ObservableObject {
     }
 
     private func tearDown(save: Bool) {
+        playbackGeneration &+= 1
         if save {
             checkpoint(force: true)
             TVPlaybackPresenceReporter.shared.stop(owner: presenceOwner)
@@ -299,6 +306,7 @@ final class TVHLSPlaybackController: ObservableObject {
     }
 
     func restartAfterFailure(userInitiated: Bool = false) async {
+        guard !recoveryInFlight else { return }
         // Permit later, independent outages after a long healthy interval,
         // while bounding repeated reconnects during one sustained failure.
         let now = Date()
@@ -309,6 +317,9 @@ final class TVHLSPlaybackController: ObservableObject {
         }
         guard !isStopped, retryCount < 3,
               let api, let video else { return }
+        recoveryInFlight = true
+        defer { recoveryInFlight = false }
+        let generation = playbackGeneration
         retryCount += 1
         lastRecoveryAttempt = now
         checkpoint(force: true)
@@ -323,7 +334,8 @@ final class TVHLSPlaybackController: ObservableObject {
                 guard let nextURL = api.relativeMediaURL(stream.hlsUrl) else {
                     throw TypeTypeError.unavailableFormat
                 }
-                guard !Task.isCancelled, !isStopped else { return }
+                guard !Task.isCancelled, !isStopped,
+                      playbackGeneration == generation else { return }
                 let seconds = max(0, Double(lastPositionMs) / 1_000)
                 tearDown(save: false)
                 isStopped = false
@@ -334,12 +346,12 @@ final class TVHLSPlaybackController: ObservableObject {
             } catch is CancellationError {
                 return
             } catch TypeTypeError.videoUnavailable {
-                guard !isStopped else { return }
+                guard !isStopped, playbackGeneration == generation else { return }
                 errorMessage = TVL10n.value("player.videoUnavailable")
                 playbackUnavailable = true
                 return
             } catch {
-                guard !isStopped else { return }
+                guard !isStopped, playbackGeneration == generation else { return }
                 guard let delay = policy.delayNanoseconds(
                     error: error, attempt: attempt,
                     elapsedSeconds: Date().timeIntervalSince(started)
