@@ -25,6 +25,51 @@ enum SabrLookaheadPolicy {
     }
 }
 
+/// Rebuild advertised SABR ranges only from fragments *currently on disk*.
+/// A historic high-water mark is not proof that an evicted fragment is buffered.
+enum SabrCachedRangePlanner {
+    static func ranges(from fragments: [SabrMediaReference], retainFromMs: Int64) -> [SabrBufferedRange] {
+        let earliest = max(0, retainFromMs)
+        let ordered = fragments.compactMap { item -> SabrBufferedRange? in
+            guard item.startMs >= 0, item.durationMs > 0,
+                  item.startMs <= Int64.max - item.durationMs else { return nil }
+            let end = item.startMs + item.durationMs
+            let start = max(earliest, item.startMs)
+            guard end > start else { return nil }
+            return SabrBufferedRange(itag: item.itag, startMs: start, endMs: end)
+        }.sorted {
+            if $0.itag != $1.itag { return $0.itag < $1.itag }
+            if $0.startMs != $1.startMs { return $0.startMs < $1.startMs }
+            return $0.endMs < $1.endMs
+        }
+        var merged: [SabrBufferedRange] = []
+        for item in ordered {
+            if let last = merged.last, last.itag == item.itag,
+               item.startMs <= last.endMs {
+                merged[merged.count - 1] = SabrBufferedRange(
+                    itag: item.itag, startMs: last.startMs,
+                    endMs: max(last.endMs, item.endMs)
+                )
+            } else {
+                merged.append(item)
+            }
+        }
+        return merged
+    }
+
+    static func cachedThrough(_ ranges: [SabrBufferedRange],
+                              audioItag: Int, videoItag: Int,
+                              positionMs: Int64) -> Int64 {
+        let position = max(0, positionMs)
+        func end(_ itag: Int) -> Int64 {
+            ranges.first(where: {
+                $0.itag == itag && $0.startMs <= position && $0.endMs > position
+            })?.endMs ?? position
+        }
+        return min(end(audioItag), end(videoItag))
+    }
+}
+
 /// Bounded, ordered handoff between the SABR network/cache producer and the
 /// A/V decoder consumer. No completed window may silently disappear.
 /// Poll waits are cancellation-aware and do not block the UI thread.

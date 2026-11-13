@@ -305,8 +305,14 @@ final class SabrPlayerController: ObservableObject {
         while !Task.isCancelled {
             let seconds = playbackSeconds()
             let playhead = seconds.isFinite ? max(start, Int64(max(0, seconds) * 1_000)) : start
+            let retainedEnd = await cache.cachedThroughMs(
+                audioItag: choice.audio.itag, videoItag: choice.video.itag,
+                positionMs: playhead
+            )
+            cachedThroughMs = retainedEnd
+            diskCacheBytes = await cache.bytesInUse
             if !first && !SabrLookaheadPolicy.shouldRequestMore(
-                cachedThroughMs: coverage.safeEndMs, playheadMs: playhead, targetMs: target
+                cachedThroughMs: retainedEnd, playheadMs: playhead, targetMs: target
             ) {
                 try await Task.sleep(nanoseconds: 250_000_000)
                 continue
@@ -314,7 +320,7 @@ final class SabrPlayerController: ObservableObject {
             let requested = try await service.window(
                 sessionId: sessionId, selection: choice, generation: generation,
                 positionMs: playhead,
-                ranges: coverage.requestRanges(
+                ranges: await cache.cachedRanges(
                     retainFromMs: max(0, playhead - Int64(buffer.backMilliseconds))
                 ),
                 buffer: buffer
@@ -348,9 +354,19 @@ final class SabrPlayerController: ObservableObject {
                 try coverage.acceptVideo(part)
             }
             let downloadedEnd = coverage.safeEndMs
-            cachedThroughMs = max(cachedThroughMs, downloadedEnd)
+            cachedThroughMs = await cache.cachedThroughMs(
+                audioItag: choice.audio.itag, videoItag: choice.video.itag,
+                positionMs: playhead
+            )
             diskCacheBytes = await cache.bytesInUse
 
+            // The server can finish with an empty or overlapping final window.
+            // Always deliver EOS to the decoder instead of treating it as a
+            // stalled prefetch, even when no timestamps advance.
+            if requested.endOfStream == true {
+                if !isFirstWindow { try await mailbox.offer(requested) }
+                return
+            }
             if downloadedEnd > previousEnd {
                 previousEnd = downloadedEnd
                 stalled = 0
@@ -365,7 +381,6 @@ final class SabrPlayerController: ObservableObject {
             if !isFirstWindow {
                 try await mailbox.offer(requested)
             }
-            if requested.endOfStream == true { return }
         }
     }
 

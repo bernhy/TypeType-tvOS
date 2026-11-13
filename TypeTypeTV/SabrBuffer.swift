@@ -45,6 +45,7 @@ actor SabrFragmentCache {
         let file: URL
         let count: Int
         var access: UInt64
+        var media: SabrMediaReference?
     }
 
     let capacityBytes: Int
@@ -64,6 +65,30 @@ actor SabrFragmentCache {
 
     var bytesInUse: Int { used }
     var itemCount: Int { entries.count }
+
+    // Only completed, retained downloads may be advertised as buffered to the
+    // server. Both the reported headroom and server ranges reflect evictions.
+    func cachedRanges(retainFromMs: Int64) -> [SabrBufferedRange] {
+        SabrCachedRangePlanner.ranges(
+            from: entries.values.compactMap { $0.media },
+            retainFromMs: retainFromMs
+        )
+    }
+
+    func cachedThroughMs(audioItag: Int, videoItag: Int,
+                         positionMs: Int64) -> Int64 {
+        SabrCachedRangePlanner.cachedThrough(
+            cachedRanges(retainFromMs: positionMs),
+            audioItag: audioItag, videoItag: videoItag,
+            positionMs: positionMs
+        )
+    }
+
+    func recordCachedMedia(_ item: SabrMediaReference) {
+        guard var entry = entries[item.url] else { return }
+        entry.media = item
+        entries[item.url] = entry
+    }
 
     func data(for key: String, load: @escaping @Sendable () async throws -> Data) async throws -> Data {
         guard !invalidated else { throw CancellationError() }
@@ -90,7 +115,7 @@ actor SabrFragmentCache {
                 do {
                     try value.write(to: file, options: .atomic)
                     clock &+= 1
-                    entries[key] = Entry(file: file, count: value.count, access: clock)
+                    entries[key] = Entry(file: file, count: value.count, access: clock, media: nil)
                     used += value.count
                 } catch {
                     try? FileManager.default.removeItem(at: file)
@@ -126,6 +151,7 @@ actor SabrFragmentCache {
                                 itag: item.itag, generation: generation
                             )
                         }
+                        await self.recordCachedMedia(item)
                     }
                 }
                 try await group.waitForAll()
