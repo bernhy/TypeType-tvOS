@@ -23,7 +23,7 @@ struct PreferencesView: View {
                     Text("TYPE TYPE")
                         .font(.subheadline.bold()).tracking(2.2)
                         .foregroundStyle(TTTheme.accent)
-                    Text("Einstellungen").font(.system(size: 52, weight: .bold))
+                    Text("nav.settings").font(.system(size: 52, weight: .bold))
                     Text(TVL10n.formatted("common.serverValue", api.origin.host ?? ""))
                         .font(.callout)
                         .foregroundStyle(TTTheme.muted)
