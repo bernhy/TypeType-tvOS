@@ -47,6 +47,8 @@ final class TVHLSPlaybackController: ObservableObject {
     private var video: VideoItem?
     private var streamURL: URL?
     private let progressWriter = TVPlaybackProgressWriter()
+    private let presenceOwner = UUID()
+    private var presenceAnnounced = false
     private var periodicObserver: Any?
     private var timeControlObservation: NSKeyValueObservation?
     private var itemFailureObservation: NSObjectProtocol?
@@ -107,6 +109,7 @@ final class TVHLSPlaybackController: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self, !self.isStopped else { return }
                 if status == .playing {
+                    self.announcePresenceIfNeeded()
                     if !self.historyRecorded {
                         self.checkpoint(started: true, force: true)
                         self.historyRecorded = true
@@ -165,14 +168,33 @@ final class TVHLSPlaybackController: ObservableObject {
         }
     }
 
+    private func announcePresenceIfNeeded() {
+        guard !presenceAnnounced, !isStopped, initialSeekFinished,
+              let api, let video, let duration = video.duration,
+              duration > 0 else { return }
+        let seconds = player.currentTime().seconds
+        let position = seconds.isFinite && seconds >= 0
+            ? Int64(min(seconds * 1_000, Double(Int64.max) / 2)) : lastPositionMs
+        TVPlaybackPresenceReporter.shared.start(
+            owner: presenceOwner, api: api, video: video,
+            positionMs: position, paused: false
+        )
+        presenceAnnounced = true
+    }
+
     func checkpoint(started: Bool = false, force: Bool = false) {
-        guard !isStopped, initialSeekFinished, historyEnabled,
+        guard !isStopped, initialSeekFinished,
               let api, let video, video.isLive != true else { return }
         let seconds = player.currentTime().seconds
         guard seconds.isFinite, seconds >= 0,
               seconds < Double(Int64.max) / 1_000 else { return }
         let position = Int64(seconds * 1_000)
         lastPositionMs = position
+        TVPlaybackPresenceReporter.shared.progress(
+            owner: presenceOwner, video: video, positionMs: position,
+            paused: player.timeControlStatus != .playing
+        )
+        guard historyEnabled else { return }
         TVLocalProgress.shared.record(video.url, positionMs: position)
         Task {
             await progressWriter.checkpoint(
@@ -203,7 +225,11 @@ final class TVHLSPlaybackController: ObservableObject {
     }
 
     private func tearDown(save: Bool) {
-        if save { checkpoint(force: true) }
+        if save {
+            checkpoint(force: true)
+            TVPlaybackPresenceReporter.shared.stop(owner: presenceOwner)
+            presenceAnnounced = false
+        }
         isStopped = true
         stallTask?.cancel()
         stallTask = nil
