@@ -207,6 +207,7 @@ final class SabrPlayerController: ObservableObject {
             guard let cache = segmentCache else { throw SabrFailure.stopped }
             let currentSession = sessionId
             let currentGeneration = generation
+            let producerStart = restartPosition
             let producer = Task { [weak self] in
                 guard let self else {
                     await mailbox.finish(error: CancellationError())
@@ -216,7 +217,7 @@ final class SabrPlayerController: ObservableObject {
                     try await self.downloadWindows(
                         service: service, sessionId: currentSession,
                         generation: currentGeneration, choice: choice,
-                        start: restartPosition, buffer: buffer,
+                        start: producerStart, buffer: buffer,
                         cache: cache, mailbox: mailbox
                     )
                     await mailbox.finish()

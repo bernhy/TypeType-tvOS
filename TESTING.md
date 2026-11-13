@@ -45,3 +45,10 @@ The GitHub simulator build and wire-contract tests do **not** validate playback 
 - Check remote left movement from a first-column thumbnail, menu expansion and collapse, native URL keyboard, HTTPS/HTTP selection and hostname shortcuts.
 - Check approved self-signed same-origin thumbnail downloads, external CDN HTTPS, and that bearer tokens never go to a third party.
 - German is the default locale; the English resource catalog is prepared, while full translations remain in progress.
+
+## SABR background-lookahead verification
+
+- During video playback inspect TypeType's server logs: `/position` should report the **current playback clock**, not the end of a prefetched window. `bufferedRanges` should indicate only downloaded audio/video intervals.
+- Confirm playback continues while the next server window is being fetched and its compressed fragments cached; compare the on-screen cached-ahead seconds to actual downloaded bytes.
+- Check 180-second lookahead for 1080p AVC/AAC, then progressively higher bitrates, pause and resume, seek and restart, session expiry, server stalls, cache eviction and disconnection. Limits are conservative for unknown bitrate. Verify the cache stays within its configured MiB ceiling.
+- Verify the pipeline reports a network error after draining already downloaded windows rather than silently discarding them.

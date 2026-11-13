@@ -316,4 +316,82 @@ final class SabrWireContractTests: XCTestCase {
         XCTAssertEqual(TVL10n.value("home.recommendations", language: "es"), "Recomendaciones")
     }
 
+    func testLookaheadPolicyRespectsBufferAndBitrate() {
+        let defaultSettings = SabrBufferSettings()
+        XCTAssertEqual(SabrLookaheadPolicy.targetMilliseconds(
+            defaultSettings, videoBitrate: 6_000_000
+        ), 180_000)
+        XCTAssertEqual(SabrLookaheadPolicy.targetMilliseconds(
+            defaultSettings, videoBitrate: nil
+        ), 60_000, "Unknown bitrate should not fill the entire cache blindly")
+        let veryHighRate = SabrLookaheadPolicy.targetMilliseconds(
+            defaultSettings, videoBitrate: 100_000_000
+        )
+        XCTAssertGreaterThanOrEqual(veryHighRate, 10_000)
+        XCTAssertLessThan(veryHighRate, 180_000)
+        XCTAssertTrue(SabrLookaheadPolicy.shouldRequestMore(
+            cachedThroughMs: 42_000, playheadMs: 8_000, targetMs: 180_000
+        ))
+        XCTAssertFalse(SabrLookaheadPolicy.shouldRequestMore(
+            cachedThroughMs: 198_000, playheadMs: 8_000, targetMs: 180_000
+        ))
+    }
+
+    func testSabrMailboxIsOrderedAndDrainsBeforeFinishing() async throws {
+        let mailbox = SabrWindowMailbox(capacity: 2)
+        let first = try JSONDecoder().decode(SabrWindow.self, from: Data(
+            #"{"ready":true,"generation":1,"durationMs":20000}"#.utf8
+        ))
+        let second = try JSONDecoder().decode(SabrWindow.self, from: Data(
+            #"{"ready":true,"generation":2,"durationMs":30000}"#.utf8
+        ))
+        try await mailbox.offer(first)
+        try await mailbox.offer(second)
+        await mailbox.finish()
+        let a = try await mailbox.next()
+        let b = try await mailbox.next()
+        let done = try await mailbox.next()
+        XCTAssertEqual(a?.generation, 1)
+        XCTAssertEqual(b?.generation, 2)
+        XCTAssertNil(done)
+    }
+
+    func testSabrMailboxAppliesBackpressureWithoutDroppingWindows() async throws {
+        let mailbox = SabrWindowMailbox(capacity: 1)
+        let first = try JSONDecoder().decode(SabrWindow.self, from: Data(
+            #"{"ready":true,"generation":3}"#.utf8
+        ))
+        let second = try JSONDecoder().decode(SabrWindow.self, from: Data(
+            #"{"ready":true,"generation":4}"#.utf8
+        ))
+        try await mailbox.offer(first)
+        let producer = Task { try await mailbox.offer(second) }
+        try await Task.sleep(nanoseconds: 150_000_000)
+        let pendingCount = await mailbox.queuedCount
+        XCTAssertEqual(pendingCount, 1, "A full mailbox must not grow past capacity")
+        let received = try await mailbox.next()
+        XCTAssertEqual(received?.generation, 3)
+        try await producer.value
+        let remaining = try await mailbox.next()
+        XCTAssertEqual(remaining?.generation, 4)
+        await mailbox.finish()
+    }
+
+    func testSabrMailboxPropagatesFailureAfterBufferedWindows() async throws {
+        let mailbox = SabrWindowMailbox()
+        let item = try JSONDecoder().decode(SabrWindow.self, from: Data(
+            #"{"ready":true,"generation":8}"#.utf8
+        ))
+        try await mailbox.offer(item)
+        await mailbox.finish(error: SabrFailure.invalidResponse("network stopped"))
+        let played = try await mailbox.next()
+        XCTAssertEqual(played?.generation, 8)
+        do {
+            _ = try await mailbox.next()
+            XCTFail("Expected failed producer to be reported")
+        } catch SabrFailure.invalidResponse(let message) {
+            XCTAssertEqual(message, "network stopped")
+        }
+    }
+
 }
