@@ -111,7 +111,7 @@ final class TypeTypeTVUITests: XCTestCase {
                                "-typetype.uiLanguage", "de"]
         app.launch()
         XCTAssertTrue(app.staticTexts["Wiedergabe"].firstMatch.waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["Maximale Videoauflösung"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["Videoqualität"].firstMatch.exists)
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "TypeType-tvOS-Einstellungen-Wiedergabe-DE"
         shot.lifetime = .keepAlways
