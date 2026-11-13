@@ -78,15 +78,16 @@ struct SabrWindowRequest: Encodable {
     let bufferedRanges: [SabrBufferedRange]
     let audioOnly: Bool
 
-    init(_ selected: SabrSelection, generation: Int64, positionMs: Int64, ranges: [SabrBufferedRange]) {
+    init(_ selected: SabrSelection, generation: Int64, positionMs: Int64,
+         ranges: [SabrBufferedRange], buffer: SabrBufferSettings = SabrBufferSettings()) {
         self.generation = generation
         playerTimeMs = positionMs
         videoItag = selected.video.itag
         audioItag = selected.audio.itag
         audioTrackId = selected.audio.audioTrackId
         playbackRate = 1
-        bufferGoalMs = 10_000
-        backBufferMs = 30_000
+        bufferGoalMs = buffer.forwardMilliseconds
+        backBufferMs = buffer.backMilliseconds
         bufferedRanges = ranges
         audioOnly = false
     }
@@ -211,7 +212,7 @@ final class TypeTypeCredentials {
     func save(_ token: String, for origin: URL) {
         let key: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "org.typetype.tvOS.auth",
-            kSecAttrAccount as String: origin.host ?? ""]
+            kSecAttrAccount as String: origin.absoluteString]
         SecItemDelete(key as CFDictionary)
         var item = key
         item[kSecValueData as String] = Data(token.utf8)
@@ -236,7 +237,7 @@ private final class SabrNoRedirectDelegate: NSObject, URLSessionTaskDelegate {
     }
 }
 
-final class SabrService {
+final class SabrService: @unchecked Sendable {
     private let origin: URL
     private let base: URL
     private let session: URLSession
@@ -286,8 +287,9 @@ final class SabrService {
     }
 
     func window(sessionId: String, selection: SabrSelection, generation: Int64,
-                positionMs: Int64, ranges: [SabrBufferedRange] = []) async throws -> SabrWindow {
-        let body = try encoder.encode(SabrWindowRequest(selection, generation: generation, positionMs: positionMs, ranges: ranges))
+                positionMs: Int64, ranges: [SabrBufferedRange] = [],
+                buffer: SabrBufferSettings = SabrBufferSettings()) async throws -> SabrWindow {
+        let body = try encoder.encode(SabrWindowRequest(selection, generation: generation, positionMs: positionMs, ranges: ranges, buffer: buffer))
         let path = "sabr/playback/\(sessionId)"
         let _: EmptyReply = try await request(path + "/position", method: "POST", body: body, allowedStatuses: [200, 202, 204], allowEmpty: true)
         var prefetched = false
