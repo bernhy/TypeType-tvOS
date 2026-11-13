@@ -772,6 +772,7 @@ struct SabrPlayerView: View {
     @AppStorage("typetype.skipSeconds") private var skipSeconds = 10
     @State private var controlsVisible = true
     @State private var revealIndex = 0
+    @State private var optionsVisible = false
 
     private func reveal() {
         controlsVisible = true
@@ -789,23 +790,27 @@ struct SabrPlayerView: View {
             Color.black.ignoresSafeArea()
             SabrVideoSurface(displayLayer: engine.videoLayer).ignoresSafeArea()
 
-            SiriRemotePlayerInput(
-                onTouch: reveal,
-                onDirection: skip,
-                onTogglePlayback: {
-                    engine.togglePause()
-                    reveal()
-                },
-                onSelect: {
-                    if controlsVisible {
+            if !optionsVisible {
+                SiriRemotePlayerInput(
+                    onTouch: reveal,
+                    onDirection: skip,
+                    onTogglePlayback: {
                         engine.togglePause()
+                        reveal()
+                    },
+                    onSelect: {
+                        if controlsVisible { engine.togglePause() }
+                        reveal()
+                    },
+                    onOptions: {
+                        controlsVisible = true
+                        optionsVisible = true
                     }
-                    reveal()
-                }
-            )
-            .accessibilityLabel("player.remoteAccessibility")
-            .accessibilityHint("player.remoteAccessibilityHint")
-            .ignoresSafeArea()
+                )
+                .accessibilityLabel("player.remoteAccessibility")
+                .accessibilityHint("player.remoteAccessibilityHint")
+                .ignoresSafeArea()
+            }
 
             if let failure = engine.failure {
                 VStack(spacing: 22) {
@@ -882,13 +887,37 @@ struct SabrPlayerView: View {
                 .transition(.opacity)
             }
         }
+        .overlay {
+            if optionsVisible {
+                SabrPlayerOptions(
+                    engine: engine,
+                    onQuality: { itag in
+                        engine.selectQuality(api: api, video: video, itag: itag)
+                        optionsVisible = false
+                        reveal()
+                    },
+                    onAudio: { track in
+                        engine.selectAudio(
+                            api: api, video: video,
+                            itag: track.itag, trackId: track.audioTrackId
+                        )
+                        optionsVisible = false
+                        reveal()
+                    },
+                    onClose: {
+                        optionsVisible = false
+                        reveal()
+                    }
+                )
+            }
+        }
         .task {
             engine.start(api: api, video: video)
             reveal()
         }
         .task(id: revealIndex) {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
-            if !Task.isCancelled && engine.failure == nil && engine.isPlaying {
+            if !Task.isCancelled && !optionsVisible && engine.failure == nil && engine.isPlaying {
                 withAnimation(.easeOut(duration: 0.25)) { controlsVisible = false }
             }
         }

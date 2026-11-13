@@ -1,0 +1,85 @@
+import SwiftUI
+
+/// tvOS focus-driven options, opened with Up/Down on the Siri Remote.
+/// The remote capture layer is hidden while this sheet is presented.
+struct SabrPlayerOptions: View {
+    @ObservedObject var engine: SabrPlayerController
+    let onQuality: (Int?) -> Void
+    let onAudio: (SabrBootstrap.Audio) -> Void
+    let onClose: () -> Void
+
+    private enum Section: Hashable {
+        case quality, audio
+    }
+    @State private var section: Section = .quality
+    @FocusState private var focusedSection: Section?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(spacing: 18) {
+                Text("player.optionsTitle").font(.title2.bold())
+                Spacer()
+                Button("player.optionsClose", action: onClose)
+                    .buttonStyle(.bordered)
+            }
+            HStack(spacing: 14) {
+                Button("player.optionsQuality") { section = .quality }
+                    .buttonStyle(.bordered)
+                    .tint(section == .quality ? TTTheme.accent : TTTheme.muted)
+                    .focused($focusedSection, equals: .quality)
+                Button("player.optionsAudio") { section = .audio }
+                    .buttonStyle(.bordered)
+                    .tint(section == .audio ? TTTheme.accent : TTTheme.muted)
+                    .focused($focusedSection, equals: .audio)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if section == .quality {
+                        optionRow(
+                            TVL10n.value("player.optionsAuto"),
+                            checked: engine.fixedVideoItag == nil
+                        ) { onQuality(nil) }
+                        ForEach(engine.availableVideos, id: \.itag) { track in
+                            optionRow(
+                                "\(track.height ?? 0)p · \(track.fps ?? 0) fps · \(track.codec)",
+                                checked: engine.fixedVideoItag == track.itag
+                            ) { onQuality(track.itag) }
+                        }
+                    } else {
+                        ForEach(
+                            Array(engine.availableAudios.enumerated()),
+                            id: \.offset
+                        ) { _, track in
+                            optionRow(
+                                track.audioTrackName ?? track.audioLocale ??
+                                    "AAC · itag \(track.itag)",
+                                checked: engine.currentAudioItag == track.itag &&
+                                    engine.currentAudioTrackId == track.audioTrackId
+                            ) { onAudio(track) }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(36)
+        .frame(width: 790, height: 780)
+        .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 24))
+        .onAppear { focusedSection = .quality }
+        .onExitCommand(perform: onClose)
+    }
+
+    private func optionRow(_ label: String, checked: Bool,
+                           action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Text(label).lineLimit(1)
+                Spacer()
+                if checked { Image(systemName: "checkmark.circle.fill") }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.bordered)
+        .tint(checked ? TTTheme.accent : TTTheme.muted)
+    }
+}
