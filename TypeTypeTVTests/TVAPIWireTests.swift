@@ -99,4 +99,72 @@ final class TVAPIWireTests: XCTestCase {
         ) as? [String: Any]
         XCTAssertEqual(progressBody?["position"] as? Int, 90_500)
     }
+    func testInstanceHomeAndSearchPathsUseApiDirectory() async throws {
+        TVAPIWireProtocol.install { request in
+            guard request.httpMethod == "GET" else { return (405, Data()) }
+            guard let url = request.url,
+                  let parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                return (400, Data())
+            }
+            switch url.path {
+            case "/api/instance":
+                return (200, Data(
+                    #"{"name":"TypeType","version":"1","apiVersion":1}"#.utf8
+                ))
+            case "/api/recommendations/home":
+                guard parts.queryItems?.contains(where: {
+                    $0.name == "service" && $0.value == "0"
+                }) == true else { return (400, Data()) }
+                return (200, Data(#"{"items":[]}"#.utf8))
+            case "/api/search":
+                guard parts.queryItems?.contains(where: {
+                    $0.name == "q" && $0.value == "test"
+                }) == true else { return (400, Data()) }
+                return (200, Data(#"{"items":[]}"#.utf8))
+            default: return (404, Data())
+            }
+        }
+        let api = try fixtureAPI()
+        try await api.validate()
+        let home = try await api.home()
+        XCTAssertTrue(home.items.isEmpty)
+        let results = try await api.search("test")
+        XCTAssertTrue(results.items.isEmpty)
+    }
+
+    func testFavoritesAndWatchLaterUseAuthenticatedWrites() async throws {
+        let lock = NSLock()
+        var requests: [(String, String, String?)] = []
+        TVAPIWireProtocol.install { request in
+            guard let url = request.url else { return (400, Data()) }
+            lock.lock()
+            requests.append((
+                request.httpMethod ?? "",
+                URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .percentEncodedPath ?? "",
+                request.value(forHTTPHeaderField: "Authorization")
+            ))
+            lock.unlock()
+            return request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-token"
+                ? (204, Data()) : (401, Data())
+        }
+        let api = try fixtureAPI()
+        let url = "https://www.youtube.com/watch?v=abc123def45"
+        let video = VideoItem(id: url, title: "Video", url: url,
+            thumbnailUrl: nil, uploaderName: nil, duration: 120, isLive: false)
+        try await api.setFavorite(videoURL: url, enabled: true)
+        try await api.setFavorite(videoURL: url, enabled: false)
+        try await api.setWatchLater(video: video, enabled: true)
+        try await api.setWatchLater(video: video, enabled: false)
+        lock.lock()
+        let logged = requests
+        lock.unlock()
+        XCTAssertEqual(logged.map { $0.0 }, ["POST", "DELETE", "POST", "DELETE"])
+        XCTAssertTrue(logged.allSatisfy { $0.2 == "Bearer fixture-token" })
+        XCTAssertTrue(logged[0].1.hasPrefix("/api/favorites/"))
+        XCTAssertTrue(logged[1].1.contains("%3Fv="))
+        XCTAssertEqual(logged[2].1, "/api/watch-later")
+        XCTAssertTrue(logged[3].1.hasPrefix("/api/watch-later/"))
+    }
+
 }
