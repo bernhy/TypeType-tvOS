@@ -66,7 +66,7 @@ enum TypeTypeError: LocalizedError {
 enum TVLibraryRoutes {
     static func mediaURL(base: URL, collection: String,
                          videoURL: String) throws -> URL {
-        guard (collection == "favorites" || collection == "watch-later"),
+        guard (collection == "favorites" || collection == "watch-later" || collection == "progress"),
               !videoURL.isEmpty else { throw TypeTypeError.invalidServerAddress }
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#%")
@@ -108,7 +108,7 @@ struct TypeTypeAPI {
     private let base: URL
     private let session: URLSession
 
-    init(address: String) throws {
+    init(address: String, session injectedSession: URLSession? = nil) throws {
         let text = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let scheme = URLComponents(string: text)?.scheme?.lowercased(),
               let mode = TVConnectionMode(rawValue: scheme) else {
@@ -116,7 +116,7 @@ struct TypeTypeAPI {
         }
         origin = try TVServerAddress.make(hostInput: text, mode: mode)
         base = origin.appendingPathComponent("api", isDirectory: true)
-        session = TVNetwork.session(for: origin)
+        session = injectedSession ?? TVNetwork.session(for: origin)
     }
 
     func relativeMediaURL(_ value: String?) -> URL? {
@@ -215,6 +215,63 @@ struct TypeTypeAPI {
         try await writeLibrary(url, method: enabled ? "POST" : "DELETE", body: body)
     }
 
+
+    /// Android's library/progress API contract: GET progress/<encoded-video-url>,
+    /// PUT progress?url=<video-url> with {"position": milliseconds}.
+    /// HTTP 404 means no saved position. No token means no account progress.
+    func savedPosition(videoURL: String) async throws -> Int64? {
+        guard TypeTypeCredentials.shared.token(for: origin) != nil else { return nil }
+        let url = try TVLibraryRoutes.mediaURL(
+            base: base, collection: "progress", videoURL: videoURL
+        )
+        var request = authorizedRequest(url, method: "GET")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw TypeTypeError.unexpectedResponse
+        }
+        if http.statusCode == 404 { return nil }
+        guard (200..<300).contains(http.statusCode) else {
+            throw TypeTypeError.http(http.statusCode, "progress")
+        }
+        return max(0, try JSONDecoder().decode(TVProgressDTO.self, from: data).position)
+    }
+
+    func savePosition(videoURL: String, milliseconds: Int64) async throws {
+        guard TypeTypeCredentials.shared.token(for: origin) != nil else { return }
+        guard var parts = URLComponents(
+            url: base.appendingPathComponent("progress"),
+            resolvingAgainstBaseURL: false
+        ) else { throw TypeTypeError.invalidServerAddress }
+        parts.queryItems = [URLQueryItem(name: "url", value: videoURL)]
+        guard let url = parts.url else { throw TypeTypeError.invalidServerAddress }
+        let body = try JSONEncoder().encode(TVSaveProgressWrite(
+            position: max(0, milliseconds)
+        ))
+        try await writeLibrary(url, method: "PUT", body: body)
+    }
+
+    func addHistory(video: VideoItem, milliseconds: Int64) async throws {
+        guard TypeTypeCredentials.shared.token(for: origin) != nil else { return }
+        try await writeLibrary(
+            base.appendingPathComponent("history"), method: "POST",
+            body: try JSONEncoder().encode(
+                TVHistoryWrite(video: video, positionMs: milliseconds)
+            )
+        )
+    }
+
+    private func authorizedRequest(_ url: URL, method: String) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("TypeTypeTV-tvOS/0.3", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = TypeTypeCredentials.shared.token(for: origin) {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        return request
+    }
+
     private func writeLibrary(_ url: URL, method: String,
                               body: Data?) async throws {
         guard let token = TypeTypeCredentials.shared.token(for: origin), !token.isEmpty else {
@@ -222,7 +279,7 @@ struct TypeTypeAPI {
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.setValue("Bearer \\(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("TypeTypeTV-tvOS/0.2", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
