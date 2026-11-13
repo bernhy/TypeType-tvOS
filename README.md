@@ -21,8 +21,8 @@ Native, GPL-3.0 Apple TV client for [TypeType](https://github.com/TypeType-Video
 - Hardware codec indicators for H.264, HEVC, VP9 and AV1; maximum resolution setting; software-decoding override.
 - **Experimental YouTube player**: SABR bootstrap/session/position/prefetch/windows/segments, fMP4 sample extraction using `AVAssetReader`, explicit VideoToolbox hardware decoding, synchronized audio/video renderers, pause and ±seek buttons.
 - Native HLS AVPlayer path for compatible non-YouTube sources.
-- German is the default app language. German/English resource catalogs are installed, with English translation coverage still in progress.
-- CI builds the unsigned simulator app and runs SABR/network unit tests plus five real tvOS simulator UI/screenshot tests.
+- Multilingual interface using Apple's single Xcode String Catalog (TypeTypeTV/Localizable.xcstrings), with semantic keys, dynamic language discovery and an in-app language picker. German is the default; English, French and Spanish are included. See LOCALIZATION.md.
+- CI validates translation resources, builds an unsigned simulator app and runs SABR/network tests plus locale-specific tvOS UI screenshot tests.
 
 ## Technical playback path
 

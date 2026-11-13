@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+      - name: Validate localization resources
+        run: python3 scripts/check_localizations.py
       - name: Select Xcode 26.2 with installed tvOS runtime
         run: |
           sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
