@@ -28,6 +28,7 @@ struct PreferencesView: View {
     @State private var instanceInfo: InstanceInfo?
     @State private var instanceError: String?
     @State private var confirmCertificateRemoval = false
+    @State private var confirmLogout = false
     @State private var loginCode: String?
     @State private var loginLink: URL?
     @State private var status = ""
@@ -88,6 +89,17 @@ struct PreferencesView: View {
             if let next { group = next }
         }
         .onDisappear { poller?.cancel() }
+        .confirmationDialog(
+            TVL10n.value("settings.logoutConfirm"),
+            isPresented: $confirmLogout
+        ) {
+            Button("settings.logout", role: .destructive) {
+                logOut()
+            }
+            Button("common.cancel", role: .cancel) {}
+        } message: {
+            Text("settings.logoutHelp")
+        }
         .confirmationDialog(
             TVL10n.value("settings.certForgetTitle"),
             isPresented: $confirmCertificateRemoval
@@ -362,10 +374,8 @@ struct PreferencesView: View {
                 if TypeTypeCredentials.shared.token(for: api.origin) != nil {
                     Label("settings.tokenSaved", systemImage: "checkmark.shield")
                         .foregroundStyle(.green)
-                    Button("settings.logout") {
-                        TypeTypeCredentials.shared.clear(for: api.origin)
-                        status = TVL10n.value("login.signedOut")
-                        remote = nil
+                    Button("settings.logout", role: .destructive) {
+                        confirmLogout = true
                     }
                     .buttonStyle(.bordered)
                 }
@@ -490,11 +500,28 @@ struct PreferencesView: View {
     }
 
     @MainActor
+    private func logOut() {
+        // Invalidate pending device-code polls before clearing credentials.
+        // Otherwise an in-flight token response could sign us back in.
+        poller?.cancel()
+        poller = nil
+        loginCode = nil
+        loginLink = nil
+        TypeTypeCredentials.shared.clear(for: api.origin)
+        remote = nil
+        remoteError = nil
+        status = TypeTypeCredentials.shared.token(for: api.origin) == nil
+            ? TVL10n.value("login.signedOut")
+            : TVL10n.value("settings.logoutFailed")
+    }
+
+    @MainActor
     private func startLogin() async {
         let service = SabrService(api: api)
         do {
             status = TVL10n.value("login.starting")
             let flow = try await service.deviceLoginStart()
+            try Task.checkCancellation()
             loginCode = flow.userCode
             var link = api.origin.appendingPathComponent("link")
             if var parts = URLComponents(url: link, resolvingAgainstBaseURL: false) {
@@ -509,10 +536,13 @@ struct PreferencesView: View {
                 try Task.checkCancellation()
                 try await Task.sleep(nanoseconds: interval)
                 let answer = try await service.deviceLoginPoll(flow.deviceCode)
+                try Task.checkCancellation()
                 if let token = answer.accessToken, !token.isEmpty {
                     TypeTypeCredentials.shared.save(token, for: api.origin)
                     status = TVL10n.value("login.success")
+                    remote = nil
                     loginCode = nil
+                    loginLink = nil
                     return
                 }
                 if answer.code == "access_denied" || answer.code == "denied" {
