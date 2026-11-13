@@ -23,7 +23,6 @@ targets:
           NSAllowsLocalNetworking: true
         CFBundleDisplayName: TypeType
         CFBundleDevelopmentRegion: de
-        CFBundleLocalizations: [de, en]
         UIRequiresFullScreen: true
     settings:
       base:

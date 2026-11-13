@@ -4,6 +4,7 @@ import SwiftUI
 struct PreferencesView: View {
     let api: TypeTypeAPI
     let onDisconnect: () -> Void
+    @AppStorage("typetype.uiLanguage") private var uiLanguage = TVLanguages.defaultCode
     @AppStorage("typetype.allowSoftwareDecode") private var allowSoftware = false
     @AppStorage("typetype.maxHeight") private var maxHeight = 2160
     @AppStorage("typetype.skipSeconds") private var skipSeconds = 10
@@ -26,6 +27,18 @@ struct PreferencesView: View {
                     Text("Server: \(api.origin.host ?? "")")
                         .font(.callout)
                         .foregroundStyle(TTTheme.muted)
+                }
+
+                TVSettingsSection("settings.language", symbol: "globe",
+                                  subtitle: "settings.languageHelp") {
+                    Picker("settings.languagePicker", selection: $uiLanguage) {
+                        Text("language.system").tag(TVLanguages.followSystem)
+                        ForEach(TVLanguages.available, id: \.self) { code in
+                            Text(TVLanguages.nativeName(code)).tag(code)
+                        }
+                    }
+                    Text("settings.languageNote")
+                        .font(.caption).foregroundStyle(TTTheme.muted)
                 }
 
                 TVSettingsSection("Bild und Wiedergabe", symbol: "4k.tv",
@@ -194,12 +207,12 @@ struct PreferencesView: View {
 }
 
 private struct TVSettingsSection<Content: View>: View {
-    let title: String
+    let title: LocalizedStringKey
     let symbol: String
-    let subtitle: String
+    let subtitle: LocalizedStringKey
     @ViewBuilder let content: Content
 
-    init(_ title: String, symbol: String, subtitle: String,
+    init(_ title: LocalizedStringKey, symbol: String, subtitle: LocalizedStringKey,
          @ViewBuilder content: () -> Content) {
         self.title = title
         self.symbol = symbol

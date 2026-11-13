@@ -6,7 +6,7 @@ struct TypeTypeTVApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environment(\.locale, Locale(identifier: language))
+                .environment(\.locale, TVLanguages.locale(for: language))
         }
     }
 }
