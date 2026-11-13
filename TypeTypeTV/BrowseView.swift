@@ -7,10 +7,10 @@ enum TVSection: String, CaseIterable, Hashable {
 
     var label: String {
         switch self {
-        case .home: return "Start"
-        case .search: return "Suche"
-        case .library: return "Bibliothek"
-        case .settings: return "Einstellungen"
+        case .home: return TVL10n.value("nav.home")
+        case .search: return TVL10n.value("nav.search")
+        case .library: return TVL10n.value("nav.library")
+        case .settings: return TVL10n.value("nav.settings")
         }
     }
     var localizedLabel: LocalizedStringKey {
@@ -75,10 +75,10 @@ struct BrowseView: View {
             .background(TTTheme.ink)
         } else {
             TVContentMessage(symbol: "exclamationmark.triangle",
-                             title: "Ungültige Serveradresse",
-                             detail: "Bitte verbinde deine TypeType-Instanz erneut.",
+                             title: TVL10n.value("server.invalidStored"),
+                             detail: TVL10n.value("server.reconnectHelp"),
                              action: onDisconnect,
-                             actionTitle: "Server auswählen")
+                             actionTitle: TVL10n.value("common.changeServer"))
         }
     }
 
@@ -138,7 +138,7 @@ struct BrowseView: View {
                     .frame(width: 50, height: 56)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(expanded ? "Menü einklappen" : "Menü ausklappen")
+            .accessibilityLabel(TVL10n.value(expanded ? "nav.collapse" : "nav.expand"))
         }
         .padding(.horizontal, 18)
         .padding(.top, 34)
@@ -189,12 +189,12 @@ struct HomeView: View {
                             .font(.system(size: 48, weight: .bold))
                     }
                     Spacer()
-                    Text("\(videos.count) Videos")
+                    Text(TVL10n.formatted("common.videoCount", videos.count))
                         .font(.callout).foregroundStyle(TTTheme.muted)
                     Button {
                         Task { await load() }
                     } label: {
-                        Label("Aktualisieren", systemImage: "arrow.clockwise")
+                        Label("common.refresh", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(.bordered)
                     .disabled(loading || previewVideos != nil)
@@ -202,13 +202,13 @@ struct HomeView: View {
                 .padding(.bottom, 5)
 
                 if loading && videos.isEmpty {
-                    ProgressView("Empfehlungen werden geladen …")
+                    ProgressView("home.loading")
                         .frame(maxWidth: .infinity, minHeight: 200)
                 } else if videos.isEmpty {
                     TVContentMessage(
                         symbol: message == nil ? "rectangle.stack" : "wifi.exclamationmark",
-                        title: message == nil ? "Noch keine Empfehlungen" : "Server nicht erreichbar",
-                        detail: message ?? "Dein TypeType-Server hat derzeit keine Empfehlungen.",
+                        title: TVL10n.value(message == nil ? "home.noRecommendations" : "home.serverUnavailable"),
+                        detail: message ?? TVL10n.value("home.emptyHelp"),
                         action: { Task { await load() } }
                     )
                 } else {
@@ -264,7 +264,7 @@ struct VideoCard: View {
                 TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl), origin: api.origin)
                     .frame(height: 198).frame(maxWidth: .infinity).clipped()
                 if video.isLive == true {
-                    Text("LIVE").font(.caption.bold())
+                    Text("video.liveBadge").font(.caption.bold())
                         .padding(8).background(TTTheme.accent).padding(8)
                 } else if let duration = video.duration, duration > 0 {
                     Text(TTTheme.time(duration))

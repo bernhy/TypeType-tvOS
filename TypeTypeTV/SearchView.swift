@@ -17,24 +17,24 @@ struct SearchView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("VIDEOS ENTDECKEN")
+                    Text("search.kicker")
                         .font(.subheadline.bold()).tracking(2.2)
                         .foregroundStyle(TTTheme.accent)
-                    Text("Suche").font(.system(size: 52, weight: .bold))
-                    Text("Finde Videos und Kanäle auf deiner TypeType-Instanz.")
+                    Text("nav.search").font(.system(size: 52, weight: .bold))
+                    Text("search.subtitle")
                         .font(.body).foregroundStyle(TTTheme.muted)
                 }
 
                 HStack(spacing: 25) {
-                    TextField("Titel, Kanal oder Suchbegriff", text: $term)
+                    TextField("search.placeholder", text: $term)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .onSubmit { Task { await execute(term) } }
-                        .accessibilityLabel("Suchbegriff")
+                        .accessibilityLabel("search.inputLabel")
                     Button {
                         Task { await execute(term) }
                     } label: {
-                        Label("Suchen", systemImage: "magnifyingglass")
+                        Label("search.button", systemImage: "magnifyingglass")
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(TTTheme.accent)
@@ -45,10 +45,10 @@ struct SearchView: View {
                 if !history.isEmpty {
                     VStack(alignment: .leading, spacing: 17) {
                         HStack {
-                            Text("ZULETZT GESUCHT").font(.subheadline.bold())
+                            Text("search.recents").font(.subheadline.bold())
                                 .tracking(1.7).foregroundStyle(TTTheme.muted)
                             Spacer()
-                            Button("Verlauf löschen") {
+                            Button("search.clearHistory") {
                                 recentJSON = "[]"
                             }
                             .buttonStyle(.bordered)
@@ -73,24 +73,24 @@ struct SearchView: View {
                 }
 
                 if searching {
-                    ProgressView("Suche nach „\(searchedTerm)“ …")
+                    ProgressView(TVL10n.formatted("search.working", searchedTerm))
                         .frame(maxWidth: .infinity, minHeight: 220)
                 } else if let error {
                     TVContentMessage(
                         symbol: "wifi.exclamationmark",
-                        title: "Suche nicht verfügbar",
+                        title: TVL10n.value("search.unavailable"),
                         detail: error,
                         action: { Task { await execute(term) } }
                     )
                 } else if !searchedTerm.isEmpty && videos.isEmpty {
                     TVContentMessage(
                         symbol: "magnifyingglass",
-                        title: "Keine Treffer",
-                        detail: "Für „\(searchedTerm)“ wurden keine Videos gefunden. Versuche einen anderen Suchbegriff."
+                        title: TVL10n.value("search.noResults"),
+                        detail: TVL10n.formatted("search.noResultsHint", searchedTerm)
                     )
                 } else if !videos.isEmpty {
                     VStack(alignment: .leading, spacing: 24) {
-                        Text("\(videos.count) Treffer für „\(searchedTerm)“")
+                        Text(TVL10n.formatted("search.resultCount", videos.count, searchedTerm))
                             .font(.title2.bold())
                         LazyVGrid(columns: columns, spacing: 42) {
                             ForEach(videos) { video in
@@ -108,8 +108,8 @@ struct SearchView: View {
                 } else {
                     TVContentMessage(
                         symbol: "play.rectangle.on.rectangle",
-                        title: "Was möchtest du ansehen?",
-                        detail: "Tippe deinen Suchbegriff ein oder wähle eine der letzten Suchanfragen aus."
+                        title: TVL10n.value("search.startTitle"),
+                        detail: TVL10n.value("search.startHelp")
                     )
                 }
             }

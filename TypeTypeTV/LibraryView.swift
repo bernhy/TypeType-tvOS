@@ -14,19 +14,19 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: 32) {
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 9) {
-                        Text("DEINE MEDIATHEK")
+                        Text("library.kicker")
                             .font(.subheadline.bold()).tracking(2.2)
                             .foregroundStyle(TTTheme.accent)
-                        Text("Bibliothek").font(.system(size: 52, weight: .bold))
+                        Text("nav.library").font(.system(size: 52, weight: .bold))
                     }
                     Spacer()
                     if !videos.isEmpty {
-                        Text("\(videos.count) Videos")
+                        Text(TVL10n.formatted("common.videoCount", videos.count))
                             .font(.callout).foregroundStyle(TTTheme.muted)
                     }
                     Button {
                         Task { await reload(section) }
-                    } label: { Label("Aktualisieren", systemImage: "arrow.clockwise") }
+                    } label: { Label("common.refresh", systemImage: "arrow.clockwise") }
                         .buttonStyle(.bordered)
                         .disabled(isLoading)
                 }
@@ -45,13 +45,13 @@ struct LibraryView: View {
                 .focusSection()
 
                 if isLoading {
-                    ProgressView("Lade \(section.title) …")
+                    ProgressView(TVL10n.formatted("library.loading", section.title))
                         .frame(maxWidth: .infinity, minHeight: 250)
                 } else if let statusMessage {
                     TVContentMessage(
                         symbol: "wifi.exclamationmark",
                         title: statusMessage,
-                        detail: "Prüfe die Verbindung und ob dein TypeType-Konto angemeldet ist.",
+                        detail: TVL10n.value("library.loadHelp"),
                         action: { Task { await reload(section) } }
                     )
                 } else if videos.isEmpty {
@@ -98,9 +98,9 @@ struct LibraryView: View {
             guard requested == section else { return }
             videos = []
             if case TypeTypeError.http(let status, _) = error, status == 401 || status == 403 {
-                statusMessage = "Anmeldung erforderlich"
+                statusMessage = TVL10n.value("library.loginRequired")
             } else {
-                statusMessage = "Bibliothek konnte nicht geladen werden"
+                statusMessage = TVL10n.value("library.loadFailure")
             }
         }
     }
