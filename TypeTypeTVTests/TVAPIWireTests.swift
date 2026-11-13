@@ -25,9 +25,14 @@ private final class TVAPIWireProtocol: URLProtocol {
             return
         }
         let (status, body) = callback(request)
+        print("TVWIRE \(request.httpMethod ?? "?") \(url.path) status \(status) bytes \(body.count)")
         let response = HTTPURLResponse(
             url: url, statusCode: status, httpVersion: "HTTP/1.1",
-            headerFields: ["Content-Type": "application/json"]
+            headerFields: [
+                "Content-Type": "application/json",
+                "Content-Length": String(body.count),
+                "Cache-Control": "no-store"
+            ]
         )!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: body)
