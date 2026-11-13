@@ -1,0 +1,32 @@
+name: TypeTypeTV
+options:
+  bundleIdPrefix: org.example
+  deploymentTarget:
+    tvOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "3"
+targets:
+  TypeTypeTV:
+    type: application
+    platform: tvOS
+    deploymentTarget: "17.0"
+    sources:
+      - TypeTypeTV
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.example.typetype.tv
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: "TypeType"
+        INFOPLIST_KEY_UIRequiresFullScreen: YES
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
+schemes:
+  TypeTypeTV:
+    build:
+      targets:
+        TypeTypeTV: all
+    run:
+      config: Debug

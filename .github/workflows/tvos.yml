@@ -1,0 +1,51 @@
+name: tvOS (unsigned simulator build)
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tvos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Pin the Xcode 26 toolchain
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.1.1.app/Contents/Developer
+          xcodebuild -version
+          xcrun --sdk appletvsimulator --show-sdk-version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Build tvOS simulator app (no Apple identity needed)
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project TypeTypeTV.xcodeproj \
+            -scheme TypeTypeTV \
+            -configuration Debug \
+            -sdk appletvsimulator \
+            -destination 'generic/platform=tvOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/typetype-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          cd "$RUNNER_TEMP/typetype-build/Build/Products/Debug-appletvsimulator"
+          zip -qry "$GITHUB_WORKSPACE/TypeTypeTV-simulator.app.zip" TypeTypeTV.app
+      - name: Upload unsigned simulator build
+        uses: actions/upload-artifact@v4
+        with:
+          name: TypeTypeTV-tvos-simulator-unsigned
+          path: TypeTypeTV-simulator.app.zip
+          if-no-files-found: error
+          retention-days: 7
