@@ -82,4 +82,64 @@ final class SabrWireContractTests: XCTestCase {
             // expected, before any network operation
         }
     }
+    func testLargeBufferSettingsAndSabrPayload() throws {
+        let defaults = SabrBufferSettings()
+        XCTAssertEqual(defaults.forwardSeconds, 180)
+        XCTAssertEqual(defaults.backSeconds, 120)
+        XCTAssertEqual(defaults.cacheMiB, 512)
+        XCTAssertEqual(defaults.forwardMilliseconds, 180_000)
+        XCTAssertEqual(defaults.backMilliseconds, 120_000)
+
+        let maxed = SabrBufferSettings(forwardSeconds: 999, backSeconds: 999,
+                                       cacheMiB: 9999)
+        XCTAssertEqual(maxed.forwardSeconds, 600)
+        XCTAssertEqual(maxed.backSeconds, 300)
+        XCTAssertEqual(maxed.cacheMiB, 1024)
+
+        let live = SabrBufferSettings(forwardSeconds: 600, backSeconds: 300,
+                                      cacheMiB: 512, live: true)
+        XCTAssertEqual(live.forwardSeconds, 12)
+        XCTAssertEqual(live.backSeconds, 15)
+
+        let video = SabrBootstrap.Video(itag: 137, codec: "avc1", mimeType: "video/mp4",
+                                        width: 1920, height: 1080, fps: 30, bitrate: 1000000,
+                                        deliveryMethod: "sabr")
+        let audio = SabrBootstrap.Audio(itag: 140, codec: "mp4a.40.2", mimeType: "audio/mp4",
+                                        audioTrackId: nil, audioTrackName: nil, audioLocale: nil,
+                                        isOriginal: true, deliveryMethod: "sabr")
+        let request = SabrWindowRequest(
+            SabrSelection(video: video, audio: audio), generation: 3,
+            positionMs: 2_000, ranges: [], buffer: defaults
+        )
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request))
+            as? [String: Any]
+        XCTAssertEqual(json?["bufferGoalMs"] as? Int, 180_000)
+        XCTAssertEqual(json?["backBufferMs"] as? Int, 120_000)
+        XCTAssertEqual(json?["generation"] as? Int, 3)
+    }
+
+    func testDiskCacheReusesSegmentAndClearsTemporaryFiles() async throws {
+        let cache = SabrFragmentCache(maxMiB: 64)
+        let original = Data([0, 1, 2, 3, 4, 5])
+        let first = try await cache.data(for: "first-fragment") { original }
+        let second = try await cache.data(for: "first-fragment") {
+            Data([99, 98, 97])
+        }
+        XCTAssertEqual(first, original)
+        XCTAssertEqual(second, original)
+        let bytes = await cache.bytesInUse
+        XCTAssertEqual(bytes, original.count)
+        let items = await cache.itemCount
+        XCTAssertEqual(items, 1)
+        await cache.clear()
+        let empty = await cache.bytesInUse
+        XCTAssertEqual(empty, 0)
+        do {
+            _ = try await cache.data(for: "first-fragment") { original }
+            XCTFail("closed SABR session cache must be invalid")
+        } catch is CancellationError {
+            // Expected; don't carry old session media into a new generation.
+        }
+    }
+
 }
