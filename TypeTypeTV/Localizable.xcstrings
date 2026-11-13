@@ -4402,25 +4402,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Einstellungen für dieses Apple TV"
+            "value": "Gerät & TypeType-Konto"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Settings for this Apple TV"
+            "value": "Device & TypeType account"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Réglages de cet Apple TV"
+            "value": "Appareil et compte TypeType"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajustes de este Apple TV"
+            "value": "Dispositivo y cuenta TypeType"
           }
         }
       }
@@ -5317,6 +5317,202 @@
           "stringUnit": {
             "state": "translated",
             "value": "La reproducción SABR nativa todavía requiere pruebas en un Apple TV físico."
+          }
+        }
+      }
+    },
+    "settings.videoQuality": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videoqualität"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video quality"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qualité vidéo"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calidad de vídeo"
+          }
+        }
+      }
+    },
+    "settings.contentControls": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sichtbare Inhalte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visible content"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contenu affiché"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contenido visible"
+          }
+        }
+      }
+    },
+    "settings.performanceControls": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Darstellung und Speicher"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance and memory"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affichage et mémoire"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apariencia y memoria"
+          }
+        }
+      }
+    },
+    "settings.languageControls": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Sprache"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App language"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Langue de l’application"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idioma de la aplicación"
+          }
+        }
+      }
+    },
+    "settings.accountControls": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio de sesión"
+          }
+        }
+      }
+    },
+    "settings.instanceControls": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung und Zertifikate"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection and certificates"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion et certificats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conexión y certificados"
+          }
+        }
+      }
+    },
+    "settings.aboutControls": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Informationen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App information"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informations sur l’app"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Información de la aplicación"
           }
         }
       }
