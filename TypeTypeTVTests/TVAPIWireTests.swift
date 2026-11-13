@@ -211,6 +211,9 @@ final class TVAPIWireTests: XCTestCase {
         )
         video.uploaderUrl = "https://www.youtube.com/@channel"
         try await api.addToPlaylist(lists[0].id, video: video)
+        try await api.renamePlaylist("one", name: "Renamed", description: "Details")
+        try await api.removeFromPlaylist("one", videoURL: video.url)
+        try await api.deletePlaylist("one")
         try await api.blockVideo(video)
         try await api.blockChannel(video)
         let decorated = await api.withProgress([video])
@@ -219,12 +222,20 @@ final class TVAPIWireTests: XCTestCase {
         let items = requests
         lock.unlock()
         XCTAssertTrue(items.contains { $0.0 == "POST" && $0.1 == "/api/playlists/one/videos" })
+        XCTAssertTrue(items.contains { $0.0 == "PUT" && $0.1 == "/api/playlists/one" })
+        XCTAssertTrue(items.contains { $0.0 == "DELETE" && $0.1 == "/api/playlists/one" })
+        XCTAssertTrue(items.contains { $0.0 == "DELETE" &&
+            $0.1.hasPrefix("/api/playlists/one/videos/") })
         XCTAssertTrue(items.contains { $0.0 == "POST" && $0.1 == "/api/blocked/videos" })
         XCTAssertTrue(items.contains { $0.0 == "POST" && $0.1 == "/api/blocked/channels" })
         XCTAssertTrue(items.contains { $0.0 == "POST" && $0.1 == "/api/progress/batch" })
         let addPayload = items.first { $0.1 == "/api/playlists/one/videos" }?.2 ?? Data()
         let parsed = try JSONSerialization.jsonObject(with: addPayload) as? [String: Any]
         XCTAssertEqual(parsed?["channelUrl"] as? String, video.uploaderUrl)
+        let renameBody = items.first { $0.0 == "PUT" && $0.1 == "/api/playlists/one" }?.2 ?? Data()
+        let rename = try JSONSerialization.jsonObject(with: renameBody) as? [String: Any]
+        XCTAssertEqual(rename?["name"] as? String, "Renamed")
+        XCTAssertEqual(rename?["description"] as? String, "Details")
     }
 
 }

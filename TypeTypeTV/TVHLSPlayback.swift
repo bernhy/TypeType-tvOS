@@ -20,7 +20,7 @@ struct TVHLSPlaybackView: View {
                     Text("player.unavailable").font(.title.bold())
                     Text(error).font(.callout)
                     Button("common.retry") {
-                        Task { await playback.restartAfterFailure() }
+                        Task { await playback.restartAfterFailure(userInitiated: true) }
                     }
                     .buttonStyle(.borderedProminent)
                 }
@@ -50,6 +50,9 @@ final class TVHLSPlaybackController: ObservableObject {
     private var periodicObserver: Any?
     private var timeControlObservation: NSKeyValueObservation?
     private var itemFailureObservation: NSObjectProtocol?
+    private var itemStallObservation: NSObjectProtocol?
+    private var itemStatusObservation: NSKeyValueObservation?
+    private var stallTask: Task<Void, Never>?
     private var historyEnabled = false
     private var historyRecorded = false
     private var lastPositionMs: Int64 = 0
@@ -113,6 +116,26 @@ final class TVHLSPlaybackController: ObservableObject {
                 }
             }
         }
+        itemStatusObservation = item.observe(\.status, options: [.new]) {
+            [weak self] item, _ in
+            if item.status == .failed {
+                let message = item.error?.localizedDescription ??
+                    TVL10n.value("player.unavailable")
+                Task { @MainActor [weak self] in
+                    guard let self, !self.isStopped else { return }
+                    self.errorMessage = message
+                    self.scheduleStallRecovery(delay: 3)
+                }
+            }
+        }
+        itemStallObservation = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemPlaybackStalled,
+            object: item, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleStallRecovery(delay: 12)
+            }
+        }
         itemFailureObservation = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemFailedToPlayToEndTime,
             object: item, queue: .main
@@ -122,6 +145,7 @@ final class TVHLSPlaybackController: ObservableObject {
             Task { @MainActor [weak self] in
                 self?.errorMessage = detail?.localizedDescription ??
                     TVL10n.value("player.unavailable")
+                self?.scheduleStallRecovery(delay: 3)
             }
         }
 
@@ -160,9 +184,35 @@ final class TVHLSPlaybackController: ObservableObject {
 
     func stop() { tearDown(save: true) }
 
+    private func scheduleStallRecovery(delay: UInt64) {
+        guard !isStopped, retryCount < 3 else { return }
+        stallTask?.cancel()
+        let originalPosition = player.currentTime().seconds
+        stallTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+            guard !Task.isCancelled, let self, !self.isStopped else { return }
+            let currentPosition = self.player.currentTime().seconds
+            let moved = originalPosition.isFinite && currentPosition.isFinite &&
+                currentPosition - originalPosition >= 0.5
+            // AVPlayer may recover without our help; only replace a stream
+            // that remains stalled, not one that is already playing again.
+            guard !moved, self.player.timeControlStatus != .playing ||
+                    self.errorMessage != nil else { return }
+            await self.restartAfterFailure()
+        }
+    }
+
     private func tearDown(save: Bool) {
         if save { checkpoint(force: true) }
         isStopped = true
+        stallTask?.cancel()
+        stallTask = nil
+        itemStatusObservation?.invalidate()
+        itemStatusObservation = nil
+        if let itemStallObservation {
+            NotificationCenter.default.removeObserver(itemStallObservation)
+            self.itemStallObservation = nil
+        }
         timeControlObservation?.invalidate()
         timeControlObservation = nil
         if let periodicObserver {
@@ -177,7 +227,8 @@ final class TVHLSPlaybackController: ObservableObject {
         player.replaceCurrentItem(with: nil)
     }
 
-    func restartAfterFailure() async {
+    func restartAfterFailure(userInitiated: Bool = false) async {
+        if userInitiated { retryCount = 0 }
         guard !isStopped, retryCount < 3,
               let api, let video else { return }
         retryCount += 1
