@@ -67,6 +67,8 @@ final class SabrPlayerController: ObservableObject {
     private var selection: SabrSelection?
     private var playbackPositionMs: Int64 = 0
     private var isInitialized = false
+    private var hasQueuedFirstAudio = false
+    private var hasQueuedFirstVideo = false
     private var hardwareDecoder: HardwareVideoDecoder?
     private var playbackService: SabrService?
     private var segmentCache: SabrFragmentCache?
@@ -113,6 +115,8 @@ final class SabrPlayerController: ObservableObject {
         videoLayer.flushAndRemoveImage()
         audioRenderer.flush()
         isInitialized = false
+        hasQueuedFirstAudio = false
+        hasQueuedFirstVideo = false
         isPlaying = false
         sessionId = ""
     }
@@ -270,6 +274,8 @@ final class SabrPlayerController: ObservableObject {
                 synchronizer.setRate(0, time: CMTime(value: restartPosition, timescale: 1_000))
                 playbackPositionMs = restartPosition
                 isInitialized = false
+                hasQueuedFirstAudio = false
+                hasQueuedFirstVideo = false
                 isPlaying = false
                 cachedThroughMs = restartPosition
                 diskCacheBytes = 0
@@ -396,48 +402,86 @@ final class SabrPlayerController: ObservableObject {
                 )
                 videoInitLocation = video.initUrl
             }
-            if !isInitialized {
-                synchronizer.setRate(1, time: CMTime(value: start, timescale: 1_000))
-                isInitialized = true
-                isPlaying = true
+
+            // Both tracks must have a first segment before the playback clock
+            // starts. An advancing clock without decoded samples makes the
+            // first video frame late, especially over a slower LAN connection.
+            if !isInitialized && (audio.segments.isEmpty || video.segments.isEmpty) {
+                throw SabrFailure.invalidResponse("first SABR window lacks an audio/video segment pair")
             }
 
             let count = max(audio.segments.count, video.segments.count)
             for index in 0..<count {
                 try Task.checkCancellation()
+                var audioSamples: [CMSampleBuffer] = []
+                var videoSamples: [CMSampleBuffer] = []
+                var audioPart: SabrFragment?
+                var videoPart: SabrFragment?
+
                 if index < audio.segments.count {
                     let segment = audio.segments[index]
-                    if seen.insert("a:\(segment.url)").inserted {
+                    if !seen.contains("a:\(segment.url)") {
                         let sid = sessionId, gen = generation
                         let bytes = try await cache.data(for: segment.url) {
                             try await service.fragmentData(segment.url, sessionId: sid,
                                                            itag: choice.audio.itag, generation: gen)
                         }
-                        let samples = try await FragmentedMP4Reader.compressedSamples(
+                        audioSamples = try await FragmentedMP4Reader.compressedSamples(
                             initialization: audioInit, fragment: bytes, mediaType: .audio
                         )
-                        try await enqueue(samples, audio: true)
-                        try coverage.acceptAudio(segment)
+                        guard !audioSamples.isEmpty else {
+                            throw SabrFailure.unsupported("SABR audio segment contains no compressed samples")
+                        }
+                        audioPart = segment
                     }
                 }
                 if index < video.segments.count {
                     let segment = video.segments[index]
-                    if seen.insert("v:\(segment.url)").inserted {
+                    if !seen.contains("v:\(segment.url)") {
                         let sid = sessionId, gen = generation
                         let bytes = try await cache.data(for: segment.url) {
                             try await service.fragmentData(segment.url, sessionId: sid,
                                                            itag: choice.video.itag, generation: gen)
                         }
-                        let samples = try await FragmentedMP4Reader.compressedSamples(
+                        videoSamples = try await FragmentedMP4Reader.compressedSamples(
                             initialization: videoInit, fragment: bytes, mediaType: .video
                         )
-                        try await enqueue(samples, audio: false)
-                        try coverage.acceptVideo(segment)
+                        guard !videoSamples.isEmpty else {
+                            throw SabrFailure.unsupported("SABR video segment contains no compressed samples")
+                        }
+                        videoPart = segment
                     }
                 }
+                if !isInitialized && (audioSamples.isEmpty || videoSamples.isEmpty) {
+                    throw SabrFailure.invalidResponse("initial SABR segment pair is incomplete")
+                }
+                // Alternating media-time-ordered samples prevents several
+                // seconds of audio from entering the renderer before video.
+                try await enqueueInterleaved(audio: audioSamples, video: videoSamples, startMs: start)
+                if let part = audioPart {
+                    try coverage.acceptAudio(part)
+                    seen.insert("a:\(part.url)")
+                }
+                if let part = videoPart {
+                    try coverage.acceptVideo(part)
+                    seen.insert("v:\(part.url)")
+                }
             }
+
             positionMs = coverage.safeEndMs
             if response.endOfStream == true {
+                // A complete *network* window is not the same as fully
+                // presented media. Keep renderers running to the common A/V
+                // end before displaying the finished state.
+                let endMs = durationMs > 0 ? min(durationMs, coverage.safeEndMs) : coverage.safeEndMs
+                if isInitialized && endMs > start {
+                    while playbackSeconds() * 1_000 < Double(endMs) {
+                        try Task.checkCancellation()
+                        try await Task.sleep(nanoseconds: 100_000_000)
+                    }
+                    synchronizer.setRate(0, time: synchronizer.currentTime())
+                    isPlaying = false
+                }
                 state = TVL10n.value("player.end")
                 return
             }
@@ -445,18 +489,57 @@ final class SabrPlayerController: ObservableObject {
         }
     }
 
-    private func enqueue(_ samples: [CMSampleBuffer], audio: Bool) async throws {
-        guard !samples.isEmpty else { throw SabrFailure.unsupported("SABR segment contains no decodable samples") }
-        for sample in samples {
+    /// Feed one compressed sample at a time, preserving the original decode
+    /// order within each track and comparing PTS only across tracks.
+    /// Starting after one sample of both tracks avoids a pre-roll deadlock:
+    /// renderers have a bounded queue and may stop accepting data at rate zero.
+    private func enqueueInterleaved(audio: [CMSampleBuffer], video: [CMSampleBuffer],
+                                    startMs: Int64) async throws {
+        var ai = 0
+        var vi = 0
+        while ai < audio.count || vi < video.count {
             try Task.checkCancellation()
-            while audio ? !audioRenderer.isReadyForMoreMediaData : !videoLayer.isReadyForMoreMediaData {
-                try await Task.sleep(nanoseconds: 20_000_000)
-            }
-            if audio {
-                audioRenderer.enqueue(sample)
+            let choice: SabrMediaInterleave.Track
+            if !isInitialized && !hasQueuedFirstAudio && ai < audio.count {
+                choice = .audio
+            } else if !isInitialized && !hasQueuedFirstVideo && vi < video.count {
+                choice = .video
             } else {
-                guard let hardwareDecoder else { throw SabrFailure.invalidResponse("decoder missing") }
-                try await hardwareDecoder.decode(sample)
+                let aTime = ai < audio.count
+                    ? CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(audio[ai])) : nil
+                let vTime = vi < video.count
+                    ? CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(video[vi])) : nil
+                guard let pick = SabrMediaInterleave.next(
+                    audioSeconds: aTime, videoSeconds: vTime
+                ) else { break }
+                choice = pick
+            }
+
+            switch choice {
+            case .audio:
+                while !audioRenderer.isReadyForMoreMediaData {
+                    try await Task.sleep(nanoseconds: 20_000_000)
+                }
+                audioRenderer.enqueue(audio[ai])
+                ai += 1
+                hasQueuedFirstAudio = true
+            case .video:
+                while !videoLayer.isReadyForMoreMediaData {
+                    try await Task.sleep(nanoseconds: 20_000_000)
+                }
+                guard let hardwareDecoder else {
+                    throw SabrFailure.invalidResponse("decoder missing")
+                }
+                try await hardwareDecoder.decode(video[vi])
+                vi += 1
+                hasQueuedFirstVideo = true
+            }
+
+            if !isInitialized && hasQueuedFirstAudio && hasQueuedFirstVideo {
+                synchronizer.setRate(1, time: CMTime(value: startMs, timescale: 1_000))
+                isInitialized = true
+                isPlaying = true
+                state = TVL10n.value("player.playing")
             }
         }
     }
