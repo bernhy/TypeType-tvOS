@@ -37,7 +37,6 @@ final class HardwareVideoDecoder {
     private let display: AVSampleBufferDisplayLayer
     private let allowSoftware: Bool
     private var active = true
-    var onFailure: ((String) -> Void)?
 
     init(display: AVSampleBufferDisplayLayer, allowSoftware: Bool) {
         self.display = display
@@ -95,20 +94,19 @@ final class HardwareVideoDecoder {
         }
         for (image, pts, duration) in output.frames {
             try Task.checkCancellation()
-            await present(image, pts: pts, duration: duration)
+            try await present(image, pts: pts, duration: duration)
         }
     }
 
-    private func present(_ image: CVImageBuffer, pts: CMTime, duration: CMTime) async {
-        guard active else { return }
+    private func present(_ image: CVImageBuffer, pts: CMTime, duration: CMTime) async throws {
+        guard active else { throw SabrFailure.stopped }
         var description: CMVideoFormatDescription?
         guard CMVideoFormatDescriptionCreateForImageBuffer(
             allocator: kCFAllocatorDefault,
             imageBuffer: image,
             formatDescriptionOut: &description
         ) == noErr, let description else {
-            onFailure?("Decoded pixel buffer has invalid format")
-            return
+            throw SabrFailure.unsupported("Decoded pixel buffer has invalid format")
         }
         var timing = CMSampleTimingInfo(
             duration: duration,
@@ -123,12 +121,12 @@ final class HardwareVideoDecoder {
             sampleTiming: &timing,
             sampleBufferOut: &sample
         ) == noErr, let sample else {
-            onFailure?("Cannot enqueue decoded pixel buffer")
-            return
+            throw SabrFailure.unsupported("Cannot enqueue decoded pixel buffer")
         }
         while active && !display.isReadyForMoreMediaData {
-            try? await Task.sleep(nanoseconds: 15_000_000)
+            try await Task.sleep(nanoseconds: 15_000_000)
         }
-        if active { display.enqueue(sample) }
+        guard active else { throw SabrFailure.stopped }
+        display.enqueue(sample)
     }
 }

@@ -169,25 +169,68 @@ final class SabrPlayerController: ObservableObject {
             }
             let allowSoftware = UserDefaults.standard.bool(forKey: "typetype.allowSoftwareDecode")
             let maximum = UserDefaults.standard.integer(forKey: "typetype.maxHeight")
-            guard let choice = HardwareCodec.choose(from: bootstrap,
-                                                   maxHeight: maximum > 0 ? maximum : 2160,
-                                                   allowSoftware: allowSoftware) else {
+
+            let options = HardwareCodec.candidates(
+                from: bootstrap, maxHeight: maximum > 0 ? maximum : 2160,
+                allowSoftware: allowSoftware
+            )
+            guard !options.isEmpty else {
                 throw SabrFailure.unsupported(TVL10n.value("player.noHardwareFormat"))
             }
-            selection = choice
-            selectionDescription = choice.description
-            hardwareDecoder = HardwareVideoDecoder(display: videoLayer, allowSoftware: allowSoftware)
-            hardwareDecoder?.onFailure = { [weak self] message in
-                self?.failure = message
-                self?.stop()
+            for (index, choice) in options.enumerated() {
+                try Task.checkCancellation()
+                selection = choice
+                selectionDescription = choice.description
+                hardwareDecoder = HardwareVideoDecoder(
+                    display: videoLayer, allowSoftware: allowSoftware
+                )
+                state = TVL10n.value("player.session")
+                do {
+                    let session = try await service.start(
+                        videoId: id, selection: choice, positionMs: positionMs
+                    )
+                    guard !session.sessionId.isEmpty else {
+                        throw SabrFailure.invalidResponse("sessionId")
+                    }
+                    sessionId = session.sessionId
+                    generation = session.generation
+                    try await consume(
+                        service: service, videoId: id, choice: choice,
+                        positionMs: positionMs, buffer: buffer
+                    )
+                    return
+                } catch SabrFailure.unsupported where !isInitialized && index < options.count - 1 {
+                    // A codec may be reported hardware-capable even though
+                    // the precise profile/level cannot create a decoder.
+                    // Try the next candidate only before playback starts.
+                    let oldSession = sessionId
+                    sessionId = ""
+                    generation = 0
+                    if !oldSession.isEmpty {
+                        Task { try? await service.release(sessionId: oldSession) }
+                    }
+                    windowProducerTask?.cancel()
+                    windowProducerTask = nil
+                    if let activeMailbox {
+                        await activeMailbox.finish(error: CancellationError())
+                    }
+                    activeMailbox = nil
+                    hardwareDecoder?.invalidate()
+                    hardwareDecoder = nil
+                    videoLayer.flushAndRemoveImage()
+                    audioRenderer.flush()
+                    synchronizer.setRate(
+                        0, time: CMTime(value: positionMs, timescale: 1_000)
+                    )
+                    hasQueuedFirstAudio = false
+                    hasQueuedFirstVideo = false
+                    isPlaying = false
+                    cachedThroughMs = positionMs
+                    diskCacheBytes = 0
+                    if let oldCache = segmentCache { await oldCache.clear() }
+                    segmentCache = SabrFragmentCache(maxMiB: buffer.cacheMiB)
+                }
             }
-            state = TVL10n.value("player.session")
-            let session = try await service.start(videoId: id, selection: choice, positionMs: positionMs)
-            guard !session.sessionId.isEmpty else { throw SabrFailure.invalidResponse("sessionId") }
-            sessionId = session.sessionId
-            generation = session.generation
-            try await consume(service: service, videoId: id, choice: choice,
-                              positionMs: positionMs, buffer: buffer)
         } catch is CancellationError {
             return
         } catch {
@@ -267,10 +310,6 @@ final class SabrPlayerController: ObservableObject {
                 let allowSoftware = UserDefaults.standard.bool(forKey: "typetype.allowSoftwareDecode")
                 hardwareDecoder = HardwareVideoDecoder(display: videoLayer,
                                                        allowSoftware: allowSoftware)
-                hardwareDecoder?.onFailure = { [weak self] message in
-                    self?.failure = message
-                    self?.stop()
-                }
                 synchronizer.setRate(0, time: CMTime(value: restartPosition, timescale: 1_000))
                 playbackPositionMs = restartPosition
                 isInitialized = false

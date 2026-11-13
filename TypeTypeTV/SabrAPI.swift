@@ -163,34 +163,50 @@ enum HardwareCodec {
         return allowSoftware || VTIsHardwareDecodeSupported(type)
     }
 
+
     static func choose(from stream: SabrBootstrap,
                        maxHeight: Int = 2160,
                        allowSoftware: Bool = false) -> SabrSelection? {
-        let all = (stream.videoOnlyStreams ?? []).filter {
+        candidates(from: stream, maxHeight: maxHeight,
+                   allowSoftware: allowSoftware).first
+    }
+
+    /// Codec-type hardware support is only a coarse probe. The actual
+    /// VideoToolbox session will validate profile, level and bit depth.
+    static func candidates(from stream: SabrBootstrap,
+                           maxHeight: Int = 2160,
+                           allowSoftware: Bool = false) -> [SabrSelection] {
+        let available = (stream.videoOnlyStreams ?? []).filter {
             $0.deliveryMethod == "sabr" && ($0.height ?? 0) > 0
+                && ($0.height ?? 0) <= maxHeight
+                && ($0.fps ?? 0) <= 60
                 && supported($0.codec, allowSoftware: allowSoftware)
         }
-        let underCap = all.filter { ($0.height ?? 0) <= maxHeight }
-        let candidates = underCap
-        let rank: (String) -> Int = { s in
-            if s.hasPrefix("av01") { return 4 }
-            if s.hasPrefix("hvc") || s.hasPrefix("hev") { return 3 }
-            if s.hasPrefix("vp") { return 2 }
+        let rank: (String) -> Int = { codec in
+            let id = codec.lowercased()
+            if id.hasPrefix("av01") { return 4 }
+            if id.hasPrefix("hvc") || id.hasPrefix("hev") { return 3 }
+            if id.hasPrefix("vp") { return 2 }
             return 1
         }
-        let best = candidates.sorted {
+        let videos = available.sorted {
             if $0.height != $1.height { return ($0.height ?? 0) > ($1.height ?? 0) }
             if $0.fps != $1.fps { return ($0.fps ?? 0) > ($1.fps ?? 0) }
             return rank($0.codec) > rank($1.codec)
-        }.first
+        }
         let audio = (stream.audioStreams ?? []).filter {
-            $0.deliveryMethod == "sabr" && (($0.codec ?? "").hasPrefix("mp4a") || ($0.mimeType ?? "").contains("mp4"))
+            $0.deliveryMethod == "sabr" && (
+                ($0.codec ?? "").lowercased().hasPrefix("mp4a") ||
+                ($0.mimeType ?? "").lowercased().contains("mp4")
+            )
         }.sorted {
             if ($0.isOriginal ?? false) != ($1.isOriginal ?? false) { return $0.isOriginal ?? false }
             return abs($0.itag - 140) < abs($1.itag - 140)
         }.first
-        guard let best, let audio else { return nil }
-        return SabrSelection(video: best, audio: audio)
+        guard let audio else { return [] }
+        var used = Set<Int>()
+        return videos.filter { used.insert($0.itag).inserted }
+            .prefix(8).map { SabrSelection(video: $0, audio: audio) }
     }
 }
 
