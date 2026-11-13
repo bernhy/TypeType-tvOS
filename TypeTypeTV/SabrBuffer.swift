@@ -104,47 +104,33 @@ actor SabrFragmentCache {
         }
     }
 
-    /// Prefetches at most two media segments in parallel; does not hammer the
-    /// TypeType server or continuously poll for windows that it cannot yet provide.
-    /// Returns the greatest media end-time downloaded in this particular window.
-    func prefetch(
+    /// Bounded two-download media prefetch, *before* advancing the next
+    /// server window. A failed or cancelled segment never counts as buffered.
+    func preloadFully(
         _ references: [SabrMediaReference], service: SabrService,
         sessionId: String, generation: Int64
-    ) async -> Int64 {
-        let ordered = references.sorted { $0.startMs < $1.startMs }
-        var loadedByTrack: [Int: Int64] = [:]
+    ) async throws {
+        let ordered = references.sorted {
+            if $0.startMs != $1.startMs { return $0.startMs < $1.startMs }
+            return $0.itag < $1.itag
+        }
         for offset in stride(from: 0, to: ordered.count, by: 2) {
-            if Task.isCancelled || invalidated { break }
-            let subset = Array(ordered[offset..<min(offset + 2, ordered.count)])
-            let ends = await withTaskGroup(of: (Int, Int64)?.self) { group -> [(Int, Int64)?] in
-                for part in subset {
+            try Task.checkCancellation()
+            let batch = Array(ordered[offset..<min(offset + 2, ordered.count)])
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for item in batch {
                     group.addTask {
-                        do {
-                            _ = try await self.data(for: part.url) {
-                                try await service.fragmentData(
-                                    part.url, sessionId: sessionId,
-                                    itag: part.itag, generation: generation
-                                )
-                            }
-                            return (part.itag, part.startMs + part.durationMs)
-                        } catch {
-                            return nil
+                        _ = try await self.data(for: item.url) {
+                            try await service.fragmentData(
+                                item.url, sessionId: sessionId,
+                                itag: item.itag, generation: generation
+                            )
                         }
                     }
                 }
-                var collected: [(Int, Int64)?] = []
-                for await result in group { collected.append(result) }
-                return collected
-            }
-            for end in ends {
-                if let (itag, milliseconds) = end {
-                    loadedByTrack[itag] = max(loadedByTrack[itag] ?? 0, milliseconds)
-                }
+                try await group.waitForAll()
             }
         }
-        // Both selected tracks must be cached to call a time position buffered.
-        // Returning max(video,audio) incorrectly advertises undecodable media.
-        return loadedByTrack.count >= 2 ? (loadedByTrack.values.min() ?? 0) : 0
     }
 
     func clear() {
