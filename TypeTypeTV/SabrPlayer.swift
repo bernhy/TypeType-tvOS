@@ -1015,7 +1015,9 @@ struct SabrPlayerView: View {
 
             if let failure = engine.failure {
                 VStack(spacing: 22) {
-                    Text("player.sabrError").font(.largeTitle)
+                    Text(engine.playbackUnavailable
+                        ? "player.videoUnavailable" : "player.sabrError")
+                        .font(.largeTitle)
                     Text(failure).multilineTextAlignment(.center)
                     Button("common.retry") {
                         engine.start(api: api, video: video)

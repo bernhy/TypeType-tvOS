@@ -5,10 +5,15 @@ import XCTest
 private final class TVAPIWireProtocol: URLProtocol {
     static let lock = NSLock()
     static var resolvers: [String: (URLRequest) -> (Int, Data)] = [:]
+    static var headers: [String: [String: String]] = [:]
 
-    static func install(host: String, _ next: @escaping (URLRequest) -> (Int, Data)) {
+    static func install(
+        host: String, headers responseHeaders: [String: String] = [:],
+        _ next: @escaping (URLRequest) -> (Int, Data)
+    ) {
         lock.lock()
         resolvers[host] = next
+        headers[host] = responseHeaders
         lock.unlock()
     }
 
@@ -42,6 +47,7 @@ private final class TVAPIWireProtocol: URLProtocol {
     override func startLoading() {
         Self.lock.lock()
         let callback = request.url?.host.flatMap { Self.resolvers[$0] }
+        let extraHeaders = request.url?.host.flatMap { Self.headers[$0] } ?? [:]
         Self.lock.unlock()
         guard let url = request.url, let callback else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
@@ -56,7 +62,7 @@ private final class TVAPIWireProtocol: URLProtocol {
                 "Content-Type": "application/json",
                 "Content-Length": String(body.count),
                 "Cache-Control": "no-store"
-            ]
+            ].merging(extraHeaders) { _, new in new }
         )!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: body)
@@ -452,6 +458,35 @@ final class TVAPIWireTests: XCTestCase {
             XCTFail("Structured permanent 404 must not become generic HTTP error")
         } catch TypeTypeError.videoUnavailable {
             // Expected.
+        }
+    }
+
+    func testHLSBootstrapPreservesServerRetryAfterHeader() async throws {
+        TVAPIWireProtocol.install(
+            host: "busy.example",
+            headers: ["Retry-After": "35"]
+        ) { request in
+            guard request.url?.path == "/api/streams/bilibili" else {
+                return (404, Data())
+            }
+            return (503, Data(
+                #"{"error":"Provider is rate limited","code":"provider_rate_limited"}"#.utf8
+            ))
+        }
+        let api = try fixtureAPI(host: "busy.example")
+        let video = VideoItem(
+            id: "busy", title: "Sample",
+            url: "https://www.bilibili.com/video/BV1xx411c7mD",
+            thumbnailUrl: nil, uploaderName: nil,
+            duration: 180, isLive: false
+        )
+        do {
+            _ = try await api.stream(for: video)
+            XCTFail("503 must preserve backoff instead of returning generic HTTP error")
+        } catch TypeTypeError.retryAfter(let status, let route, let seconds) {
+            XCTAssertEqual(status, 503)
+            XCTAssertEqual(route, "streams/bilibili")
+            XCTAssertEqual(seconds, 35)
         }
     }
 

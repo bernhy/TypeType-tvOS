@@ -7280,6 +7280,34 @@
           }
         }
       }
+    },
+    "error.retryAfter": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TypeType ist vorübergehend überlastet (HTTP %d). Erneut versuchen nach %d Sekunden (%@)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TypeType is temporarily busy (HTTP %d). Retry after %d seconds (%@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TypeType est temporairement surchargé (HTTP %d). Réessayez dans %d secondes (%@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TypeType está temporalmente ocupado (HTTP %d). Reintentar en %d segundos (%@)."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
