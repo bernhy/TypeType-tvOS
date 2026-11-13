@@ -35,7 +35,14 @@ struct ServerSetupView: View {
         defer { isLoading = false }
         do {
             let api = try TypeTypeAPI(address: address)
-            try await api.validate()
+            let instance = try await api.instance()
+            guard instance.apiVersion == 1 else {
+                throw TypeTypeError.incompatibleServer(instance.apiVersion)
+            }
+            if instance.guestAllowed == true && TypeTypeCredentials.shared.token(for: api.origin) == nil {
+                // Guest mode is optional; account-only instances remain usable through device pairing.
+                try? await SabrService(api: api).guestLogin()
+            }
             onConfigured(api.origin.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
         } catch {
             message = error.localizedDescription
