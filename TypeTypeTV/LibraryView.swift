@@ -15,6 +15,10 @@ struct LibraryView: View {
     @State private var selected: TVLibraryDestination = .standard(.watchLater)
     @State private var playlists: [TVPlaylistDTO] = []
     @State private var firstPlaylistSelectionPending = true
+    @State private var editPlaylistID: String?
+    @State private var playlistToDelete: String?
+    @State private var mutationError: String?
+    @State private var savingPlaylist = false
     @State private var videos: [VideoItem] = []
     @State private var statusMessage: String?
     @State private var railError: String?
@@ -49,6 +53,26 @@ struct LibraryView: View {
                         }
                         .buttonStyle(.bordered)
                         .disabled(loading)
+                        if case .playlist(let id) = selected {
+                            Button {
+                                editPlaylistID = id
+                            } label: {
+                                Label("action.renamePlaylist", systemImage: "pencil")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(savingPlaylist)
+                            Button(role: .destructive) {
+                                playlistToDelete = id
+                            } label: {
+                                Label("action.deletePlaylist", systemImage: "trash")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(savingPlaylist)
+                        }
+                    }
+                    if let mutationError {
+                        Text(mutationError).font(.callout)
+                            .foregroundStyle(.orange).lineLimit(2)
                     }
                     if loading {
                         ProgressView("settings.remoteLoading")
@@ -75,9 +99,11 @@ struct LibraryView: View {
                                     VideoCard(api: api, video: video)
                                 }
                                 .buttonStyle(.card)
-                                .videoActions(api: api, video: video) {
-                                    Task { await refresh() }
-                                }
+                                .videoActions(
+                                    api: api, video: video,
+                                    onChanged: { Task { await refresh() } },
+                                    onRemoveFromPlaylist: removalAction(for: video)
+                                )
                                 .accessibilityLabel(TTTheme.accessibilityText(for: video))
                             }
                         }
@@ -92,6 +118,55 @@ struct LibraryView: View {
         .background(TTTheme.ink)
         .task { await refresh() }
         .task(id: selected) { await loadSelected() }
+        .sheet(isPresented: Binding(
+            get: { editPlaylistID != nil },
+            set: { if !$0 { editPlaylistID = nil } }
+        )) {
+            if let id = editPlaylistID {
+                TVPlaylistRenameView(
+                    api: api, playlistID: id, initialName: title,
+                    onSaved: {
+                        editPlaylistID = nil
+                        Task { await refresh() }
+                    },
+                    onCancel: { editPlaylistID = nil }
+                )
+            }
+        }
+        .confirmationDialog(
+            TVL10n.value("action.deletePlaylistConfirm"),
+            isPresented: Binding(
+                get: { playlistToDelete != nil },
+                set: { if !$0 { playlistToDelete = nil } }
+            )
+        ) {
+            if let id = playlistToDelete {
+                Button("action.deletePlaylist", role: .destructive) {
+                    Task { await deletePlaylist(id) }
+                }
+            }
+            Button("common.cancel", role: .cancel) { playlistToDelete = nil }
+        }
+    }
+
+    private func removalAction(for video: VideoItem) -> (() async throws -> Void)? {
+        guard case .playlist(let id) = selected else { return nil }
+        return { try await api.removeFromPlaylist(id, videoURL: video.url) }
+    }
+
+    @MainActor
+    private func deletePlaylist(_ id: String) async {
+        guard !savingPlaylist else { return }
+        savingPlaylist = true
+        mutationError = nil
+        defer { savingPlaylist = false; playlistToDelete = nil }
+        do {
+            try await api.deletePlaylist(id)
+            selected = .standard(.watchLater)
+            await refresh()
+        } catch {
+            mutationError = error.localizedDescription
+        }
     }
 
     private var secondaryRail: some View {
