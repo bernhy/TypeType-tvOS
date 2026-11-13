@@ -299,4 +299,113 @@ final class TVAPIWireTests: XCTestCase {
         XCTAssertEqual(vodResponse.hlsUrl, "/media/vod.m3u8")
     }
 
+    @MainActor
+    func testPlaybackPresenceStartProgressStopContract() async throws {
+        let lock = NSLock()
+        var calls: [(method: String, path: String, body: Data?,
+                     auth: String?)] = []
+        TVAPIWireProtocol.install(host: "presence.example") { request in
+            lock.lock()
+            calls.append((request.httpMethod ?? "",
+                          request.url?.path ?? "", request.httpBody,
+                          request.value(forHTTPHeaderField: "Authorization")))
+            lock.unlock()
+            return (204, Data())
+        }
+        let api = try fixtureAPI(host: "presence.example")
+        let video = VideoItem(
+            id: "presence", title: "Test playback",
+            url: "https://www.youtube.com/watch?v=abc123def45",
+            thumbnailUrl: "https://img.example/one.jpg",
+            uploaderName: "Example", duration: 123, isLive: false
+        )
+        let identity = TVPlaybackPresenceIdentity(
+            clientName: "TypeType tvOS", clientVersion: "test",
+            deviceId: "stable-test-device", deviceName: "Apple TV",
+            deviceType: "apple_tv"
+        )
+        let reporter = TVPlaybackPresenceReporter(identity: identity)
+        let owner = UUID()
+        reporter.start(owner: owner, api: api, video: video,
+                       positionMs: 25_000, paused: false)
+        reporter.progress(owner: owner, video: video,
+                          positionMs: 41_700, paused: true)
+        reporter.stop(owner: owner)
+        reporter.stop(owner: owner)
+        await reporter.flush()
+
+        lock.lock()
+        let captured = calls
+        lock.unlock()
+        XCTAssertEqual(captured.map(\.method), ["POST", "POST", "POST"])
+        XCTAssertEqual(captured.map(\.path), [
+            "/api/sessions/playback/start",
+            "/api/sessions/playback/progress",
+            "/api/sessions/playback/stop"
+        ])
+        XCTAssertTrue(captured.allSatisfy { $0.auth == "Bearer fixture-token" })
+        let started = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: try XCTUnwrap(captured[0].body)
+        ) as? [String: Any])
+        XCTAssertEqual(started["videoUrl"] as? String, video.url)
+        XCTAssertEqual(started["durationMs"] as? Int, 123_000)
+        XCTAssertEqual(started["positionMs"] as? Int, 25_000)
+        XCTAssertEqual(started["deviceType"] as? String, "apple_tv")
+        let progress = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: try XCTUnwrap(captured[1].body)
+        ) as? [String: Any])
+        XCTAssertEqual(progress["positionMs"] as? Int, 41_700)
+        XCTAssertEqual(progress["paused"] as? Bool, true)
+        let stopped = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: try XCTUnwrap(captured[2].body)
+        ) as? [String: Any])
+        XCTAssertEqual(stopped["deviceId"] as? String, "stable-test-device")
+        XCTAssertNil(stopped["videoUrl"])
+    }
+
+    @MainActor
+    func testStalePlayerStopDoesNotClearNewPlayingSession() async throws {
+        let lock = NSLock()
+        var paths: [String] = []
+        TVAPIWireProtocol.install(host: "switch.example") { request in
+            lock.lock()
+            paths.append(request.url?.path ?? "")
+            lock.unlock()
+            return (204, Data())
+        }
+        let api = try fixtureAPI(host: "switch.example")
+        let identity = TVPlaybackPresenceIdentity(
+            clientName: "TypeType tvOS", clientVersion: "test",
+            deviceId: "other-device", deviceName: "Apple TV",
+            deviceType: "apple_tv"
+        )
+        let reporter = TVPlaybackPresenceReporter(identity: identity)
+        let old = UUID()
+        let next = UUID()
+        let first = VideoItem(
+            id: "a", title: "A", url: "https://youtu.be/abc123def45",
+            thumbnailUrl: nil, uploaderName: nil, duration: 60, isLive: false
+        )
+        let second = VideoItem(
+            id: "b", title: "B", url: "https://youtu.be/12345678901",
+            thumbnailUrl: nil, uploaderName: nil, duration: 80, isLive: false
+        )
+        reporter.start(owner: old, api: api, video: first,
+                       positionMs: 0, paused: false)
+        reporter.start(owner: next, api: api, video: second,
+                       positionMs: 500, paused: false)
+        reporter.stop(owner: old)
+        reporter.progress(owner: old, video: first, positionMs: 800, paused: false)
+        reporter.stop(owner: next)
+        await reporter.flush()
+        lock.lock()
+        let captured = paths
+        lock.unlock()
+        XCTAssertEqual(captured, [
+            "/api/sessions/playback/start",
+            "/api/sessions/playback/start",
+            "/api/sessions/playback/stop"
+        ])
+    }
+
 }
