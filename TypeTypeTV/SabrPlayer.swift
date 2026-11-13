@@ -15,9 +15,20 @@ enum FragmentedMP4Reader {
         }
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("typetype-\(UUID().uuidString).mp4")
-        // Each fragment is bounded; do not retain giant temporary files across the session.
-        try (initialization + fragment).write(to: file, options: .atomic)
+        // Validate structure before asking AVAssetReader to inspect untrusted
+        // bytes. Write two parts separately: '+' copies potentially huge 4K
+        // fragments into a second Data allocation on memory-limited Apple TVs.
+        try SabrMP4Boxes.validate(initialization: initialization, fragment: fragment)
+        guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
+            throw SabrFailure.invalidResponse("Cannot create temporary MP4 segment")
+        }
         defer { try? FileManager.default.removeItem(at: file) }
+        do {
+            let writer = try FileHandle(forWritingTo: file)
+            defer { try? writer.close() }
+            try writer.write(contentsOf: initialization)
+            try writer.write(contentsOf: fragment)
+        }
         let asset = AVURLAsset(url: file)
         let tracks = try await asset.loadTracks(withMediaType: mediaType)
         guard let track = tracks.first else {
