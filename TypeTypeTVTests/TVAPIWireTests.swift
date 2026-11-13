@@ -267,4 +267,36 @@ final class TVAPIWireTests: XCTestCase {
         XCTAssertEqual(rename?["description"] as? String, "Details")
     }
 
+    func testYoutubeLiveUsesNativeHLSRouteAndVODRemainsSabr() async throws {
+        TVAPIWireProtocol.install(host: "livestream.example") { request in
+            let path = request.url?.path ?? ""
+            switch path {
+            case "/api/streams/youtube/live":
+                return (200, Data(
+                    #"{"hlsUrl":"/media/live.m3u8","isLive":true}"#.utf8
+                ))
+            case "/api/streams/youtube/sabr":
+                return (200, Data(
+                    #"{"hlsUrl":"/media/vod.m3u8","isLive":false}"#.utf8
+                ))
+            default:
+                return (404, Data())
+            }
+        }
+        let api = try fixtureAPI(host: "livestream.example")
+        let url = "https://www.youtube.com/watch?v=abc123def45"
+        let live = VideoItem(
+            id: url, title: "Live", url: url, thumbnailUrl: nil,
+            uploaderName: nil, duration: nil, isLive: true
+        )
+        let vod = VideoItem(
+            id: url, title: "VOD", url: url, thumbnailUrl: nil,
+            uploaderName: nil, duration: 120, isLive: false
+        )
+        let response = try await api.stream(for: live)
+        XCTAssertEqual(response.hlsUrl, "/media/live.m3u8")
+        let vodResponse = try await api.stream(for: vod)
+        XCTAssertEqual(vodResponse.hlsUrl, "/media/vod.m3u8")
+    }
+
 }
