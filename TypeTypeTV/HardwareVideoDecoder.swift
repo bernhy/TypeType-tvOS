@@ -34,7 +34,7 @@ final class HardwareVideoDecoder {
         guard let description = CMSampleBufferGetFormatDescription(compressed) else {
             throw SabrFailure.invalidResponse("compressed sample without format description")
         }
-        if session == nil || format.map({ !CMFormatDescriptionEqual($0, description) }) == true {
+        if session == nil || format.map({ !CMFormatDescriptionEqual($0, otherFormatDescription: description) }) == true {
             if let session { VTDecompressionSessionInvalidate(session) }
             session = nil
             format = description
