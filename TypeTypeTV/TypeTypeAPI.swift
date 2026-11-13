@@ -60,6 +60,47 @@ enum TypeTypeError: LocalizedError {
     }
 }
 
+/// Encode an external video URL as ONE path component, as the Android
+/// LibraryWriteApi does. Slashes, queries and percent signs must not become
+/// API route structure, especially when deleting favorites or Watch Later.
+enum TVLibraryRoutes {
+    static func mediaURL(base: URL, collection: String,
+                         videoURL: String) throws -> URL {
+        guard (collection == "favorites" || collection == "watch-later"),
+              !videoURL.isEmpty else { throw TypeTypeError.invalidServerAddress }
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#%")
+        guard let component = videoURL.addingPercentEncoding(withAllowedCharacters: allowed),
+              var parts = URLComponents(
+                url: base.appendingPathComponent(collection, isDirectory: true),
+                resolvingAgainstBaseURL: false
+              ) else { throw TypeTypeError.invalidServerAddress }
+        parts.percentEncodedPath += component
+        guard let url = parts.url else { throw TypeTypeError.invalidServerAddress }
+        return url
+    }
+}
+
+struct TVWatchLaterWrite: Encodable {
+    let url: String
+    let title: String
+    let thumbnail: String
+    let duration: Int
+    let channelName: String
+    let channelUrl: String
+    let channelAvatar: String
+
+    init(video: VideoItem) {
+        url = video.url
+        title = video.title
+        thumbnail = video.thumbnailUrl ?? ""
+        duration = max(0, video.duration ?? 0)
+        channelName = video.uploaderName ?? ""
+        channelUrl = ""
+        channelAvatar = ""
+    }
+}
+
 /// The same /api/ v1 JSON contract used by TypeType-TV (Android).
 /// No private Apple APIs, authentication token, or TLS bypass.
 struct TypeTypeAPI {
@@ -147,6 +188,53 @@ struct TypeTypeAPI {
         case .watchLater:
             let rows: [TVWatchLaterDTO] = try await get("watch-later")
             return rows.map(\.video)
+        }
+    }
+
+    /// Mutate the same server-side library as the Android TV app. No
+    /// tvOS-local shadow favorites and no optimistic write without rollback.
+    func setFavorite(videoURL: String, enabled: Bool) async throws {
+        let url = try TVLibraryRoutes.mediaURL(
+            base: base, collection: "favorites", videoURL: videoURL
+        )
+        try await writeLibrary(url, method: enabled ? "POST" : "DELETE", body: nil)
+    }
+
+    func setWatchLater(video: VideoItem, enabled: Bool) async throws {
+        let url: URL
+        let body: Data?
+        if enabled {
+            url = base.appendingPathComponent("watch-later")
+            body = try JSONEncoder().encode(TVWatchLaterWrite(video: video))
+        } else {
+            url = try TVLibraryRoutes.mediaURL(
+                base: base, collection: "watch-later", videoURL: video.url
+            )
+            body = nil
+        }
+        try await writeLibrary(url, method: enabled ? "POST" : "DELETE", body: body)
+    }
+
+    private func writeLibrary(_ url: URL, method: String,
+                              body: Data?) async throws {
+        guard let token = TypeTypeCredentials.shared.token(for: origin), !token.isEmpty else {
+            throw TypeTypeError.http(401, "library")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("Bearer \\(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("TypeTypeTV-tvOS/0.2", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        let (_, result) = try await session.data(for: request)
+        guard let response = result as? HTTPURLResponse else {
+            throw TypeTypeError.unexpectedResponse
+        }
+        guard (200..<300).contains(response.statusCode) else {
+            throw TypeTypeError.http(response.statusCode, "library")
         }
     }
 

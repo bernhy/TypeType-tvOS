@@ -4,6 +4,11 @@ struct VideoDetailView: View {
     let api: TypeTypeAPI
     let video: VideoItem
     @Environment(\.dismiss) private var dismiss
+    @State private var favorite = false
+    @State private var watchLater = false
+    @State private var activityLoaded = false
+    @State private var activitySaving = false
+    @State private var activityError: String?
 
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
 
@@ -50,26 +55,61 @@ struct VideoDetailView: View {
                         }
                         .font(.callout)
                         .foregroundStyle(.white.opacity(0.72))
-                        HStack(spacing: 22) {
-                            NavigationLink {
-                                PlaybackView(api: api, video: video)
-                            } label: {
-                                Label {
-                                    if video.isLive == true { Text("video.viewLive") }
-                                    else { Text("video.play") }
-                                } icon: {
-                                    Image(systemName: "play.fill")
+                        VStack(alignment: .leading, spacing: 16) {
+                            HStack(spacing: 22) {
+                                NavigationLink {
+                                    PlaybackView(api: api, video: video)
+                                } label: {
+                                    Label {
+                                        if video.isLive == true { Text("video.viewLive") }
+                                        else { Text("video.play") }
+                                    } icon: {
+                                        Image(systemName: "play.fill")
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(TTTheme.accent)
+
+                                Button {
+                                    dismiss()
+                                } label: {
+                                    Label("common.back", systemImage: "chevron.left")
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                            HStack(spacing: 22) {
+                                Button {
+                                    Task { await changeFavorite() }
+                                } label: {
+                                    Label(TVL10n.value("library.favorites"),
+                                          systemImage: favorite ? "heart.fill" : "heart")
+                                }
+                                .accessibilityAddTraits(favorite ? .isSelected : [])
+                                .buttonStyle(.bordered)
+                                .tint(favorite ? TTTheme.accent : TTTheme.muted)
+                                .disabled(!activityLoaded || activitySaving)
+
+                                Button {
+                                    Task { await changeWatchLater() }
+                                } label: {
+                                    Label(TVL10n.value("library.watchLater"),
+                                          systemImage: watchLater ? "bookmark.fill" : "bookmark")
+                                }
+                                .accessibilityAddTraits(watchLater ? .isSelected : [])
+                                .buttonStyle(.bordered)
+                                .tint(watchLater ? TTTheme.accent : TTTheme.muted)
+                                .disabled(!activityLoaded || activitySaving)
+
+                                if !activityLoaded {
+                                    ProgressView().controlSize(.small)
                                 }
                             }
-                            .buttonStyle(.borderedProminent)
-                            .tint(TTTheme.accent)
-
-                            Button {
-                                dismiss()
-                            } label: {
-                                Label("common.back", systemImage: "chevron.left")
+                            if let activityError {
+                                Text(activityError)
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                                    .lineLimit(2)
                             }
-                            .buttonStyle(.bordered)
                         }
                         .focusSection()
                     }
@@ -82,5 +122,58 @@ struct VideoDetailView: View {
 
         }
         .background(TTTheme.ink)
+        .task(id: video.url) { await loadActivity() }
+    }
+
+    @MainActor
+    private func loadActivity() async {
+        activityLoaded = false
+        activityError = nil
+        do {
+            async let favorites = api.library(.favorites)
+            async let saved = api.library(.watchLater)
+            let (favoriteItems, savedItems) = try await (favorites, saved)
+            guard !Task.isCancelled else { return }
+            favorite = favoriteItems.contains { $0.url == video.url }
+            watchLater = savedItems.contains { $0.url == video.url }
+            activityLoaded = true
+        } catch is CancellationError {
+            return
+        } catch {
+            activityLoaded = false
+            activityError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func changeFavorite() async {
+        guard activityLoaded && !activitySaving else { return }
+        let old = favorite
+        favorite = !old
+        activitySaving = true
+        activityError = nil
+        defer { activitySaving = false }
+        do {
+            try await api.setFavorite(videoURL: video.url, enabled: favorite)
+        } catch {
+            favorite = old
+            activityError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func changeWatchLater() async {
+        guard activityLoaded && !activitySaving else { return }
+        let old = watchLater
+        watchLater = !old
+        activitySaving = true
+        activityError = nil
+        defer { activitySaving = false }
+        do {
+            try await api.setWatchLater(video: video, enabled: watchLater)
+        } catch {
+            watchLater = old
+            activityError = error.localizedDescription
+        }
     }
 }
