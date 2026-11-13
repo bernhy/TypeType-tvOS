@@ -159,7 +159,7 @@ struct TypeTypeAPI {
     }
 
     func setAccountSetting(_ field: String, value: TVSettingValue) async throws -> TVServerSettings {
-        guard let url = URL(string: "settings", relativeTo: base)?.absoluteURL else {
+        guard let url = URLComponents(url: base.appendingPathComponent("settings"), resolvingAgainstBaseURL: false)?.url else {
             throw TypeTypeError.invalidServerAddress
         }
         var request = URLRequest(url: url)
@@ -322,8 +322,7 @@ struct TypeTypeAPI {
     }
 
     private func get<T: Decodable>(_ endpoint: String, query: [URLQueryItem] = []) async throws -> T {
-        var parts = URLComponents(url: base, resolvingAgainstBaseURL: false)
-        parts?.path = base.path + endpoint
+        var parts = URLComponents(url: base.appendingPathComponent(endpoint), resolvingAgainstBaseURL: false)
         parts?.queryItems = query.isEmpty ? nil : query
         guard let url = parts?.url else { throw TypeTypeError.invalidServerAddress }
         var request = URLRequest(url: url)
