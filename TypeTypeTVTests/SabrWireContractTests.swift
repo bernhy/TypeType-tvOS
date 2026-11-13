@@ -258,4 +258,13 @@ final class SabrWireContractTests: XCTestCase {
             hostInput: "somewhere.local?session=secret", mode: .https))
     }
 
+    func testCertificateFingerprintDisplayAndLocalScope() {
+        let report = TVCertificateReport(origin: URL(string: "https://nas.local:8443")!,
+             fingerprint: "0123456789ABCDEF", subject: "nas.local",
+             chain: ["nas.local", "Private CA"], problem: "Untrusted")
+        XCTAssertEqual(report.formattedFingerprint, "01:23:45:67:89:AB:CD:EF")
+        XCTAssertEqual(report.chain.count, 2)
+        XCTAssertTrue(TVServerAddress.isLocalHost("192.168.1.1"))
+        XCTAssertFalse(TVServerAddress.isLocalHost("1.1.1.1"))
+    }
 }

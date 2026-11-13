@@ -13,12 +13,16 @@ Native, GPL-3.0 Apple TV client for [TypeType](https://github.com/TypeType-Video
 
 ## Implemented so far
 
-- SwiftUI TV navigation and Android-inspired visual language: dark ink background, TypeType red accent, large featured-video backdrop, horizontal recommendation shelves, and native tvOS focus behavior. Search, details and library remain independently navigable.
-- HTTPS instance compatibility check, guest login when supported, device-code account login and per-origin Keychain token storage.
+- SwiftUI TV navigation and Android-inspired visual language: dark ink background, TypeType red accent, thumbnail-first recommendation grid, collapsible icon sidebar and tvOS focus navigation. Search, details and library remain independently navigable.
+- HTTPS by default; HTTP is offered explicitly for local/private hosts only. The connection screen uses the native URL keyboard and separates hostname from protocol.
+- Self-signed HTTPS certificates are rejected until the user reviews their subject, chain and SHA-256 fingerprint and explicitly pins that certificate to the exact origin in Keychain. Changing it prompts again.
+- Same-origin thumbnails use the same pinned server connection; a bounded in-memory thumbnail cache reduces redundant requests. External CDN images keep Apple's standard TLS checks.
+- Guest login when supported, device-code account pairing, and per-origin Keychain token storage.
 - Hardware codec indicators for H.264, HEVC, VP9 and AV1; maximum resolution setting; software-decoding override.
 - **Experimental YouTube player**: SABR bootstrap/session/position/prefetch/windows/segments, fMP4 sample extraction using `AVAssetReader`, explicit VideoToolbox hardware decoding, synchronized audio/video renderers, pause and ±seek buttons.
 - Native HLS AVPlayer path for compatible non-YouTube sources.
-- Free GitHub macOS 26 / Xcode 26.2 CI: unsigned tvOS simulator app artifact and XCTest SABR protocol tests.
+- German is the default app language. German/English resource catalogs are installed, with English translation coverage still in progress.
+- CI builds the unsigned simulator app and runs SABR/network unit tests plus five real tvOS simulator UI/screenshot tests.
 
 ## Technical playback path
 
@@ -56,3 +60,7 @@ GNU GPL v3; see LICENSE. Upstream client: https://github.com/TypeType-Video/Type
 Upstream TypeType Server currently caps each SABR window at **12 segments per track** and its own memory read-ahead at approximately **24 MiB** (see `SabrPlaybackWindowTrackBuilder` and `SabrPumpPolicy`). The client has a separately bounded disk cache. The requested 180-second forward goal does **not** automatically imply a filled 180-second buffer. Cached-through reporting uses the shorter of audio/video track coverage, and playback window reports clamp old ranges to the configured back-buffer horizon.
 
 These changes require no TypeType Server modifications. Multi-window ahead-of-playback scheduling remains to be validated separately on real SABR sessions.
+
+## Local server transport
+
+Local HTTP is an explicit opt-in and unencrypted, including account traffic. The build declares NSAllowsLocalNetworking rather than globally disabling ATS. HTTPS normally uses system chain verification; a user may review and approve a non-trusted leaf certificate SHA-256 fingerprint for exactly one origin. ATS may still reject unsupported TLS configurations, so real-device self-signed certificate testing is required. Changing the leaf certificate requires explicit reconfirmation. No automatic trust-all setting exists.

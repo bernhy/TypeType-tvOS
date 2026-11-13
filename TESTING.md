@@ -13,7 +13,7 @@ The GitHub simulator build and wire-contract tests do **not** validate playback 
 
 ## Live instance smoke test
 
-1. Configure the app with a working HTTPS TypeType-Server API v1 instance. Guest-enabled servers should create a guest session; otherwise use device-code pairing.
+1. Connect over HTTPS by default; test the explicit HTTP option for private local hosts. With a self-signed HTTPS server, verify subject, certificate chain and SHA-256 fingerprint against a trusted source before confirming it. Changing the leaf certificate must prompt again. Apple ATS restrictions require device testing.
 2. Keep **Softwaredecoding erlauben** OFF; verify hardware codec indicators on the physical device (simulator values are not authoritative).
 3. Use a short YouTube VOD with SABR H.264/AAC. First check 720p/1080p picture and sound, then verify 4K where supported.
 4. Test multiple minutes uninterrupted, Play/Pause press, Siri Remote touchpad contact, left/right clicks at **5/10/15/20-second** intervals, focus navigation while controls are visible, and status bar hiding after five seconds.
@@ -38,3 +38,10 @@ The GitHub simulator build and wire-contract tests do **not** validate playback 
 
 - The custom Siri Remote UIKit capture layer requires a real remote for touch-contact and directional click validation, especially on 2017 clickpad hardware and 2026 models.
 - The disk cache is bounded and session-local; it currently preloads only segments included in the SABR windows returned by the unmodified server. Filling several minutes across multiple future windows remains under development.
+
+## Interface, language and network checklist
+
+- Five tvOS screenshot tests: server setup, thumbnail home, expanded sidebar, search and details. The expanded-menu screenshot uses a Debug-only fixture, not real Siri Remote input.
+- Check remote left movement from a first-column thumbnail, menu expansion and collapse, native URL keyboard, HTTPS/HTTP selection and hostname shortcuts.
+- Check approved self-signed same-origin thumbnail downloads, external CDN HTTPS, and that bearer tokens never go to a third party.
+- German is the default locale; the English resource catalog is prepared, while full translations remain in progress.

@@ -65,7 +65,7 @@ struct ServerSetupView: View {
                         Text("Schnell ergänzen")
                             .font(.caption).foregroundStyle(TTTheme.muted)
                         HStack(spacing: 15) {
-                            ForEach([".local", ".de", ".org", ".com"], id: \.self) { suffix in
+                            ForEach(["www.", ".local", ".de", ".org", ".com"], id: \.self) { suffix in
                                 Button(suffix) { appendSuffix(suffix) }
                                     .buttonStyle(.plain)
                                     .font(.system(size: 22, weight: .medium))
@@ -143,6 +143,12 @@ struct ServerSetupView: View {
 
     private func appendSuffix(_ suffix: String) {
         let cleaned = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        if suffix == "www." {
+            if !cleaned.isEmpty && !cleaned.lowercased().hasPrefix("www.") {
+                host = "www." + cleaned
+            }
+            return
+        }
         guard !cleaned.isEmpty,
               !cleaned.hasSuffix(suffix),
               !cleaned.contains("://"),
