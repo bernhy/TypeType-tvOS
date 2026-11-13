@@ -937,7 +937,9 @@ struct SabrPlayerView: View {
                         reveal()
                     },
                     onSelect: {
-                        if controlsVisible { engine.togglePause() }
+                        // A Clickpad click always toggles playback; a simple
+                        // touch only reveals the controls.
+                        engine.togglePause()
                         reveal()
                     },
                     onOptions: {
