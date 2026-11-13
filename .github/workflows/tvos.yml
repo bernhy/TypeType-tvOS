@@ -50,3 +50,14 @@ jobs:
           path: TypeTypeTV-simulator.app.zip
           if-no-files-found: error
           retention-days: 7
+      - name: Run native SABR contract unit tests
+        run: |
+          xcodebuild \
+            -project TypeTypeTV.xcodeproj \
+            -scheme TypeTypeTV \
+            -configuration Debug \
+            -sdk appletvsimulator \
+            -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation),OS=26.2' \
+            -derivedDataPath "$RUNNER_TEMP/typetype-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            test

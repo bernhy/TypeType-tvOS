@@ -23,6 +23,14 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: "TypeType"
         INFOPLIST_KEY_UIRequiresFullScreen: YES
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
+  TypeTypeTVTests:
+    type: bundle.unit-test
+    platform: tvOS
+    deploymentTarget: "17.0"
+    sources:
+      - TypeTypeTVTests
+    dependencies:
+      - target: TypeTypeTV
 schemes:
   TypeTypeTV:
     build:
@@ -30,3 +38,6 @@ schemes:
         TypeTypeTV: all
     run:
       config: Debug
+    test:
+      targets:
+        - TypeTypeTVTests
