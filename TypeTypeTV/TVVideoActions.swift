@@ -7,6 +7,7 @@ struct TVVideoActionModifier: ViewModifier {
     let api: TypeTypeAPI
     let video: VideoItem
     let onChanged: (() -> Void)?
+    let onRemoveFromPlaylist: (() async throws -> Void)?
 
     @ObservedObject private var localProgress = TVLocalProgress.shared
     @State private var pickerVisible = false
@@ -41,6 +42,16 @@ struct TVVideoActionModifier: ViewModifier {
                     pickerVisible = true
                 } label: {
                     Label("action.addPlaylist", systemImage: "text.badge.plus")
+                }
+                if let onRemoveFromPlaylist {
+                    Button(role: .destructive) {
+                        perform {
+                            try await onRemoveFromPlaylist()
+                            return TVL10n.value("action.removedPlaylist")
+                        }
+                    } label: {
+                        Label("action.removePlaylistVideo", systemImage: "minus.circle")
+                    }
                 }
                 Button(role: .destructive) {
                     toBlock = .video
@@ -141,9 +152,15 @@ struct TVVideoActionModifier: ViewModifier {
 private enum TVBlockTarget { case video, channel }
 
 extension View {
-    func videoActions(api: TypeTypeAPI, video: VideoItem,
-                      onChanged: (() -> Void)? = nil) -> some View {
-        modifier(TVVideoActionModifier(api: api, video: video, onChanged: onChanged))
+    func videoActions(
+        api: TypeTypeAPI, video: VideoItem,
+        onChanged: (() -> Void)? = nil,
+        onRemoveFromPlaylist: (() async throws -> Void)? = nil
+    ) -> some View {
+        modifier(TVVideoActionModifier(
+            api: api, video: video, onChanged: onChanged,
+            onRemoveFromPlaylist: onRemoveFromPlaylist
+        ))
     }
 }
 
