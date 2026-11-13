@@ -101,6 +101,9 @@ final class SabrPlayerController: ObservableObject {
     private var windowProducerTask: Task<Void, Never>?
     private var activeMailbox: SabrWindowMailbox?
     private let progressWriter = TVPlaybackProgressWriter()
+    // Main-actor handoff guarantees the stop checkpoint reaches the actor
+    // before a fast seek/quality restart changes the history permission.
+    private var lastProgressSubmission: Task<Void, Never>?
     private let presenceOwner = UUID()
     private var presenceReported = false
     private var currentAPI: TypeTypeAPI?
@@ -274,8 +277,11 @@ final class SabrPlayerController: ObservableObject {
         )
         guard historyEnabled else { return }
         TVLocalProgress.shared.record(video.url, positionMs: position)
-        Task {
-            await progressWriter.checkpoint(
+        let predecessor = lastProgressSubmission
+        let writer = progressWriter
+        lastProgressSubmission = Task {
+            await predecessor?.value
+            await writer.checkpoint(
                 api: api, video: video, positionMs: position,
                 started: started, force: force
             )
@@ -323,8 +329,10 @@ final class SabrPlayerController: ObservableObject {
             let historyAllowed = settings != nil &&
                 settings?.disableWatchHistory != true && video.isLive != true
             historyEnabled = historyAllowed
-            await progressWriter.enable(historyAllowed)
+            await lastProgressSubmission?.value
+            guard playbackEpoch == epoch, !Task.isCancelled else { return }
             await progressWriter.flush()
+            await progressWriter.enable(historyAllowed)
             guard playbackEpoch == epoch, !Task.isCancelled else { return }
             let recordedPosition = historyAllowed && explicitPositionMs == nil
                 ? (try? await api.savedPosition(videoURL: video.url)) : nil

@@ -56,6 +56,7 @@ final class TVHLSPlaybackController: ObservableObject {
     private var video: VideoItem?
     private var streamURL: URL?
     private let progressWriter = TVPlaybackProgressWriter()
+    private var lastProgressSubmission: Task<Void, Never>?
     private let presenceOwner = UUID()
     private var presenceAnnounced = false
     private var periodicObserver: Any?
@@ -97,6 +98,10 @@ final class TVHLSPlaybackController: ObservableObject {
         let allowed = settings != nil &&
             settings?.disableWatchHistory != true && video.isLive != true
         historyEnabled = allowed
+        await lastProgressSubmission?.value
+        guard !Task.isCancelled, !isStopped,
+              playbackGeneration == generation else { return }
+        await progressWriter.flush()
         await progressWriter.enable(allowed)
         let saved = allowed ? (try? await api.savedPosition(videoURL: video.url)) : nil
         guard !Task.isCancelled, !isStopped,
@@ -240,8 +245,11 @@ final class TVHLSPlaybackController: ObservableObject {
         )
         guard historyEnabled else { return }
         TVLocalProgress.shared.record(video.url, positionMs: position)
-        Task {
-            await progressWriter.checkpoint(
+        let predecessor = lastProgressSubmission
+        let writer = progressWriter
+        lastProgressSubmission = Task {
+            await predecessor?.value
+            await writer.checkpoint(
                 api: api, video: video, positionMs: position,
                 started: started, force: force
             )
