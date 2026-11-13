@@ -55,6 +55,8 @@ final class SabrPlayerController: ObservableObject {
     @Published var isPlaying = false
     @Published var durationMs: Int64 = 0
     @Published var positionMs: Int64 = 0
+    @Published var cachedThroughMs: Int64 = 0
+    @Published var diskCacheBytes = 0
 
     let videoLayer = AVSampleBufferDisplayLayer()
     private let audioRenderer = AVSampleBufferAudioRenderer()
@@ -66,6 +68,8 @@ final class SabrPlayerController: ObservableObject {
     private var playbackPositionMs: Int64 = 0
     private var isInitialized = false
     private var hardwareDecoder: HardwareVideoDecoder?
+    private var segmentCache: SabrFragmentCache?
+    private var prefetchTask: Task<Void, Never>?
 
     init() {
         videoLayer.videoGravity = .resizeAspect
@@ -78,12 +82,21 @@ final class SabrPlayerController: ObservableObject {
         playbackPositionMs = positionMs
         failure = nil
         state = "Verbinde mit TypeType …"
-        running = Task { await run(api: api, video: video, positionMs: positionMs) }
+        let settings = SabrBufferSettings.preferences(live: video.isLive == true)
+        segmentCache = SabrFragmentCache(maxMiB: settings.cacheMiB)
+        running = Task { await run(api: api, video: video, positionMs: positionMs, buffer: settings) }
     }
 
     func stop() {
         running?.cancel()
         running = nil
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        let previousCache = segmentCache
+        segmentCache = nil
+        if let previousCache { Task { await previousCache.clear() } }
+        cachedThroughMs = 0
+        diskCacheBytes = 0
         hardwareDecoder?.invalidate()
         hardwareDecoder = nil
         synchronizer.setRate(0, time: synchronizer.currentTime())
@@ -115,7 +128,8 @@ final class SabrPlayerController: ObservableObject {
         state = isPlaying ? "Wiedergabe läuft" : "Pausiert"
     }
 
-    private func run(api: TypeTypeAPI, video: VideoItem, positionMs: Int64) async {
+    private func run(api: TypeTypeAPI, video: VideoItem, positionMs: Int64,
+                     buffer: SabrBufferSettings) async {
         let service = SabrService(api: api)
         do {
             guard let id = VideoAddress.youtubeID(video.url) else {
@@ -147,7 +161,8 @@ final class SabrPlayerController: ObservableObject {
             guard !session.sessionId.isEmpty else { throw SabrFailure.invalidResponse("sessionId") }
             sessionId = session.sessionId
             generation = session.generation
-            try await consume(service: service, videoId: id, choice: choice, positionMs: positionMs)
+            try await consume(service: service, videoId: id, choice: choice,
+                              positionMs: positionMs, buffer: buffer)
         } catch is CancellationError {
             return
         } catch {
@@ -158,7 +173,8 @@ final class SabrPlayerController: ObservableObject {
     }
 
     private func consume(service: SabrService, videoId: String,
-                         choice: SabrSelection, positionMs start: Int64) async throws {
+                         choice: SabrSelection, positionMs start: Int64,
+                         buffer: SabrBufferSettings) async throws {
         var nextTime = start
         var audioInit = Data()
         var videoInit = Data()
@@ -170,7 +186,7 @@ final class SabrPlayerController: ObservableObject {
             let response: SabrWindow
             do {
                 response = try await service.window(sessionId: sessionId, selection: choice,
-                                                    generation: generation, positionMs: nextTime)
+                                                    generation: generation, positionMs: nextTime, buffer: buffer)
             } catch SabrFailure.expired {
                 guard freshAttempts < 2 else { throw SabrFailure.expired }
                 freshAttempts += 1
