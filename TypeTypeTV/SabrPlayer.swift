@@ -65,6 +65,7 @@ final class SabrPlayerController: ObservableObject {
     private var selection: SabrSelection?
     private var playbackPositionMs: Int64 = 0
     private var isInitialized = false
+    private var hardwareDecoder: HardwareVideoDecoder?
 
     init() {
         videoLayer.videoGravity = .resizeAspect
@@ -83,6 +84,8 @@ final class SabrPlayerController: ObservableObject {
     func stop() {
         running?.cancel()
         running = nil
+        hardwareDecoder?.invalidate()
+        hardwareDecoder = nil
         synchronizer.setRate(0, time: synchronizer.currentTime())
         videoLayer.flushAndRemoveImage()
         audioRenderer.flush()
@@ -121,6 +124,11 @@ final class SabrPlayerController: ObservableObject {
             }
             selection = choice
             selectionDescription = choice.description
+            hardwareDecoder = HardwareVideoDecoder(display: videoLayer, allowSoftware: allowSoftware)
+            hardwareDecoder?.onFailure = { [weak self] message in
+                self?.failure = message
+                self?.stop()
+            }
             state = "SABR-Sitzung …"
             let session = try await service.start(videoId: id, selection: choice, positionMs: positionMs)
             guard !session.sessionId.isEmpty else { throw SabrFailure.invalidResponse("sessionId") }
@@ -244,7 +252,8 @@ final class SabrPlayerController: ObservableObject {
             if audio {
                 audioRenderer.enqueue(sample)
             } else {
-                videoLayer.enqueue(sample)
+                guard let hardwareDecoder else { throw SabrFailure.invalidResponse("decoder missing") }
+                try hardwareDecoder.decode(sample)
             }
         }
     }
