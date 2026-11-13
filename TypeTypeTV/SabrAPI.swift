@@ -134,6 +134,7 @@ enum SabrFailure: LocalizedError {
     case invalidResponse(String)
     case server(Int, String)
     case expired
+    case stalled(String)
     case stopped
 
     var errorDescription: String? {
@@ -142,6 +143,7 @@ enum SabrFailure: LocalizedError {
         case .invalidResponse(let value): return TVL10n.formatted("error.sabrReply", value)
         case .server(let code, let value): return TVL10n.formatted("error.sabrHTTP", code, value)
         case .expired: return TVL10n.value("error.sabrExpired")
+        case .stalled(let detail): return TVL10n.formatted("error.sabrReply", detail)
         case .stopped: return TVL10n.value("error.sabrStopped")
         }
     }

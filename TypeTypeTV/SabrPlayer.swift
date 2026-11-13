@@ -89,6 +89,7 @@ final class SabrPlayerController: ObservableObject {
     private var currentAPI: TypeTypeAPI?
     private var currentVideo: VideoItem?
     private var hasRecordedHistory = false
+    private var prefersPause = false
 
     init() {
         videoLayer.videoGravity = .resizeAspect
@@ -102,6 +103,7 @@ final class SabrPlayerController: ObservableObject {
         stop()
         currentAPI = api
         currentVideo = video
+        prefersPause = false
         playbackPositionMs = positionMs ?? 0
         failure = nil
         state = TVL10n.value("player.connecting")
@@ -174,6 +176,7 @@ final class SabrPlayerController: ObservableObject {
         let rate: Float = isPlaying ? 0 : 1
         synchronizer.setRate(rate, time: synchronizer.currentTime())
         isPlaying.toggle()
+        prefersPause = !isPlaying
         state = isPlaying ? TVL10n.value("player.playing") : TVL10n.value("player.paused")
         recordProgress(force: true)
     }
@@ -301,7 +304,9 @@ final class SabrPlayerController: ObservableObject {
                          choice: SabrSelection, positionMs start: Int64,
                          buffer: SabrBufferSettings) async throws {
         var restartPosition = max(0, start)
-        for recoveryAttempt in 0...2 {
+        let recoveryStarted = Date()
+        let policy = SabrRecoveryPolicy()
+        for recoveryAttempt in 0..<policy.maxAttempts {
             try Task.checkCancellation()
             let mailbox = SabrWindowMailbox()
             activeMailbox = mailbox
@@ -339,20 +344,31 @@ final class SabrPlayerController: ObservableObject {
                 await mailbox.finish(error: CancellationError())
                 windowProducerTask = nil
                 activeMailbox = nil
-                let refresh: Bool
-                if case SabrFailure.expired = error {
-                    refresh = true
-                } else if case SabrFailure.server(let status, _) = error {
-                    refresh = status == 404
-                } else {
-                    refresh = false
-                }
-                guard refresh && recoveryAttempt < 2 else { throw error }
-                let now = playbackSeconds()
-                restartPosition = now.isFinite ? max(0, Int64(now * 1_000)) : restartPosition
+                guard policy.canRetry(
+                    error, completedAttempts: recoveryAttempt + 1,
+                    elapsedSeconds: Date().timeIntervalSince(recoveryStarted)
+                ) else { throw error }
+                // The clock may have advanced past the last actual rendered
+                // segment during a network stall. Rewind a little and clamp
+                // to the last submitted audio/video coverage.
+                let clockMs = max(0, Int64(playbackSeconds() * 1_000))
+                let confirmedMs = max(restartPosition, positionMs - 1_000)
+                restartPosition = min(clockMs, confirmedMs)
+                recordProgress(force: true)
+                synchronizer.setRate(
+                    0, time: CMTime(value: restartPosition, timescale: 1_000)
+                )
+                isPlaying = false
+                state = TVL10n.value("player.connecting") +
+                    " (\(recoveryAttempt + 1))"
+                try await Task.sleep(
+                    nanoseconds: policy.delayNanoseconds(attempt: recoveryAttempt + 1)
+                )
+                try Task.checkCancellation()
                 let oldSession = sessionId
-                let renewed = try await service.start(videoId: videoId, selection: choice,
-                                                      positionMs: restartPosition)
+                let renewed = try await service.start(
+                    videoId: videoId, selection: choice, positionMs: restartPosition
+                )
                 sessionId = renewed.sessionId
                 generation = renewed.generation
                 if oldSession != renewed.sessionId {
@@ -361,15 +377,16 @@ final class SabrPlayerController: ObservableObject {
                 videoLayer.flushAndRemoveImage()
                 audioRenderer.flush()
                 hardwareDecoder?.invalidate()
-                let allowSoftware = UserDefaults.standard.bool(forKey: "typetype.allowSoftwareDecode")
-                hardwareDecoder = HardwareVideoDecoder(display: videoLayer,
-                                                       allowSoftware: allowSoftware)
-                synchronizer.setRate(0, time: CMTime(value: restartPosition, timescale: 1_000))
+                let allowSoftware = UserDefaults.standard.bool(
+                    forKey: "typetype.allowSoftwareDecode"
+                )
+                hardwareDecoder = HardwareVideoDecoder(
+                    display: videoLayer, allowSoftware: allowSoftware
+                )
                 playbackPositionMs = restartPosition
                 isInitialized = false
                 hasQueuedFirstAudio = false
                 hasQueuedFirstVideo = false
-                isPlaying = false
                 cachedThroughMs = restartPosition
                 diskCacheBytes = 0
                 await cache.clear()
@@ -626,14 +643,29 @@ final class SabrPlayerController: ObservableObject {
 
             switch choice {
             case .audio:
+                var waitCycles = 0
                 while !audioRenderer.isReadyForMoreMediaData {
+                    try Task.checkCancellation()
+                    guard waitCycles < 750 else {
+                        throw SabrFailure.stalled("audio renderer stopped accepting samples")
+                    }
+                    waitCycles += 1
                     try await Task.sleep(nanoseconds: 20_000_000)
                 }
                 audioRenderer.enqueue(audio[ai])
                 ai += 1
                 hasQueuedFirstAudio = true
             case .video:
+                var waitCycles = 0
                 while !videoLayer.isReadyForMoreMediaData {
+                    try Task.checkCancellation()
+                    guard videoLayer.status != .failed else {
+                        throw SabrFailure.stalled("video display layer failed")
+                    }
+                    guard waitCycles < 750 else {
+                        throw SabrFailure.stalled("video renderer stopped accepting samples")
+                    }
+                    waitCycles += 1
                     try await Task.sleep(nanoseconds: 20_000_000)
                 }
                 guard let hardwareDecoder else {
@@ -645,10 +677,15 @@ final class SabrPlayerController: ObservableObject {
             }
 
             if !isInitialized && hasQueuedFirstAudio && hasQueuedFirstVideo {
-                synchronizer.setRate(1, time: CMTime(value: startMs, timescale: 1_000))
+                synchronizer.setRate(
+                    prefersPause ? 0 : 1,
+                    time: CMTime(value: startMs, timescale: 1_000)
+                )
                 isInitialized = true
-                isPlaying = true
-                state = TVL10n.value("player.playing")
+                isPlaying = !prefersPause
+                state = TVL10n.value(
+                    prefersPause ? "player.paused" : "player.playing"
+                )
                 recordProgress(started: !hasRecordedHistory, force: true)
                 hasRecordedHistory = true
             }
