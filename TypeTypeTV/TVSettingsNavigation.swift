@@ -87,3 +87,33 @@ struct TVSettingsInfoRow: View {
         .accessibilityElement(children: .combine)
     }
 }
+
+/// A focusable, accessible choice row with a visible title and the selected
+/// value on the right. tvOS .menu Pickers otherwise hide their label and
+/// display only a bare value, unlike TypeType Android's settings rows.
+struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
+    let title: LocalizedStringKey
+    @Binding var selection: Value
+    @ViewBuilder let options: Options
+
+    init(_ title: LocalizedStringKey, selection: Binding<Value>,
+         @ViewBuilder options: () -> Options) {
+        self.title = title
+        self._selection = selection
+        self.options = options()
+    }
+
+    var body: some View {
+        HStack(spacing: 24) {
+            Text(title).font(.body)
+            Spacer(minLength: 20)
+            Picker(title, selection: $selection) {
+                options
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .contain)
+    }
+}

@@ -159,46 +159,41 @@ struct PreferencesView: View {
 
     private var playbackPanel: some View {
         VStack(spacing: 24) {
-            TVSettingsCard("settings.videoQuality", summary: "settings.playbackHelp") {
+            TVSettingsCard("settings.videoQuality") {
                 Toggle("settings.allowSoftware", isOn: $allowSoftware)
                 Text("settings.softwareWarning")
                     .font(.caption).foregroundStyle(TTTheme.muted)
-                Picker("settings.maxResolution", selection: $maxHeight) {
+                TVSettingsMenuRow("settings.maxResolution", selection: $maxHeight) {
                     Text("4K").tag(2160)
                     Text("1440p").tag(1440)
                     Text("1080p").tag(1080)
                     Text("720p").tag(720)
                     Text("480p").tag(480)
                 }
-                .pickerStyle(.menu)
             }
             TVSettingsCard("settings.remote", summary: "settings.remoteHelp") {
-                Picker("settings.skipLength", selection: $skipSeconds) {
+                TVSettingsMenuRow("settings.skipLength", selection: $skipSeconds) {
                     ForEach([5, 10, 15, 20], id: \.self) { seconds in
                         Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
                     }
                 }
-                .pickerStyle(.menu)
             }
             TVSettingsCard("settings.buffer", summary: "settings.bufferHelp") {
-                Picker("settings.forwardBuffer", selection: $bufferForwardSeconds) {
+                TVSettingsMenuRow("settings.forwardBuffer", selection: $bufferForwardSeconds) {
                     ForEach([30, 60, 120, 180, 300, 600], id: \.self) { seconds in
                         Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
                     }
                 }
-                .pickerStyle(.menu)
-                Picker("settings.backwardBuffer", selection: $bufferBackSeconds) {
+                TVSettingsMenuRow("settings.backwardBuffer", selection: $bufferBackSeconds) {
                     ForEach([30, 60, 120, 180, 300], id: \.self) { seconds in
                         Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
                     }
                 }
-                .pickerStyle(.menu)
-                Picker("settings.maxCache", selection: $bufferCacheMiB) {
+                TVSettingsMenuRow("settings.maxCache", selection: $bufferCacheMiB) {
                     ForEach([256, 512, 1024], id: \.self) { amount in
                         Text("\(amount) MiB").tag(amount)
                     }
                 }
-                .pickerStyle(.menu)
                 Text("settings.bufferWarning")
                     .font(.caption).foregroundStyle(TTTheme.muted)
             }
@@ -279,16 +274,15 @@ struct PreferencesView: View {
 
     private var performancePanel: some View {
         VStack(spacing: 24) {
-            TVSettingsCard("settings.performanceControls", summary: "settings.groupPerformanceHelp") {
+            TVSettingsCard("settings.performanceControls") {
                 Toggle("settings.navigationAnimations", isOn: $navigationAnimations)
                 Text("settings.navigationAnimationsHelp")
                     .font(.caption).foregroundStyle(TTTheme.muted)
-                Picker("settings.imageCacheSize", selection: $thumbnailCacheMiB) {
+                TVSettingsMenuRow("settings.imageCacheSize", selection: $thumbnailCacheMiB) {
                     ForEach([32, 64, 128, 256], id: \.self) { count in
                         Text("\(count) MiB").tag(count)
                     }
                 }
-                .pickerStyle(.menu)
                 Text("settings.imageCacheHelp")
                     .font(.caption).foregroundStyle(TTTheme.muted)
             }
@@ -300,14 +294,13 @@ struct PreferencesView: View {
 
     private var languagePanel: some View {
         VStack(spacing: 24) {
-            TVSettingsCard("settings.languageControls", summary: "settings.languageHelp") {
-                Picker("settings.languagePicker", selection: $uiLanguage) {
+            TVSettingsCard("settings.languageControls") {
+                TVSettingsMenuRow("settings.languagePicker", selection: $uiLanguage) {
                     Text("language.system").tag(TVLanguages.followSystem)
                     ForEach(TVLanguages.available, id: \.self) { lang in
                         Text(TVLanguages.nativeName(lang)).tag(lang)
                     }
                 }
-                .pickerStyle(.menu)
                 Text("settings.languageNote")
                     .font(.callout).foregroundStyle(TTTheme.muted)
             }
@@ -316,7 +309,7 @@ struct PreferencesView: View {
 
     private var accountPanel: some View {
         VStack(spacing: 24) {
-            TVSettingsCard("settings.accountControls", summary: "settings.accountHelp") {
+            TVSettingsCard("settings.accountControls") {
                 if TypeTypeCredentials.shared.token(for: api.origin) != nil {
                     Label("settings.tokenSaved", systemImage: "checkmark.shield")
                         .foregroundStyle(.green)
@@ -349,7 +342,7 @@ struct PreferencesView: View {
 
     private var instancePanel: some View {
         VStack(spacing: 24) {
-            TVSettingsCard("settings.instanceControls", summary: "settings.groupInstanceHelp") {
+            TVSettingsCard("settings.instanceControls") {
                 TVSettingsInfoRow(title: "settings.instanceAddress", value: api.origin.absoluteString)
                 if let info = instanceInfo {
                     TVSettingsInfoRow(title: "settings.instanceName", value: info.name)
@@ -380,7 +373,7 @@ struct PreferencesView: View {
 
     private var aboutPanel: some View {
         VStack(spacing: 24) {
-            TVSettingsCard("settings.aboutControls", summary: "settings.groupAboutHelp") {
+            TVSettingsCard("settings.aboutControls") {
                 TVSettingsInfoRow(title: "settings.appName", value: "TypeType tvOS")
                 TVSettingsInfoRow(
                     title: "settings.appVersion",
