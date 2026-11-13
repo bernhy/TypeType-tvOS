@@ -54,6 +54,7 @@ enum TypeTypeError: LocalizedError {
     case unexpectedResponse
     case unavailableFormat
     case videoUnavailable
+    case retryAfter(Int, String, Int)
 
     var errorDescription: String? {
         switch self {
@@ -70,7 +71,9 @@ enum TypeTypeError: LocalizedError {
         case .unavailableFormat:
             return TVL10n.value("error.noFormat")
         case .videoUnavailable:
-            return TVL10n.value("player.unavailable")
+            return TVL10n.value("player.videoUnavailable")
+        case .retryAfter(let status, let route, let seconds):
+            return TVL10n.formatted("error.retryAfter", status, seconds, route)
         }
     }
 }
@@ -502,6 +505,12 @@ struct TypeTypeAPI {
                let issue = try? JSONDecoder().decode(TVStreamProblem.self, from: data),
                issue.isPermanentlyUnavailable {
                 throw TypeTypeError.videoUnavailable
+            }
+            if [429, 503, 504].contains(response.statusCode),
+               let seconds = SabrRetryAfter.seconds(
+                   response.value(forHTTPHeaderField: "Retry-After")
+               ) {
+                throw TypeTypeError.retryAfter(response.statusCode, endpoint, seconds)
             }
             throw TypeTypeError.http(response.statusCode, endpoint)
         }

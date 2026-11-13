@@ -38,19 +38,35 @@ struct PlaybackView: View {
     @MainActor
     private func prepare() async {
         errorMessage = nil
-        do {
-            let stream = try await api.stream(for: video)
-            guard let url = api.relativeMediaURL(stream.hlsUrl) else {
-                throw TypeTypeError.unavailableFormat
+        let policy = TVStreamRecoveryPolicy()
+        let started = Date()
+        for attempt in 1...policy.maxAttempts {
+            do {
+                try Task.checkCancellation()
+                let stream = try await api.stream(for: video)
+                guard let url = api.relativeMediaURL(stream.hlsUrl) else {
+                    throw TypeTypeError.unavailableFormat
+                }
+                guard !Task.isCancelled else { return }
+                hlsURL = url
+                return
+            } catch is CancellationError {
+                return
+            } catch TypeTypeError.videoUnavailable {
+                errorMessage = TVL10n.value("player.videoUnavailable")
+                onPlaybackEvent?(.unavailable)
+                return
+            } catch {
+                guard let delay = policy.delayNanoseconds(
+                    error: error, attempt: attempt,
+                    elapsedSeconds: Date().timeIntervalSince(started)
+                ) else {
+                    errorMessage = error.localizedDescription
+                    return
+                }
+                do { try await Task.sleep(nanoseconds: delay) }
+                catch { return }
             }
-            hlsURL = url
-        } catch is CancellationError {
-            return
-        } catch TypeTypeError.videoUnavailable {
-            errorMessage = TVL10n.value("player.videoUnavailable")
-            onPlaybackEvent?(.unavailable)
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 }

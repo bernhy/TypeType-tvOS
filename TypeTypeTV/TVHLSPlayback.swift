@@ -69,6 +69,7 @@ final class TVHLSPlaybackController: ObservableObject {
     private var historyRecorded = false
     private var lastPositionMs: Int64 = 0
     private var retryCount = 0
+    private var lastRecoveryAttempt: Date?
     private var isStopped = false
     private var initialSeekFinished = false
 
@@ -80,6 +81,7 @@ final class TVHLSPlaybackController: ObservableObject {
         isStopped = false
         historyRecorded = false
         retryCount = 0
+        lastRecoveryAttempt = nil
         errorMessage = nil
         playbackFinished = false
         playbackUnavailable = false
@@ -119,7 +121,8 @@ final class TVHLSPlaybackController: ObservableObject {
         ) { [weak self] player, _ in
             let status = player.timeControlStatus
             Task { @MainActor [weak self] in
-                guard let self, !self.isStopped else { return }
+                guard let self, !self.isStopped,
+                      self.player.currentItem === item else { return }
                 if status == .playing {
                     self.announcePresenceIfNeeded()
                     if !self.historyRecorded {
@@ -183,7 +186,8 @@ final class TVHLSPlaybackController: ObservableObject {
                 [weak self] finished in
                 guard finished else { return }
                 Task { @MainActor [weak self] in
-                    guard let self, !self.isStopped else { return }
+                    guard let self, !self.isStopped,
+                          self.player.currentItem === item else { return }
                     self.initialSeekFinished = true
                     self.player.play()
                 }
@@ -286,29 +290,57 @@ final class TVHLSPlaybackController: ObservableObject {
     }
 
     func restartAfterFailure(userInitiated: Bool = false) async {
-        if userInitiated { retryCount = 0 }
+        // Permit later, independent outages after a long healthy interval,
+        // while bounding repeated reconnects during one sustained failure.
+        let now = Date()
+        if userInitiated || lastRecoveryAttempt.map({
+            now.timeIntervalSince($0) > 120
+        }) == true {
+            retryCount = 0
+        }
         guard !isStopped, retryCount < 3,
               let api, let video else { return }
         retryCount += 1
+        lastRecoveryAttempt = now
         checkpoint(force: true)
-        do {
-            // Re-resolve the TypeType URL: the upstream HLS manifest may have
-            // expired while the player was open.
-            let stream = try await api.stream(for: video)
-            guard let nextURL = api.relativeMediaURL(stream.hlsUrl) else {
-                throw TypeTypeError.unavailableFormat
+        let policy = TVStreamRecoveryPolicy()
+        let started = Date()
+        for attempt in 1...policy.maxAttempts {
+            do {
+                try Task.checkCancellation()
+                // Request a fresh manifest after the old URL expired. Preserve
+                // the last known playback position through a slow renewal.
+                let stream = try await api.stream(for: video)
+                guard let nextURL = api.relativeMediaURL(stream.hlsUrl) else {
+                    throw TypeTypeError.unavailableFormat
+                }
+                guard !Task.isCancelled, !isStopped else { return }
+                let seconds = max(0, Double(lastPositionMs) / 1_000)
+                tearDown(save: false)
+                isStopped = false
+                streamURL = nextURL
+                errorMessage = nil
+                startItem(url: nextURL, positionSeconds: seconds)
+                return
+            } catch is CancellationError {
+                return
+            } catch TypeTypeError.videoUnavailable {
+                guard !isStopped else { return }
+                errorMessage = TVL10n.value("player.videoUnavailable")
+                playbackUnavailable = true
+                return
+            } catch {
+                guard !isStopped else { return }
+                guard let delay = policy.delayNanoseconds(
+                    error: error, attempt: attempt,
+                    elapsedSeconds: Date().timeIntervalSince(started)
+                ) else {
+                    errorMessage = error.localizedDescription
+                    return
+                }
+                do { try await Task.sleep(nanoseconds: delay) }
+                catch { return }
             }
-            let seconds = max(0, Double(lastPositionMs) / 1_000)
-            tearDown(save: false)
-            isStopped = false
-            streamURL = nextURL
-            errorMessage = nil
-            startItem(url: nextURL, positionSeconds: seconds)
-        } catch TypeTypeError.videoUnavailable {
-            errorMessage = TVL10n.value("player.videoUnavailable")
-            playbackUnavailable = true
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 }
