@@ -44,4 +44,14 @@ final class TVPlaybackProgressContractTests: XCTestCase {
         )
         XCTAssertEqual(result.position, 100_237)
     }
+    @MainActor
+    func testLocalProgressIsClearedOnAccountSwitch() {
+        let cache = TVLocalProgress.shared
+        cache.clear()
+        cache.record("https://youtu.be/abc123def45", positionMs: 45_000)
+        XCTAssertEqual(cache.positions["https://youtu.be/abc123def45"], 45_000)
+        cache.clear()
+        XCTAssertTrue(cache.positions.isEmpty)
+    }
+
 }
