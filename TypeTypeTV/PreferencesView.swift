@@ -8,6 +8,7 @@ struct PreferencesView: View {
     let api: TypeTypeAPI
     let onDisconnect: () -> Void
 
+    @ObservedObject private var hardware = TVHardwareDiagnostics.shared
     @AppStorage("typetype.uiLanguage") private var uiLanguage = TVLanguages.defaultCode
     @AppStorage("typetype.allowSoftwareDecode") private var allowSoftware = false
     @AppStorage("typetype.maxHeight") private var maxHeight = 2160
@@ -259,28 +260,72 @@ struct PreferencesView: View {
                     .font(.caption).foregroundStyle(TTTheme.muted)
             }
             TVSettingsCard("settings.hardware", summary: "settings.hardwareHelp") {
-                ForEach(["H.264", "HEVC", "VP9", "AV1"], id: \.self) { label in
-                    let codec: String = {
-                        switch label {
-                        case "H.264": return "avc1"
-                        case "HEVC": return "hvc1"
-                        case "VP9": return "vp09"
-                        default: return "av01"
-                        }
-                    }()
+                TVSettingsInfoRow(title: "settings.hardwareModel",
+                                  value: hardware.deviceName)
+                TVSettingsInfoRow(title: "settings.hardwareIdentifier",
+                                  value: hardware.deviceIdentifier)
+                TVSettingsInfoRow(title: "settings.hardwareSystem",
+                                  value: hardware.systemVersion)
+                TVSettingsInfoRow(title: "settings.hardwareMemory",
+                                  value: "\(hardware.totalMemoryMiB) MiB")
+                TVSettingsInfoRow(title: "settings.hardwareOutput",
+                                  value: hardware.outputSize)
+                Divider()
+                Text("settings.hardwareCodecProbe")
+                    .font(.headline)
+                ForEach(hardware.probes) { result in
                     HStack {
-                        Text(label)
+                        Text(result.name)
                         Spacer()
                         Label(
-                            TVL10n.value(HardwareCodec.supported(codec)
-                                ? "settings.hardwareYes" : "settings.hardwareNo"),
-                            systemImage: HardwareCodec.supported(codec)
-                                ? "checkmark.circle" : "minus.circle"
+                            TVL10n.value(
+                                result.hardwareAvailable ?
+                                    "settings.hardwareYes" : "settings.hardwareNo"
+                            ),
+                            systemImage: result.hardwareAvailable ?
+                                "checkmark.circle" : "minus.circle"
                         )
-                        .foregroundStyle(HardwareCodec.supported(codec) ? .green : .orange)
+                        .foregroundStyle(result.hardwareAvailable ? .green : .orange)
                     }
                     .padding(.vertical, 4)
                 }
+                Text("settings.hardwareProbeNote")
+                    .font(.caption).foregroundStyle(TTTheme.muted)
+                Button("settings.hardwareRefresh") {
+                    hardware.refresh()
+                }
+                .buttonStyle(.bordered)
+            }
+            TVSettingsCard("settings.hardwareLastDecoder") {
+                if let attempt = hardware.lastAttempt {
+                    TVSettingsInfoRow(
+                        title: "settings.hardwareStreamCodec",
+                        value: "\(attempt.codec) · \(attempt.resolution)"
+                    )
+                    TVSettingsInfoRow(
+                        title: "settings.hardwareSessionStatus",
+                        value: attempt.status == 0 ?
+                            TVL10n.value("settings.hardwareSessionCreated") :
+                            "VideoToolbox OSStatus \(attempt.status)"
+                    )
+                    TVSettingsInfoRow(
+                        title: "settings.hardwareActiveHardware",
+                        value: attempt.hardwareUsed.map {
+                            TVL10n.value($0 ?
+                                "settings.hardwareYes" : "settings.hardwareNo")
+                        } ?? TVL10n.value("settings.hardwareUnknown")
+                    )
+                    TVSettingsInfoRow(
+                        title: "settings.hardwareFrame",
+                        value: TVL10n.value(attempt.decodedFrame ?
+                            "settings.hardwareFrameYes" : "settings.hardwareFrameNo")
+                    )
+                } else {
+                    Text("settings.hardwareNoStream")
+                        .font(.callout).foregroundStyle(TTTheme.muted)
+                }
+                Text("settings.hardwareStreamNote")
+                    .font(.caption).foregroundStyle(TTTheme.muted)
             }
             Button("settings.reset") {
                 allowSoftware = false
