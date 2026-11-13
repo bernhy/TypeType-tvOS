@@ -37,6 +37,7 @@ final class HardwareVideoDecoder {
     private let display: AVSampleBufferDisplayLayer
     private let allowSoftware: Bool
     private var active = true
+    private var recordedFirstFrame = false
 
     init(display: AVSampleBufferDisplayLayer, allowSoftware: Bool) {
         self.display = display
@@ -50,6 +51,7 @@ final class HardwareVideoDecoder {
             self.session = nil
         }
         format = nil
+        recordedFirstFrame = false
     }
 
     func decode(_ compressed: CMSampleBuffer) async throws {
@@ -61,6 +63,7 @@ final class HardwareVideoDecoder {
             if let session { VTDecompressionSessionInvalidate(session) }
             session = nil
             format = description
+            recordedFirstFrame = false
             var created: VTDecompressionSession?
             let requirements: CFDictionary? = allowSoftware ? nil : [
                 kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder as String: true
@@ -73,8 +76,28 @@ final class HardwareVideoDecoder {
                 outputCallback: nil,
                 decompressionSessionOut: &created
             )
+            let dimensions = CMVideoFormatDescriptionGetDimensions(description)
+            var hardwareUsed: Bool?
+            if result == noErr, let created {
+                var property: CFTypeRef?
+                if VTSessionCopyProperty(
+                    created,
+                    key: kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder,
+                    allocator: kCFAllocatorDefault,
+                    valueOut: &property
+                ) == noErr {
+                    hardwareUsed = (property as? NSNumber)?.boolValue
+                }
+            }
+            TVHardwareDiagnostics.shared.recordDecoderSession(
+                codec: CMFormatDescriptionGetMediaSubType(description),
+                width: dimensions.width, height: dimensions.height,
+                status: result, hardwareUsed: hardwareUsed
+            )
             guard result == noErr, let created else {
-                throw SabrFailure.unsupported("Hardwaredecoder für diesen Bitstream nicht verfügbar (VT \(result))")
+                throw SabrFailure.unsupported(
+                    "VideoToolbox decoder unavailable for stream (VT \(result))"
+                )
             }
             session = created
         }
@@ -95,6 +118,10 @@ final class HardwareVideoDecoder {
         for (image, pts, duration) in output.frames {
             try Task.checkCancellation()
             try await present(image, pts: pts, duration: duration)
+            if !recordedFirstFrame {
+                recordedFirstFrame = true
+                TVHardwareDiagnostics.shared.recordDecodedFrame()
+            }
         }
     }
 
