@@ -337,8 +337,8 @@ final class TVAPIWireTests: XCTestCase {
         lock.lock()
         let captured = calls
         lock.unlock()
-        XCTAssertEqual(captured.map(\.method), ["POST", "POST", "POST"])
-        XCTAssertEqual(captured.map(\.path), [
+        XCTAssertEqual(captured.map { $0.method }, ["POST", "POST", "POST"])
+        XCTAssertEqual(captured.map { $0.path }, [
             "/api/sessions/playback/start",
             "/api/sessions/playback/progress",
             "/api/sessions/playback/stop"
