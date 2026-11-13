@@ -4,20 +4,24 @@ import AVKit
 struct PlaybackView: View {
     let api: TypeTypeAPI
     let video: VideoItem
+    var onPlaybackEvent: ((TVPlaybackEvent) -> Void)? = nil
     @State private var hlsURL: URL?
     @State private var errorMessage: String?
 
     var body: some View {
         Group {
             if VideoAddress.youtubeID(video.url) != nil && video.isLive != true {
-                SabrPlayerView(api: api, video: video)
+                SabrPlayerView(api: api, video: video, onPlaybackEvent: onPlaybackEvent)
             } else if let hlsURL {
-                TVHLSPlaybackView(api: api, video: video, url: hlsURL)
+                TVHLSPlaybackView(api: api, video: video, url: hlsURL,
+                                  onPlaybackEvent: onPlaybackEvent)
                     .ignoresSafeArea()
             } else if let errorMessage {
                 VStack(spacing: 25) {
-                    Text("player.unavailable").font(.largeTitle)
+                    Text("player.failed").font(.largeTitle)
                     Text(errorMessage).font(.body).multilineTextAlignment(.center)
+                    Button("common.retry") { Task { await prepare() } }
+                        .buttonStyle(.borderedProminent)
                 }
                 .padding(70)
             } else {
@@ -33,12 +37,18 @@ struct PlaybackView: View {
 
     @MainActor
     private func prepare() async {
+        errorMessage = nil
         do {
             let stream = try await api.stream(for: video)
             guard let url = api.relativeMediaURL(stream.hlsUrl) else {
                 throw TypeTypeError.unavailableFormat
             }
             hlsURL = url
+        } catch is CancellationError {
+            return
+        } catch TypeTypeError.videoUnavailable {
+            errorMessage = TVL10n.value("player.videoUnavailable")
+            onPlaybackEvent?(.unavailable)
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -62,6 +62,8 @@ enum FragmentedMP4Reader {
 final class SabrPlayerController: ObservableObject {
     @Published var state = TVL10n.value("player.starting")
     @Published var failure: String?
+    @Published private(set) var playbackUnavailable = false
+    @Published private(set) var playbackFinished = false
     @Published var selectionDescription = ""
     @Published var isPlaying = false
     @Published var durationMs: Int64 = 0
@@ -125,6 +127,8 @@ final class SabrPlayerController: ObservableObject {
         prefersPause = false
         playbackPositionMs = positionMs ?? 0
         failure = nil
+        playbackUnavailable = false
+        playbackFinished = false
         state = TVL10n.value("player.connecting")
         let settings = SabrBufferSettings.preferences(live: video.isLive == true)
         segmentCache = SabrFragmentCache(maxMiB: settings.cacheMiB)
@@ -474,6 +478,11 @@ final class SabrPlayerController: ObservableObject {
             }
         } catch is CancellationError {
             return
+        } catch SabrFailure.unavailable {
+            failure = TVL10n.value("player.videoUnavailable")
+            playbackUnavailable = true
+            isPlaying = false
+            state = TVL10n.value("player.failed")
         } catch {
             failure = error.localizedDescription
             isPlaying = false
@@ -808,6 +817,7 @@ final class SabrPlayerController: ObservableObject {
                 TVPlaybackPresenceReporter.shared.stop(owner: presenceOwner)
                 presenceReported = false
                 state = TVL10n.value("player.end")
+                playbackFinished = true
                 return
             }
             state = TVL10n.value("player.playing")
@@ -936,6 +946,7 @@ struct SabrVideoSurface: UIViewRepresentable {
 struct SabrPlayerView: View {
     let api: TypeTypeAPI
     let video: VideoItem
+    var onPlaybackEvent: ((TVPlaybackEvent) -> Void)? = nil
     @StateObject private var engine = SabrPlayerController()
     @AppStorage("typetype.skipSeconds") private var skipSeconds = 10
     @State private var controlsVisible = true
@@ -1118,6 +1129,12 @@ struct SabrPlayerView: View {
         }
         .onChange(of: engine.isPlaying) {
             if !engine.isPlaying { reveal() }
+        }
+        .onChange(of: engine.playbackUnavailable) { _, unavailable in
+            if unavailable { onPlaybackEvent?(.unavailable) }
+        }
+        .onChange(of: engine.playbackFinished) { _, finished in
+            if finished { onPlaybackEvent?(.finished) }
         }
         .task {
             while !Task.isCancelled {

@@ -9,6 +9,7 @@ struct TVHLSPlaybackView: View {
     let api: TypeTypeAPI
     let video: VideoItem
     let url: URL
+    var onPlaybackEvent: ((TVPlaybackEvent) -> Void)? = nil
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var playback = TVHLSPlaybackController()
 
@@ -31,6 +32,12 @@ struct TVHLSPlaybackView: View {
         .task(id: url.absoluteString) {
             await playback.prepare(api: api, video: video, url: url)
         }
+        .onChange(of: playback.playbackFinished) { _, finished in
+            if finished { onPlaybackEvent?(.finished) }
+        }
+        .onChange(of: playback.playbackUnavailable) { _, unavailable in
+            if unavailable { onPlaybackEvent?(.unavailable) }
+        }
         .onChange(of: scenePhase) { _, next in
             if next != .active { playback.checkpoint(force: true) }
         }
@@ -42,6 +49,8 @@ struct TVHLSPlaybackView: View {
 final class TVHLSPlaybackController: ObservableObject {
     let player = AVPlayer()
     @Published private(set) var errorMessage: String?
+    @Published private(set) var playbackFinished = false
+    @Published private(set) var playbackUnavailable = false
 
     private var api: TypeTypeAPI?
     private var video: VideoItem?
@@ -52,6 +61,7 @@ final class TVHLSPlaybackController: ObservableObject {
     private var periodicObserver: Any?
     private var timeControlObservation: NSKeyValueObservation?
     private var itemFailureObservation: NSObjectProtocol?
+    private var itemEndObservation: NSObjectProtocol?
     private var itemStallObservation: NSObjectProtocol?
     private var itemStatusObservation: NSKeyValueObservation?
     private var stallTask: Task<Void, Never>?
@@ -71,6 +81,8 @@ final class TVHLSPlaybackController: ObservableObject {
         historyRecorded = false
         retryCount = 0
         errorMessage = nil
+        playbackFinished = false
+        playbackUnavailable = false
 
         // If account preferences cannot be read, fail closed: never create
         // history entries while the server's privacy choice is unknown.
@@ -137,6 +149,17 @@ final class TVHLSPlaybackController: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.scheduleStallRecovery(delay: 12)
+            }
+        }
+        itemEndObservation = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isStopped,
+                      self.player.currentItem === item else { return }
+                self.checkpoint(force: true)
+                self.playbackFinished = true
             }
         }
         itemFailureObservation = NotificationCenter.default.addObserver(
@@ -254,6 +277,10 @@ final class TVHLSPlaybackController: ObservableObject {
             NotificationCenter.default.removeObserver(itemFailureObservation)
             self.itemFailureObservation = nil
         }
+        if let itemEndObservation {
+            NotificationCenter.default.removeObserver(itemEndObservation)
+            self.itemEndObservation = nil
+        }
         player.pause()
         player.replaceCurrentItem(with: nil)
     }
@@ -277,6 +304,9 @@ final class TVHLSPlaybackController: ObservableObject {
             streamURL = nextURL
             errorMessage = nil
             startItem(url: nextURL, positionSeconds: seconds)
+        } catch TypeTypeError.videoUnavailable {
+            errorMessage = TVL10n.value("player.videoUnavailable")
+            playbackUnavailable = true
         } catch {
             errorMessage = error.localizedDescription
         }
