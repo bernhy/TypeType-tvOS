@@ -11,11 +11,10 @@ struct VideoDetailView: View {
         ScrollView {
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
-                    AsyncImage(url: api.relativeMediaURL(video.thumbnailUrl)) { image in
-                        image.resizable().scaledToFill()
-                            .frame(width: proxy.size.width, height: proxy.size.height)
-                            .clipped()
-                    } placeholder: { TTTheme.surface }
+                    TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
+                                origin: api.origin)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
 
                     LinearGradient(
                         stops: [

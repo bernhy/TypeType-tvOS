@@ -215,13 +215,31 @@ private final class TypeTypeNetworkDelegate: NSObject, URLSessionDelegate, URLSe
     }
 }
 
-enum TVNetwork {
-    static func session(for origin: URL) -> URLSession {
+private final class TVSessionPool: @unchecked Sendable {
+    static let shared = TVSessionPool()
+    private let lock = NSLock()
+    private var sessions: [String: URLSession] = [:]
+    private init() {}
+
+    func session(for origin: URL) -> URLSession {
+        lock.lock()
+        defer { lock.unlock() }
+        if let available = sessions[origin.absoluteString] {
+            return available
+        }
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 45
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        return URLSession(configuration: config,
-                          delegate: TypeTypeNetworkDelegate(origin: origin),
-                          delegateQueue: nil)
+        let created = URLSession(configuration: config,
+                                 delegate: TypeTypeNetworkDelegate(origin: origin),
+                                 delegateQueue: nil)
+        sessions[origin.absoluteString] = created
+        return created
+    }
+}
+
+enum TVNetwork {
+    static func session(for origin: URL) -> URLSession {
+        TVSessionPool.shared.session(for: origin)
     }
 }

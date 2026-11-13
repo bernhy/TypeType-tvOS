@@ -261,18 +261,7 @@ struct VideoCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ZStack(alignment: .bottomTrailing) {
-                AsyncImage(url: api.relativeMediaURL(video.thumbnailUrl)) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    ZStack {
-                        LinearGradient(colors: [TTTheme.surface,
-                                                TTTheme.accent.opacity(0.18)],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing)
-                        Image(systemName: "play.rectangle.fill")
-                            .font(.system(size: 55))
-                            .foregroundStyle(TTTheme.accent.opacity(0.5))
-                    }
-                }
+                TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl), origin: api.origin)
                     .frame(height: 198).frame(maxWidth: .infinity).clipped()
                 if video.isLive == true {
                     Text("LIVE").font(.caption.bold())
