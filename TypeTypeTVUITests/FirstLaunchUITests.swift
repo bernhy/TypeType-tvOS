@@ -15,6 +15,11 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Serveradresse"].exists)
         XCTAssertTrue(app.textFields.firstMatch.exists)
         XCTAssertTrue(app.buttons["Mit TypeType verbinden"].exists)
+        // The domain suffix buttons were removed from the setup screen.
+        XCTAssertFalse(app.buttons[".de"].exists)
+        XCTAssertFalse(app.buttons[".com"].exists)
+        XCTAssertFalse(app.buttons[".org"].exists)
+        XCTAssertFalse(app.buttons["www."].exists)
 
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "TypeType-tvOS-Servereinrichtung"
@@ -27,6 +32,8 @@ final class TypeTypeTVUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["FÜR DICH"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["Empfehlungen"].exists)
+        XCTAssertTrue(app.staticTexts["Zuletzt angesehen"].exists)
+        XCTAssertTrue(app.buttons["Konto"].exists)
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "TypeType-tvOS-Startseite"
         attachment.lifetime = .keepAlways
@@ -143,5 +150,17 @@ final class TypeTypeTVUITests: XCTestCase {
         add(shot)
     }
 
+
+    func testDirectAccountMenuShowsDevicePairingWithoutServer() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-account",
+            "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Konto"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Anmeldung"].firstMatch.exists)
+        XCTAssertTrue(app.buttons["TypeType-Konto mit Gerätecode koppeln"].exists)
+    }
 
 }
