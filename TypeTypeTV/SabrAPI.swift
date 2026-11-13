@@ -1,0 +1,379 @@
+import Foundation
+import VideoToolbox
+import CoreMedia
+import Security
+
+// TypeType Server API v1. This client does not depend on any server-side tvOS adaptation.
+struct SabrBootstrap: Decodable {
+    struct Video: Decodable {
+        let itag: Int
+        let codec: String
+        let mimeType: String?
+        let width: Int?
+        let height: Int?
+        let fps: Int?
+        let bitrate: Int?
+        let deliveryMethod: String?
+    }
+    struct Audio: Decodable {
+        let itag: Int
+        let codec: String?
+        let mimeType: String?
+        let audioTrackId: String?
+        let audioTrackName: String?
+        let audioLocale: String?
+        let isOriginal: Bool?
+        let deliveryMethod: String?
+    }
+    let id: String?
+    let hlsUrl: String?
+    let isLive: Bool?
+    let videoOnlyStreams: [Video]?
+    let audioStreams: [Audio]?
+}
+
+struct SabrSessionRequest: Encodable {
+    let videoItag: Int
+    let audioItag: Int
+    let audioTrackId: String?
+    let startTimeMs: Int64
+    let playerTimeMs: Int64
+    let audioOnly: Bool
+    let isLive: Bool
+
+    init(_ selected: SabrSelection, positionMs: Int64, live: Bool = false) {
+        videoItag = selected.video.itag
+        audioItag = selected.audio.itag
+        audioTrackId = selected.audio.audioTrackId
+        startTimeMs = positionMs
+        playerTimeMs = positionMs
+        audioOnly = false
+        isLive = live
+    }
+}
+
+struct SabrSessionReply: Decodable {
+    let sessionId: String
+    let generation: Int64
+    let ready: Bool?
+    let status: String?
+    let retryAfterMs: Int?
+}
+
+struct SabrBufferedRange: Encodable {
+    let itag: Int
+    let startMs: Int64
+    let endMs: Int64
+}
+
+struct SabrWindowRequest: Encodable {
+    let generation: Int64
+    let playerTimeMs: Int64
+    let videoItag: Int
+    let audioItag: Int
+    let audioTrackId: String?
+    let playbackRate: Float
+    let bufferGoalMs: Int
+    let backBufferMs: Int
+    let bufferedRanges: [SabrBufferedRange]
+    let audioOnly: Bool
+
+    init(_ selected: SabrSelection, generation: Int64, positionMs: Int64, ranges: [SabrBufferedRange]) {
+        self.generation = generation
+        playerTimeMs = positionMs
+        videoItag = selected.video.itag
+        audioItag = selected.audio.itag
+        audioTrackId = selected.audio.audioTrackId
+        playbackRate = 1
+        bufferGoalMs = 10_000
+        backBufferMs = 30_000
+        bufferedRanges = ranges
+        audioOnly = false
+    }
+}
+
+struct SabrFragment: Decodable, Hashable {
+    let url: String
+    let startMs: Int64
+    let durationMs: Int64
+}
+
+struct SabrTrack: Decodable {
+    let mime: String?
+    let initUrl: String
+    let segments: [SabrFragment]
+}
+
+struct SabrWindow: Decodable {
+    let sessionId: String?
+    let generation: Int64?
+    let ready: Bool
+    let retryAfterMs: Int?
+    let status: String?
+    let durationMs: Int64?
+    let endOfStream: Bool?
+    let startTimeMs: Int64?
+    let audio: SabrTrack?
+    let video: SabrTrack?
+    let terminalError: String?
+    let recoveryAction: String?
+    let retryVideoItags: [Int]?
+}
+
+struct SabrSelection {
+    let video: SabrBootstrap.Video
+    let audio: SabrBootstrap.Audio
+    var description: String {
+        "\(video.codec) \(video.height ?? 0)p @ \(video.fps ?? 0)fps (itag \(video.itag))"
+    }
+}
+
+enum SabrFailure: LocalizedError {
+    case unsupported(String)
+    case invalidResponse(String)
+    case server(Int, String)
+    case expired
+    case stopped
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupported(let value): return "Format nicht unterstützt: \(value)"
+        case .invalidResponse(let value): return "Ungültige SABR-Antwort: \(value)"
+        case .server(let code, let value): return "TypeType HTTP \(code): \(value)"
+        case .expired: return "SABR-Sitzung abgelaufen"
+        case .stopped: return "Wiedergabe beendet"
+        }
+    }
+}
+
+// Strict by default: no software-only codecs silently selected for Apple TV 4K.
+enum HardwareCodec {
+    static func fourCC(_ codec: String) -> CMVideoCodecType? {
+        let id = codec.lowercased()
+        if id.hasPrefix("avc1") || id.hasPrefix("avc3") { return CMVideoCodecType(0x61766331) }
+        if id.hasPrefix("hvc1") || id.hasPrefix("hev1") { return CMVideoCodecType(0x68766331) }
+        if id.hasPrefix("vp9") || id.hasPrefix("vp09") { return CMVideoCodecType(0x76703039) }
+        if id.hasPrefix("av01") { return CMVideoCodecType(0x61763031) }
+        return nil
+    }
+
+    static func supported(_ codec: String, allowSoftware: Bool = false) -> Bool {
+        guard let type = fourCC(codec) else { return false }
+        return allowSoftware || VTIsHardwareDecodeSupported(type)
+    }
+
+    static func choose(from stream: SabrBootstrap,
+                       maxHeight: Int = 2160,
+                       allowSoftware: Bool = false) -> SabrSelection? {
+        let all = (stream.videoOnlyStreams ?? []).filter {
+            $0.deliveryMethod == "sabr" && ($0.height ?? 0) > 0
+                && supported($0.codec, allowSoftware: allowSoftware)
+        }
+        let underCap = all.filter { ($0.height ?? 0) <= maxHeight }
+        let candidates = underCap.isEmpty ? all : underCap
+        let rank: (String) -> Int = { s in
+            if s.hasPrefix("av01") { return 4 }
+            if s.hasPrefix("hvc") || s.hasPrefix("hev") { return 3 }
+            if s.hasPrefix("vp") { return 2 }
+            return 1
+        }
+        let best = candidates.sorted {
+            if $0.height != $1.height { return ($0.height ?? 0) > ($1.height ?? 0) }
+            if $0.fps != $1.fps { return ($0.fps ?? 0) > ($1.fps ?? 0) }
+            return rank($0.codec) > rank($1.codec)
+        }.first
+        let audio = (stream.audioStreams ?? []).filter {
+            $0.deliveryMethod == "sabr" && (($0.codec ?? "").hasPrefix("mp4a") || ($0.mimeType ?? "").contains("mp4"))
+        }.sorted {
+            if ($0.isOriginal ?? false) != ($1.isOriginal ?? false) { return $0.isOriginal ?? false }
+            return abs($0.itag - 140) < abs($1.itag - 140)
+        }.first
+        guard let best, let audio else { return nil }
+        return SabrSelection(video: best, audio: audio)
+    }
+}
+
+final class TypeTypeCredentials {
+    static let shared = TypeTypeCredentials()
+    private init() {}
+
+    func token(for origin: URL) -> String? {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "org.typetype.tvOS.auth",
+            kSecAttrAccount as String: origin.host ?? "",
+            kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
+        var value: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &value) == errSecSuccess,
+              let data = value as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    func save(_ token: String, for origin: URL) {
+        let key: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "org.typetype.tvOS.auth",
+            kSecAttrAccount as String: origin.host ?? ""]
+        SecItemDelete(key as CFDictionary)
+        var item = key
+        item[kSecValueData as String] = Data(token.utf8)
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(item as CFDictionary, nil)
+    }
+
+    func clear(for origin: URL) {
+        SecItemDelete([kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "org.typetype.tvOS.auth",
+            kSecAttrAccount as String: origin.host ?? ""] as CFDictionary)
+    }
+}
+
+// Do not follow redirects, in particular while sending bearer tokens.
+private final class SabrNoRedirectDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
+final class SabrService {
+    private let origin: URL
+    private let base: URL
+    private let session: URLSession
+    private let json = JSONDecoder()
+    private let encoder = JSONEncoder()
+
+    init(api: TypeTypeAPI) {
+        origin = api.origin
+        base = api.origin.appendingPathComponent("api", isDirectory: true)
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 45
+        session = URLSession(configuration: config, delegate: SabrNoRedirectDelegate(), delegateQueue: nil)
+    }
+
+    func bootstrap(videoURL: String) async throws -> SabrBootstrap {
+        try await request("streams/youtube/sabr/bootstrap", query: [URLQueryItem(name: "url", value: videoURL)])
+    }
+
+    func guestLogin() async throws {
+        struct Guest: Decodable { let token: String }
+        let reply: Guest = try await request("auth/guest", method: "POST", body: Data())
+        TypeTypeCredentials.shared.save(reply.token, for: origin)
+    }
+
+    func deviceLoginStart() async throws -> DeviceStart {
+        try await request("auth/device/start", method: "POST",
+                          body: try encoder.encode(DeviceStartRequest(deviceName: "TypeType tvOS")))
+    }
+
+    func deviceLoginPoll(_ code: String) async throws -> DeviceToken {
+        try await request("auth/device/token", method: "POST",
+                          body: try encoder.encode(DeviceTokenRequest(deviceCode: code)),
+                          allowedStatuses: [200, 400])
+    }
+
+    func start(videoId: String, selection: SabrSelection, positionMs: Int64 = 0) async throws -> SabrSessionReply {
+        guard videoId.range(of: "^[A-Za-z0-9_-]{11}$", options: .regularExpression) != nil else {
+            throw SabrFailure.invalidResponse("videoId")
+        }
+        return try await request("sabr/playback/\(videoId)", method: "POST",
+                                 body: try encoder.encode(SabrSessionRequest(selection, positionMs: positionMs)))
+    }
+
+    func seek(sessionId: String, selection: SabrSelection, positionMs: Int64) async throws -> SabrSessionReply {
+        try await request("sabr/playback/\(sessionId)/seek", method: "POST",
+                          body: try encoder.encode(SabrSessionRequest(selection, positionMs: positionMs)))
+    }
+
+    func window(sessionId: String, selection: SabrSelection, generation: Int64,
+                positionMs: Int64, ranges: [SabrBufferedRange] = []) async throws -> SabrWindow {
+        let body = try encoder.encode(SabrWindowRequest(selection, generation: generation, positionMs: positionMs, ranges: ranges))
+        let path = "sabr/playback/\(sessionId)"
+        let _: EmptyReply = try await request(path + "/position", method: "POST", body: body, allowEmpty: true)
+        var prefetched = false
+        for _ in 0..<60 {
+            try Task.checkCancellation()
+            if !prefetched {
+                let _: EmptyReply = try await request(path + "/prefetch", method: "POST",
+                                                       body: body, allowedStatuses: [200, 202], allowEmpty: true)
+                prefetched = true
+            }
+            let answer: SabrWindow = try await request(path + "/segments", method: "POST",
+                                                       body: body, allowedStatuses: [200, 202])
+            if answer.ready {
+                guard answer.generation == generation,
+                      answer.sessionId == nil || answer.sessionId == sessionId,
+                      answer.audio != nil else { throw SabrFailure.invalidResponse("window generation/tracks") }
+                return answer
+            }
+            if let terminal = answer.terminalError, answer.recoveryAction != "retry_fresh_session" {
+                throw SabrFailure.invalidResponse(terminal)
+            }
+            if answer.recoveryAction == "retry_fresh_session" { throw SabrFailure.expired }
+            if answer.status == "idle" { prefetched = false }
+            try await Task.sleep(nanoseconds: UInt64(min(2000, max(150, answer.retryAfterMs ?? 300))) * 1_000_000)
+        }
+        throw SabrFailure.invalidResponse("segment window timed out")
+    }
+
+    func fragmentData(_ reference: String, sessionId: String, itag: Int, generation: Int64) async throws -> Data {
+        guard let address = URL(string: reference, relativeTo: base)?.absoluteURL,
+              address.scheme == origin.scheme, address.host == origin.host, address.port == origin.port,
+              address.path.hasPrefix(base.path + "sabr/playback/\(sessionId)/\(itag)/"),
+              URLComponents(url: address, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "generation" })?.value == String(generation)
+        else { throw SabrFailure.invalidResponse("media URL is outside TypeType session") }
+        return try await read(address, method: "GET", body: nil, allowedStatuses: [200], pathForError: "segment")
+    }
+
+    private func request<T: Decodable>(_ path: String, query: [URLQueryItem] = [], method: String = "GET",
+        body: Data? = nil, allowedStatuses: Set<Int> = [200], allowEmpty: Bool = false) async throws -> T {
+        var components = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)
+        components?.queryItems = query.isEmpty ? nil : query
+        guard let address = components?.url else { throw SabrFailure.invalidResponse("URL") }
+        let data = try await read(address, method: method, body: body, allowedStatuses: allowedStatuses, pathForError: path)
+        if allowEmpty && data.isEmpty, let empty = EmptyReply() as? T { return empty }
+        return try json.decode(T.self, from: data)
+    }
+
+    private func read(_ address: URL, method: String, body: Data?, allowedStatuses: Set<Int>, pathForError: String) async throws -> Data {
+        var req = URLRequest(url: address)
+        req.httpMethod = method
+        if method == "POST" {
+            req.httpBody = body ?? Data("{}".utf8)
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("TypeTypeTV-tvOS/0.2", forHTTPHeaderField: "User-Agent")
+        if let token = TypeTypeCredentials.shared.token(for: origin) {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw SabrFailure.invalidResponse("HTTP response") }
+        guard allowedStatuses.contains(http.statusCode) else { throw SabrFailure.server(http.statusCode, pathForError) }
+        return data
+    }
+}
+
+private struct EmptyReply: Decodable { init() {} }
+struct DeviceStartRequest: Encodable { let deviceName: String }
+struct DeviceTokenRequest: Encodable { let deviceCode: String }
+struct DeviceStart: Decodable { let userCode: String; let deviceCode: String; let interval: Int; let expiresIn: Int }
+struct DeviceToken: Decodable { let accessToken: String?; let code: String? }
+
+enum VideoAddress {
+    static func youtubeID(_ value: String) -> String? {
+        guard let url = URL(string: value), let host = url.host?.lowercased() else { return nil }
+        var candidate: String?
+        if host == "youtu.be" || host == "www.youtu.be" { candidate = url.pathComponents.dropFirst().first }
+        else if host == "youtube.com" || host == "www.youtube.com" || host == "m.youtube.com" {
+            if url.path == "/watch" {
+                candidate = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "v" }?.value
+            } else if url.path.hasPrefix("/shorts/") || url.path.hasPrefix("/live/") {
+                candidate = url.pathComponents.dropFirst(2).first
+            }
+        }
+        guard let id = candidate, id.range(of: "^[A-Za-z0-9_-]{11}$", options: .regularExpression) != nil else { return nil }
+        return id
+    }
+}
