@@ -61,22 +61,6 @@ struct ServerSetupView: View {
                     }
                     .focusSection()
 
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("setup.shortcuts")
-                            .font(.caption).foregroundStyle(TTTheme.muted)
-                        HStack(spacing: 15) {
-                            ForEach(["www.", ".local", ".de", ".org", ".com"], id: \.self) { suffix in
-                                Button(suffix) { appendSuffix(suffix) }
-                                    .buttonStyle(.plain)
-                                    .font(.system(size: 22, weight: .medium))
-                                    .frame(width: 102, height: 48)
-                                    .background(.white.opacity(0.10),
-                                                in: Capsule())
-                                    .hoverEffect(.highlight)
-                            }
-                        }
-                    }
-
                     if mode == .http {
                         Label("setup.insecureWarning",
                               systemImage: "exclamationmark.triangle")
@@ -143,21 +127,6 @@ struct ServerSetupView: View {
             mode = .http
             host = String(value.dropFirst(7))
         }
-    }
-
-    private func appendSuffix(_ suffix: String) {
-        let cleaned = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        if suffix == "www." {
-            if !cleaned.isEmpty && !cleaned.lowercased().hasPrefix("www.") {
-                host = "www." + cleaned
-            }
-            return
-        }
-        guard !cleaned.isEmpty,
-              !cleaned.hasSuffix(suffix),
-              !cleaned.contains("://"),
-              !cleaned.contains("/") else { return }
-        host = cleaned + suffix
     }
 
     private func certificateAlert(_ report: TVCertificateReport) -> some View {
