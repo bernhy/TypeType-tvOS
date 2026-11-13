@@ -45,9 +45,17 @@ private enum TTColor {
 
 struct HomeView: View {
     let api: TypeTypeAPI
+    private let previewVideos: [VideoItem]?
     @State private var videos: [VideoItem] = []
     @State private var message: String?
     @State private var loading = true
+
+    init(api: TypeTypeAPI, previewVideos: [VideoItem]? = nil) {
+        self.api = api
+        self.previewVideos = previewVideos
+        _videos = State(initialValue: previewVideos ?? [])
+        _loading = State(initialValue: previewVideos == nil)
+    }
 
     var body: some View {
         ScrollView {
@@ -89,7 +97,7 @@ struct HomeView: View {
             }.padding(.bottom, 100)
         }
         .background(TTColor.ink)
-        .task { await load() }
+        .task { if previewVideos == nil { await load() } }
     }
 
     private func heroView(_ video: VideoItem) -> some View {
@@ -98,7 +106,15 @@ struct HomeView: View {
                 AsyncImage(url: api.relativeMediaURL(video.thumbnailUrl)) { image in
                     image.resizable().scaledToFill()
                         .frame(width: geometry.size.width, height: geometry.size.height).clipped()
-                } placeholder: { TTColor.ink }
+                } placeholder: {
+                    ZStack {
+                        TTTheme.surface
+                        Image(systemName: "play.rectangle.fill")
+                            .font(.system(size: 220))
+                            .foregroundStyle(TTTheme.accent.opacity(0.17))
+                    }
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                }
                 LinearGradient(
                     stops: [.init(color: TTColor.ink, location: 0),
                             .init(color: TTColor.ink.opacity(0.9), location: 0.33),
@@ -177,7 +193,16 @@ struct VideoCard: View {
             ZStack(alignment: .bottomTrailing) {
                 AsyncImage(url: api.relativeMediaURL(video.thumbnailUrl)) { image in
                     image.resizable().scaledToFill()
-                } placeholder: { Rectangle().fill(TTColor.ink.opacity(0.8)) }
+                } placeholder: {
+                    ZStack {
+                        LinearGradient(colors: [TTTheme.surface,
+                                                TTTheme.accent.opacity(0.18)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                        Image(systemName: "play.rectangle.fill")
+                            .font(.system(size: 55))
+                            .foregroundStyle(TTTheme.accent.opacity(0.5))
+                    }
+                }
                     .frame(height: 185).frame(maxWidth: .infinity).clipped()
                 if video.isLive == true {
                     Text("LIVE").font(.caption.bold())

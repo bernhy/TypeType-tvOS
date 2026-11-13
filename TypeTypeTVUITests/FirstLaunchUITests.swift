@@ -21,4 +21,39 @@ final class TypeTypeTVUITests: XCTestCase {
         screenshot.lifetime = .keepAlways
         add(screenshot)
     }
+    func testHomeScreenLayoutWithoutServer() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TypeTypeTVPreview", "home"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["EMPFOHLEN"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["Abspielen"].exists)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "TypeType-tvOS-Startseite"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testSearchScreenLayoutWithoutServer() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TypeTypeTVPreview", "search"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["VIDEOS ENTDECKEN"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.textFields.firstMatch.exists)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "TypeType-tvOS-Suche"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testVideoDetailsLayoutWithoutServer() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TypeTypeTVPreview", "details"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Neuigkeiten aus der Welt der Technik"].waitForExistence(timeout: 20))
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "TypeType-tvOS-Videodetails"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
 }
