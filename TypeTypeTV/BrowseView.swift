@@ -60,11 +60,29 @@ struct HomeView: View {
                     if videos.count > 19 {
                         shelf("Weitere Empfehlungen", videos: Array(videos.dropFirst(19)))
                     }
+                    HStack {
+                        Spacer()
+                        Button { Task { await load() } } label: {
+                            Label("Empfehlungen aktualisieren", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(loading)
+                    }
+                    .padding(.horizontal, 80)
                 } else {
-                    VStack(alignment: .leading, spacing: 24) {
-                        Text("TypeType").font(.system(size: 60, weight: .bold)).foregroundStyle(TTColor.red)
-                        if loading { ProgressView("Empfehlungen werden geladen …") }
-                        if let message { Text(message).foregroundStyle(.orange) }
+                    VStack(alignment: .leading, spacing: 26) {
+                        Text("TypeType").font(.system(size: 60, weight: .bold))
+                            .foregroundStyle(TTTheme.accent)
+                        if loading {
+                            ProgressView("Empfehlungen werden geladen …")
+                        } else {
+                            TVContentMessage(
+                                symbol: message == nil ? "rectangle.stack" : "wifi.exclamationmark",
+                                title: message == nil ? "Keine Empfehlungen" : "Startseite nicht verfügbar",
+                                detail: message ?? "Dein TypeType-Server hat derzeit keine Empfehlungen.",
+                                action: { Task { await load() } }
+                            )
+                        }
                     }
                     .padding(.horizontal, 80).padding(.top, 120)
                 }
@@ -106,6 +124,7 @@ struct HomeView: View {
                         } label: { Label("Details", systemImage: "info.circle") }
                             .buttonStyle(.bordered)
                     }
+                    .focusSection()
                 }
                 .padding(.leading, 80).padding(.top, 105)
             }
@@ -132,6 +151,7 @@ struct HomeView: View {
                 }
                 .padding(.horizontal, 80).padding(.vertical, 10)
             }
+            .focusSection()
         }
     }
 
@@ -163,7 +183,7 @@ struct VideoCard: View {
                     Text("LIVE").font(.caption.bold())
                         .padding(8).background(TTColor.red).padding(8)
                 } else if let duration = video.duration, duration > 0 {
-                    Text(String(format: "%d:%02d", duration / 60, duration % 60))
+                    Text(TTTheme.time(duration))
                         .font(.caption.monospacedDigit())
                         .padding(8).background(.black.opacity(0.8)).padding(8)
                 }
@@ -174,5 +194,7 @@ struct VideoCard: View {
                 .foregroundStyle(TTColor.mid).lineLimit(1)
         }
         .foregroundStyle(.white)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(TTTheme.accessibilityText(for: video))
     }
 }
