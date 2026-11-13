@@ -45,17 +45,17 @@ enum TypeTypeError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidServerAddress:
-            return "Bitte eine gültige TypeType-Serveradresse eingeben."
+            return TVL10n.value("error.serverAddress")
         case .insecureHTTP:
-            return "HTTP ist nur für lokale Adressen erlaubt (z. B. 192.168.x.x, 10.x.x.x oder .local)."
+            return TVL10n.value("error.localHTTP")
         case .incompatibleServer(let version):
-            return "Nicht unterstützte TypeType API-Version: \(version) (erwartet: 1)."
+            return TVL10n.formatted("error.apiVersion", version)
         case .http(let status, let path):
-            return "TypeType antwortete mit HTTP \(status) für \(path)."
+            return TVL10n.formatted("error.http", status, path)
         case .unexpectedResponse:
-            return "Ungültige Antwort des TypeType-Servers."
+            return TVL10n.value("error.invalidReply")
         case .unavailableFormat:
-            return "Kein kompatibles Wiedergabeformat für diesen Anbieter vorhanden."
+            return TVL10n.value("error.noFormat")
         }
     }
 }

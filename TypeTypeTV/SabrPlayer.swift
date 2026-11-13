@@ -49,7 +49,7 @@ enum FragmentedMP4Reader {
 // Samples still require real-device validation: AVAssetReader can reject some fMP4 fragments.
 @MainActor
 final class SabrPlayerController: ObservableObject {
-    @Published var state = "Starte SABR …"
+    @Published var state = TVL10n.value("player.starting")
     @Published var failure: String?
     @Published var selectionDescription = ""
     @Published var isPlaying = false
@@ -82,7 +82,7 @@ final class SabrPlayerController: ObservableObject {
         stop()
         playbackPositionMs = positionMs
         failure = nil
-        state = "Verbinde mit TypeType …"
+        state = TVL10n.value("player.connecting")
         let settings = SabrBufferSettings.preferences(live: video.isLive == true)
         segmentCache = SabrFragmentCache(maxMiB: settings.cacheMiB)
         running = Task { await run(api: api, video: video, positionMs: positionMs, buffer: settings) }
@@ -142,7 +142,7 @@ final class SabrPlayerController: ObservableObject {
         let rate: Float = isPlaying ? 0 : 1
         synchronizer.setRate(rate, time: synchronizer.currentTime())
         isPlaying.toggle()
-        state = isPlaying ? "Wiedergabe läuft" : "Pausiert"
+        state = isPlaying ? TVL10n.value("player.playing") : TVL10n.value("player.paused")
     }
 
     private func run(api: TypeTypeAPI, video: VideoItem, positionMs: Int64,
@@ -151,7 +151,7 @@ final class SabrPlayerController: ObservableObject {
         playbackService = service
         do {
             guard let id = VideoAddress.youtubeID(video.url) else {
-                throw SabrFailure.unsupported("kein YouTube-Video")
+                throw SabrFailure.unsupported(TVL10n.value("player.notYoutube"))
             }
             let bootstrap: SabrBootstrap
             do {
@@ -165,7 +165,7 @@ final class SabrPlayerController: ObservableObject {
             guard let choice = HardwareCodec.choose(from: bootstrap,
                                                    maxHeight: maximum > 0 ? maximum : 2160,
                                                    allowSoftware: allowSoftware) else {
-                throw SabrFailure.unsupported("Kein geeigneter Hardwaredecoder/Audioformat gefunden. Softwaredecoding ist standardmäßig ausgeschaltet.")
+                throw SabrFailure.unsupported(TVL10n.value("player.noHardwareFormat"))
             }
             selection = choice
             selectionDescription = choice.description
@@ -174,7 +174,7 @@ final class SabrPlayerController: ObservableObject {
                 self?.failure = message
                 self?.stop()
             }
-            state = "SABR-Sitzung …"
+            state = TVL10n.value("player.session")
             let session = try await service.start(videoId: id, selection: choice, positionMs: positionMs)
             guard !session.sessionId.isEmpty else { throw SabrFailure.invalidResponse("sessionId") }
             sessionId = session.sessionId
@@ -186,7 +186,7 @@ final class SabrPlayerController: ObservableObject {
         } catch {
             failure = error.localizedDescription
             isPlaying = false
-            state = "Wiedergabe fehlgeschlagen"
+            state = TVL10n.value("player.failed")
         }
     }
 
@@ -283,7 +283,7 @@ final class SabrPlayerController: ObservableObject {
                     let fragment = audio.segments[index]
                     let key = "a:\(fragment.url)"
                     if seen.insert(key).inserted {
-                        state = isInitialized ? "Wiedergabe läuft" : "Lade Audio …"
+                        state = isInitialized ? TVL10n.value("player.playing") : TVL10n.value("player.loadingAudio")
                         let bytes: Data
                         if let cache = segmentCache {
                             let sid = sessionId
@@ -307,7 +307,7 @@ final class SabrPlayerController: ObservableObject {
                     let fragment = videoTrack.segments[index]
                     let key = "v:\(fragment.url)"
                     if seen.insert(key).inserted {
-                        state = isInitialized ? "Wiedergabe läuft" : "Lade Video …"
+                        state = isInitialized ? TVL10n.value("player.playing") : TVL10n.value("player.loadingVideo")
                         let bytes: Data
                         if let cache = segmentCache {
                             let sid = sessionId
@@ -340,7 +340,7 @@ final class SabrPlayerController: ObservableObject {
             }
             let synchronizedEnd = coverage.safeEndMs
             if response.endOfStream == true && synchronizedEnd >= (response.durationMs ?? synchronizedEnd) {
-                state = "Ende des Videos"
+                state = TVL10n.value("player.end")
                 return
             }
             if synchronizedEnd <= nextTime {
@@ -348,7 +348,7 @@ final class SabrPlayerController: ObservableObject {
             }
             nextTime = synchronizedEnd
             positionMs = nextTime
-            state = "Wiedergabe läuft"
+            state = TVL10n.value("player.playing")
             // Make sure requests don't race ahead of playback and consume the full video.
             while !Task.isCancelled && nextTime > Int64(CMTimeGetSeconds(synchronizer.currentTime()) * 1000) + 25_000 {
                 try await Task.sleep(nanoseconds: 150_000_000)
@@ -439,15 +439,15 @@ struct SabrPlayerView: View {
                     reveal()
                 }
             )
-            .accessibilityLabel("Videoplayer")
-            .accessibilityHint("Berühren: Statusleiste. Links oder rechts: springen. Auswahl: Pause oder Wiedergabe.")
+            .accessibilityLabel("player.remoteAccessibility")
+            .accessibilityHint("player.remoteAccessibilityHint")
             .ignoresSafeArea()
 
             if let failure = engine.failure {
                 VStack(spacing: 22) {
-                    Text("SABR-Wiedergabe fehlgeschlagen").font(.largeTitle)
+                    Text("player.sabrError").font(.largeTitle)
                     Text(failure).multilineTextAlignment(.center)
-                    Button("Erneut versuchen") {
+                    Button("common.retry") {
                         engine.start(api: api, video: video)
                         reveal()
                     }
@@ -472,11 +472,11 @@ struct SabrPlayerView: View {
                             Text(engine.state).font(.callout)
                             Spacer()
                             if engine.diskCacheBytes > 0 {
-                                Text("Cache \(engine.diskCacheBytes / 1_048_576) MiB")
+                                Text(TVL10n.formatted("player.cache", engine.diskCacheBytes / 1_048_576))
                                     .font(.caption).foregroundStyle(.white.opacity(0.8))
                                 let aheadSeconds = max(0, Double(engine.cachedThroughMs) / 1_000
                                                        - engine.playbackSeconds())
-                                Text("Vorgeladen \(Int(aheadSeconds)) s")
+                                Text(TVL10n.formatted("player.ahead", Int(aheadSeconds)))
                                     .font(.caption).foregroundStyle(.white.opacity(0.8))
                             }
                         }
@@ -495,13 +495,13 @@ struct SabrPlayerView: View {
                         // Siri Remote to navigate between buttons instead of seeking.
                         HStack(spacing: 48) {
                             Label("−\(skipSeconds) s", systemImage: "gobackward")
-                            Label(engine.isPlaying ? "Pause / Fortsetzen" : "Fortsetzen",
+                            Label(TVL10n.value(engine.isPlaying ? "player.playPause" : "player.resume"),
                                   systemImage: engine.isPlaying ? "pause.fill" : "play.fill")
                             Label("+\(skipSeconds) s", systemImage: "goforward")
                         }
                         .font(.callout.weight(.medium))
                         .foregroundStyle(.white.opacity(0.9))
-                        Text("Touch: Steuerung einblenden · Links / Rechts: springen · Mitte: Pause / Start")
+                        Text("player.remoteHelp")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.65))
                     }

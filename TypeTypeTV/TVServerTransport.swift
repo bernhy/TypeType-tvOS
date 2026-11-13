@@ -198,9 +198,9 @@ private final class TypeTypeNetworkDelegate: NSObject, URLSessionDelegate, URLSe
             origin: origin, fingerprint: fingerprint,
             subject: SecCertificateCopySubjectSummary(leaf) as String? ?? "Unbekannt",
             chain: names,
-            problem: valid ? "Zertifikat geändert: gespeicherter Fingerabdruck stimmt nicht überein."
+            problem: valid ? TVL10n.value("certificate.changed")
                            : (evaluationError.map { ($0 as Error).localizedDescription } ??
-                              "Das Zertifikat kann nicht überprüft werden.")
+                              TVL10n.value("certificate.untrustedError"))
         )
         TVServerTrust.shared.record(report)
         completionHandler(.cancelAuthenticationChallenge, nil)

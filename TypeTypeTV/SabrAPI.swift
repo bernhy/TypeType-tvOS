@@ -138,11 +138,11 @@ enum SabrFailure: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unsupported(let value): return "Format nicht unterstützt: \(value)"
-        case .invalidResponse(let value): return "Ungültige SABR-Antwort: \(value)"
-        case .server(let code, let value): return "TypeType HTTP \(code): \(value)"
-        case .expired: return "SABR-Sitzung abgelaufen"
-        case .stopped: return "Wiedergabe beendet"
+        case .unsupported(let value): return TVL10n.formatted("error.sabrUnsupported", value)
+        case .invalidResponse(let value): return TVL10n.formatted("error.sabrReply", value)
+        case .server(let code, let value): return TVL10n.formatted("error.sabrHTTP", code, value)
+        case .expired: return TVL10n.value("error.sabrExpired")
+        case .stopped: return TVL10n.value("error.sabrStopped")
         }
     }
 }
