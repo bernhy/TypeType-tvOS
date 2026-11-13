@@ -170,8 +170,8 @@ struct PreferencesView: View {
                     Text("720p").tag(720)
                     Text("480p").tag(480)
                 }
-            }
                 .pickerStyle(.menu)
+            }
             TVSettingsCard("settings.remote", summary: "settings.remoteHelp") {
                 Picker("settings.skipLength", selection: $skipSeconds) {
                     ForEach([5, 10, 15, 20], id: \.self) { seconds in
