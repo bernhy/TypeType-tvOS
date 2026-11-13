@@ -66,6 +66,10 @@ struct PreferencesView: View {
     let onDisconnect: () -> Void
     @AppStorage("typetype.allowSoftwareDecode") private var allowSoftware = false
     @AppStorage("typetype.maxHeight") private var maxHeight = 2160
+    @AppStorage("typetype.skipSeconds") private var skipSeconds = 10
+    @AppStorage("typetype.bufferForwardSeconds") private var bufferForwardSeconds = 180
+    @AppStorage("typetype.bufferBackSeconds") private var bufferBackSeconds = 120
+    @AppStorage("typetype.bufferCacheMiB") private var bufferCacheMiB = 512
     @State private var loginCode: String?
     @State private var loginLink: URL?
     @State private var status = ""
@@ -85,6 +89,33 @@ struct PreferencesView: View {
                     Text("1080p").tag(1080)
                     Text("720p").tag(720)
                 }
+                Divider()
+                Text("Fernbedienung und Puffer").font(.title2)
+                Picker("Sprung bei Links-/Rechtsklick", selection: $skipSeconds) {
+                    ForEach([5, 10, 15, 20], id: \.self) { value in
+                        Text("\(value) Sekunden").tag(value)
+                    }
+                }
+                Text("Berühren der Touchfläche blendet die Statusleiste ein. Links und rechts klicken springt um den eingestellten Wert.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Picker("Vorladeziel (Video-on-Demand)", selection: $bufferForwardSeconds) {
+                    ForEach([30, 60, 120, 180, 300, 600], id: \.self) { value in
+                        Text("\(value) Sekunden").tag(value)
+                    }
+                }
+                Picker("Rückwärtspuffer", selection: $bufferBackSeconds) {
+                    ForEach([30, 60, 120, 180, 300], id: \.self) { value in
+                        Text("\(value) Sekunden").tag(value)
+                    }
+                }
+                Picker("Maximaler Cache für komprimierte Segmente", selection: $bufferCacheMiB) {
+                    ForEach([256, 512, 1024], id: \.self) { value in
+                        Text("\(value) MiB").tag(value)
+                    }
+                }
+                Text("Standard: 180 Sekunden voraus, 120 Sekunden zurück, 512 MiB lokaler Cache. Der TypeType-Server kann kleinere SABR-Fenster liefern; wir erzwingen keine aggressiven Neuanfragen.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Divider()
                 Text("Hardwaredecoder dieses Gerätes").font(.title2)
                 ForEach(["H.264", "HEVC", "VP9", "AV1"], id: \.self) { label in
                     let name: String = {
