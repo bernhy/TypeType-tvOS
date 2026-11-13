@@ -50,3 +50,9 @@ For a physical Apple TV, set a unique `PRODUCT_BUNDLE_IDENTIFIER` in `project.ym
 ## License and upstream reference
 
 GNU GPL v3; see LICENSE. Upstream client: https://github.com/TypeType-Video/TypeType-TV. The tvOS code is a native implementation of the public API, not a cross-compilation of Android Kotlin/Media3.
+
+### SABR buffer boundaries and accurate reporting
+
+Upstream TypeType Server currently caps each SABR window at **12 segments per track** and its own memory read-ahead at approximately **24 MiB** (see `SabrPlaybackWindowTrackBuilder` and `SabrPumpPolicy`). The client has a separately bounded disk cache. The requested 180-second forward goal does **not** automatically imply a filled 180-second buffer. Cached-through reporting uses the shorter of audio/video track coverage, and playback window reports clamp old ranges to the configured back-buffer horizon.
+
+These changes require no TypeType Server modifications. Multi-window ahead-of-playback scheduling remains to be validated separately on real SABR sessions.

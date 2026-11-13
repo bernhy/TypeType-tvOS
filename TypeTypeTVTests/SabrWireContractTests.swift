@@ -168,4 +168,15 @@ final class SabrWireContractTests: XCTestCase {
         XCTAssertEqual(coverage.safeEndMs, 34000)
     }
 
+    func testSabrRangeRetentionClampsOldBufferedHistory() throws {
+        var progress = SabrPlaybackCoverage(audioItag: 140, videoItag: 137, positionMs: 10_000)
+        try progress.acceptAudio(SabrFragment(url: "a", startMs: 10_000, durationMs: 20_000))
+        try progress.acceptVideo(SabrFragment(url: "v", startMs: 10_000, durationMs: 20_000))
+        let ranges = progress.requestRanges(retainFromMs: 18_000)
+        XCTAssertEqual(ranges.count, 2)
+        XCTAssertEqual(ranges.map(\.startMs), [18_000, 18_000])
+        XCTAssertEqual(ranges.map(\.endMs), [30_000, 30_000])
+        XCTAssertTrue(progress.requestRanges(retainFromMs: 31_000).isEmpty)
+    }
+
 }

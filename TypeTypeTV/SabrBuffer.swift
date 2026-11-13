@@ -112,11 +112,11 @@ actor SabrFragmentCache {
         sessionId: String, generation: Int64
     ) async -> Int64 {
         let ordered = references.sorted { $0.startMs < $1.startMs }
-        var loadedThrough: Int64 = 0
+        var loadedByTrack: [Int: Int64] = [:]
         for offset in stride(from: 0, to: ordered.count, by: 2) {
             if Task.isCancelled || invalidated { break }
             let subset = Array(ordered[offset..<min(offset + 2, ordered.count)])
-            let ends = await withTaskGroup(of: Int64?.self) { group -> [Int64?] in
+            let ends = await withTaskGroup(of: (Int, Int64)?.self) { group -> [(Int, Int64)?] in
                 for part in subset {
                     group.addTask {
                         do {
@@ -126,19 +126,25 @@ actor SabrFragmentCache {
                                     itag: part.itag, generation: generation
                                 )
                             }
-                            return part.startMs + part.durationMs
+                            return (part.itag, part.startMs + part.durationMs)
                         } catch {
                             return nil
                         }
                     }
                 }
-                var collected: [Int64?] = []
+                var collected: [(Int, Int64)?] = []
                 for await result in group { collected.append(result) }
                 return collected
             }
-            for end in ends { if let end { loadedThrough = max(loadedThrough, end) } }
+            for end in ends {
+                if let (itag, milliseconds) = end {
+                    loadedByTrack[itag] = max(loadedByTrack[itag] ?? 0, milliseconds)
+                }
+            }
         }
-        return loadedThrough
+        // Both selected tracks must be cached to call a time position buffered.
+        // Returning max(video,audio) incorrectly advertises undecodable media.
+        return loadedByTrack.count >= 2 ? (loadedByTrack.values.min() ?? 0) : 0
     }
 
     func clear() {

@@ -207,7 +207,11 @@ final class SabrPlayerController: ObservableObject {
             do {
                 response = try await service.window(sessionId: sessionId, selection: choice,
                                                     generation: generation, positionMs: nextTime,
-                                                    ranges: coverage.requestRanges, buffer: buffer)
+                                                    ranges: coverage.requestRanges(
+                                                        retainFromMs: max(0, Int64(playbackSeconds() * 1_000)
+                                                                        - Int64(buffer.backMilliseconds))
+                                                    ),
+                                                    buffer: buffer)
             } catch SabrFailure.expired {
                 guard freshAttempts < 2 else { throw SabrFailure.expired }
                 freshAttempts += 1

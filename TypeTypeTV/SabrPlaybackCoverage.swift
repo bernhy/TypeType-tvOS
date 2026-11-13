@@ -31,15 +31,24 @@ struct SabrPlaybackCoverage {
         try Self.accept(segment, end: &videoEndMs)
     }
 
-    var requestRanges: [SabrBufferedRange] {
+    var requestRanges: [SabrBufferedRange] { requestRanges(retainFromMs: 0) }
+
+    func requestRanges(retainFromMs: Int64) -> [SabrBufferedRange] {
+        let earliest = max(0, retainFromMs)
         var ranges: [SabrBufferedRange] = []
         if audioEndMs > audioStartMs {
-            ranges.append(SabrBufferedRange(itag: audioItag, startMs: audioStartMs,
-                                             endMs: audioEndMs))
+            let start = max(audioStartMs, earliest)
+            if audioEndMs > start {
+                ranges.append(SabrBufferedRange(itag: audioItag, startMs: start,
+                                                 endMs: audioEndMs))
+            }
         }
         if videoEndMs > videoStartMs {
-            ranges.append(SabrBufferedRange(itag: videoItag, startMs: videoStartMs,
-                                             endMs: videoEndMs))
+            let start = max(videoStartMs, earliest)
+            if videoEndMs > start {
+                ranges.append(SabrBufferedRange(itag: videoItag, startMs: start,
+                                                 endMs: videoEndMs))
+            }
         }
         return ranges
     }
@@ -51,7 +60,7 @@ struct SabrPlaybackCoverage {
         }
         // Allow small timestamp deviations at segment boundaries, but never claim
         // continuous buffered media across a real gap. Session recovery handles gaps.
-        guard segment.startMs <= end + 250 else {
+        guard segment.startMs <= end.addingReportingOverflow(250).partialValue else {
             throw SabrFailure.invalidResponse("SABR segment gap before next media sample")
         }
         end = max(end, segment.startMs + segment.durationMs)
