@@ -276,7 +276,11 @@ struct VideoCard: View {
         return max(0, min(1, Double(progress) / Double(Int64(duration) * 1_000)))
     }
     private var completed: Bool {
-        video.watched == true || (fraction ?? 0) >= 0.90
+        // Some server versions expose a 'watched' convenience flag whose
+        // duration and progress units differ. Prefer measured millisecond
+        // progress and its 90% threshold whenever the position is available.
+        if video.watchPositionMs != nil { return (fraction ?? 0) >= 0.90 }
+        return video.watched == true
     }
     private var watchedTime: String? {
         guard let progress = video.watchPositionMs, progress > 0 else { return nil }
