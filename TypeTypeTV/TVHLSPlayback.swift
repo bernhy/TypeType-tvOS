@@ -55,6 +55,7 @@ final class TVHLSPlaybackController: ObservableObject {
     private var lastPositionMs: Int64 = 0
     private var retryCount = 0
     private var isStopped = false
+    private var initialSeekFinished = false
 
     func prepare(api: TypeTypeAPI, video: VideoItem, url: URL) async {
         tearDown(save: true)
@@ -86,6 +87,7 @@ final class TVHLSPlaybackController: ObservableObject {
         let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
         lastPositionMs = max(0, Int64(positionSeconds * 1_000))
+        initialSeekFinished = positionSeconds == 0
 
         periodicObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 15, preferredTimescale: 600),
@@ -130,6 +132,7 @@ final class TVHLSPlaybackController: ObservableObject {
                 guard finished else { return }
                 Task { @MainActor [weak self] in
                     guard let self, !self.isStopped else { return }
+                    self.initialSeekFinished = true
                     self.player.play()
                 }
             }
@@ -139,7 +142,7 @@ final class TVHLSPlaybackController: ObservableObject {
     }
 
     func checkpoint(started: Bool = false, force: Bool = false) {
-        guard !isStopped, historyEnabled,
+        guard !isStopped, initialSeekFinished, historyEnabled,
               let api, let video, video.isLive != true else { return }
         let seconds = player.currentTime().seconds
         guard seconds.isFinite, seconds >= 0,

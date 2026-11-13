@@ -43,6 +43,11 @@ struct TVCreatePlaylistWrite: Encodable {
     let name: String
 }
 
+struct TVUpdatePlaylistWrite: Encodable {
+    let name: String
+    let description: String
+}
+
 struct TVPlaylistVideoWrite: Encodable {
     let url: String
     let title: String

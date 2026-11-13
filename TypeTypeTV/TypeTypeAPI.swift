@@ -234,10 +234,46 @@ struct TypeTypeAPI {
         return try await postJSON("playlists", payload: TVCreatePlaylistWrite(name: clean))
     }
 
+    private func validatedPlaylistID(_ id: String) throws -> String {
+        guard !id.isEmpty,
+              id.range(of: "^[a-zA-Z0-9_-]+$", options: .regularExpression) != nil
+        else { throw TypeTypeError.invalidServerAddress }
+        return id
+    }
+
+    func renamePlaylist(_ id: String, name: String,
+                        description: String = "") async throws {
+        let id = try validatedPlaylistID(id)
+        let next = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !next.isEmpty else { throw TypeTypeError.invalidServerAddress }
+        try await writeLibrary(
+            base.appendingPathComponent("playlists/\(id)"),
+            method: "PUT", body: try JSONEncoder().encode(
+                TVUpdatePlaylistWrite(name: next, description: description)
+            )
+        )
+    }
+
+    func deletePlaylist(_ id: String) async throws {
+        let id = try validatedPlaylistID(id)
+        try await writeLibrary(base.appendingPathComponent("playlists/\(id)"),
+                               method: "DELETE", body: nil)
+    }
+
+    func removeFromPlaylist(_ id: String, videoURL: String) async throws {
+        let id = try validatedPlaylistID(id)
+        let path = base.appendingPathComponent(
+            "playlists/\(id)/videos", isDirectory: true
+        )
+        let url = try TVLibraryRoutes.mediaURL(
+            base: path.deletingLastPathComponent(),
+            collection: path.lastPathComponent, videoURL: videoURL
+        )
+        try await writeLibrary(url, method: "DELETE", body: nil)
+    }
+
     func addToPlaylist(_ id: String, video: VideoItem) async throws {
-        guard !id.isEmpty, !id.contains("/") else {
-            throw TypeTypeError.invalidServerAddress
-        }
+        let id = try validatedPlaylistID(id)
         let payload = TVPlaylistVideoWrite(video: video)
         try await writeLibrary(base.appendingPathComponent("playlists/\(id)/videos"),
                                method: "POST", body: try JSONEncoder().encode(payload))
