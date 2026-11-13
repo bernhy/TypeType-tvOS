@@ -46,6 +46,14 @@ struct LibraryView: View {
                         Text(TVL10n.formatted("common.videoCount", videos.count))
                             .font(.callout)
                             .foregroundStyle(TTTheme.muted)
+                        if let queue = playbackQueue, !queue.isEmpty {
+                            NavigationLink {
+                                TVPlaylistPlaybackView(api: api, videos: queue)
+                            } label: {
+                                Label("playlist.playAll", systemImage: "play.fill")
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
                         Button {
                             Task { await refresh() }
                         } label: {
@@ -94,7 +102,10 @@ struct LibraryView: View {
                         LazyVGrid(columns: columns, spacing: 28) {
                             ForEach(videos) { video in
                                 NavigationLink {
-                                    VideoDetailView(api: api, video: video)
+                                    VideoDetailView(
+                                        api: api, video: video,
+                                        playbackQueue: playbackQueue
+                                    )
                                 } label: {
                                     VideoCard(api: api, video: video)
                                 }
@@ -146,6 +157,15 @@ struct LibraryView: View {
                 }
             }
             Button("common.cancel", role: .cancel) { playlistToDelete = nil }
+        }
+    }
+
+    private var playbackQueue: [VideoItem]? {
+        switch selected {
+        case .playlist, .standard(.watchLater):
+            return videos
+        case .standard:
+            return nil
         }
     }
 

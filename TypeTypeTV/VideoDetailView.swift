@@ -3,6 +3,7 @@ import SwiftUI
 struct VideoDetailView: View {
     let api: TypeTypeAPI
     let video: VideoItem
+    var playbackQueue: [VideoItem]? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var favorite = false
     @State private var watchLater = false
@@ -51,14 +52,26 @@ struct VideoDetailView: View {
                             } else if let seconds = video.duration, seconds > 0 {
                                 Label(TTTheme.time(seconds), systemImage: "clock")
                             }
-                            Text(youtube ? "YouTube · SABR" : TVL10n.value("video.providerNative"))
+                            Text(youtube && video.isLive != true
+                                ? "YouTube · SABR"
+                                : TVL10n.value("video.providerNative"))
                         }
                         .font(.callout)
                         .foregroundStyle(.white.opacity(0.72))
                         VStack(alignment: .leading, spacing: 16) {
                             HStack(spacing: 22) {
                                 NavigationLink {
-                                    PlaybackView(api: api, video: video)
+                                    if let playbackQueue,
+                                       let position = playbackQueue.firstIndex(where: {
+                                           $0.url == video.url
+                                       }) {
+                                        TVPlaylistPlaybackView(
+                                            api: api, videos: playbackQueue,
+                                            startIndex: position
+                                        )
+                                    } else {
+                                        PlaybackView(api: api, video: video)
+                                    }
                                 } label: {
                                     Label {
                                         if video.isLive == true { Text("video.viewLive") }
