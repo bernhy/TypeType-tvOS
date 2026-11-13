@@ -3,7 +3,7 @@ import SwiftUI
 /// Main sections remain accessible using a narrow icon rail. Moving left from
 /// the first thumbnail expands the rail and puts focus on the current section.
 enum TVSection: String, CaseIterable, Hashable {
-    case home, search, library, playlists, settings
+    case home, search, library, playlists, account, settings
 
     var label: String {
         switch self {
@@ -11,6 +11,7 @@ enum TVSection: String, CaseIterable, Hashable {
         case .search: return TVL10n.value("nav.search")
         case .library: return TVL10n.value("nav.library")
         case .playlists: return TVL10n.value("nav.playlists")
+        case .account: return TVL10n.value("settings.groupAccount")
         case .settings: return TVL10n.value("nav.settings")
         }
     }
@@ -20,6 +21,7 @@ enum TVSection: String, CaseIterable, Hashable {
         case .search: return "nav.search"
         case .library: return "nav.library"
         case .playlists: return "nav.playlists"
+        case .account: return "settings.groupAccount"
         case .settings: return "nav.settings"
         }
     }
@@ -29,6 +31,7 @@ enum TVSection: String, CaseIterable, Hashable {
         case .search: return "magnifyingglass"
         case .library: return "books.vertical"
         case .playlists: return "list.bullet.rectangle"
+        case .account: return "person.crop.circle"
         case .settings: return "gearshape"
         }
     }
@@ -65,14 +68,22 @@ struct BrowseView: View {
                     Group {
                         switch section {
                         case .home:
-                            HomeView(api: api, previewVideos: previewVideos,
-                                     onRevealMenu: revealMenu)
+                            HomeView(
+                                api: api, previewVideos: previewVideos,
+                                onRevealMenu: revealMenu,
+                                onOpenAccount: { open(.account) }
+                            )
                         case .search:
                             SearchView(api: api)
                         case .library:
                             LibraryView(api: api)
                         case .playlists:
                             LibraryView(api: api, preferPlaylists: true)
+                        case .account:
+                            PreferencesView(
+                                api: api, onDisconnect: onDisconnect,
+                                initialGroup: .account
+                            )
                         case .settings:
                             PreferencesView(api: api, onDisconnect: onDisconnect, initialGroup: initialSettingsGroup)
                         }
@@ -82,6 +93,10 @@ struct BrowseView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(TTTheme.ink)
+            .onAppear {
+                // Establish a deterministic initial focus on the main rail.
+                if menuFocus == nil { menuFocus = section }
+            }
         } else {
             TVContentMessage(symbol: "exclamationmark.triangle",
                              title: TVL10n.value("server.invalidStored"),
@@ -109,9 +124,7 @@ struct BrowseView: View {
 
             ForEach(TVSection.allCases, id: \.self) { item in
                 Button {
-                    section = item
-                    expanded = false
-                    menuFocus = nil
+                    open(item)
                 } label: {
                     HStack(spacing: 16) {
                         Image(systemName: item.icon)
@@ -134,6 +147,9 @@ struct BrowseView: View {
                 }
                 .buttonStyle(.plain)
                 .focused($menuFocus, equals: item)
+                .onMoveCommand { direction in
+                    moveMenuFocus(from: item, direction: direction)
+                }
                 .accessibilityLabel(item.label)
                 .accessibilityAddTraits(item == section ? .isSelected : [])
             }
@@ -157,6 +173,27 @@ struct BrowseView: View {
         .background(TTTheme.surface)
         .animation(navigationAnimations ? .easeInOut(duration: 0.18) : nil, value: expanded)
         .focusSection()
+    }
+
+    private func open(_ destination: TVSection) {
+        section = destination
+        expanded = false
+        // Do not discard the current focus on Select. The old nil reset
+        // removed the active focus target just as the NavigationStack changed.
+        menuFocus = destination
+    }
+
+    private func moveMenuFocus(from item: TVSection,
+                               direction: MoveCommandDirection) {
+        guard let current = TVSection.allCases.firstIndex(of: item) else { return }
+        switch direction {
+        case .up where current > 0:
+            menuFocus = TVSection.allCases[current - 1]
+        case .down where current + 1 < TVSection.allCases.count:
+            menuFocus = TVSection.allCases[current + 1]
+        default:
+            break // right/left remain native focus-engine navigation
+        }
     }
 
     private func revealMenu() {
