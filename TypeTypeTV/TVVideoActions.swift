@@ -8,6 +8,7 @@ struct TVVideoActionModifier: ViewModifier {
     let video: VideoItem
     let onChanged: (() -> Void)?
 
+    @ObservedObject private var localProgress = TVLocalProgress.shared
     @State private var pickerVisible = false
     @State private var toBlock: TVBlockTarget?
     @State private var feedback: String?
@@ -17,7 +18,8 @@ struct TVVideoActionModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .contextMenu {
-                if let position = video.watchPositionMs, position > 0 {
+                if let position = localProgress.positions[video.url] ?? video.watchPositionMs,
+                   position > 0 {
                     Button {
                     } label: {
                         Label(
