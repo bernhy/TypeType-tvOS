@@ -329,7 +329,10 @@ final class SabrService: @unchecked Sendable {
     func fragmentData(_ reference: String, sessionId: String, itag: Int, generation: Int64) async throws -> Data {
         guard let address = URL(string: reference, relativeTo: base)?.absoluteURL,
               address.scheme == origin.scheme, address.host == origin.host, address.port == origin.port,
-              address.path.hasPrefix(base.path + "sabr/playback/\(sessionId)/\(itag)/"),
+              address.path.hasPrefix(
+                (base.path.hasSuffix("/") ? base.path : base.path + "/") +
+                "sabr/playback/\(sessionId)/\(itag)/"
+              ),
               URLComponents(url: address, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "generation" })?.value == String(generation)
         else { throw SabrFailure.invalidResponse("media URL is outside TypeType session") }

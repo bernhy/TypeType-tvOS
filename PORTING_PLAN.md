@@ -31,8 +31,8 @@ Source baseline: `TypeType-Video/TypeType-TV` branch `dev`, inspected 2026-11-13
 | Android DataStore / Tink | UserDefaults for preferences; Keychain for credentials | Low-medium; don't put secrets in UserDefaults |
 | Compose navigation/screens | NavigationStack, TabView, focus states | Low-medium |
 | Media3 HLS | AVPlayer / AVPlayerViewController | Low for standard HLS variants |
-| Media3 progressive audio/video MergingMediaSource | HLS multivariant playlists or server-side mux/packaging | **High**; AVPlayer does not expose equivalent generic source-merging API |
-| TypeTypeMediaSource + SABR sessions/segments | Design HLS bridge or server-side compatible HLS endpoint; test on device | **Critical**; Apple AVPlayer does not natively understand TypeType SABR |
+| Media3 progressive audio/video MergingMediaSource | Native AVPlayer only for standard HLS alternatives; direct sample-buffer decoding for SABR | **High**; AVPlayer does not expose equivalent generic source-merging API |
+| TypeTypeMediaSource + SABR sessions/segments | Existing native SABR session/segment transport, bounded cache/window producer, fMP4 reader and VideoToolbox sample renderer | **Critical**; Apple AVPlayer does not natively understand TypeType SABR |
 | MediaCodec hardware capability checks | AVFoundation format support / VideoToolbox where supported | Medium-high; don't assume all Android codecs/playback modes |
 | SponsorBlock / chapters / subtitles | Swift playback time observers, AVMediaSelection / supported subtitle formats | Medium after playback |
 | Android TV Remote key handling | tvOS focus engine and AVPlayerViewController playback gestures | Low-medium, custom gestures after native prototype |
@@ -57,15 +57,22 @@ Source baseline: `TypeType-Video/TypeType-TV` branch `dev`, inspected 2026-11-13
 ## Highest-priority experiment before feature parity
 
 1. Confirm response for a normal YouTube VOD, a YouTube livestream and each alternative source from the *running TypeType server*; inspect actual codec/container/segment data without publishing bearer tokens or cookies.
-2. Establish whether the server can expose the SABR session as **standards-compliant HLS** (fMP4 init segments, audio/video playlists, duration, seek, live variant handling) with minimal server changes. Prefer remux/packaging to transcoding. AVPlayer needs supported codec/sample descriptions, not only an `.m3u8` filename.
-3. If HLS packaging isn't possible, investigate a tvOS-local segment proxy/transmuxer; it is considerably more complex and must handle seeking, auth, subtitles and buffering. Do not assume a generic `AVURLAsset` can consume SABR directly.
+2. Validate the existing **native tvOS SABR pipeline** against actual TypeType-Server audio/video windows and their fMP4 init/segment contents. No server-side HLS packaging, proxy service or upstream TypeType modifications are planned.
+3. Verify the fMP4 fragment reader and VideoToolbox format descriptions on Apple TV 4K (2017+). If AVAssetReader cannot interpret TypeType's original fragments, replace the **client-side reader** with a suitable direct fMP4 sample parser while preserving the SABR transport.
 4. Check native playback compatibility by model: AVC/AAC first, then HEVC/HDR, VP9, AV1 on hardware that documents them. Verify *AVPlayer actually accepts the container+codec combination*.
-5. Only after reliable playback: device login & Keychain, home/search/library, subtitles, sponsor skips, live chat and background behavior.
+5. After stable playback: add fully working subtitles, SponsorBlock, live features, quality/audio track changes and robust background behaviour. Device login, Keychain, home, search and library UI have already been implemented.
 
 ## Public API and entitlement audit
 
 - **Available:** SwiftUI, UIKit focus, AVFoundation, AVKit, URLSession, Keychain, UserDefaults, GameController (for advanced remote handling), Network framework, HLS, tvOS Simulator.
 - **Not provided by tvOS as an app platform:** general WebKit/WKWebView app UI; therefore no web-wrapper solution.
-- **Not provided by stock AVPlayer:** direct TypeType SABR/Media3 adaptive source implementation. Must be implemented or packaged as HLS.
+- **Not provided by stock AVPlayer:** direct TypeType SABR/Media3 adaptive playback. The experimental client-side SABR→compressed samples→VideoToolbox pipeline supplies it without changing TypeType Server.
 - **Not an Xcode SDK restriction:** free GitHub build versus paid Apple membership; core APIs are present in the SDK. Paid program affects distribution/provisioning/TestFlight and particular entitlements, not the general ability to compile SwiftUI/AVKit clients.
 - **Hardware tests:** GitHub macOS runners have simulators, not a pairing route to your private Apple TV. Physical device signing/install from your Mac VM is separate.
+
+## Active development milestone (2026-11-13)
+
+- TypeType Server stays unchanged. YouTube SABR VOD windows now have a separate producer downloading compressed media to a bounded local cache, and a consumer that renders queued audio/video samples. The server receives the actual playback clock and separate cached ranges; video downloads do not impersonate a seek.
+- A bounded mailbox prevents unbounded network-to-decoder queuing and never drops windows. Cache size and a conservative bitrate-aware target limit ahead-fetching. Download failures must not be reported as cached media.
+- Automated contract tests exercise the buffer policy, queued-window ordering/backpressure, and HTTP/segment-cache flows using a mock TypeType service. They do **not** prove playback of real 4K/HDR/AV1 TypeType content.
+- **Next validation gate:** H.264/AAC VOD playback with a running TypeType Server and physical Apple TV, followed by seek, AV sync, advanced codec/HDR and multi-minute cache fill measurements.

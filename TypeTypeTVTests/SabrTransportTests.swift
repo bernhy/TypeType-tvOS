@@ -101,9 +101,7 @@ final class SabrTransportTests: XCTestCase {
         XCTAssertTrue(received.ready)
         XCTAssertEqual(received.generation, 7)
         XCTAssertEqual(received.video?.segments.first?.startMs, 5_000)
-        lock.lock()
-        let requests = paths
-        lock.unlock()
+        let requests = lock.withLock { paths }
         XCTAssertEqual(requests.count, 3)
         XCTAssertTrue(requests[0].hasSuffix("/position"))
         XCTAssertTrue(requests[1].hasSuffix("/prefetch"))
@@ -140,9 +138,7 @@ final class SabrTransportTests: XCTestCase {
         let used = await cache.bytesInUse
         XCTAssertEqual(count, 2)
         XCTAssertEqual(used, 2_048)
-        lock.lock()
-        let hits = calls
-        lock.unlock()
+        let hits = lock.withLock { calls }
         XCTAssertEqual(hits, 2)
         await cache.clear()
     }
