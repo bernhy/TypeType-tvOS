@@ -4,6 +4,30 @@ import VideoToolbox
 import CoreMedia
 import CoreVideo
 
+private final class DecodedFrameCollector: @unchecked Sendable {
+    typealias Frame = (CVImageBuffer, CMTime, CMTime)
+    private let lock = NSLock()
+    private var values: [Frame] = []
+    private var failure: OSStatus?
+
+    func record(status: OSStatus, image: CVImageBuffer?, pts: CMTime, duration: CMTime) {
+        lock.lock()
+        defer { lock.unlock() }
+        if status == noErr, let image {
+            values.append((image, pts, duration))
+        } else {
+            failure = status
+        }
+    }
+
+    func take() -> (frames: [Frame], error: OSStatus?) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (values, failure)
+    }
+}
+
+
 // Enforce hardware decoding with VideoToolbox instead of depending on a
 // sample-buffer renderer's undocumented hardware/software fallback behavior.
 @MainActor
@@ -59,21 +83,17 @@ final class HardwareVideoDecoder {
         guard let session else { throw SabrFailure.invalidResponse("VideoToolbox session") }
         // No async decode flag: the callback completes before the method returns.
         // This allows explicit backpressure, so 4K CVPixelBuffers cannot grow without bound.
-        var frames: [(CVImageBuffer, CMTime, CMTime)] = []
-        var callbackFailure: OSStatus?
+        let collector = DecodedFrameCollector()
         let result = VTDecompressionSessionDecodeFrame(
             session, sampleBuffer: compressed, flags: [], infoFlagsOut: nil
         ) { status, _, image, pts, duration in
-            if status == noErr, let image {
-                frames.append((image, pts, duration))
-            } else {
-                callbackFailure = status
-            }
+            collector.record(status: status, image: image, pts: pts, duration: duration)
         }
-        guard result == noErr, callbackFailure == nil else {
-            throw SabrFailure.unsupported("VideoToolbox hardware decode error (\(callbackFailure ?? result))")
+        let output = collector.take()
+        guard result == noErr, output.error == nil else {
+            throw SabrFailure.unsupported("VideoToolbox hardware decode error (\(output.error ?? result))")
         }
-        for (image, pts, duration) in frames {
+        for (image, pts, duration) in output.frames {
             try Task.checkCancellation()
             await present(image, pts: pts, duration: duration)
         }
