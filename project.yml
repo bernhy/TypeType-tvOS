@@ -31,6 +31,17 @@ targets:
       - TypeTypeTVTests
     dependencies:
       - target: TypeTypeTV
+  TypeTypeTVUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    deploymentTarget: "17.0"
+    sources:
+      - TypeTypeTVUITests
+    dependencies:
+      - target: TypeTypeTV
+    settings:
+      base:
+        TEST_TARGET_NAME: TypeTypeTV
 schemes:
   TypeTypeTV:
     build:
@@ -41,3 +52,4 @@ schemes:
     test:
       targets:
         - TypeTypeTVTests
+        - TypeTypeTVUITests

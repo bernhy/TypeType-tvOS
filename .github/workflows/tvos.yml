@@ -60,4 +60,21 @@ jobs:
             -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation),OS=26.2' \
             -derivedDataPath "$RUNNER_TEMP/typetype-build" \
             CODE_SIGNING_ALLOWED=NO \
+            -resultBundlePath "$RUNNER_TEMP/typetype-tests.xcresult" \
             test
+      - name: Export first-run UI screenshots
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/typetype-tests.xcresult" ]; then
+            xcrun xcresulttool export attachments \
+              --path "$RUNNER_TEMP/typetype-tests.xcresult" \
+              --output-path "$GITHUB_WORKSPACE/tvos-ui-screenshots" || true
+          fi
+      - name: Upload UI screenshot artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TypeTypeTV-ui-screenshots
+          path: tvos-ui-screenshots
+          if-no-files-found: warn
+          retention-days: 7
