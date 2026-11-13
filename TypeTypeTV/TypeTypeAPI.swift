@@ -106,6 +106,36 @@ struct TypeTypeAPI {
         ])
     }
 
+    /// These are account-level preferences shared with the Android and web clients.
+    /// TypeType Server merges and validates the PUT payload with current settings.
+    func accountSettings() async throws -> TVServerSettings {
+        try await get("settings")
+    }
+
+    func setAccountSetting(_ field: String, value: TVSettingValue) async throws -> TVServerSettings {
+        guard let url = URL(string: "settings", relativeTo: base)?.absoluteURL else {
+            throw TypeTypeError.invalidServerAddress
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("TypeTypeTV-tvOS/0.1", forHTTPHeaderField: "User-Agent")
+        guard let token = TypeTypeCredentials.shared.token(for: origin), !token.isEmpty else {
+            throw TypeTypeError.http(401, "settings")
+        }
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONEncoder().encode([field: value])
+        let (data, response) = try await session.data(for: request)
+        guard let response = response as? HTTPURLResponse else {
+            throw TypeTypeError.unexpectedResponse
+        }
+        guard (200..<300).contains(response.statusCode) else {
+            throw TypeTypeError.http(response.statusCode, "settings")
+        }
+        return try JSONDecoder().decode(TVServerSettings.self, from: data)
+    }
+
     func library(_ section: TVLibrarySection) async throws -> [VideoItem] {
         switch section {
         case .history:
