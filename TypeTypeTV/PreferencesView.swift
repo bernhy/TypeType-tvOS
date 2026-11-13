@@ -1,66 +1,6 @@
 import Foundation
 import SwiftUI
 
-struct LibraryVideo: Decodable {
-    let id: String?
-    let url: String?
-    let videoUrl: String?
-    let title: String
-    let thumbnail: String?
-    let channelName: String?
-    let duration: Int?
-    var link: String { url ?? videoUrl ?? "" }
-    var item: VideoItem {
-        VideoItem(id: id ?? link, title: title, url: link,
-                  thumbnailUrl: thumbnail, uploaderName: channelName,
-                  duration: duration, isLive: false)
-    }
-}
-
-struct LibraryView: View {
-    let api: TypeTypeAPI
-    @State private var section = "history"
-    @State private var videos: [LibraryVideo] = []
-    @State private var message = ""
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 30) {
-                Text("Bibliothek").font(.largeTitle.bold())
-                Picker("Bereich", selection: $section) {
-                    Text("Verlauf").tag("history")
-                    Text("Favoriten").tag("favorites")
-                    Text("Später ansehen").tag("watch-later")
-                }
-                .onChange(of: section) { Task { await reload() } }
-                if !message.isEmpty { Text(message).foregroundStyle(.secondary) }
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 30), count: 4), spacing: 30) {
-                    ForEach(Array(videos.enumerated()), id: \.offset) { _, entry in
-                        NavigationLink {
-                            VideoDetailView(api: api, video: entry.item)
-                        } label: {
-                            VideoCard(api: api, video: entry.item)
-                        }
-                        .buttonStyle(.card)
-                    }
-                }
-            }
-            .padding(60)
-        }
-        .task { await reload() }
-    }
-
-    @MainActor
-    private func reload() async {
-        do {
-            videos = try await api.library(section)
-            message = videos.isEmpty ? "Noch keine Videos vorhanden." : ""
-        } catch {
-            message = "Bibliothek nicht geladen: \(error.localizedDescription)"
-        }
-    }
-}
-
 struct PreferencesView: View {
     let api: TypeTypeAPI
     let onDisconnect: () -> Void

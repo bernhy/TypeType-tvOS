@@ -52,7 +52,7 @@ enum TypeTypeError: LocalizedError {
         case .unexpectedResponse:
             return "Ungültige Antwort des TypeType-Servers."
         case .unavailableFormat:
-            return "Kein direkt abspielbares HLS-Format vorhanden. Die SABR-Wiedergabe fehlt im Starter noch."
+            return "Kein kompatibles Wiedergabeformat für diesen Anbieter vorhanden."
         }
     }
 }
@@ -109,11 +109,18 @@ struct TypeTypeAPI {
         ])
     }
 
-    func library(_ section: String) async throws -> [LibraryVideo] {
-        guard ["history", "favorites", "watch-later"].contains(section) else {
-            throw TypeTypeError.unavailableFormat
+    func library(_ section: TVLibrarySection) async throws -> [VideoItem] {
+        switch section {
+        case .history:
+            let rows: [TVHistoryDTO] = try await get("history")
+            return rows.map(\.video)
+        case .favorites:
+            let rows: [TVFavoriteDTO] = try await get("favorites")
+            return rows.map(\.video)
+        case .watchLater:
+            let rows: [TVWatchLaterDTO] = try await get("watch-later")
+            return rows.map(\.video)
         }
-        return try await get(section)
     }
 
     func search(_ term: String) async throws -> SearchResults {

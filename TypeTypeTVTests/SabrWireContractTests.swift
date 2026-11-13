@@ -179,4 +179,37 @@ final class SabrWireContractTests: XCTestCase {
         XCTAssertTrue(progress.requestRanges(retainFromMs: 31_000).isEmpty)
     }
 
+    func testLibraryWireContractsForAllThreeSections() throws {
+        let history = try JSONDecoder().decode([TVHistoryDTO].self, from: Data("""
+        [{"id":"h1","url":"https://youtu.be/dQw4w9WgXcQ",
+          "title":"Verlauf","thumbnail":"/image.jpg","channelName":"Kanal",
+          "duration":3661,"progress":11,"watchedAt":900}]
+        """.utf8))
+        XCTAssertEqual(history.first?.video.url, "https://youtu.be/dQw4w9WgXcQ")
+        XCTAssertEqual(history.first?.video.duration, 3661)
+
+        let favorites = try JSONDecoder().decode([TVFavoriteDTO].self, from: Data("""
+        [{"videoUrl":"https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+          "title":"Favorit","thumbnail":"/favorite.jpg","channelName":"Kanal",
+          "duration":27,"favoritedAt":900}]
+        """.utf8))
+        XCTAssertEqual(favorites.first?.video.title, "Favorit")
+        XCTAssertEqual(favorites.first?.video.url,
+                       "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+
+        let later = try JSONDecoder().decode([TVWatchLaterDTO].self, from: Data("""
+        [{"url":"https://youtu.be/12345678901","title":"Später",
+          "thumbnail":"/later.jpg","channelName":"Kanal","duration":240,"addedAt":900}]
+        """.utf8))
+        XCTAssertEqual(later.first?.video.url, "https://youtu.be/12345678901")
+        XCTAssertEqual(TVLibrarySection.watchLater.rawValue, "watch-later")
+    }
+
+    func testHumanReadableDurations() {
+        XCTAssertEqual(TTTheme.time(0), "0:00")
+        XCTAssertEqual(TTTheme.time(65), "1:05")
+        XCTAssertEqual(TTTheme.time(3661), "1:01:01")
+        XCTAssertEqual(TTTheme.time(-15), "0:00")
+    }
+
 }
