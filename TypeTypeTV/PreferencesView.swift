@@ -37,6 +37,7 @@ struct PreferencesView: View {
                             Text(TVLanguages.nativeName(code)).tag(code)
                         }
                     }
+                    .pickerStyle(.menu)
                     Text("settings.languageNote")
                         .font(.caption).foregroundStyle(TTTheme.muted)
                 }

@@ -273,12 +273,24 @@ struct VideoCard: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 10))
-            Text(video.title)
-                .font(.system(size: 22, weight: .semibold))
-                .lineLimit(2)
-            Text(video.uploaderName ?? "").font(.system(size: 17))
-                .foregroundStyle(TTTheme.muted).lineLimit(1)
+            VStack(alignment: .leading, spacing: 7) {
+                Text(video.title)
+                    .font(.system(size: 21, weight: .semibold))
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, minHeight: 54, alignment: .topLeading)
+                Text(video.uploaderName ?? "")
+                    .font(.system(size: 17))
+                    .foregroundStyle(TTTheme.muted)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, minHeight: 23, alignment: .topLeading)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 11)
+            .padding(.bottom, 13)
+            .background(TTTheme.surface)
         }
+        .frame(minHeight: 305, alignment: .top)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
         .foregroundStyle(.white)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(TTTheme.accessibilityText(for: video))
