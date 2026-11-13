@@ -1,9 +1,13 @@
 import Foundation
 import SwiftUI
 
+/// Settings use Android's two-panel TV navigation: a focused group rail on
+/// the left and large, comfortably selectable controls on the right.
+/// Device options stay on Apple TV; content flags write to TypeType Server.
 struct PreferencesView: View {
     let api: TypeTypeAPI
     let onDisconnect: () -> Void
+
     @AppStorage("typetype.uiLanguage") private var uiLanguage = TVLanguages.defaultCode
     @AppStorage("typetype.allowSoftwareDecode") private var allowSoftware = false
     @AppStorage("typetype.maxHeight") private var maxHeight = 2160
@@ -11,160 +15,422 @@ struct PreferencesView: View {
     @AppStorage("typetype.bufferForwardSeconds") private var bufferForwardSeconds = 180
     @AppStorage("typetype.bufferBackSeconds") private var bufferBackSeconds = 120
     @AppStorage("typetype.bufferCacheMiB") private var bufferCacheMiB = 512
+    @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
+    @AppStorage("typetype.thumbnailCacheMiB") private var thumbnailCacheMiB = 128
+
+    @State private var group: TVSettingsGroup
+    @FocusState private var focusedGroup: TVSettingsGroup?
+    @State private var remote: TVServerSettings?
+    @State private var remoteLoading = false
+    @State private var remoteSaving = false
+    @State private var remoteError: String?
+    @State private var instanceInfo: InstanceInfo?
+    @State private var instanceError: String?
+    @State private var confirmCertificateRemoval = false
     @State private var loginCode: String?
     @State private var loginLink: URL?
     @State private var status = ""
     @State private var poller: Task<Void, Never>?
 
+    init(api: TypeTypeAPI, onDisconnect: @escaping () -> Void,
+         initialGroup: TVSettingsGroup = .playback) {
+        self.api = api
+        self.onDisconnect = onDisconnect
+        _group = State(initialValue: initialGroup)
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 34) {
-                VStack(alignment: .leading, spacing: 9) {
-                    Text("TYPE TYPE")
-                        .font(.subheadline.bold()).tracking(2.2)
+        HStack(alignment: .top, spacing: 35) {
+            groupRail
+                .frame(width: 320)
+                .focusSection()
+
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("nav.settings")
+                        .font(.system(size: 48, weight: .bold))
+                    Text(TVL10n.value(group.titleKey).uppercased())
+                        .tracking(1.8)
+                        .font(.subheadline.bold())
                         .foregroundStyle(TTTheme.accent)
-                    Text("nav.settings").font(.system(size: 52, weight: .bold))
-                    Text(TVL10n.formatted("common.serverValue", api.origin.host ?? ""))
+                    Text(TVL10n.value(group.subtitleKey))
                         .font(.callout)
                         .foregroundStyle(TTTheme.muted)
                 }
+                .padding(.leading, 10)
 
-                TVSettingsSection("settings.language", symbol: "globe",
-                                  subtitle: "settings.languageHelp") {
-                    Picker("settings.languagePicker", selection: $uiLanguage) {
-                        Text("language.system").tag(TVLanguages.followSystem)
-                        ForEach(TVLanguages.available, id: \.self) { code in
-                            Text(TVLanguages.nativeName(code)).tag(code)
-                        }
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 24) {
+                        groupContent
                     }
-                    .pickerStyle(.menu)
-                    Text("settings.languageNote")
-                        .font(.caption).foregroundStyle(TTTheme.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 95)
                 }
+                .scrollIndicators(.hidden)
+                .focusSection()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .padding(.horizontal, 55)
+        .padding(.top, 46)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(TTTheme.ink)
+        .task(id: group) {
+            if group == .content && remote == nil { await refreshRemote() }
+            if group == .instance && instanceInfo == nil { await refreshInstance() }
+        }
+        .onChange(of: focusedGroup) { next in
+            if let next { group = next }
+        }
+        .onDisappear { poller?.cancel() }
+        .confirmationDialog(
+            TVL10n.value("settings.certForgetTitle"),
+            isPresented: $confirmCertificateRemoval
+        ) {
+            Button(TVL10n.value("settings.certForget"), role: .destructive) {
+                TVServerTrust.shared.revoke(for: api.origin)
+                status = TVL10n.value("settings.certForgotten")
+            }
+            Button(TVL10n.value("common.cancel"), role: .cancel) {}
+        } message: {
+            Text("settings.certForgetHelp")
+        }
+    }
 
-                TVSettingsSection("settings.playback", symbol: "4k.tv",
-                                  subtitle: "settings.playbackHelp") {
-                    Toggle("settings.allowSoftware", isOn: $allowSoftware)
-                    Text("settings.softwareWarning")
-                        .font(.caption).foregroundStyle(TTTheme.muted)
-                    Picker("settings.maxResolution", selection: $maxHeight) {
-                        Text("4K").tag(2160)
-                        Text("1440p").tag(1440)
-                        Text("1080p").tag(1080)
-                        Text("720p").tag(720)
+    private var groupRail: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("TYPE TYPE")
+                .font(.subheadline.bold())
+                .tracking(2.6)
+                .foregroundStyle(TTTheme.accent)
+                .padding(.horizontal, 18)
+                .padding(.bottom, 14)
+            ForEach(TVSettingsGroup.allCases) { item in
+                Button {
+                    group = item
+                    focusedGroup = item
+                } label: {
+                    HStack(spacing: 16) {
+                        Image(systemName: item.symbol)
+                            .font(.system(size: 23))
+                            .frame(width: 31)
+                        Text(TVL10n.value(item.titleKey))
+                            .font(.system(size: 22, weight: .semibold))
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        if item == group {
+                            Image(systemName: "chevron.right")
+                                .font(.caption.bold())
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .frame(maxWidth: .infinity, minHeight: 66, alignment: .leading)
+                    .background(
+                        item == group ? TTTheme.accent.opacity(0.22) : TTTheme.surface.opacity(0.65),
+                        in: RoundedRectangle(cornerRadius: 15)
+                    )
+                    .foregroundStyle(item == group ? .white : TTTheme.muted)
+                }
+                .buttonStyle(.plain)
+                .focused($focusedGroup, equals: item)
+                .accessibilityLabel(TVL10n.value(item.titleKey))
+                .accessibilityAddTraits(item == group ? .isSelected : [])
+            }
+            Spacer(minLength: 20)
+            Label("settings.deviceOnly", systemImage: "appletv")
+                .font(.caption)
+                .foregroundStyle(TTTheme.muted)
+                .padding(.horizontal, 15)
+        }
+    }
+
+    @ViewBuilder
+    private var groupContent: some View {
+        switch group {
+        case .playback: playbackPanel
+        case .content: contentPanel
+        case .performance: performancePanel
+        case .language: languagePanel
+        case .account: accountPanel
+        case .instance: instancePanel
+        case .about: aboutPanel
+        }
+    }
+
+    private var playbackPanel: some View {
+        VStack(spacing: 24) {
+            TVSettingsCard("settings.playback", summary: "settings.playbackHelp") {
+                Toggle("settings.allowSoftware", isOn: $allowSoftware)
+                Text("settings.softwareWarning")
+                    .font(.caption).foregroundStyle(TTTheme.muted)
+                Picker("settings.maxResolution", selection: $maxHeight) {
+                    Text("4K").tag(2160)
+                    Text("1440p").tag(1440)
+                    Text("1080p").tag(1080)
+                    Text("720p").tag(720)
+                    Text("480p").tag(480)
+                }
+            }
+            TVSettingsCard("settings.remote", summary: "settings.remoteHelp") {
+                Picker("settings.skipLength", selection: $skipSeconds) {
+                    ForEach([5, 10, 15, 20], id: \.self) { seconds in
+                        Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
                     }
                 }
-
-                TVSettingsSection("settings.remote", symbol: "hand.tap",
-                                  subtitle: "settings.remoteHelp") {
-                    Picker("settings.skipLength", selection: $skipSeconds) {
-                        ForEach([5, 10, 15, 20], id: \.self) { value in
-                            Text(TVL10n.formatted("common.seconds", value)).tag(value)
-                        }
+            }
+            TVSettingsCard("settings.buffer", summary: "settings.bufferHelp") {
+                Picker("settings.forwardBuffer", selection: $bufferForwardSeconds) {
+                    ForEach([30, 60, 120, 180, 300, 600], id: \.self) { seconds in
+                        Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
                     }
                 }
-
-                TVSettingsSection("settings.buffer", symbol: "externaldrive",
-                                  subtitle: "settings.bufferHelp") {
-                    Picker("settings.forwardBuffer", selection: $bufferForwardSeconds) {
-                        ForEach([30, 60, 120, 180, 300, 600], id: \.self) { value in
-                            Text(TVL10n.formatted("common.seconds", value)).tag(value)
-                        }
-                    }
-                    Picker("settings.backwardBuffer", selection: $bufferBackSeconds) {
-                        ForEach([30, 60, 120, 180, 300], id: \.self) { value in
-                            Text(TVL10n.formatted("common.seconds", value)).tag(value)
-                        }
-                    }
-                    Picker("settings.maxCache", selection: $bufferCacheMiB) {
-                        ForEach([256, 512, 1024], id: \.self) { value in
-                            Text("\(value) MiB").tag(value)
-                        }
-                    }
-                    Text("settings.bufferWarning")
-                        .font(.caption).foregroundStyle(TTTheme.muted)
-                }
-
-                TVSettingsSection("settings.hardware", symbol: "cpu",
-                                  subtitle: "settings.hardwareHelp") {
-                    ForEach(["H.264", "HEVC", "VP9", "AV1"], id: \.self) { label in
-                        let name: String = {
-                            switch label {
-                            case "H.264": return "avc1"
-                            case "HEVC": return "hvc1"
-                            case "VP9": return "vp09"
-                            default: return "av01"
-                            }
-                        }()
-                        HStack {
-                            Text(label)
-                            Spacer()
-                            Label(
-                                TVL10n.value(HardwareCodec.supported(name) ? "settings.hardwareYes" : "settings.hardwareNo"),
-                                systemImage: HardwareCodec.supported(name) ? "checkmark.circle" : "minus.circle"
-                            )
-                            .foregroundStyle(
-                                HardwareCodec.supported(name) ? .green : .orange
-                            )
-                        }
-                        .font(.body)
+                Picker("settings.backwardBuffer", selection: $bufferBackSeconds) {
+                    ForEach([30, 60, 120, 180, 300], id: \.self) { seconds in
+                        Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
                     }
                 }
-
-                TVSettingsSection("settings.account", symbol: "person.crop.circle",
-                                  subtitle: "settings.accountHelp") {
-                    if TypeTypeCredentials.shared.token(for: api.origin) != nil {
-                        Label("settings.tokenSaved",
-                              systemImage: "checkmark.shield")
-                            .foregroundStyle(.green)
-                        Button("settings.logout") {
-                            TypeTypeCredentials.shared.clear(for: api.origin)
-                            status = TVL10n.value("login.signedOut")
+                Picker("settings.maxCache", selection: $bufferCacheMiB) {
+                    ForEach([256, 512, 1024], id: \.self) { amount in
+                        Text("\(amount) MiB").tag(amount)
+                    }
+                }
+                Text("settings.bufferWarning")
+                    .font(.caption).foregroundStyle(TTTheme.muted)
+            }
+            TVSettingsCard("settings.hardware", summary: "settings.hardwareHelp") {
+                ForEach(["H.264", "HEVC", "VP9", "AV1"], id: \.self) { label in
+                    let codec: String = {
+                        switch label {
+                        case "H.264": return "avc1"
+                        case "HEVC": return "hvc1"
+                        case "VP9": return "vp09"
+                        default: return "av01"
                         }
+                    }()
+                    HStack {
+                        Text(label)
+                        Spacer()
+                        Label(
+                            TVL10n.value(HardwareCodec.supported(codec)
+                                ? "settings.hardwareYes" : "settings.hardwareNo"),
+                            systemImage: HardwareCodec.supported(codec)
+                                ? "checkmark.circle" : "minus.circle"
+                        )
+                        .foregroundStyle(HardwareCodec.supported(codec) ? .green : .orange)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            Button("settings.reset") {
+                allowSoftware = false
+                maxHeight = 2160
+                skipSeconds = 10
+                bufferForwardSeconds = 180
+                bufferBackSeconds = 120
+                bufferCacheMiB = 512
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+
+    private var contentPanel: some View {
+        VStack(spacing: 24) {
+            TVSettingsCard("settings.groupContent", summary: "settings.remoteSynced") {
+                if remoteLoading {
+                    ProgressView("settings.remoteLoading")
+                        .padding(18)
+                } else if let remote {
+                    ForEach(TVServerToggle.allCases) { field in
+                        Toggle(isOn: Binding(
+                            get: { self.remote?.enabled(field) ?? remote.enabled(field) },
+                            set: { setRemote(field, enabled: $0) }
+                        )) {
+                            Text(TVL10n.value(field.titleKey))
+                        }
+                        .disabled(remoteSaving)
+                    }
+                    if remoteSaving { ProgressView("settings.remoteSaving") }
+                    Button("common.refresh") { Task { await refreshRemote() } }
                         .buttonStyle(.bordered)
+                        .disabled(remoteSaving)
+                } else {
+                    Text(remoteError ?? TVL10n.value("settings.remoteLoginHelp"))
+                        .font(.callout)
+                        .foregroundStyle(TTTheme.muted)
+                    Button("common.retry") { Task { await refreshRemote() } }
+                        .buttonStyle(.bordered)
+                }
+                if let remoteError, remote != nil {
+                    Text(remoteError)
+                        .font(.callout).foregroundStyle(.orange)
+                }
+            }
+            TVSettingsCard("settings.remoteCompatibility", summary: "settings.remoteCompatibilityHelp") {
+                Label("settings.remoteImplemented", systemImage: "checkmark.shield")
+                    .foregroundStyle(.green)
+            }
+        }
+    }
+
+    private var performancePanel: some View {
+        VStack(spacing: 24) {
+            TVSettingsCard("settings.groupPerformance", summary: "settings.groupPerformanceHelp") {
+                Toggle("settings.navigationAnimations", isOn: $navigationAnimations)
+                Text("settings.navigationAnimationsHelp")
+                    .font(.caption).foregroundStyle(TTTheme.muted)
+                Picker("settings.imageCacheSize", selection: $thumbnailCacheMiB) {
+                    ForEach([32, 64, 128, 256], id: \.self) { count in
+                        Text("\(count) MiB").tag(count)
                     }
-                    Button("settings.pair") {
-                        poller?.cancel()
-                        poller = Task { await startLogin() }
+                }
+                Text("settings.imageCacheHelp")
+                    .font(.caption).foregroundStyle(TTTheme.muted)
+            }
+            TVSettingsCard("settings.hardware", summary: "settings.hardwareHelp") {
+                Text("settings.decoderNotes").foregroundStyle(TTTheme.muted)
+            }
+        }
+    }
+
+    private var languagePanel: some View {
+        VStack(spacing: 24) {
+            TVSettingsCard("settings.language", summary: "settings.languageHelp") {
+                Picker("settings.languagePicker", selection: $uiLanguage) {
+                    Text("language.system").tag(TVLanguages.followSystem)
+                    ForEach(TVLanguages.available, id: \.self) { lang in
+                        Text(TVLanguages.nativeName(lang)).tag(lang)
                     }
+                }
+                .pickerStyle(.menu)
+                Text("settings.languageNote")
+                    .font(.callout).foregroundStyle(TTTheme.muted)
+            }
+        }
+    }
+
+    private var accountPanel: some View {
+        VStack(spacing: 24) {
+            TVSettingsCard("settings.account", summary: "settings.accountHelp") {
+                if TypeTypeCredentials.shared.token(for: api.origin) != nil {
+                    Label("settings.tokenSaved", systemImage: "checkmark.shield")
+                        .foregroundStyle(.green)
+                    Button("settings.logout") {
+                        TypeTypeCredentials.shared.clear(for: api.origin)
+                        status = TVL10n.value("login.signedOut")
+                        remote = nil
+                    }
+                    .buttonStyle(.bordered)
+                }
+                Button("settings.pair") {
+                    poller?.cancel()
+                    poller = Task { await startLogin() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(TTTheme.accent)
+                if let code = loginCode, let link = loginLink {
+                    Text(TVL10n.formatted("login.deviceCode", code))
+                        .font(.title2.bold())
+                        .monospacedDigit()
+                    Text(link.absoluteString)
+                        .font(.callout)
+                        .foregroundStyle(TTTheme.muted)
+                    Text("settings.deviceHelp").font(.callout)
+                }
+                if !status.isEmpty { Text(status).foregroundStyle(TTTheme.muted) }
+            }
+        }
+    }
+
+    private var instancePanel: some View {
+        VStack(spacing: 24) {
+            TVSettingsCard("settings.groupInstance", summary: "settings.groupInstanceHelp") {
+                TVSettingsInfoRow(title: "settings.instanceAddress", value: api.origin.absoluteString)
+                if let info = instanceInfo {
+                    TVSettingsInfoRow(title: "settings.instanceName", value: info.name)
+                    TVSettingsInfoRow(title: "settings.instanceVersion", value: info.version)
+                }
+                if let instanceError {
+                    Text(instanceError).foregroundStyle(.orange)
+                }
+                Button("common.refresh") { Task { await refreshInstance() } }
+                    .buttonStyle(.bordered)
+                Divider()
+                if let fingerprint = TVServerTrust.shared.fingerprint(for: api.origin) {
+                    Label("settings.certTrusted", systemImage: "checkmark.shield")
+                        .foregroundStyle(.green)
+                    Text(fingerprint)
+                        .font(.caption.monospaced())
+                        .lineLimit(4)
+                    Button("settings.certForget") { confirmCertificateRemoval = true }
+                        .buttonStyle(.bordered)
+                }
+                Button("settings.changeServer", action: onDisconnect)
                     .buttonStyle(.borderedProminent)
                     .tint(TTTheme.accent)
-                    if let code = loginCode, let link = loginLink {
-                        Text(TVL10n.formatted("login.deviceCode", code))
-                            .font(.title.bold()).monospacedDigit()
-                        Text(link.absoluteString)
-                            .font(.callout)
-                            .foregroundStyle(TTTheme.muted)
-                        Text("settings.deviceHelp")
-                            .font(.callout)
-                    }
-                    if !status.isEmpty {
-                        Text(status).foregroundStyle(TTTheme.muted)
-                    }
-                    Divider()
-                    Button("settings.changeServer", action: onDisconnect)
-                        .buttonStyle(.bordered)
-                }
-
-                Button("settings.reset") {
-                    allowSoftware = false
-                    maxHeight = 2160
-                    skipSeconds = 10
-                    bufferForwardSeconds = 180
-                    bufferBackSeconds = 120
-                    bufferCacheMiB = 512
-                }
-                .buttonStyle(.bordered)
-                .padding(.vertical, 10)
+                if !status.isEmpty { Text(status).foregroundStyle(TTTheme.muted) }
             }
-            .frame(maxWidth: 1450)
-            .padding(.horizontal, 80)
-            .padding(.top, 55)
-            .padding(.bottom, 100)
-            .frame(maxWidth: .infinity)
         }
-        .background(TTTheme.ink)
-        .onDisappear { poller?.cancel() }
+    }
+
+    private var aboutPanel: some View {
+        VStack(spacing: 24) {
+            TVSettingsCard("settings.groupAbout", summary: "settings.groupAboutHelp") {
+                TVSettingsInfoRow(title: "settings.appName", value: "TypeType tvOS")
+                TVSettingsInfoRow(
+                    title: "settings.appVersion",
+                    value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+                        ?? TVL10n.value("settings.developmentBuild")
+                )
+                TVSettingsInfoRow(title: "settings.platform", value: "Apple TV 4K · tvOS 17+")
+                Text("settings.licenseInfo")
+                    .font(.callout).foregroundStyle(TTTheme.muted)
+                Text("settings.playerExperimental")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+        }
+    }
+
+    @MainActor
+    private func refreshRemote() async {
+        guard !remoteLoading && !remoteSaving else { return }
+        remoteLoading = true
+        remoteError = nil
+        defer { remoteLoading = false }
+        do {
+            remote = try await api.accountSettings()
+        } catch {
+            remoteError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func setRemote(_ field: TVServerToggle, enabled: Bool) {
+        guard var next = remote, !remoteSaving else { return }
+        let previous = next
+        next.setEnabled(field, enabled)
+        remote = next
+        remoteSaving = true
+        remoteError = nil
+        Task {
+            do {
+                remote = try await api.setAccountSetting(field.rawValue, value: .boolean(!enabled))
+            } catch {
+                remote = previous
+                remoteError = error.localizedDescription
+            }
+            remoteSaving = false
+        }
+    }
+
+    @MainActor
+    private func refreshInstance() async {
+        if api.origin.host == "preview.invalid" { return }
+        do {
+            instanceInfo = try await api.instance()
+            instanceError = nil
+        } catch {
+            instanceError = error.localizedDescription
+        }
     }
 
     @MainActor
@@ -175,9 +441,9 @@ struct PreferencesView: View {
             let flow = try await service.deviceLoginStart()
             loginCode = flow.userCode
             var link = api.origin.appendingPathComponent("link")
-            if var components = URLComponents(url: link, resolvingAgainstBaseURL: false) {
-                components.queryItems = [URLQueryItem(name: "code", value: flow.userCode)]
-                if let url = components.url { link = url }
+            if var parts = URLComponents(url: link, resolvingAgainstBaseURL: false) {
+                parts.queryItems = [URLQueryItem(name: "code", value: flow.userCode)]
+                if let url = parts.url { link = url }
             }
             loginLink = link
             status = TVL10n.value("login.waiting")
@@ -204,40 +470,5 @@ struct PreferencesView: View {
         } catch {
             status = error.localizedDescription
         }
-    }
-}
-
-private struct TVSettingsSection<Content: View>: View {
-    let title: LocalizedStringKey
-    let symbol: String
-    let subtitle: LocalizedStringKey
-    @ViewBuilder let content: Content
-
-    init(_ title: LocalizedStringKey, symbol: String, subtitle: LocalizedStringKey,
-         @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.symbol = symbol
-        self.subtitle = subtitle
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 23) {
-            HStack(spacing: 15) {
-                Image(systemName: symbol)
-                    .foregroundStyle(TTTheme.accent)
-                    .font(.title2)
-                Text(title).font(.title2.bold())
-            }
-            Text(subtitle)
-                .font(.callout)
-                .foregroundStyle(TTTheme.muted)
-            Divider()
-            content
-        }
-        .padding(40)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(TTTheme.surface, in: RoundedRectangle(cornerRadius: 24))
-        .focusSection()
     }
 }
