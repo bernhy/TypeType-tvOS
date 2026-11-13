@@ -1,4 +1,4 @@
-name: tvOS (unsigned simulator build)
+name: tvOS (unsigned simulator + Apple TV device builds)
 on:
   push:
     branches: [main, dev]
@@ -45,6 +45,21 @@ jobs:
             build
           cd "$RUNNER_TEMP/typetype-build/Build/Products/Debug-appletvsimulator"
           zip -qry "$GITHUB_WORKSPACE/TypeTypeTV-simulator.app.zip" TypeTypeTV.app
+      - name: Compile native Apple TV device target without signing
+        run: |
+          set -euo pipefail
+          # Catch arm64/tvOS-only SDK or linker failures before the user
+          # spends time provisioning their Apple TV with a free Apple ID.
+          # This is a compile check only; installation still requires signing.
+          xcodebuild \
+            -project TypeTypeTV.xcodeproj \
+            -scheme TypeTypeTV \
+            -configuration Debug \
+            -sdk appletvos \
+            -destination 'generic/platform=tvOS' \
+            -derivedDataPath "$RUNNER_TEMP/typetype-device-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
       - name: Upload unsigned simulator build
         uses: actions/upload-artifact@v4
         with:
