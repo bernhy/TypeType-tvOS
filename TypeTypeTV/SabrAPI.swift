@@ -345,8 +345,12 @@ final class SabrService: @unchecked Sendable {
         let path = "sabr/playback/\(sessionId)"
         let _: EmptyReply = try await request(path + "/position", method: "POST", body: body, allowedStatuses: [200, 202, 204], allowEmpty: true)
         var prefetched = false
+        let deadline = Date().addingTimeInterval(25)
         for _ in 0..<60 {
             try Task.checkCancellation()
+            if Date() > deadline {
+                throw SabrFailure.invalidResponse("segment window timed out")
+            }
             if !prefetched {
                 let _: EmptyReply = try await request(path + "/prefetch", method: "POST",
                                                        body: body, allowedStatuses: [200, 202, 204], allowEmpty: true)

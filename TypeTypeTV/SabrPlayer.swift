@@ -258,6 +258,31 @@ final class SabrPlayerController: ObservableObject {
         }
     }
 
+    /// Retry only genuinely transient bootstrap/session errors. Server
+    /// authorization denials and malformed media remain terminal.
+    private func retryTransient<T>(
+        _ action: () async throws -> T
+    ) async throws -> T {
+        let policy = SabrRecoveryPolicy()
+        let started = Date()
+        for attempt in 1...policy.maxAttempts {
+            try Task.checkCancellation()
+            do {
+                return try await action()
+            } catch {
+                guard policy.canRetry(
+                    error, completedAttempts: attempt,
+                    elapsedSeconds: Date().timeIntervalSince(started)
+                ) else { throw error }
+                state = TVL10n.value("player.connecting") + " (\(attempt))"
+                try await Task.sleep(
+                    nanoseconds: policy.delayNanoseconds(attempt: attempt)
+                )
+            }
+        }
+        throw SabrFailure.stalled("stream retry budget exhausted")
+    }
+
     private func run(api: TypeTypeAPI, video: VideoItem,
                      explicitPositionMs: Int64?, buffer: SabrBufferSettings) async {
         let service = SabrService(api: api)
@@ -283,12 +308,13 @@ final class SabrPlayerController: ObservableObject {
             guard let id = VideoAddress.youtubeID(video.url) else {
                 throw SabrFailure.unsupported(TVL10n.value("player.notYoutube"))
             }
-            let bootstrap: SabrBootstrap
-            do {
-                bootstrap = try await service.bootstrap(videoURL: video.url)
-            } catch SabrFailure.server(let code, _) where code == 401 || code == 403 {
-                try await service.guestLogin()
-                bootstrap = try await service.bootstrap(videoURL: video.url)
+            let bootstrap: SabrBootstrap = try await retryTransient {
+                do {
+                    return try await service.bootstrap(videoURL: video.url)
+                } catch SabrFailure.server(let code, _) where code == 401 || code == 403 {
+                    try await service.guestLogin()
+                    return try await service.bootstrap(videoURL: video.url)
+                }
             }
             let allowSoftware = UserDefaults.standard.bool(forKey: "typetype.allowSoftwareDecode")
             let maximum = UserDefaults.standard.integer(forKey: "typetype.maxHeight")
@@ -338,6 +364,7 @@ final class SabrPlayerController: ObservableObject {
             guard !orderedOptions.isEmpty else {
                 throw SabrFailure.unsupported(TVL10n.value("player.noHardwareFormat"))
             }
+            var playbackStart = positionMs
             for (index, option) in orderedOptions.enumerated() {
                 try Task.checkCancellation()
                 let audio = availableAudios.first {
@@ -359,9 +386,11 @@ final class SabrPlayerController: ObservableObject {
                 )
                 state = TVL10n.value("player.session")
                 do {
-                    let session = try await service.start(
-                        videoId: id, selection: choice, positionMs: positionMs
-                    )
+                    let session = try await retryTransient {
+                        try await service.start(
+                            videoId: id, selection: choice, positionMs: playbackStart
+                        )
+                    }
                     guard !session.sessionId.isEmpty else {
                         throw SabrFailure.invalidResponse("sessionId")
                     }
@@ -369,10 +398,18 @@ final class SabrPlayerController: ObservableObject {
                     generation = session.generation
                     try await consume(
                         service: service, videoId: id, choice: choice,
-                        positionMs: positionMs, buffer: buffer
+                        positionMs: playbackStart, buffer: buffer
                     )
                     return
-                } catch SabrFailure.unsupported where !isInitialized && index < orderedOptions.count - 1 {
+                } catch SabrFailure.unsupported where index < orderedOptions.count - 1 {
+                    if isInitialized {
+                        recordProgress(force: true)
+                        let lastSubmitted = max(0, self.positionMs - 1_000)
+                        playbackStart = min(
+                            max(0, Int64(playbackSeconds() * 1_000)),
+                            lastSubmitted
+                        )
+                    }
                     // A codec may be reported hardware-capable even though
                     // the precise profile/level cannot create a decoder.
                     // Try the next candidate only before playback starts.
@@ -393,13 +430,15 @@ final class SabrPlayerController: ObservableObject {
                     videoLayer.flushAndRemoveImage()
                     audioRenderer.flush()
                     synchronizer.setRate(
-                        0, time: CMTime(value: positionMs, timescale: 1_000)
+                        0, time: CMTime(value: playbackStart, timescale: 1_000)
                     )
+                    playbackPositionMs = playbackStart
+                    isInitialized = false
                     hasQueuedFirstAudio = false
                     hasQueuedFirstVideo = false
                     isPlaying = false
                     if fixedVideoItag != nil { fixedVideoItag = nil }
-                    cachedThroughMs = positionMs
+                    cachedThroughMs = playbackStart
                     diskCacheBytes = 0
                     if let oldCache = segmentCache { await oldCache.clear() }
                     segmentCache = SabrFragmentCache(maxMiB: buffer.cacheMiB)
@@ -483,9 +522,12 @@ final class SabrPlayerController: ObservableObject {
                 )
                 try Task.checkCancellation()
                 let oldSession = sessionId
-                let renewed = try await service.start(
-                    videoId: videoId, selection: choice, positionMs: restartPosition
-                )
+                let renewed = try await retryTransient {
+                    try await service.start(
+                        videoId: videoId, selection: choice,
+                        positionMs: restartPosition
+                    )
+                }
                 sessionId = renewed.sessionId
                 generation = renewed.generation
                 if oldSession != renewed.sessionId {
