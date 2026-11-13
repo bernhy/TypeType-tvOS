@@ -61,13 +61,19 @@ struct ServerSetupView: View {
                     }
                     .focusSection()
 
-                    HStack(spacing: 13) {
-                        Text("Endungen:")
-                            .font(.callout).foregroundStyle(TTTheme.muted)
-                        ForEach([".local", ".de", ".org", ".com"], id: \.self) { suffix in
-                            Button(suffix) { appendSuffix(suffix) }
-                                .buttonStyle(.bordered)
-                                .font(.callout)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Schnell ergänzen")
+                            .font(.caption).foregroundStyle(TTTheme.muted)
+                        HStack(spacing: 15) {
+                            ForEach([".local", ".de", ".org", ".com"], id: \.self) { suffix in
+                                Button(suffix) { appendSuffix(suffix) }
+                                    .buttonStyle(.plain)
+                                    .font(.system(size: 22, weight: .medium))
+                                    .frame(width: 102, height: 48)
+                                    .background(.white.opacity(0.10),
+                                                in: Capsule())
+                                    .hoverEffect(.highlight)
+                            }
                         }
                     }
 
@@ -77,7 +83,7 @@ struct ServerSetupView: View {
                             .font(.caption)
                             .foregroundStyle(.orange)
                     } else {
-                        Label("HTTPS prüft das Zertifikat. Ein unbekanntes Zertifikat kannst du nach Anzeige des Fingerabdrucks ausdrücklich bestätigen.",
+                        Label("HTTPS: Unbekannte Zertifikate werden erst nach Fingerabdruckprüfung bestätigt.",
                               systemImage: "lock.shield")
                             .font(.caption)
                             .foregroundStyle(TTTheme.muted)
@@ -99,7 +105,7 @@ struct ServerSetupView: View {
                             .font(.callout).foregroundStyle(.orange)
                     }
                     Divider()
-                    Text("Verwende die URL-Tastatur der Apple TV Fernbedienung. Das Protokoll wählst du oben separat; die App fügt es selbst hinzu.")
+                    Text("Die URL-Tastatur öffnet sich beim Anklicken des Hostnamens. HTTPS oder HTTP legst du oben fest.")
                         .font(.caption)
                         .foregroundStyle(TTTheme.muted)
                 }

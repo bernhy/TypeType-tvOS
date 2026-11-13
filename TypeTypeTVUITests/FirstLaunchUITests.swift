@@ -33,6 +33,20 @@ final class TypeTypeTVUITests: XCTestCase {
         add(attachment)
     }
 
+    func testExpandedSidebarLayoutWithoutServer() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TypeTypeTVPreview", "home"]
+        app.launch()
+        let expand = app.buttons["Menü ausklappen"]
+        XCTAssertTrue(expand.waitForExistence(timeout: 20))
+        expand.tap()
+        XCTAssertTrue(app.buttons["Menü einklappen"].waitForExistence(timeout: 10))
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "TypeType-tvOS-Menü-ausgeklappt"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testSearchScreenLayoutWithoutServer() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-TypeTypeTVPreview", "search"]

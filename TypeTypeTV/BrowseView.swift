@@ -155,7 +155,7 @@ struct HomeView: View {
     @State private var loading: Bool
     @FocusState private var focusedIndex: Int?
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 5)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 4)
 
     init(api: TypeTypeAPI, previewVideos: [VideoItem]? = nil,
          onRevealMenu: @escaping () -> Void = {}) {
@@ -263,7 +263,7 @@ struct VideoCard: View {
                             .foregroundStyle(TTTheme.accent.opacity(0.5))
                     }
                 }
-                    .frame(height: 185).frame(maxWidth: .infinity).clipped()
+                    .frame(height: 198).frame(maxWidth: .infinity).clipped()
                 if video.isLive == true {
                     Text("LIVE").font(.caption.bold())
                         .padding(8).background(TTTheme.accent).padding(8)
@@ -274,8 +274,10 @@ struct VideoCard: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 10))
-            Text(video.title).font(.headline).lineLimit(2)
-            Text(video.uploaderName ?? "").font(.caption)
+            Text(video.title)
+                .font(.system(size: 22, weight: .semibold))
+                .lineLimit(2)
+            Text(video.uploaderName ?? "").font(.system(size: 17))
                 .foregroundStyle(TTTheme.muted).lineLimit(1)
         }
         .foregroundStyle(.white)
