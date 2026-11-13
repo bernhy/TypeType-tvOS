@@ -96,6 +96,8 @@ final class SabrPlayerController: ObservableObject {
     private var windowProducerTask: Task<Void, Never>?
     private var activeMailbox: SabrWindowMailbox?
     private let progressWriter = TVPlaybackProgressWriter()
+    private let presenceOwner = UUID()
+    private var presenceReported = false
     private var currentAPI: TypeTypeAPI?
     private var currentVideo: VideoItem?
     private var hasRecordedHistory = false
@@ -133,6 +135,8 @@ final class SabrPlayerController: ObservableObject {
 
     func stop() {
         if isInitialized { recordProgress(force: true) }
+        TVPlaybackPresenceReporter.shared.stop(owner: presenceOwner)
+        presenceReported = false
         currentAPI = nil
         currentVideo = nil
         hasRecordedHistory = false
@@ -251,9 +255,14 @@ final class SabrPlayerController: ObservableObject {
     }
 
     func recordProgress(started: Bool = false, force: Bool = false) {
-        guard isInitialized, historyEnabled,
+        guard isInitialized,
               let api = currentAPI, let video = currentVideo else { return }
         let position = max(0, Int64(playbackSeconds() * 1_000))
+        TVPlaybackPresenceReporter.shared.progress(
+            owner: presenceOwner, video: video, positionMs: position,
+            paused: !isPlaying
+        )
+        guard historyEnabled else { return }
         TVLocalProgress.shared.record(video.url, positionMs: position)
         Task {
             await progressWriter.checkpoint(
@@ -775,6 +784,8 @@ final class SabrPlayerController: ObservableObject {
                     isPlaying = false
                     recordProgress(force: true)
                 }
+                TVPlaybackPresenceReporter.shared.stop(owner: presenceOwner)
+                presenceReported = false
                 state = TVL10n.value("player.end")
                 return
             }
@@ -858,6 +869,14 @@ final class SabrPlayerController: ObservableObject {
                 state = TVL10n.value(
                     prefersPause ? "player.paused" : "player.playing"
                 )
+                if !presenceReported, let api = currentAPI, let video = currentVideo {
+                    TVPlaybackPresenceReporter.shared.start(
+                        owner: presenceOwner, api: api, video: video,
+                        positionMs: max(0, Int64(playbackSeconds() * 1_000)),
+                        paused: prefersPause
+                    )
+                    presenceReported = true
+                }
                 recordProgress(started: !hasRecordedHistory, force: true)
                 hasRecordedHistory = true
             }
