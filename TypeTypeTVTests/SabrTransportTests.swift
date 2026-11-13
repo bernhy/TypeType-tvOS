@@ -182,4 +182,24 @@ final class SabrTransportTests: XCTestCase {
         })
     }
 
+    func testUnplayableSabrBootstrapIsTerminalNotNetworkRetry() async throws {
+        MockSabrProtocol.use { request in
+            if request.url?.path == "/api/streams/youtube/sabr/bootstrap" {
+                return (422, Data(
+                    #"{"error":"No compatible stream is available for this video","code":"no_playable_streams"}"#.utf8
+                ))
+            }
+            return (404, Data())
+        }
+        let service = try fixtureService()
+        do {
+            _ = try await service.bootstrap(
+                videoURL: "https://www.youtube.com/watch?v=abc123def45"
+            )
+            XCTFail("Permanently unavailable video must not be retried")
+        } catch SabrFailure.unavailable {
+            // Expected: do not hammer the server for media it cannot serve.
+        }
+    }
+
 }

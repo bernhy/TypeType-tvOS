@@ -408,4 +408,28 @@ final class TVAPIWireTests: XCTestCase {
         ])
     }
 
+    func testNonYoutubeUnplayableStreamReturnsDistinctError() async throws {
+        TVAPIWireProtocol.install(host: "unplayable.example") { request in
+            guard request.url?.path == "/api/streams/bilibili" else {
+                return (404, Data())
+            }
+            return (422, Data(
+                #"{"error":"No compatible stream is available for this video","code":"no_playable_streams"}"#.utf8
+            ))
+        }
+        let api = try fixtureAPI(host: "unplayable.example")
+        let video = VideoItem(
+            id: "bili", title: "Video",
+            url: "https://www.bilibili.com/video/BV1xx411c7mD",
+            thumbnailUrl: nil, uploaderName: nil, duration: 120,
+            isLive: false
+        )
+        do {
+            _ = try await api.stream(for: video)
+            XCTFail("Server-declared unavailable video must return a distinct error")
+        } catch TypeTypeError.videoUnavailable {
+            // Expected.
+        }
+    }
+
 }

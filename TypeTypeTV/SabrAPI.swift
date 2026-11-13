@@ -148,6 +148,8 @@ enum SabrFailure: LocalizedError {
     case unsupported(String)
     case invalidResponse(String)
     case server(Int, String)
+    case throttled(Int, String, Int)
+    case unavailable
     case expired
     case stalled(String)
     case stopped
@@ -157,6 +159,9 @@ enum SabrFailure: LocalizedError {
         case .unsupported(let value): return TVL10n.formatted("error.sabrUnsupported", value)
         case .invalidResponse(let value): return TVL10n.formatted("error.sabrReply", value)
         case .server(let code, let value): return TVL10n.formatted("error.sabrHTTP", code, value)
+        case .throttled(let code, let value, _):
+            return TVL10n.formatted("error.sabrHTTP", code, value)
+        case .unavailable: return TVL10n.value("player.unavailable")
         case .expired: return TVL10n.value("error.sabrExpired")
         case .stalled(let detail): return TVL10n.formatted("error.sabrReply", detail)
         case .stopped: return TVL10n.value("error.sabrStopped")
@@ -411,8 +416,31 @@ final class SabrService: @unchecked Sendable {
         }
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw SabrFailure.invalidResponse("HTTP response") }
-        guard allowedStatuses.contains(http.statusCode) else { throw SabrFailure.server(http.statusCode, pathForError) }
+        guard allowedStatuses.contains(http.statusCode) else {
+            if http.statusCode == 422,
+               let issue = try? JSONDecoder().decode(TVStreamProblem.self, from: data),
+               issue.isPermanentlyUnavailable {
+                throw SabrFailure.unavailable
+            }
+            if [429, 503, 504].contains(http.statusCode),
+               let wait = SabrRetryAfter.seconds(
+                   http.value(forHTTPHeaderField: "Retry-After")
+               ) {
+                throw SabrFailure.throttled(http.statusCode, pathForError, wait)
+            }
+            throw SabrFailure.server(http.statusCode, pathForError)
+        }
         return data
+    }
+}
+
+struct TVStreamProblem: Decodable {
+    let error: String
+    let code: String
+
+    var isPermanentlyUnavailable: Bool {
+        ["no_playable_streams", "sabr_content_unavailable",
+         "content_unavailable", "video_unavailable"].contains(code)
     }
 }
 

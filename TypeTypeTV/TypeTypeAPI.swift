@@ -53,6 +53,7 @@ enum TypeTypeError: LocalizedError {
     case http(Int, String)
     case unexpectedResponse
     case unavailableFormat
+    case videoUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -68,6 +69,8 @@ enum TypeTypeError: LocalizedError {
             return TVL10n.value("error.invalidReply")
         case .unavailableFormat:
             return TVL10n.value("error.noFormat")
+        case .videoUnavailable:
+            return TVL10n.value("player.unavailable")
         }
     }
 }
@@ -495,6 +498,11 @@ struct TypeTypeAPI {
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw TypeTypeError.unexpectedResponse }
         guard (200..<300).contains(response.statusCode) else {
+            if response.statusCode == 422,
+               let issue = try? JSONDecoder().decode(TVStreamProblem.self, from: data),
+               issue.isPermanentlyUnavailable {
+                throw TypeTypeError.videoUnavailable
+            }
             throw TypeTypeError.http(response.statusCode, endpoint)
         }
         return try JSONDecoder().decode(T.self, from: data)

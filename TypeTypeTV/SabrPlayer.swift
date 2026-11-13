@@ -290,7 +290,9 @@ final class SabrPlayerController: ObservableObject {
                 ) else { throw error }
                 state = TVL10n.value("player.connecting") + " (\(attempt))"
                 try await Task.sleep(
-                    nanoseconds: policy.delayNanoseconds(attempt: attempt)
+                    nanoseconds: policy.delayNanoseconds(
+                        for: error, attempt: attempt
+                    )
                 )
             }
         }
@@ -534,7 +536,9 @@ final class SabrPlayerController: ObservableObject {
                 state = TVL10n.value("player.connecting") +
                     " (\(recoveryAttempt + 1))"
                 try await Task.sleep(
-                    nanoseconds: policy.delayNanoseconds(attempt: recoveryAttempt + 1)
+                    nanoseconds: policy.delayNanoseconds(
+                        for: error, attempt: recoveryAttempt + 1
+                    )
                 )
                 try Task.checkCancellation()
                 let oldSession = sessionId
