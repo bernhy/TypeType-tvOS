@@ -12,7 +12,7 @@ struct PlaybackView: View {
             if VideoAddress.youtubeID(video.url) != nil {
                 SabrPlayerView(api: api, video: video)
             } else if let hlsURL {
-                SystemVideoPlayer(url: hlsURL)
+                TVHLSPlaybackView(api: api, video: video, url: hlsURL)
                     .ignoresSafeArea()
             } else if let errorMessage {
                 VStack(spacing: 25) {
@@ -43,21 +43,24 @@ struct PlaybackView: View {
     }
 }
 
-/// tvOS's public, native player handles HLS transport and Siri Remote controls.
+/// The system AVPlayerViewController owns focus, Siri Remote play/pause,
+/// transport controls and system-provided audio/subtitle track selection.
+/// Playback state and account progress are managed by TVHLSPlaybackController.
 struct SystemVideoPlayer: UIViewControllerRepresentable {
-    let url: URL
+    let player: AVPlayer
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
-        controller.player = AVPlayer(url: url)
-        controller.player?.play()
+        controller.player = player
         return controller
     }
 
-    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {}
+    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
+        if controller.player !== player { controller.player = player }
+    }
 
-    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: ()) {
-        controller.player?.pause()
+    static func dismantleUIViewController(_ controller: AVPlayerViewController,
+                                         coordinator: ()) {
         controller.player = nil
     }
 }
