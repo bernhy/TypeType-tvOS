@@ -114,6 +114,16 @@ final class SabrPlayerController: ObservableObject {
         start(api: api, video: video, positionMs: min(upper, max(0, anchor + offsetMs)))
     }
 
+    func playbackSeconds() -> Double {
+        let seconds = CMTimeGetSeconds(synchronizer.currentTime())
+        return isInitialized && seconds.isFinite ? max(0, seconds) : Double(playbackPositionMs) / 1_000
+    }
+
+    func totalTimeLabel() -> String {
+        let seconds = max(0, durationMs / 1_000)
+        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
+    }
+
     func timeLabel() -> String {
         let seconds = CMTimeGetSeconds(synchronizer.currentTime())
         let current = isInitialized && seconds.isFinite ? Int64(seconds) : playbackPositionMs / 1000
@@ -373,42 +383,122 @@ struct SabrPlayerView: View {
     let api: TypeTypeAPI
     let video: VideoItem
     @StateObject private var engine = SabrPlayerController()
+    @AppStorage("typetype.skipSeconds") private var skipSeconds = 10
+    @State private var controlsVisible = true
+    @State private var revealIndex = 0
+
+    private func reveal() {
+        controlsVisible = true
+        revealIndex &+= 1
+    }
+
+    private func skip(_ direction: Int) {
+        let duration = max(5, min(20, skipSeconds))
+        engine.seek(api: api, video: video, offsetMs: Int64(direction * duration * 1_000))
+        reveal()
+    }
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            SabrVideoSurface(displayLayer: engine.videoLayer)
-                .ignoresSafeArea()
-            VStack {
-                Spacer()
-                if let failure = engine.failure {
-                    VStack(spacing: 20) {
-                        Text("SABR-Wiedergabe fehlgeschlagen").font(.title)
-                        Text(failure).font(.body).multilineTextAlignment(.center)
-                        Button("Erneut versuchen") { engine.start(api: api, video: video) }
+            SabrVideoSurface(displayLayer: engine.videoLayer).ignoresSafeArea()
+
+            SiriRemotePlayerInput(
+                onTouch: reveal,
+                onDirection: skip,
+                onTogglePlayback: {
+                    engine.togglePause()
+                    reveal()
+                }
+            )
+            .ignoresSafeArea()
+
+            if let failure = engine.failure {
+                VStack(spacing: 22) {
+                    Text("SABR-Wiedergabe fehlgeschlagen").font(.largeTitle)
+                    Text(failure).multilineTextAlignment(.center)
+                    Button("Erneut versuchen") {
+                        engine.start(api: api, video: video)
+                        reveal()
                     }
-                    .padding(40)
-                    .background(.black.opacity(0.85))
-                } else {
-                    HStack {
-                        Text(engine.state)
+                }
+                .padding(50)
+                .background(.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 20))
+            } else if controlsVisible {
+                VStack {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 9) {
+                            Text(video.title).font(.title.bold()).lineLimit(2)
+                            Text(video.uploaderName ?? "")
+                                .font(.callout).foregroundStyle(.white.opacity(0.8))
+                        }
                         Spacer()
                         Text(engine.selectionDescription)
-                        TimelineView(.periodic(from: .now, by: 1)) { _ in
-                            Text(engine.timeLabel()).monospacedDigit()
-                        }
-                        Button("−10s") { engine.seek(api: api, video: video, offsetMs: -10_000) }
-                        Button(engine.isPlaying ? "Pause" : "Fortsetzen") { engine.togglePause() }
-                        Button("+30s") { engine.seek(api: api, video: video, offsetMs: 30_000) }
+                            .font(.caption).foregroundStyle(.white.opacity(0.8))
                     }
-                    .font(.callout)
-                    .padding(24)
-                    .background(.black.opacity(0.7))
+                    Spacer()
+                    VStack(spacing: 20) {
+                        HStack(spacing: 18) {
+                            Text(engine.state).font(.callout)
+                            Spacer()
+                            if engine.diskCacheBytes > 0 {
+                                Text("Cache \(engine.diskCacheBytes / 1_048_576) MiB")
+                                    .font(.caption).foregroundStyle(.white.opacity(0.8))
+                            }
+                        }
+                        TimelineView(.periodic(from: .now, by: 1)) { _ in
+                            HStack(spacing: 20) {
+                                Text(engine.timeLabel())
+                                    .monospacedDigit().frame(width: 105)
+                                ProgressView(value: engine.playbackSeconds(),
+                                             total: max(1.0, Double(engine.durationMs) / 1_000))
+                                Text(engine.totalTimeLabel())
+                                    .monospacedDigit().frame(width: 105)
+                            }
+                        }
+                        HStack(spacing: 36) {
+                            Button { skip(-1) } label: {
+                                Label("\(skipSeconds) s", systemImage: "gobackward")
+                            }
+                            Button {
+                                engine.togglePause()
+                                reveal()
+                            } label: {
+                                Label(engine.isPlaying ? "Pause" : "Fortsetzen",
+                                      systemImage: engine.isPlaying ? "pause.fill" : "play.fill")
+                            }
+                            Button { skip(1) } label: {
+                                Label("\(skipSeconds) s", systemImage: "goforward")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 }
+                .padding(.horizontal, 80)
+                .padding(.top, 70)
+                .padding(.bottom, 65)
+                .background(
+                    LinearGradient(
+                        colors: [.black.opacity(0.8), .clear, .clear, .black.opacity(0.9)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+                .transition(.opacity)
             }
-            .padding(40)
         }
-        .task { engine.start(api: api, video: video) }
+        .task {
+            engine.start(api: api, video: video)
+            reveal()
+        }
+        .task(id: revealIndex) {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if !Task.isCancelled && engine.failure == nil && engine.isPlaying {
+                withAnimation(.easeOut(duration: 0.25)) { controlsVisible = false }
+            }
+        }
+        .onChange(of: engine.isPlaying) {
+            if !engine.isPlaying { reveal() }
+        }
         .onDisappear { engine.stop() }
     }
 }
