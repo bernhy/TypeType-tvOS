@@ -431,8 +431,16 @@ struct SabrPlayerView: View {
                 onTogglePlayback: {
                     engine.togglePause()
                     reveal()
+                },
+                onSelect: {
+                    if controlsVisible {
+                        engine.togglePause()
+                    }
+                    reveal()
                 }
             )
+            .accessibilityLabel("Videoplayer")
+            .accessibilityHint("Berühren: Statusleiste. Links oder rechts: springen. Auswahl: Pause oder Wiedergabe.")
             .ignoresSafeArea()
 
             if let failure = engine.failure {
@@ -482,22 +490,20 @@ struct SabrPlayerView: View {
                                     .monospacedDigit().frame(width: 105)
                             }
                         }
-                        HStack(spacing: 36) {
-                            Button { skip(-1) } label: {
-                                Label("\(skipSeconds) s", systemImage: "gobackward")
-                            }
-                            Button {
-                                engine.togglePause()
-                                reveal()
-                            } label: {
-                                Label(engine.isPlaying ? "Pause" : "Fortsetzen",
-                                      systemImage: engine.isPlaying ? "pause.fill" : "play.fill")
-                            }
-                            Button { skip(1) } label: {
-                                Label("\(skipSeconds) s", systemImage: "goforward")
-                            }
+                        // Only the full-screen remote capture view should receive
+                        // directional presses. Focusable HUD buttons would cause the
+                        // Siri Remote to navigate between buttons instead of seeking.
+                        HStack(spacing: 48) {
+                            Label("−\(skipSeconds) s", systemImage: "gobackward")
+                            Label(engine.isPlaying ? "Pause / Fortsetzen" : "Fortsetzen",
+                                  systemImage: engine.isPlaying ? "pause.fill" : "play.fill")
+                            Label("+\(skipSeconds) s", systemImage: "goforward")
                         }
-                        .buttonStyle(.bordered)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                        Text("Touch: Steuerung einblenden · Links / Rechts: springen · Mitte: Pause / Start")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.65))
                     }
                 }
                 .padding(.horizontal, 80)

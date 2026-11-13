@@ -17,87 +17,139 @@ struct PreferencesView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 30) {
-                Text("TypeType Einstellungen").font(.largeTitle.bold())
-                Text("Server: \(api.origin.host ?? "")").foregroundStyle(.secondary)
-                Toggle("Softwaredecoding erlauben (standardmäßig AUS)", isOn: $allowSoftware)
-                Text("Ohne Freigabe akzeptiert TypeType nur Codecs, für die VideoToolbox Hardwaredecoding meldet.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Picker("Maximale Videoauflösung", selection: $maxHeight) {
-                    Text("4K").tag(2160)
-                    Text("1440p").tag(1440)
-                    Text("1080p").tag(1080)
-                    Text("720p").tag(720)
+            VStack(alignment: .leading, spacing: 34) {
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("TYPE TYPE")
+                        .font(.subheadline.bold()).tracking(2.2)
+                        .foregroundStyle(TTTheme.accent)
+                    Text("Einstellungen").font(.system(size: 52, weight: .bold))
+                    Text("Server: \(api.origin.host ?? "")")
+                        .font(.callout)
+                        .foregroundStyle(TTTheme.muted)
                 }
-                Divider()
-                Text("Fernbedienung und Puffer").font(.title2)
-                Picker("Sprung bei Links-/Rechtsklick", selection: $skipSeconds) {
-                    ForEach([5, 10, 15, 20], id: \.self) { value in
-                        Text("\(value) Sekunden").tag(value)
+
+                TVSettingsSection("Bild und Wiedergabe", symbol: "4k.tv",
+                                  subtitle: "Beste passende Hardwarequalität auswählen und Softwaredecoding nur bei Bedarf freigeben.") {
+                    Toggle("Softwaredecoding ausdrücklich erlauben", isOn: $allowSoftware)
+                    Text("Standardmäßig AUS. Nicht hardwarekompatible Codecs werden dadurch nicht automatisch gewählt.")
+                        .font(.caption).foregroundStyle(TTTheme.muted)
+                    Picker("Maximale Videoauflösung", selection: $maxHeight) {
+                        Text("4K").tag(2160)
+                        Text("1440p").tag(1440)
+                        Text("1080p").tag(1080)
+                        Text("720p").tag(720)
                     }
                 }
-                Text("Berühren der Touchfläche blendet die Statusleiste ein. Links und rechts klicken springt um den eingestellten Wert.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Picker("Vorladeziel (Video-on-Demand)", selection: $bufferForwardSeconds) {
-                    ForEach([30, 60, 120, 180, 300, 600], id: \.self) { value in
-                        Text("\(value) Sekunden").tag(value)
-                    }
-                }
-                Picker("Rückwärtspuffer", selection: $bufferBackSeconds) {
-                    ForEach([30, 60, 120, 180, 300], id: \.self) { value in
-                        Text("\(value) Sekunden").tag(value)
-                    }
-                }
-                Picker("Maximaler Cache für komprimierte Segmente", selection: $bufferCacheMiB) {
-                    ForEach([256, 512, 1024], id: \.self) { value in
-                        Text("\(value) MiB").tag(value)
-                    }
-                }
-                Text("Standard: 180 Sekunden voraus, 120 Sekunden zurück, 512 MiB lokaler Cache. Der TypeType-Server kann kleinere SABR-Fenster liefern; wir erzwingen keine aggressiven Neuanfragen.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Divider()
-                Text("Hardwaredecoder dieses Gerätes").font(.title2)
-                ForEach(["H.264", "HEVC", "VP9", "AV1"], id: \.self) { label in
-                    let name: String = {
-                        switch label {
-                        case "H.264": return "avc1"
-                        case "HEVC": return "hvc1"
-                        case "VP9": return "vp09"
-                        default: return "av01"
+
+                TVSettingsSection("Fernbedienung", symbol: "hand.tap",
+                                  subtitle: "Touch zeigt die Statusleiste. Links/rechts springt, Play/Pause steuert die Wiedergabe.") {
+                    Picker("Sprungweite", selection: $skipSeconds) {
+                        ForEach([5, 10, 15, 20], id: \.self) { value in
+                            Text("\(value) Sekunden").tag(value)
                         }
-                    }()
-                    HStack {
-                        Text(label)
-                        Spacer()
-                        Text(HardwareCodec.supported(name) ? "Hardware erkannt" : "Hardware nicht erkannt")
-                            .foregroundStyle(HardwareCodec.supported(name) ? .green : .orange)
                     }
                 }
-                Text("Eine Codec-Erkennung allein bestätigt noch nicht alle Profile, Framerates und HDR-Modi. Dafür sind zusätzliche Tests auf dem Apple TV erforderlich.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Divider()
-                Text("Anmeldung").font(.title2)
-                if TypeTypeCredentials.shared.token(for: api.origin) != nil {
-                    Text("Anmeldetoken im System-Schlüsselbund gespeichert.")
-                    Button("Lokal abmelden") {
-                        TypeTypeCredentials.shared.clear(for: api.origin)
-                        status = "Abgemeldet"
+
+                TVSettingsSection("SABR-Puffer", symbol: "externaldrive",
+                                  subtitle: "Großer Cache auf deinem Apple TV. Der Server kann kleinere Segmentfenster liefern.") {
+                    Picker("Vorladeziel (Video-on-Demand)", selection: $bufferForwardSeconds) {
+                        ForEach([30, 60, 120, 180, 300, 600], id: \.self) { value in
+                            Text("\(value) Sekunden").tag(value)
+                        }
+                    }
+                    Picker("Rückwärtspuffer", selection: $bufferBackSeconds) {
+                        ForEach([30, 60, 120, 180, 300], id: \.self) { value in
+                            Text("\(value) Sekunden").tag(value)
+                        }
+                    }
+                    Picker("Maximaler lokaler Cache", selection: $bufferCacheMiB) {
+                        ForEach([256, 512, 1024], id: \.self) { value in
+                            Text("\(value) MiB").tag(value)
+                        }
+                    }
+                    Text("Das Vorladeziel ist keine garantierte Füllmenge. Der Cache enthält nur komprimierte Mediensegmente.")
+                        .font(.caption).foregroundStyle(TTTheme.muted)
+                }
+
+                TVSettingsSection("Hardwarefähigkeiten", symbol: "cpu",
+                                  subtitle: "Gerätespezifische VideoToolbox-Erkennung. Profile, HDR und Framerates erfordern zusätzliche Tests.") {
+                    ForEach(["H.264", "HEVC", "VP9", "AV1"], id: \.self) { label in
+                        let name: String = {
+                            switch label {
+                            case "H.264": return "avc1"
+                            case "HEVC": return "hvc1"
+                            case "VP9": return "vp09"
+                            default: return "av01"
+                            }
+                        }()
+                        HStack {
+                            Text(label)
+                            Spacer()
+                            Label(
+                                HardwareCodec.supported(name) ? "Hardware erkannt" : "Nicht erkannt",
+                                systemImage: HardwareCodec.supported(name) ? "checkmark.circle" : "minus.circle"
+                            )
+                            .foregroundStyle(
+                                HardwareCodec.supported(name) ? .green : .orange
+                            )
+                        }
+                        .font(.body)
                     }
                 }
-                Button("TypeType-Konto mit Gerätecode verbinden") {
-                    poller?.cancel()
-                    poller = Task { await startLogin() }
+
+                TVSettingsSection("Konto und Server", symbol: "person.crop.circle",
+                                  subtitle: "Verbinde dein TypeType-Konto mit einem Gerätecode oder wechsle die Instanz.") {
+                    if TypeTypeCredentials.shared.token(for: api.origin) != nil {
+                        Label("Ein Zugriffstoken ist im Apple-Schlüsselbund gespeichert.",
+                              systemImage: "checkmark.shield")
+                            .foregroundStyle(.green)
+                        Button("Lokal abmelden") {
+                            TypeTypeCredentials.shared.clear(for: api.origin)
+                            status = "Lokale Anmeldung beendet"
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    Button("TypeType-Konto mit Gerätecode koppeln") {
+                        poller?.cancel()
+                        poller = Task { await startLogin() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(TTTheme.accent)
+                    if let code = loginCode, let link = loginLink {
+                        Text("GERÄTECODE: \(code)")
+                            .font(.title.bold()).monospacedDigit()
+                        Text(link.absoluteString)
+                            .font(.callout)
+                            .foregroundStyle(TTTheme.muted)
+                        Text("Öffne den Link auf deinem Telefon oder Computer und bestätige den Code.")
+                            .font(.callout)
+                    }
+                    if !status.isEmpty {
+                        Text(status).foregroundStyle(TTTheme.muted)
+                    }
+                    Divider()
+                    Button("TypeType-Server wechseln", action: onDisconnect)
+                        .buttonStyle(.bordered)
                 }
-                if let code = loginCode, let link = loginLink {
-                    Text("Gerätecode: \(code)").font(.title)
-                    Text(link.absoluteString)
-                    Text("Öffne den Link auf einem Telefon oder Computer und bestätige den Gerätecode.")
+
+                Button("Wiedergabeeinstellungen auf Standard zurücksetzen") {
+                    allowSoftware = false
+                    maxHeight = 2160
+                    skipSeconds = 10
+                    bufferForwardSeconds = 180
+                    bufferBackSeconds = 120
+                    bufferCacheMiB = 512
                 }
-                if !status.isEmpty { Text(status).foregroundStyle(.secondary) }
-                Button("Server wechseln", action: onDisconnect)
+                .buttonStyle(.bordered)
+                .padding(.vertical, 10)
             }
-            .padding(60)
+            .frame(maxWidth: 1450)
+            .padding(.horizontal, 80)
+            .padding(.top, 55)
+            .padding(.bottom, 100)
+            .frame(maxWidth: .infinity)
         }
+        .background(TTTheme.ink)
         .onDisappear { poller?.cancel() }
     }
 
@@ -138,5 +190,40 @@ struct PreferencesView: View {
         } catch {
             status = error.localizedDescription
         }
+    }
+}
+
+private struct TVSettingsSection<Content: View>: View {
+    let title: String
+    let symbol: String
+    let subtitle: String
+    @ViewBuilder let content: Content
+
+    init(_ title: String, symbol: String, subtitle: String,
+         @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.symbol = symbol
+        self.subtitle = subtitle
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 23) {
+            HStack(spacing: 15) {
+                Image(systemName: symbol)
+                    .foregroundStyle(TTTheme.accent)
+                    .font(.title2)
+                Text(title).font(.title2.bold())
+            }
+            Text(subtitle)
+                .font(.callout)
+                .foregroundStyle(TTTheme.muted)
+            Divider()
+            content
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(TTTheme.surface, in: RoundedRectangle(cornerRadius: 24))
+        .focusSection()
     }
 }
