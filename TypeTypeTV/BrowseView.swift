@@ -205,80 +205,108 @@ struct BrowseView: View {
 struct HomeView: View {
     let api: TypeTypeAPI
     let onRevealMenu: () -> Void
+    let onOpenAccount: () -> Void
     private let previewVideos: [VideoItem]?
+
     @State private var videos: [VideoItem]
+    @State private var recentVideos: [VideoItem]
     @State private var message: String?
+    @State private var recentError: String?
+    @State private var recentNeedsLogin = false
     @State private var loading: Bool
-    @FocusState private var focusedIndex: Int?
+    @State private var loadingRecent: Bool
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 4)
 
     init(api: TypeTypeAPI, previewVideos: [VideoItem]? = nil,
-         onRevealMenu: @escaping () -> Void = {}) {
+         onRevealMenu: @escaping () -> Void = {},
+         onOpenAccount: @escaping () -> Void = {}) {
         self.api = api
         self.previewVideos = previewVideos
         self.onRevealMenu = onRevealMenu
+        self.onOpenAccount = onOpenAccount
         _videos = State(initialValue: previewVideos ?? [])
+        _recentVideos = State(initialValue: previewVideos.map {
+            Array($0.prefix(4))
+        } ?? [])
         _loading = State(initialValue: previewVideos == nil)
+        _loadingRecent = State(initialValue: previewVideos == nil)
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 30) {
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: 32) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 6) {
                         Text("home.forYou")
                             .font(.subheadline.bold())
                             .tracking(2.4)
                             .foregroundStyle(TTTheme.accent)
-                        Text("home.recommendations")
+                        Text("nav.home")
                             .font(.system(size: 48, weight: .bold))
                     }
                     Spacer()
-                    Text(TVL10n.formatted("common.videoCount", videos.count))
-                        .font(.callout).foregroundStyle(TTTheme.muted)
                     Button {
-                        Task { await load() }
+                        Task { await refresh() }
                     } label: {
                         Label("common.refresh", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(.bordered)
-                    .disabled(loading || previewVideos != nil)
+                    .disabled((loading && loadingRecent) || previewVideos != nil)
                 }
-                .padding(.bottom, 5)
 
-                if loading && videos.isEmpty {
-                    ProgressView("home.loading")
-                        .frame(maxWidth: .infinity, minHeight: 200)
-                } else if videos.isEmpty {
-                    TVContentMessage(
-                        symbol: message == nil ? "rectangle.stack" : "wifi.exclamationmark",
-                        title: TVL10n.value(message == nil ? "home.noRecommendations" : "home.serverUnavailable"),
-                        detail: message ?? TVL10n.value("home.emptyHelp"),
-                        action: { Task { await load() } }
-                    )
-                } else {
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 34) {
-                        ForEach(Array(videos.enumerated()), id: \.offset) { index, video in
-                            NavigationLink {
-                                VideoDetailView(api: api, video: video)
+                VStack(alignment: .leading, spacing: 19) {
+                    Text("home.recentlyWatched")
+                        .font(.system(size: 35, weight: .bold))
+                    if loadingRecent && recentVideos.isEmpty {
+                        ProgressView("home.loadingHistory")
+                            .frame(maxWidth: .infinity, minHeight: 135)
+                    } else if !recentVideos.isEmpty {
+                        videoGrid(recentVideos)
+                    } else if recentNeedsLogin {
+                        VStack(alignment: .leading, spacing: 15) {
+                            Text("home.signInForHistory")
+                                .foregroundStyle(TTTheme.muted)
+                            Button {
+                                onOpenAccount()
                             } label: {
-                                VideoCard(api: api, video: video)
+                                Label("settings.pair", systemImage: "person.crop.circle")
                             }
-                            .buttonStyle(.card)
-                            .videoActions(api: api, video: video) {
-                                Task { await load() }
-                            }
-                            .focused($focusedIndex, equals: index)
-                            .onMoveCommand { direction in
-                                if direction == .left && index % columns.count == 0 {
-                                    onRevealMenu()
-                                }
-                            }
-                            .accessibilityLabel(TTTheme.accessibilityText(for: video))
+                            .buttonStyle(.borderedProminent)
                         }
+                    } else {
+                        Text(recentError ?? TVL10n.value("library.historyEmpty"))
+                            .foregroundStyle(TTTheme.muted)
+                            .font(.callout)
                     }
-                    .focusSection()
+                }
+
+                Divider().padding(.vertical, 6)
+
+                VStack(alignment: .leading, spacing: 19) {
+                    HStack {
+                        Text("home.recommendations")
+                            .font(.system(size: 35, weight: .bold))
+                        Spacer()
+                        Text(TVL10n.formatted("common.videoCount", videos.count))
+                            .font(.callout)
+                            .foregroundStyle(TTTheme.muted)
+                    }
+                    if loading && videos.isEmpty {
+                        ProgressView("home.loading")
+                            .frame(maxWidth: .infinity, minHeight: 200)
+                    } else if videos.isEmpty {
+                        TVContentMessage(
+                            symbol: message == nil ? "rectangle.stack" : "wifi.exclamationmark",
+                            title: TVL10n.value(
+                                message == nil ? "home.noRecommendations" : "home.serverUnavailable"
+                            ),
+                            detail: message ?? TVL10n.value("home.emptyHelp"),
+                            action: { Task { await loadRecommendations() } }
+                        )
+                    } else {
+                        videoGrid(videos)
+                    }
                 }
             }
             .padding(.horizontal, 64)
@@ -286,23 +314,86 @@ struct HomeView: View {
             .padding(.bottom, 120)
         }
         .background(TTTheme.ink)
-        .task { if previewVideos == nil { await load() } }
+        .task {
+            if previewVideos == nil { await refresh() }
+        }
+    }
+
+    @ViewBuilder
+    private func videoGrid(_ items: [VideoItem]) -> some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 34) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, video in
+                NavigationLink {
+                    VideoDetailView(api: api, video: video)
+                } label: {
+                    VideoCard(api: api, video: video)
+                }
+                .buttonStyle(.card)
+                .videoActions(api: api, video: video) {
+                    Task { await refresh() }
+                }
+                .onMoveCommand { direction in
+                    if direction == .left && index % columns.count == 0 {
+                        onRevealMenu()
+                    }
+                }
+                .accessibilityLabel(TTTheme.accessibilityText(for: video))
+            }
+        }
+        .focusSection()
     }
 
     @MainActor
-    private func load() async {
+    private func refresh() async {
+        async let recommendations: Void = loadRecommendations()
+        async let history: Void = loadHistory()
+        _ = await (recommendations, history)
+    }
+
+    @MainActor
+    private func loadRecommendations() async {
         guard previewVideos == nil else { return }
         loading = true
         defer { loading = false }
         do {
             let result = try await api.home().items
+            guard !Task.isCancelled else { return }
             videos = result
             message = nil
             let enriched = await api.withProgress(result)
             guard !Task.isCancelled else { return }
             videos = enriched
+        } catch is CancellationError {
+            return
         } catch {
             message = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func loadHistory() async {
+        guard previewVideos == nil else { return }
+        loadingRecent = true
+        defer { loadingRecent = false }
+        do {
+            let latest = Array(try await api.library(.history).prefix(8))
+            guard !Task.isCancelled else { return }
+            recentVideos = latest
+            recentNeedsLogin = false
+            recentError = nil
+            let enriched = await api.withProgress(latest)
+            guard !Task.isCancelled else { return }
+            recentVideos = enriched
+        } catch is CancellationError {
+            return
+        } catch TypeTypeError.http(let status, _) where status == 401 || status == 403 {
+            recentVideos = []
+            recentNeedsLogin = true
+            recentError = nil
+        } catch {
+            recentVideos = []
+            recentNeedsLogin = false
+            recentError = error.localizedDescription
         }
     }
 }
