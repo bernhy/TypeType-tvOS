@@ -244,10 +244,10 @@ final class SabrService: @unchecked Sendable {
     private let json = JSONDecoder()
     private let encoder = JSONEncoder()
 
-    init(api: TypeTypeAPI) {
+    init(api: TypeTypeAPI, session injectedSession: URLSession? = nil) {
         origin = api.origin
         base = api.origin.appendingPathComponent("api", isDirectory: true)
-        session = TVNetwork.session(for: origin)
+        session = injectedSession ?? TVNetwork.session(for: origin)
     }
 
     func bootstrap(videoURL: String) async throws -> SabrBootstrap {
