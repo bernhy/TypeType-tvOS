@@ -107,8 +107,12 @@ struct TypeTypeAPI {
     let origin: URL
     private let base: URL
     private let session: URLSession
+    private let injectedToken: String?
+    private var accountToken: String? {
+        injectedToken ?? TypeTypeCredentials.shared.token(for: origin)
+    }
 
-    init(address: String, session injectedSession: URLSession? = nil) throws {
+    init(address: String, session injectedSession: URLSession? = nil, token injectedToken: String? = nil) throws {
         let text = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let scheme = URLComponents(string: text)?.scheme?.lowercased(),
               let mode = TVConnectionMode(rawValue: scheme) else {
@@ -117,6 +121,7 @@ struct TypeTypeAPI {
         origin = try TVServerAddress.make(hostInput: text, mode: mode)
         base = origin.appendingPathComponent("api", isDirectory: true)
         session = injectedSession ?? TVNetwork.session(for: origin)
+        self.injectedToken = injectedToken
     }
 
     func relativeMediaURL(_ value: String?) -> URL? {
@@ -162,7 +167,7 @@ struct TypeTypeAPI {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("TypeTypeTV-tvOS/0.1", forHTTPHeaderField: "User-Agent")
-        guard let token = TypeTypeCredentials.shared.token(for: origin), !token.isEmpty else {
+        guard let token = accountToken, !token.isEmpty else {
             throw TypeTypeError.http(401, "settings")
         }
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -220,7 +225,7 @@ struct TypeTypeAPI {
     /// PUT progress?url=<video-url> with {"position": milliseconds}.
     /// HTTP 404 means no saved position. No token means no account progress.
     func savedPosition(videoURL: String) async throws -> Int64? {
-        guard TypeTypeCredentials.shared.token(for: origin) != nil else { return nil }
+        guard accountToken != nil else { return nil }
         let url = try TVLibraryRoutes.mediaURL(
             base: base, collection: "progress", videoURL: videoURL
         )
@@ -238,7 +243,7 @@ struct TypeTypeAPI {
     }
 
     func savePosition(videoURL: String, milliseconds: Int64) async throws {
-        guard TypeTypeCredentials.shared.token(for: origin) != nil else { return }
+        guard accountToken != nil else { return }
         guard var parts = URLComponents(
             url: base.appendingPathComponent("progress"),
             resolvingAgainstBaseURL: false
@@ -252,7 +257,7 @@ struct TypeTypeAPI {
     }
 
     func addHistory(video: VideoItem, milliseconds: Int64) async throws {
-        guard TypeTypeCredentials.shared.token(for: origin) != nil else { return }
+        guard accountToken != nil else { return }
         try await writeLibrary(
             base.appendingPathComponent("history"), method: "POST",
             body: try JSONEncoder().encode(
@@ -266,7 +271,7 @@ struct TypeTypeAPI {
         request.httpMethod = method
         request.setValue("TypeTypeTV-tvOS/0.3", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token = TypeTypeCredentials.shared.token(for: origin) {
+        if let token = accountToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         return request
@@ -274,7 +279,7 @@ struct TypeTypeAPI {
 
     private func writeLibrary(_ url: URL, method: String,
                               body: Data?) async throws {
-        guard let token = TypeTypeCredentials.shared.token(for: origin), !token.isEmpty else {
+        guard let token = accountToken, !token.isEmpty else {
             throw TypeTypeError.http(401, "library")
         }
         var request = URLRequest(url: url)
@@ -324,7 +329,7 @@ struct TypeTypeAPI {
         var request = URLRequest(url: url)
         request.setValue("TypeTypeTV-tvOS/0.1", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let bearer = TypeTypeCredentials.shared.token(for: origin) {
+        if let bearer = accountToken {
             request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         }
         let (data, response) = try await session.data(for: request)
