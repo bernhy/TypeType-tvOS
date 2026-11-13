@@ -9,7 +9,9 @@ struct PlaybackView: View {
 
     var body: some View {
         Group {
-            if let hlsURL {
+            if VideoAddress.youtubeID(video.url) != nil {
+                SabrPlayerView(api: api, video: video)
+            } else if let hlsURL {
                 SystemVideoPlayer(url: hlsURL)
                     .ignoresSafeArea()
             } else if let errorMessage {
@@ -22,7 +24,9 @@ struct PlaybackView: View {
                 ProgressView("Bereite Wiedergabe vor …")
             }
         }
-        .task { await prepare() }
+        .task {
+            if VideoAddress.youtubeID(video.url) == nil { await prepare() }
+        }
     }
 
     @MainActor

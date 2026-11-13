@@ -289,13 +289,13 @@ final class SabrService {
                 positionMs: Int64, ranges: [SabrBufferedRange] = []) async throws -> SabrWindow {
         let body = try encoder.encode(SabrWindowRequest(selection, generation: generation, positionMs: positionMs, ranges: ranges))
         let path = "sabr/playback/\(sessionId)"
-        let _: EmptyReply = try await request(path + "/position", method: "POST", body: body, allowEmpty: true)
+        let _: EmptyReply = try await request(path + "/position", method: "POST", body: body, allowedStatuses: [200, 202, 204], allowEmpty: true)
         var prefetched = false
         for _ in 0..<60 {
             try Task.checkCancellation()
             if !prefetched {
                 let _: EmptyReply = try await request(path + "/prefetch", method: "POST",
-                                                       body: body, allowedStatuses: [200, 202], allowEmpty: true)
+                                                       body: body, allowedStatuses: [200, 202, 204], allowEmpty: true)
                 prefetched = true
             }
             let answer: SabrWindow = try await request(path + "/segments", method: "POST",
@@ -332,7 +332,7 @@ final class SabrService {
         components?.queryItems = query.isEmpty ? nil : query
         guard let address = components?.url else { throw SabrFailure.invalidResponse("URL") }
         let data = try await read(address, method: method, body: body, allowedStatuses: allowedStatuses, pathForError: path)
-        if allowEmpty && data.isEmpty, let empty = EmptyReply() as? T { return empty }
+        if allowEmpty, let empty = EmptyReply() as? T { return empty }
         return try json.decode(T.self, from: data)
     }
 

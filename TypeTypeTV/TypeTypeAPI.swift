@@ -138,6 +138,9 @@ struct TypeTypeAPI {
         var request = URLRequest(url: url)
         request.setValue("TypeTypeTV-tvOS/0.1", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let bearer = TypeTypeCredentials.shared.token(for: origin) {
+            request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        }
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw TypeTypeError.unexpectedResponse }
         guard (200..<300).contains(response.statusCode) else {

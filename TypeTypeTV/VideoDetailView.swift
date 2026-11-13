@@ -22,7 +22,7 @@ struct VideoDetailView: View {
                     NavigationLink("Abspielen") {
                         PlaybackView(api: api, video: video)
                     }
-                    Text("Dieser erste Prototyp spielt direkt verfügbare HLS-Streams mit AVPlayer ab. TypeType SABR wird im nächsten Schritt portiert.")
+                    Text("YouTube: direkter SABR-Player (in Erprobung). Andere Dienste: native HLS-Wiedergabe.")
                         .font(.body).foregroundStyle(.secondary)
                 }
             }
