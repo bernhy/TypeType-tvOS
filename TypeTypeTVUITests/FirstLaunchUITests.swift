@@ -25,8 +25,8 @@ final class TypeTypeTVUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-TypeTypeTVPreview", "home"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["EMPFOHLEN"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.buttons["Abspielen"].exists)
+        XCTAssertTrue(app.staticTexts["FÜR DICH"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Empfehlungen"].exists)
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "TypeType-tvOS-Startseite"
         attachment.lifetime = .keepAlways
