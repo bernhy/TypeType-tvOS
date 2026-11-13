@@ -123,10 +123,19 @@ final class HardwareVideoDecoder {
         ) == noErr, let sample else {
             throw SabrFailure.unsupported("Cannot enqueue decoded pixel buffer")
         }
+        var cycles = 0
         while active && !display.isReadyForMoreMediaData {
+            try Task.checkCancellation()
+            guard display.status != .failed && cycles < 1_000 else {
+                throw SabrFailure.stalled("video display stopped accepting decoded frames")
+            }
+            cycles += 1
             try await Task.sleep(nanoseconds: 15_000_000)
         }
         guard active else { throw SabrFailure.stopped }
+        guard display.status != .failed else {
+            throw SabrFailure.stalled("video display layer failed")
+        }
         display.enqueue(sample)
     }
 }

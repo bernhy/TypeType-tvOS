@@ -195,8 +195,10 @@ final class SabrPlayerController: ObservableObject {
 
     func selectQuality(api: TypeTypeAPI, video: VideoItem, itag: Int?) {
         requestedVideoItag = itag
+        let wasPaused = prefersPause
         let position = max(0, Int64(playbackSeconds() * 1_000))
         start(api: api, video: video, positionMs: position)
+        prefersPause = wasPaused
         fixedVideoItag = itag
     }
 
@@ -204,15 +206,19 @@ final class SabrPlayerController: ObservableObject {
                      itag: Int, trackId: String?) {
         requestedAudioItag = itag
         requestedAudioTrackId = trackId
+        let wasPaused = prefersPause
         let position = max(0, Int64(playbackSeconds() * 1_000))
         start(api: api, video: video, positionMs: position)
+        prefersPause = wasPaused
     }
 
     func seek(api: TypeTypeAPI, video: VideoItem, offsetMs: Int64) {
         let seconds = CMTimeGetSeconds(synchronizer.currentTime())
         let anchor = isInitialized && seconds.isFinite ? Int64(seconds * 1000) : playbackPositionMs
         let upper = durationMs > 0 ? max(0, durationMs - 1_000) : Int64.max
+        let wasPaused = prefersPause
         start(api: api, video: video, positionMs: min(upper, max(0, anchor + offsetMs)))
+        prefersPause = wasPaused
     }
 
     func playbackSeconds() -> Double {
@@ -742,6 +748,9 @@ final class SabrPlayerController: ObservableObject {
                 var waitCycles = 0
                 while !audioRenderer.isReadyForMoreMediaData {
                     try Task.checkCancellation()
+                    guard audioRenderer.status != .failed else {
+                        throw SabrFailure.stalled("audio renderer reported failure")
+                    }
                     guard waitCycles < 750 else {
                         throw SabrFailure.stalled("audio renderer stopped accepting samples")
                     }
