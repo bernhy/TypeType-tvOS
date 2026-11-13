@@ -1,57 +1,52 @@
-# TypeType tvOS – initial native client scaffold
+# TypeType tvOS
 
-**Status: source scaffold, not a verified Xcode build or a full Android TV port.**
+Native, GPL-3.0 Apple TV client for [TypeType](https://github.com/TypeType-Video/TypeType), based on the Android TV reference (dev branch, 2026-11-13).
 
-This is a native SwiftUI/tvOS starting point for the TypeType-Server **API v1**. It is based on the public interface of the Android TV source at <https://github.com/TypeType-Video/TypeType-TV> (default `dev` branch, inspected 2026-11-13). The reference application is GPL-3.0. This scaffold is also GPL-3.0.
+**Status (2026-11-13):** Xcode 26.2 **builds successfully** in free GitHub Actions, and tvOS Simulator **SABR contract tests pass**. Direct native YouTube SABR playback is an **experimental implementation**; live streams, long-run playback, A/V sync, 4K/HDR and AV1 are **not yet validated on actual Apple TV hardware**. This is not yet a production-ready app or full Android-TV feature-parity port.
 
-## Implemented in the starter
+## Device and architecture decisions
 
-- tvOS SwiftUI application shell and focusable home cards via the system focus engine
-- Manual TypeType HTTPS server address and `/api/instance` compatibility test (`apiVersion == 1`)
-- `/api/recommendations/home` and `/api/search` JSON decoding
-- Details screen with a player-entry action
-- HLS proof-of-concept via AVKit/AVPlayerViewController for genuinely HLS-based services, not the intended YouTube engine
-- Unsigned tvOS simulator build workflow on GitHub's standard `macos-26` ARM runner, using Xcode 26.2 (which has a matching installed tvOS simulator runtime)
-- No credentials, signing certificates or Apple IDs committed or passed to CI
+- Support **Apple TV 4K first generation (2017) or newer**; Apple TV HD is out of scope. Minimum deployment target: **tvOS 17.0**.
+- **No modifications to TypeType Server**. YouTube uses the existing TypeType **SABR API v1** directly. No HLS-bridge changes or server-side transcoding.
+- Default **hardware-only decoding**: codec discovery uses VideoToolbox and the video pipeline creates a decoder with `kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder`. Unsupported combinations fail rather than silently falling back to software. Explicit software-decoding opt-in is **OFF** by default.
+- Use public Apple APIs (SwiftUI, CoreMedia, AVFoundation, VideoToolbox, URLSession, Keychain).
 
-**Agreed scope:** Apple TV 4K 2017+ only (minimum tvOS 17.0). For YouTube, port the existing TypeType SABR session/segment protocol to a native Swift media pipeline; **no server changes or HLS bridge**. Hardware-supported codecs are selected by default; software decoding will be an explicit opt-in, OFF by default.
+## Implemented so far
 
-**Not yet implemented:** authenticating accounts/guest sessions, device-code login, protected recommendations, source-specific stream variants, TypeType SABR session playback, segmented audio/video merging, SponsorBlock, captions, 4K/HDR, history/favorites, playlists, quality/audio track selection, image authorization, certificate pinning, and lifecycle/persistence refinements. In particular, **most YouTube VOD content will not play yet**, because the Android client uses SABR and this starter intentionally does not claim AVPlayer can read SABR directly.
+- SwiftUI TV navigation: instance setup, home recommendations, video search and details, library (history, favorites, watch later).
+- HTTPS instance compatibility check, guest login when supported, device-code account login and per-origin Keychain token storage.
+- Hardware codec indicators for H.264, HEVC, VP9 and AV1; maximum resolution setting; software-decoding override.
+- **Experimental YouTube player**: SABR bootstrap/session/position/prefetch/windows/segments, fMP4 sample extraction using `AVAssetReader`, explicit VideoToolbox hardware decoding, synchronized audio/video renderers, pause and ±seek buttons.
+- Native HLS AVPlayer path for compatible non-YouTube sources.
+- Free GitHub macOS 26 / Xcode 26.2 CI: unsigned tvOS simulator app artifact and XCTest SABR protocol tests.
 
-## Getting started
+## Technical playback path
 
-1. Create a GitHub repository under your own account. Upload these files into its root, **including `.github/workflows/tvos.yml`**. Public repos can use standard GitHub-hosted runners at no charge. A private repo consumes included compute usage.
-2. On GitHub, open Actions → `tvOS (unsigned simulator build)`; a push to `main` or `dev` also triggers the workflow. The first CI build still needs to run and pass.
-3. To work on a Mac (including a macOS VM with Xcode): `brew install xcodegen && xcodegen generate && open TypeTypeTV.xcodeproj`.
-4. Configure `PRODUCT_BUNDLE_IDENTIFIER` in `project.yml` to a unique reverse-DNS identifier. In Xcode, select your Apple Personal Team and use automatic signing for a *physical* paired Apple TV. A free Personal Team normally needs re-provisioning after seven days. Your Mac/VM must be on the same LAN or support Apple TV discovery/pairing.
-5. In the app, enter your own HTTPS TypeType instance URL, e.g., `https://your-typetype-server.example`. There is no hardcoded personal domain.
+TypeType Server SABR session and segments → Swift SABR transport → fMP4 init/fragment → AVAssetReader compressed samples → VideoToolbox (required hardware decoder) → AVSampleBufferDisplayLayer + AVSampleBufferAudioRenderer → AVSampleBufferRenderSynchronizer.
 
-**Build on Mac CLI:**
+**Caution:** Each segment is temporarily assembled into `init + fragment` for AVAssetReader. This approach has not been validated against real TypeType SABR fragment variants and may require replacing the client-side segment reader. There is **no claim that video playback works on real devices yet**.
 
-```sh
-xcodegen generate
-xcodebuild -project TypeTypeTV.xcodeproj -scheme TypeTypeTV \
-  -configuration Debug -sdk appletvsimulator \
-  -destination 'generic/platform=tvOS Simulator' \
-  CODE_SIGNING_ALLOWED=NO build
-```
+## Still required for a production release
 
-**CI artifact:** an unsigned tvOS **simulator** `.app` ZIP (not a signed tvOS device `.ipa`). GitHub-hosted runners cannot connect directly to your LAN Apple TV. Real-device deployment requires pairing and signing on a machine that can reach the TV. A paid Apple Developer Program membership isn't necessary to start development, but makes distribution much easier.
+- Real Apple TV 4K (2017+) testing of VOD, seek, audio/video synchronization, buffering and error recovery.
+- VP9/AV1, HEVC/HDR, 4K/60 and decoder profile/frame-rate validation on the appropriate real hardware.
+- Subtitle display, SponsorBlock, chapters, live chat, audio-language/quality changes, writing to playlists, polished focus/accessibility and broader Android feature parity.
+- Robust session refresh/resume, long-run resource measurements, release assets, sign/install and distribution.
 
-## Why an independent Swift client?
+See [TESTING.md](TESTING.md) for the device and live-stream test checklist.
 
-The Android TV client is built in Kotlin, Jetpack Compose and Media3. Its UI, player and hardware decoder logic cannot simply be recompiled for tvOS. Instead, keep the existing server protocol and re-implement screens with SwiftUI. For YouTube, implement a native Swift SABR pipeline using public CoreMedia, AVFoundation and VideoToolbox hardware rendering/decoding APIs. Avoid private Apple APIs entirely.
+## Build on GitHub
 
-## Cautions
+On push to `main`/`dev`, [GitHub Actions](https://github.com/bernhy/TypeType-tvOS/actions) uses a public-repository free `macos-26` runner, Xcode 26.2, XcodeGen and a matching tvOS Simulator. Its ZIP artifact is an **unsigned simulator app**, not a device-installable IPA. It also runs the `SabrWireContractTests` XCTest suite.
 
-- GitHub-hosted macOS runners have Xcode/tvOS SDKs but no signing identities. Never commit Apple passwords, `.p12` files or provisioning profiles. If paid distribution is added later, configure narrowly scoped GitHub Actions secrets only after a threat review.
-- The API is currently used *without* auth. Depending on your server configuration, home/search can return HTTP 401/403. This is expected until guest/device sign-in is implemented.
-- Only HTTPS server URLs are accepted in this prototype. No App Transport Security exceptions or insecure certificate bypasses.
-- Check licenses and policies of any upstream video services and the TypeType codebase before distribution. This project includes no copied images or bundled Android source.
+## Build locally on a Mac / macOS VM
 
-## Hardware and compatibility
+    brew install xcodegen
+    xcodegen generate
+    open TypeTypeTV.xcodeproj
 
-- Apple TV HD is out of scope. Apple TV 4K (2017) must remain supported; tvOS 27 no longer supports it, so avoid requiring tvOS 27 APIs.
-- Hardware capability must be probed on a **physical Apple TV**, including codec profile, resolution, FPS, HDR, and rendering compatibility; simulator results are not hardware evidence.
-- A19 Apple TV 4K (2026) includes AV1 hardware decode. Older devices must not silently select software-only AV1/VP9 formats.
-- The YouTube path must use the existing TypeType SABR API without modifying TypeType Server; the HLS starter code is only a temporary non-SABR demonstration.
+For a physical Apple TV, set a unique `PRODUCT_BUNDLE_IDENTIFIER` in `project.yml`, select your Apple Development Team and sign/pair in Xcode. Never commit signing identities, passwords, session tokens or cookies.
+
+## License and upstream reference
+
+GNU GPL v3; see LICENSE. Upstream client: https://github.com/TypeType-Video/TypeType-TV. The tvOS code is a native implementation of the public API, not a cross-compilation of Android Kotlin/Media3.
