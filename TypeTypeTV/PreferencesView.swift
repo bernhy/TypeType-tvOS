@@ -508,6 +508,7 @@ struct PreferencesView: View {
         loginCode = nil
         loginLink = nil
         TypeTypeCredentials.shared.clear(for: api.origin)
+        TVLocalProgress.shared.clear()
         remote = nil
         remoteError = nil
         status = TypeTypeCredentials.shared.token(for: api.origin) == nil
@@ -539,7 +540,10 @@ struct PreferencesView: View {
                 try Task.checkCancellation()
                 if let token = answer.accessToken, !token.isEmpty {
                     TypeTypeCredentials.shared.save(token, for: api.origin)
-                    status = TVL10n.value("login.success")
+                    TVLocalProgress.shared.clear()
+                    status = TypeTypeCredentials.shared.token(for: api.origin) == token
+                        ? TVL10n.value("login.success")
+                        : TVL10n.value("settings.loginSaveFailed")
                     remote = nil
                     loginCode = nil
                     loginLink = nil

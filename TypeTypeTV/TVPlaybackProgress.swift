@@ -14,6 +14,12 @@ final class TVLocalProgress: ObservableObject {
         guard !url.isEmpty, positionMs >= 0 else { return }
         positions[url] = positionMs
     }
+
+    func clear() {
+        // Prevent playback progress from another account leaking into the
+        // next account's thumbnail grid during a same-app sign-out/sign-in.
+        positions.removeAll()
+    }
 }
 
 struct TVProgressDTO: Decodable {

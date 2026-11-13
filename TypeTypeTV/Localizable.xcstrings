@@ -7504,6 +7504,34 @@
           }
         }
       }
+    },
+    "settings.loginSaveFailed": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Anmeldung konnte nicht im Apple-Schlüsselbund gespeichert werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save the sign-in to the Apple Keychain."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’enregistrer la connexion dans le trousseau Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar el inicio de sesión en el llavero de Apple."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
