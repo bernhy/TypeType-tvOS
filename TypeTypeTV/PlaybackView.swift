@@ -16,12 +16,12 @@ struct PlaybackView: View {
                     .ignoresSafeArea()
             } else if let errorMessage {
                 VStack(spacing: 25) {
-                    Text("Wiedergabe noch nicht möglich").font(.largeTitle)
+                    Text("player.unavailable").font(.largeTitle)
                     Text(errorMessage).font(.body).multilineTextAlignment(.center)
                 }
                 .padding(70)
             } else {
-                ProgressView("Bereite Wiedergabe vor …")
+                ProgressView("player.preparing")
             }
         }
         .task {

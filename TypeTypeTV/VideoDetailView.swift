@@ -26,7 +26,7 @@ struct VideoDetailView: View {
                     LinearGradient(colors: [.clear, TTTheme.ink],
                                    startPoint: .center, endPoint: .bottom)
                     VStack(alignment: .leading, spacing: 22) {
-                        Text(video.isLive == true ? "LIVE" : "VIDEO")
+                        Text(TVL10n.value(video.isLive == true ? "video.liveBadge" : "video.badge"))
                             .font(.subheadline.bold()).tracking(2.5)
                             .foregroundStyle(TTTheme.accent)
                         Text(video.title)
@@ -41,12 +41,12 @@ struct VideoDetailView: View {
                         }
                         HStack(spacing: 22) {
                             if video.isLive == true {
-                                Label("Livestream", systemImage: "dot.radiowaves.left.and.right")
+                                Label("video.liveStream", systemImage: "dot.radiowaves.left.and.right")
                                     .foregroundStyle(TTTheme.accent)
                             } else if let seconds = video.duration, seconds > 0 {
                                 Label(TTTheme.time(seconds), systemImage: "clock")
                             }
-                            Text(youtube ? "YouTube · SABR" : "TypeType · nativer Player")
+                            Text(youtube ? "YouTube · SABR" : TVL10n.value("video.providerNative"))
                         }
                         .font(.callout)
                         .foregroundStyle(.white.opacity(0.72))
@@ -54,8 +54,12 @@ struct VideoDetailView: View {
                             NavigationLink {
                                 PlaybackView(api: api, video: video)
                             } label: {
-                                Label(video.isLive == true ? "Live ansehen" : "Abspielen",
-                                      systemImage: "play.fill")
+                                Label {
+                                    if video.isLive == true { Text("video.viewLive") }
+                                    else { Text("video.play") }
+                                } icon: {
+                                    Image(systemName: "play.fill")
+                                }
                             }
                             .buttonStyle(.borderedProminent)
                             .tint(TTTheme.accent)
@@ -63,7 +67,7 @@ struct VideoDetailView: View {
                             Button {
                                 dismiss()
                             } label: {
-                                Label("Zurück", systemImage: "chevron.left")
+                                Label("common.back", systemImage: "chevron.left")
                             }
                             .buttonStyle(.bordered)
                         }

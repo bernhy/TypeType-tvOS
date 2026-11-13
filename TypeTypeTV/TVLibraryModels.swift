@@ -11,9 +11,9 @@ enum TVLibrarySection: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .history: return "Verlauf"
-        case .favorites: return "Favoriten"
-        case .watchLater: return "Später ansehen"
+        case .history: return TVL10n.value("library.history")
+        case .favorites: return TVL10n.value("library.favorites")
+        case .watchLater: return TVL10n.value("library.watchLater")
         }
     }
     var symbol: String {
@@ -25,9 +25,9 @@ enum TVLibrarySection: String, CaseIterable, Identifiable {
     }
     var emptyMessage: String {
         switch self {
-        case .history: return "Dein Wiedergabeverlauf ist noch leer."
-        case .favorites: return "Du hast noch keine Videos als Favoriten markiert."
-        case .watchLater: return "In deiner Merkliste sind noch keine Videos."
+        case .history: return TVL10n.value("library.historyEmpty")
+        case .favorites: return TVL10n.value("library.favoritesEmpty")
+        case .watchLater: return TVL10n.value("library.watchLaterEmpty")
         }
     }
 }

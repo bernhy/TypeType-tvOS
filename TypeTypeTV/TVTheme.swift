@@ -18,7 +18,7 @@ enum TTTheme {
 
     static func accessibilityText(for video: VideoItem) -> String {
         let origin = video.uploaderName ?? ""
-        let duration = video.isLive == true ? "Live" :
+        let duration = video.isLive == true ? TVL10n.value("video.liveAccessibility") :
             video.duration.map { time($0) } ?? ""
         return [video.title, origin, duration].filter { !$0.isEmpty }.joined(separator: ", ")
     }
@@ -29,7 +29,7 @@ struct TVContentMessage: View {
     let title: String
     let detail: String
     var action: (() -> Void)? = nil
-    var actionTitle = "Erneut versuchen"
+    var actionTitle = TVL10n.value("common.retry")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 19) {
