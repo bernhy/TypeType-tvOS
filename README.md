@@ -13,7 +13,7 @@ Native, GPL-3.0 Apple TV client for [TypeType](https://github.com/TypeType-Video
 
 ## Implemented so far
 
-- SwiftUI TV navigation: instance setup, home recommendations, video search and details, library (history, favorites, watch later).
+- SwiftUI TV navigation and Android-inspired visual language: dark ink background, TypeType red accent, large featured-video backdrop, horizontal recommendation shelves, and native tvOS focus behavior. Search, details and library remain independently navigable.
 - HTTPS instance compatibility check, guest login when supported, device-code account login and per-origin Keychain token storage.
 - Hardware codec indicators for H.264, HEVC, VP9 and AV1; maximum resolution setting; software-decoding override.
 - **Experimental YouTube player**: SABR bootstrap/session/position/prefetch/windows/segments, fMP4 sample extraction using `AVAssetReader`, explicit VideoToolbox hardware decoding, synchronized audio/video renderers, pause and ±seek buttons.
@@ -28,10 +28,10 @@ TypeType Server SABR session and segments → Swift SABR transport → fMP4 init
 
 ## Still required for a production release
 
-- Real Apple TV 4K (2017+) testing of VOD, seek, audio/video synchronization, buffering and error recovery.
+- Real Apple TV 4K (2017+) testing of VOD, Siri Remote touch and directional press handling, seek, audio/video synchronization, *actual filled* buffer depth, offline resilience and error recovery.
 - VP9/AV1, HEVC/HDR, 4K/60 and decoder profile/frame-rate validation on the appropriate real hardware.
 - Subtitle display, SponsorBlock, chapters, live chat, audio-language/quality changes, writing to playlists, polished focus/accessibility and broader Android feature parity.
-- Robust session refresh/resume, long-run resource measurements, release assets, sign/install and distribution.
+- Robust session refresh/resume, **multi-window forward prefetch and cache-aware seeking** to achieve the larger configured target when the existing SABR API allows it, long-run resource measurements, release assets, signing and distribution.
 
 See [TESTING.md](TESTING.md) for the device and live-stream test checklist.
 

@@ -16,9 +16,11 @@ The GitHub simulator build and wire-contract tests do **not** validate playback 
 1. Configure the app with a working HTTPS TypeType-Server API v1 instance. Guest-enabled servers should create a guest session; otherwise use device-code pairing.
 2. Keep **Softwaredecoding erlauben** OFF; verify hardware codec indicators on the physical device (simulator values are not authoritative).
 3. Use a short YouTube VOD with SABR H.264/AAC. First check 720p/1080p picture and sound, then verify 4K where supported.
-4. Test multiple minutes uninterrupted, pause/resume, -10s/+30s seeking, stalled network and resuming after idle.
-5. Test preferred audio language, HDR formats, video quality and eventually livestreams and alternative providers.
-6. Confirm VideoToolbox hardware decode, A/V lip sync, frame drops, CPU, memory, thermal behavior and correct HDR signalling.
+4. Test multiple minutes uninterrupted, Play/Pause press, Siri Remote touchpad contact, left/right clicks at **5/10/15/20-second** intervals, focus navigation while controls are visible, and status bar hiding after five seconds.
+5. Confirm network caching: configure **180-second forward / 120-second back** target with 512 MiB cap, measure *actual* buffered media time and disk size, check requests under playback and pause, repeat with 600-second target. The server may deliver smaller windows; do not claim otherwise.
+6. Test stalled network, seek across window boundaries and resuming after idle.
+7. Test preferred audio language, HDR formats, video quality and eventually livestreams and alternative providers.
+8. Confirm VideoToolbox hardware decode, A/V lip sync, frame drops, CPU, memory, thermal behavior and correct HDR signalling.
 
 ## Collect safe diagnostics
 
@@ -33,3 +35,6 @@ The GitHub simulator build and wire-contract tests do **not** validate playback 
 - The initial seek implementation restarts the SABR session. Quality switching and seamless playback recovery still need improvements.
 - Hardware-decoding requirement is explicit, but profile/framerate/HDR acceptance and display support still need device-level validation.
 - This project does not require a server-side HLS bridge or any TypeType Server modifications.
+
+- The custom Siri Remote UIKit capture layer requires a real remote for touch-contact and directional click validation, especially on 2017 clickpad hardware and 2026 models.
+- The disk cache is bounded and session-local; it currently preloads only segments included in the SABR windows returned by the unmodified server. Filling several minutes across multiple future windows remains under development.
