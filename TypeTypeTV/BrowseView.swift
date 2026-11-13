@@ -224,6 +224,9 @@ struct HomeView: View {
                                 VideoCard(api: api, video: video)
                             }
                             .buttonStyle(.card)
+                            .videoActions(api: api, video: video) {
+                                Task { await load() }
+                            }
                             .focused($focusedIndex, equals: index)
                             .onMoveCommand { direction in
                                 if direction == .left && index % columns.count == 0 {
@@ -250,8 +253,12 @@ struct HomeView: View {
         loading = true
         defer { loading = false }
         do {
-            videos = try await api.home().items
+            let result = try await api.home().items
+            videos = result
             message = nil
+            let enriched = await api.withProgress(result)
+            guard !Task.isCancelled else { return }
+            videos = enriched
         } catch {
             message = error.localizedDescription
         }
@@ -262,11 +269,35 @@ struct VideoCard: View {
     let api: TypeTypeAPI
     let video: VideoItem
 
+    private var fraction: Double? {
+        guard video.isLive != true,
+              let duration = video.duration, duration > 0,
+              let progress = video.watchPositionMs, progress > 0 else { return nil }
+        return max(0, min(1, Double(progress) / Double(Int64(duration) * 1_000)))
+    }
+    private var completed: Bool {
+        video.watched == true || (fraction ?? 0) >= 0.90
+    }
+    private var watchedTime: String? {
+        guard let progress = video.watchPositionMs, progress > 0 else { return nil }
+        return TTTheme.time(Int(progress / 1_000))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ZStack(alignment: .bottomTrailing) {
                 TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl), origin: api.origin)
+                    .grayscale(completed ? 1 : 0)
                     .frame(height: 198).frame(maxWidth: .infinity).clipped()
+                if let position = watchedTime, video.isLive != true {
+                    Label(position, systemImage: completed ? "checkmark.circle.fill" : "play.circle")
+                        .font(.caption.monospacedDigit())
+                        .padding(7)
+                        .background(.black.opacity(0.84), in: RoundedRectangle(cornerRadius: 6))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: .topLeading)
+                        .padding(7)
+                }
                 if video.isLive == true {
                     Text("video.liveBadge").font(.caption.bold())
                         .padding(8).background(TTTheme.accent).padding(8)
@@ -274,6 +305,16 @@ struct VideoCard: View {
                     Text(TTTheme.time(duration))
                         .font(.caption.monospacedDigit())
                         .padding(8).background(.black.opacity(0.8)).padding(8)
+                }
+                if let fraction {
+                    GeometryReader { proxy in
+                        Rectangle()
+                            .fill(TTTheme.accent)
+                            .frame(width: proxy.size.width * fraction, height: 6)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity,
+                                   alignment: .bottomLeading)
+                    }
+                    .allowsHitTesting(false)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 10))
