@@ -432,4 +432,27 @@ final class TVAPIWireTests: XCTestCase {
         }
     }
 
+    func testYoutube404ContentUnavailableIsNotTreatedAsExpiredSession() async throws {
+        TVAPIWireProtocol.install(host: "gone.example") { request in
+            guard request.url?.path == "/api/streams/youtube/sabr" else {
+                return (404, Data())
+            }
+            return (404, Data(
+                #"{"error":"This content is not available","code":"content_unavailable"}"#.utf8
+            ))
+        }
+        let api = try fixtureAPI(host: "gone.example")
+        let url = "https://www.youtube.com/watch?v=abc123def45"
+        let video = VideoItem(
+            id: url, title: "Unavailable", url: url,
+            thumbnailUrl: nil, uploaderName: nil, duration: 120, isLive: false
+        )
+        do {
+            _ = try await api.stream(for: video)
+            XCTFail("Structured permanent 404 must not become generic HTTP error")
+        } catch TypeTypeError.videoUnavailable {
+            // Expected.
+        }
+    }
+
 }

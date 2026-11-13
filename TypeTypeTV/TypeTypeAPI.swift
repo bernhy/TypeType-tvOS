@@ -498,7 +498,7 @@ struct TypeTypeAPI {
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw TypeTypeError.unexpectedResponse }
         guard (200..<300).contains(response.statusCode) else {
-            if response.statusCode == 422,
+            if [404, 410, 422].contains(response.statusCode),
                let issue = try? JSONDecoder().decode(TVStreamProblem.self, from: data),
                issue.isPermanentlyUnavailable {
                 throw TypeTypeError.videoUnavailable

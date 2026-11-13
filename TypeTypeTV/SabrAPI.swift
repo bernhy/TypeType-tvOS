@@ -417,7 +417,7 @@ final class SabrService: @unchecked Sendable {
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw SabrFailure.invalidResponse("HTTP response") }
         guard allowedStatuses.contains(http.statusCode) else {
-            if http.statusCode == 422,
+            if [404, 410, 422].contains(http.statusCode),
                let issue = try? JSONDecoder().decode(TVStreamProblem.self, from: data),
                issue.isPermanentlyUnavailable {
                 throw SabrFailure.unavailable

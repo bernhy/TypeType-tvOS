@@ -202,4 +202,22 @@ final class SabrTransportTests: XCTestCase {
         }
     }
 
+    func testPermanent404ContentUnavailableDoesNotTriggerNewSabrSession() async throws {
+        MockSabrProtocol.use { _ in
+            (404, Data(
+                #"{"error":"This content is not available","code":"content_unavailable"}"#.utf8
+            ))
+        }
+        let service = try fixtureService()
+        do {
+            _ = try await service.bootstrap(
+                videoURL: "https://www.youtube.com/watch?v=abc123def45"
+            )
+            XCTFail("Content-unavailable response must be terminal")
+        } catch SabrFailure.unavailable {
+            // Expected. Only structured 404 content_unavailable is terminal;
+            // unstructured 404 is still eligible for session recovery.
+        }
+    }
+
 }
