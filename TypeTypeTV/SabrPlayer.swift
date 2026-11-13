@@ -85,6 +85,10 @@ final class SabrPlayerController: ObservableObject {
     private var segmentCache: SabrFragmentCache?
     private var windowProducerTask: Task<Void, Never>?
     private var activeMailbox: SabrWindowMailbox?
+    private let progressWriter = TVPlaybackProgressWriter()
+    private var currentAPI: TypeTypeAPI?
+    private var currentVideo: VideoItem?
+    private var hasRecordedHistory = false
 
     init() {
         videoLayer.videoGravity = .resizeAspect
@@ -92,17 +96,27 @@ final class SabrPlayerController: ObservableObject {
         synchronizer.addRenderer(audioRenderer)
     }
 
-    func start(api: TypeTypeAPI, video: VideoItem, positionMs: Int64 = 0) {
+    /// nil means resume from the account's recorded position; explicit values
+    /// (including zero) are used for seeking and quality/audio changes.
+    func start(api: TypeTypeAPI, video: VideoItem, positionMs: Int64? = nil) {
         stop()
-        playbackPositionMs = positionMs
+        currentAPI = api
+        currentVideo = video
+        playbackPositionMs = positionMs ?? 0
         failure = nil
         state = TVL10n.value("player.connecting")
         let settings = SabrBufferSettings.preferences(live: video.isLive == true)
         segmentCache = SabrFragmentCache(maxMiB: settings.cacheMiB)
-        running = Task { await run(api: api, video: video, positionMs: positionMs, buffer: settings) }
+        running = Task {
+            await run(api: api, video: video, explicitPositionMs: positionMs, buffer: settings)
+        }
     }
 
     func stop() {
+        if isInitialized { recordProgress(force: true) }
+        currentAPI = nil
+        currentVideo = nil
+        hasRecordedHistory = false
         running?.cancel()
         running = nil
         let previousService = playbackService
@@ -161,13 +175,42 @@ final class SabrPlayerController: ObservableObject {
         synchronizer.setRate(rate, time: synchronizer.currentTime())
         isPlaying.toggle()
         state = isPlaying ? TVL10n.value("player.playing") : TVL10n.value("player.paused")
+        recordProgress(force: true)
     }
 
-    private func run(api: TypeTypeAPI, video: VideoItem, positionMs: Int64,
-                     buffer: SabrBufferSettings) async {
+    func recordProgress(started: Bool = false, force: Bool = false) {
+        guard isInitialized, let api = currentAPI, let video = currentVideo else { return }
+        let position = max(0, Int64(playbackSeconds() * 1_000))
+        Task {
+            await progressWriter.checkpoint(
+                api: api, video: video, positionMs: position,
+                started: started, force: force
+            )
+        }
+    }
+
+    private func run(api: TypeTypeAPI, video: VideoItem,
+                     explicitPositionMs: Int64?, buffer: SabrBufferSettings) async {
         let service = SabrService(api: api)
         playbackService = service
         do {
+            // Respect the server's privacy flag before reading/writing history.
+            // If settings cannot be loaded, do not silently record history.
+            let settings = try? await api.accountSettings()
+            let historyAllowed = settings != nil &&
+                settings?.disableWatchHistory != true && video.isLive != true
+            await progressWriter.enable(historyAllowed)
+            await progressWriter.flush()
+            let recordedPosition = historyAllowed && explicitPositionMs == nil
+                ? (try? await api.savedPosition(videoURL: video.url)) : nil
+            var positionMs = max(0, explicitPositionMs ?? recordedPosition ?? 0)
+            // Do not resume after the credits of a nearly completed video.
+            if let duration = video.duration, duration > 0,
+               positionMs >= Int64(duration) * 1_000 - 3_000 {
+                positionMs = 0
+            }
+            playbackPositionMs = positionMs
+            try Task.checkCancellation()
             guard let id = VideoAddress.youtubeID(video.url) else {
                 throw SabrFailure.unsupported(TVL10n.value("player.notYoutube"))
             }
@@ -546,6 +589,7 @@ final class SabrPlayerController: ObservableObject {
                     }
                     synchronizer.setRate(0, time: synchronizer.currentTime())
                     isPlaying = false
+                    recordProgress(force: true)
                 }
                 state = TVL10n.value("player.end")
                 return
@@ -605,6 +649,8 @@ final class SabrPlayerController: ObservableObject {
                 isInitialized = true
                 isPlaying = true
                 state = TVL10n.value("player.playing")
+                recordProgress(started: !hasRecordedHistory, force: true)
+                hasRecordedHistory = true
             }
         }
     }
@@ -767,6 +813,13 @@ struct SabrPlayerView: View {
         }
         .onChange(of: engine.isPlaying) {
             if !engine.isPlaying { reveal() }
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                if Task.isCancelled { break }
+                engine.recordProgress()
+            }
         }
         .onDisappear { engine.stop() }
     }
