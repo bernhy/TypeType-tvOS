@@ -60,7 +60,8 @@ struct SabrPlaybackCoverage {
         }
         // Allow small timestamp deviations at segment boundaries, but never claim
         // continuous buffered media across a real gap. Session recovery handles gaps.
-        guard segment.startMs <= end.addingReportingOverflow(250).partialValue else {
+        let toleratedEnd = end > Int64.max - 250 ? Int64.max : end + 250
+        guard segment.startMs <= toleratedEnd else {
             throw SabrFailure.invalidResponse("SABR segment gap before next media sample")
         }
         end = max(end, segment.startMs + segment.durationMs)

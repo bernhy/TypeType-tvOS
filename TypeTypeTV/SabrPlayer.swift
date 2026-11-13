@@ -466,6 +466,10 @@ struct SabrPlayerView: View {
                             if engine.diskCacheBytes > 0 {
                                 Text("Cache \(engine.diskCacheBytes / 1_048_576) MiB")
                                     .font(.caption).foregroundStyle(.white.opacity(0.8))
+                                let aheadSeconds = max(0, Double(engine.cachedThroughMs) / 1_000
+                                                       - engine.playbackSeconds())
+                                Text("Vorgeladen \(Int(aheadSeconds)) s")
+                                    .font(.caption).foregroundStyle(.white.opacity(0.8))
                             }
                         }
                         TimelineView(.periodic(from: .now, by: 1)) { _ in
