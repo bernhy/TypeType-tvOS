@@ -219,6 +219,30 @@ final class SabrPlayerController: ObservableObject {
                                                            itag: choice.video.itag, generation: generation)
                 videoInitLocation = videoTrack.initUrl
             }
+            // Fill the compressed-data disk cache independently of decoder
+            // backpressure, without exceeding two simultaneous segment fetches.
+            // Server SABR windows may cap the requested 180 s of forward buffering.
+            prefetchTask?.cancel()
+            if let cache = segmentCache {
+                let refs = audio.segments.map { segment in
+                    SabrMediaReference(url: segment.url, itag: choice.audio.itag,
+                                       startMs: segment.startMs, durationMs: segment.durationMs)
+                } + videoTrack.segments.map { segment in
+                    SabrMediaReference(url: segment.url, itag: choice.video.itag,
+                                       startMs: segment.startMs, durationMs: segment.durationMs)
+                }
+                let sid = sessionId
+                let gen = generation
+                prefetchTask = Task { [weak self] in
+                    let through = await cache.prefetch(refs, service: service,
+                                                       sessionId: sid, generation: gen)
+                    if !Task.isCancelled {
+                        self?.cachedThroughMs = max(self?.cachedThroughMs ?? 0, through)
+                        self?.diskCacheBytes = await cache.bytesInUse
+                    }
+                }
+            }
+
             var newestEnd = nextTime
             // Request order by media timeline; audio/video are interleaved in the render queue.
             let count = max(audio.segments.count, videoTrack.segments.count)
@@ -229,8 +253,19 @@ final class SabrPlayerController: ObservableObject {
                     let key = "a:\(fragment.url)"
                     if seen.insert(key).inserted {
                         state = isInitialized ? "Wiedergabe läuft" : "Lade Audio …"
-                        let bytes = try await service.fragmentData(fragment.url, sessionId: sessionId,
-                                                              itag: choice.audio.itag, generation: generation)
+                        let bytes: Data
+                        if let cache = segmentCache {
+                            let sid = sessionId
+                            let gen = generation
+                            let ref = fragment.url
+                            bytes = try await cache.data(for: ref) {
+                                try await service.fragmentData(ref, sessionId: sid,
+                                                               itag: choice.audio.itag, generation: gen)
+                            }
+                        } else {
+                            bytes = try await service.fragmentData(fragment.url, sessionId: sessionId,
+                                                                  itag: choice.audio.itag, generation: generation)
+                        }
                         let samples = try await FragmentedMP4Reader.compressedSamples(
                             initialization: audioInit, fragment: bytes, mediaType: .audio)
                         try await enqueue(samples, audio: true)
@@ -242,8 +277,19 @@ final class SabrPlayerController: ObservableObject {
                     let key = "v:\(fragment.url)"
                     if seen.insert(key).inserted {
                         state = isInitialized ? "Wiedergabe läuft" : "Lade Video …"
-                        let bytes = try await service.fragmentData(fragment.url, sessionId: sessionId,
-                                                              itag: choice.video.itag, generation: generation)
+                        let bytes: Data
+                        if let cache = segmentCache {
+                            let sid = sessionId
+                            let gen = generation
+                            let ref = fragment.url
+                            bytes = try await cache.data(for: ref) {
+                                try await service.fragmentData(ref, sessionId: sid,
+                                                               itag: choice.video.itag, generation: gen)
+                            }
+                        } else {
+                            bytes = try await service.fragmentData(fragment.url, sessionId: sessionId,
+                                                                  itag: choice.video.itag, generation: generation)
+                        }
                         let samples = try await FragmentedMP4Reader.compressedSamples(
                             initialization: videoInit, fragment: bytes, mediaType: .video)
                         try await enqueue(samples, audio: false)
