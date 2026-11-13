@@ -41,6 +41,9 @@ for key, spec in STRINGS.items():
 code = "\n".join(x.read_text(encoding="utf-8") for x in (ROOT / "TypeTypeTV").glob("*.swift"))
 keys = re.findall(r'"((?:nav|home|search|library|setup|settings|language|certificate|error|player|video|common|login|server)\.[a-zA-Z0-9.]+)"', code)
 for key in sorted(set(keys)):
+    # SF Symbols such as "server.rack" are identifiers, not UI copy.
+    if key in {"server.rack"}:
+        continue
     if key not in STRINGS:
         errors.append(f"Missing catalog entry used by Swift: {key}")
 print(f"Catalog: {len(STRINGS)} keys, {len(languages)} languages: {sorted(languages)}")
