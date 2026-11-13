@@ -16,6 +16,29 @@ private final class TVAPIWireProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
 
+    /// URLSession may turn an upload's httpBody into httpBodyStream before
+    /// forwarding it to a custom URLProtocol on Apple's tvOS simulator.
+    /// Preserve the bytes so contract tests can check the actual JSON body.
+    private func requestWithMaterializedBody() -> URLRequest {
+        var copy = request
+        guard copy.httpBody == nil, let stream = copy.httpBodyStream else {
+            return copy
+        }
+        stream.open()
+        defer { stream.close() }
+        var payload = Data()
+        var chunk = [UInt8](repeating: 0, count: 8_192)
+        while payload.count < 1_048_576 {
+            let length = chunk.withUnsafeMutableBufferPointer {
+                stream.read($0.baseAddress!, maxLength: $0.count)
+            }
+            if length <= 0 { break }
+            payload.append(contentsOf: chunk.prefix(length))
+        }
+        copy.httpBody = payload
+        return copy
+    }
+
     override func startLoading() {
         Self.lock.lock()
         let callback = request.url?.host.flatMap { Self.resolvers[$0] }
@@ -24,8 +47,9 @@ private final class TVAPIWireProtocol: URLProtocol {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
-        let (status, body) = callback(request)
-        print("TVWIRE \(request.httpMethod ?? "?") \(url.path) status \(status) bytes \(body.count)")
+        let observedRequest = requestWithMaterializedBody()
+        let (status, body) = callback(observedRequest)
+        print("TVWIRE \(request.httpMethod ?? "?") \(url.path) status \(status) bytes \(body.count) requestBytes \(observedRequest.httpBody?.count ?? -1)")
         let response = HTTPURLResponse(
             url: url, statusCode: status, httpVersion: "HTTP/1.1",
             headerFields: [
