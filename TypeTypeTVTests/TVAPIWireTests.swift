@@ -167,4 +167,64 @@ final class TVAPIWireTests: XCTestCase {
         XCTAssertTrue(logged[3].1.hasPrefix("/api/watch-later/"))
     }
 
+    func testPlaylistsProgressBatchAndAccountBlocksUseExpectedRoutes() async throws {
+        let lock = NSLock()
+        var requests: [(String, String, Data?)] = []
+        let videoURL = "https://www.youtube.com/watch?v=abc123def45"
+        TVAPIWireProtocol.install(host: "collections.example") { request in
+            let path = request.url?.path ?? ""
+            lock.lock()
+            requests.append((request.httpMethod ?? "", path, request.httpBody))
+            lock.unlock()
+            switch (request.httpMethod ?? "", path) {
+            case ("GET", "/api/playlists"):
+                return (200, Data(
+                    #"[{"id":"one","name":"My list","videoCount":1}]"#.utf8
+                ))
+            case ("GET", "/api/playlists/one"):
+                return (200, Data(
+                    #"{"id":"one","name":"My list","videos":[]}"#.utf8
+                ))
+            case ("POST", "/api/progress/batch"):
+                return (200, Data(
+                    #"[{"videoUrl":"https://www.youtube.com/watch?v=abc123def45","position":68000}]"#.utf8
+                ))
+            case ("POST", "/api/playlists"):
+                return (201, Data(
+                    #"{"id":"new","name":"New list","videos":[]}"#.utf8
+                ))
+            default:
+                return (201, Data("{}".utf8))
+            }
+        }
+        let api = try fixtureAPI(host: "collections.example")
+        let lists = try await api.playlists()
+        XCTAssertEqual(lists.first?.id, "one")
+        let opened = try await api.playlist("one")
+        XCTAssertEqual(opened.name, "My list")
+        let created = try await api.createPlaylist(name: "New list")
+        XCTAssertEqual(created.id, "new")
+        var video = VideoItem(
+            id: videoURL, title: "Example", url: videoURL,
+            thumbnailUrl: nil, uploaderName: "Channel",
+            duration: 120, isLive: false
+        )
+        video.uploaderUrl = "https://www.youtube.com/@channel"
+        try await api.addToPlaylist(lists[0].id, video: video)
+        try await api.blockVideo(video)
+        try await api.blockChannel(video)
+        let decorated = await api.withProgress([video])
+        XCTAssertEqual(decorated.first?.watchPositionMs, 68_000)
+        lock.lock()
+        let items = requests
+        lock.unlock()
+        XCTAssertTrue(items.contains { $0.0 == "POST" && $0.1 == "/api/playlists/one/videos" })
+        XCTAssertTrue(items.contains { $0.0 == "POST" && $0.1 == "/api/blocked/videos" })
+        XCTAssertTrue(items.contains { $0.0 == "POST" && $0.1 == "/api/blocked/channels" })
+        XCTAssertTrue(items.contains { $0.0 == "POST" && $0.1 == "/api/progress/batch" })
+        let addPayload = items.first { $0.1 == "/api/playlists/one/videos" }?.2 ?? Data()
+        let parsed = try JSONSerialization.jsonObject(with: addPayload) as? [String: Any]
+        XCTAssertEqual(parsed?["channelUrl"] as? String, video.uploaderUrl)
+    }
+
 }
