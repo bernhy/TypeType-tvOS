@@ -21,10 +21,10 @@ struct ServerSetupView: View {
                         Text("TypeType")
                             .font(.system(size: 72, weight: .bold))
                     }
-                    Text("Deine Videos.\nDein Server.\nDein Apple TV.")
+                    Text("setup.tagline")
                         .font(.system(size: 44, weight: .semibold))
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("Verbinde deine selbst gehostete TypeType-Instanz.")
+                    Text("setup.welcome")
                         .font(.title3)
                         .foregroundStyle(TTTheme.muted)
                         .frame(maxWidth: 510, alignment: .leading)
@@ -32,17 +32,17 @@ struct ServerSetupView: View {
                 .frame(maxWidth: 550, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 23) {
-                    Text("VERBINDUNG EINRICHTEN")
+                    Text("setup.kicker")
                         .font(.subheadline.bold()).tracking(2.0)
                         .foregroundStyle(TTTheme.accent)
-                    Text("Serveradresse")
+                    Text("setup.serverAddress")
                         .font(.title.bold())
 
-                    Picker("Verbindungsart", selection: $mode) {
+                    Picker("setup.protocol", selection: $mode) {
                         Text("HTTPS · TLS").tag(TVConnectionMode.https)
-                        Text("HTTP · Lokal").tag(TVConnectionMode.http)
+                        Text("setup.httpLocal").tag(TVConnectionMode.http)
                     }
-                    .accessibilityLabel("Verbindungsart")
+                    .accessibilityLabel("setup.protocol")
 
                     HStack(spacing: 14) {
                         Text(mode == .https ? "https://" : "http://")
@@ -57,12 +57,12 @@ struct ServerSetupView: View {
                                 normalizePastedURL(value)
                                 message = nil
                             }
-                            .accessibilityLabel("TypeType-Serveradresse ohne Protokoll")
+                            .accessibilityLabel("setup.hostAccessibility")
                     }
                     .focusSection()
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Schnell ergänzen")
+                        Text("setup.shortcuts")
                             .font(.caption).foregroundStyle(TTTheme.muted)
                         HStack(spacing: 15) {
                             ForEach(["www.", ".local", ".de", ".org", ".com"], id: \.self) { suffix in
@@ -78,12 +78,12 @@ struct ServerSetupView: View {
                     }
 
                     if mode == .http {
-                        Label("HTTP ist nur für lokale Adressen erlaubt. Anmeldung und Daten werden dabei unverschlüsselt übertragen.",
+                        Label("setup.insecureWarning",
                               systemImage: "exclamationmark.triangle")
                             .font(.caption)
                             .foregroundStyle(.orange)
                     } else {
-                        Label("HTTPS: Unbekannte Zertifikate werden erst nach Fingerabdruckprüfung bestätigt.",
+                        Label("setup.certificateHint",
                               systemImage: "lock.shield")
                             .font(.caption)
                             .foregroundStyle(TTTheme.muted)
@@ -92,20 +92,24 @@ struct ServerSetupView: View {
                     Button {
                         Task { await connect() }
                     } label: {
-                        Label(isLoading ? "Verbinde …" : "Mit TypeType verbinden",
-                              systemImage: "network")
+                        Label {
+                            if isLoading { Text("setup.connectBusy") }
+                            else { Text("setup.connect") }
+                        } icon: {
+                            Image(systemName: "network")
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(TTTheme.accent)
                     .disabled(isLoading || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-                    if isLoading { ProgressView("Prüfe TypeType API v1 …") }
+                    if isLoading { ProgressView("setup.connectProgress") }
                     if let message {
                         Label(message, systemImage: "exclamationmark.triangle")
                             .font(.callout).foregroundStyle(.orange)
                     }
                     Divider()
-                    Text("Die URL-Tastatur öffnet sich beim Anklicken des Hostnamens. HTTPS oder HTTP legst du oben fest.")
+                    Text("setup.keyboardHelp")
                         .font(.caption)
                         .foregroundStyle(TTTheme.muted)
                 }
@@ -159,10 +163,10 @@ struct ServerSetupView: View {
     private func certificateAlert(_ report: TVCertificateReport) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 23) {
-                Label("Zertifikat überprüfen", systemImage: "exclamationmark.shield")
+                Label("certificate.title", systemImage: "exclamationmark.shield")
                     .font(.largeTitle.bold())
                     .foregroundStyle(.orange)
-                Text("Die Identität dieses Servers kann nicht automatisch bestätigt werden.")
+                Text("certificate.untrusted")
                     .font(.title3)
                 Text("Server: \(report.origin.host ?? ""):\(report.origin.port ?? 443)")
                     .font(.headline)
@@ -171,24 +175,24 @@ struct ServerSetupView: View {
                 Text(report.problem)
                     .foregroundStyle(.orange)
 
-                Text("SHA-256 Fingerabdruck")
+                Text("certificate.fingerprint")
                     .font(.title3.bold())
                 Text(report.formattedFingerprint)
                     .font(.callout.monospaced())
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Zertifikatskette")
+                Text("certificate.chain")
                     .font(.title3.bold())
                 ForEach(Array(report.chain.enumerated()), id: \.offset) { index, name in
                     Text("\(index + 1). \(name)")
                         .font(.callout)
                 }
-                Text("Vergleiche den Fingerabdruck auf einem vertrauenswürdigen Weg mit deinem Server. Bestätigen speichert NUR genau dieses Zertifikat für diese Serveradresse. Bei einem Zertifikatswechsel wird erneut gefragt.")
+                Text("certificate.warning")
                     .font(.callout)
                     .foregroundStyle(TTTheme.muted)
                 HStack(spacing: 23) {
-                    Button("Abbrechen") { certificate = nil }
+                    Button("common.cancel") { certificate = nil }
                         .buttonStyle(.bordered)
-                    Button("Dieses Zertifikat vertrauen") {
+                    Button("certificate.approve") {
                         if TVServerTrust.shared.approve(report) {
                             certificate = nil
                             Task { await connect() }

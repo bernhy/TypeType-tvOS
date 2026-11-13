@@ -41,12 +41,12 @@ struct PreferencesView: View {
                         .font(.caption).foregroundStyle(TTTheme.muted)
                 }
 
-                TVSettingsSection("Bild und Wiedergabe", symbol: "4k.tv",
-                                  subtitle: "Beste passende Hardwarequalität auswählen und Softwaredecoding nur bei Bedarf freigeben.") {
-                    Toggle("Softwaredecoding ausdrücklich erlauben", isOn: $allowSoftware)
-                    Text("Standardmäßig AUS. Nicht hardwarekompatible Codecs werden dadurch nicht automatisch gewählt.")
+                TVSettingsSection("settings.playback", symbol: "4k.tv",
+                                  subtitle: "settings.playbackHelp") {
+                    Toggle("settings.allowSoftware", isOn: $allowSoftware)
+                    Text("settings.softwareWarning")
                         .font(.caption).foregroundStyle(TTTheme.muted)
-                    Picker("Maximale Videoauflösung", selection: $maxHeight) {
+                    Picker("settings.maxResolution", selection: $maxHeight) {
                         Text("4K").tag(2160)
                         Text("1440p").tag(1440)
                         Text("1080p").tag(1080)
@@ -54,38 +54,38 @@ struct PreferencesView: View {
                     }
                 }
 
-                TVSettingsSection("Fernbedienung", symbol: "hand.tap",
-                                  subtitle: "Touch zeigt die Statusleiste. Links/rechts springt, Play/Pause steuert die Wiedergabe.") {
-                    Picker("Sprungweite", selection: $skipSeconds) {
+                TVSettingsSection("settings.remote", symbol: "hand.tap",
+                                  subtitle: "settings.remoteHelp") {
+                    Picker("settings.skipLength", selection: $skipSeconds) {
                         ForEach([5, 10, 15, 20], id: \.self) { value in
                             Text("\(value) Sekunden").tag(value)
                         }
                     }
                 }
 
-                TVSettingsSection("SABR-Puffer", symbol: "externaldrive",
-                                  subtitle: "Großer Cache auf deinem Apple TV. Der Server kann kleinere Segmentfenster liefern.") {
-                    Picker("Vorladeziel (Video-on-Demand)", selection: $bufferForwardSeconds) {
+                TVSettingsSection("settings.buffer", symbol: "externaldrive",
+                                  subtitle: "settings.bufferHelp") {
+                    Picker("settings.forwardBuffer", selection: $bufferForwardSeconds) {
                         ForEach([30, 60, 120, 180, 300, 600], id: \.self) { value in
                             Text("\(value) Sekunden").tag(value)
                         }
                     }
-                    Picker("Rückwärtspuffer", selection: $bufferBackSeconds) {
+                    Picker("settings.backwardBuffer", selection: $bufferBackSeconds) {
                         ForEach([30, 60, 120, 180, 300], id: \.self) { value in
                             Text("\(value) Sekunden").tag(value)
                         }
                     }
-                    Picker("Maximaler lokaler Cache", selection: $bufferCacheMiB) {
+                    Picker("settings.maxCache", selection: $bufferCacheMiB) {
                         ForEach([256, 512, 1024], id: \.self) { value in
                             Text("\(value) MiB").tag(value)
                         }
                     }
-                    Text("Das Vorladeziel ist keine garantierte Füllmenge. Der Cache enthält nur komprimierte Mediensegmente.")
+                    Text("settings.bufferWarning")
                         .font(.caption).foregroundStyle(TTTheme.muted)
                 }
 
-                TVSettingsSection("Hardwarefähigkeiten", symbol: "cpu",
-                                  subtitle: "Gerätespezifische VideoToolbox-Erkennung. Profile, HDR und Framerates erfordern zusätzliche Tests.") {
+                TVSettingsSection("settings.hardware", symbol: "cpu",
+                                  subtitle: "settings.hardwareHelp") {
                     ForEach(["H.264", "HEVC", "VP9", "AV1"], id: \.self) { label in
                         let name: String = {
                             switch label {
@@ -110,19 +110,19 @@ struct PreferencesView: View {
                     }
                 }
 
-                TVSettingsSection("Konto und Server", symbol: "person.crop.circle",
-                                  subtitle: "Verbinde dein TypeType-Konto mit einem Gerätecode oder wechsle die Instanz.") {
+                TVSettingsSection("settings.account", symbol: "person.crop.circle",
+                                  subtitle: "settings.accountHelp") {
                     if TypeTypeCredentials.shared.token(for: api.origin) != nil {
-                        Label("Ein Zugriffstoken ist im Apple-Schlüsselbund gespeichert.",
+                        Label("settings.tokenSaved",
                               systemImage: "checkmark.shield")
                             .foregroundStyle(.green)
-                        Button("Lokal abmelden") {
+                        Button("settings.logout") {
                             TypeTypeCredentials.shared.clear(for: api.origin)
                             status = "Lokale Anmeldung beendet"
                         }
                         .buttonStyle(.bordered)
                     }
-                    Button("TypeType-Konto mit Gerätecode koppeln") {
+                    Button("settings.pair") {
                         poller?.cancel()
                         poller = Task { await startLogin() }
                     }
@@ -134,18 +134,18 @@ struct PreferencesView: View {
                         Text(link.absoluteString)
                             .font(.callout)
                             .foregroundStyle(TTTheme.muted)
-                        Text("Öffne den Link auf deinem Telefon oder Computer und bestätige den Code.")
+                        Text("settings.deviceHelp")
                             .font(.callout)
                     }
                     if !status.isEmpty {
                         Text(status).foregroundStyle(TTTheme.muted)
                     }
                     Divider()
-                    Button("TypeType-Server wechseln", action: onDisconnect)
+                    Button("settings.changeServer", action: onDisconnect)
                         .buttonStyle(.bordered)
                 }
 
-                Button("Wiedergabeeinstellungen auf Standard zurücksetzen") {
+                Button("settings.reset") {
                     allowSoftware = false
                     maxHeight = 2160
                     skipSeconds = 10
