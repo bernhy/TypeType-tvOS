@@ -74,6 +74,10 @@ final class SabrPlayerController: ObservableObject {
     @Published private(set) var currentAudioItag: Int?
     @Published private(set) var currentAudioTrackId: String?
     @Published private(set) var fixedVideoItag: Int?
+    @Published private(set) var availableSubtitles: [SabrBootstrap.Subtitle] = []
+    @Published private(set) var selectedSubtitleURL: String?
+    @Published private(set) var subtitleCues: [SabrCaptionCue] = []
+    @Published private(set) var subtitleError: String?
 
     let videoLayer = AVSampleBufferDisplayLayer()
     private let audioRenderer = AVSampleBufferAudioRenderer()
@@ -99,6 +103,8 @@ final class SabrPlayerController: ObservableObject {
     private var requestedVideoItag: Int?
     private var requestedAudioItag: Int?
     private var requestedAudioTrackId: String?
+    private var subtitleTask: Task<Void, Never>?
+    private var subtitlePreferenceChanged = false
 
     init() {
         videoLayer.videoGravity = .resizeAspect
@@ -130,6 +136,9 @@ final class SabrPlayerController: ObservableObject {
         hasRecordedHistory = false
         running?.cancel()
         running = nil
+        subtitleTask?.cancel()
+        subtitleTask = nil
+        subtitleCues = []
         let previousService = playbackService
         playbackService = nil
         let previousSession = sessionId
@@ -155,6 +164,33 @@ final class SabrPlayerController: ObservableObject {
         hasQueuedFirstVideo = false
         isPlaying = false
         sessionId = ""
+    }
+
+    func caption(at timeMs: Int64) -> String? {
+        SabrCaptionCue.showing(subtitleCues, at: timeMs)
+    }
+
+    func selectSubtitle(_ track: SabrBootstrap.Subtitle?, origin: URL) {
+        subtitlePreferenceChanged = true
+        subtitleTask?.cancel()
+        subtitleCues = []
+        subtitleError = nil
+        selectedSubtitleURL = track?.url
+        guard let track else { return }
+        subtitleTask = Task { [weak self] in
+            do {
+                let loaded = try await SabrCaptionLoader.load(track, origin: origin)
+                guard !Task.isCancelled,
+                      self?.selectedSubtitleURL == track.url else { return }
+                self?.subtitleCues = loaded
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled,
+                      self?.selectedSubtitleURL == track.url else { return }
+                self?.subtitleError = error.localizedDescription
+            }
+        }
     }
 
     func selectQuality(api: TypeTypeAPI, video: VideoItem, itag: Int?) {
@@ -257,6 +293,22 @@ final class SabrPlayerController: ObservableObject {
             )
             availableVideos = options.map(\.video)
             availableAudios = HardwareCodec.audioCandidates(from: bootstrap)
+            availableSubtitles = (bootstrap.subtitles ?? []).filter { !$0.url.isEmpty }
+            if let current = selectedSubtitleURL {
+                if let match = availableSubtitles.first(where: { $0.url == current }) {
+                    selectSubtitle(match, origin: api.origin)
+                } else {
+                    selectSubtitle(nil, origin: api.origin)
+                }
+            } else if !subtitlePreferenceChanged &&
+                        settings?.subtitlesEnabled == true {
+                let language = TVLanguages.activeLanguage
+                if let match = availableSubtitles.first(where: {
+                    ($0.languageTag ?? "").lowercased().hasPrefix(language.lowercased())
+                }) {
+                    selectSubtitle(match, origin: api.origin)
+                }
+            }
             let orderedOptions: [SabrSelection]
             if let requested = requestedVideoItag,
                let selected = options.first(where: { $0.video.itag == requested }) {
@@ -790,6 +842,26 @@ struct SabrPlayerView: View {
             Color.black.ignoresSafeArea()
             SabrVideoSurface(displayLayer: engine.videoLayer).ignoresSafeArea()
 
+            TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+                if let caption = engine.caption(
+                    at: Int64(engine.playbackSeconds() * 1_000)
+                ), !caption.isEmpty {
+                    Text(caption)
+                        .font(.system(size: 36, weight: .medium))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 10)
+                        .background(.black.opacity(0.73),
+                                    in: RoundedRectangle(cornerRadius: 8))
+                        .frame(maxWidth: 1300)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: .bottom)
+                        .padding(.bottom, controlsVisible ? 255 : 85)
+                }
+            }
+            .allowsHitTesting(false)
+
             if !optionsVisible {
                 SiriRemotePlayerInput(
                     onTouch: reveal,
@@ -901,6 +973,11 @@ struct SabrPlayerView: View {
                             api: api, video: video,
                             itag: track.itag, trackId: track.audioTrackId
                         )
+                        optionsVisible = false
+                        reveal()
+                    },
+                    onSubtitle: { track in
+                        engine.selectSubtitle(track, origin: api.origin)
                         optionsVisible = false
                         reveal()
                     },
