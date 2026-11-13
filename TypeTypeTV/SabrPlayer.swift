@@ -85,6 +85,9 @@ final class SabrPlayerController: ObservableObject {
     private let audioRenderer = AVSampleBufferAudioRenderer()
     private let synchronizer = AVSampleBufferRenderSynchronizer()
     private var running: Task<Void, Never>?
+    // Incremented on every stop/start so late replies from previous playback
+    // cannot overwrite the active video's state.
+    private var playbackEpoch: UInt64 = 0
     private var sessionId = ""
     private var generation: Int64 = 0
     private var selection: SabrSelection?
@@ -132,12 +135,15 @@ final class SabrPlayerController: ObservableObject {
         state = TVL10n.value("player.connecting")
         let settings = SabrBufferSettings.preferences(live: video.isLive == true)
         segmentCache = SabrFragmentCache(maxMiB: settings.cacheMiB)
+        let epoch = playbackEpoch
         running = Task {
-            await run(api: api, video: video, explicitPositionMs: positionMs, buffer: settings)
+            await run(api: api, video: video, explicitPositionMs: positionMs,
+                      buffer: settings, epoch: epoch)
         }
     }
 
     func stop() {
+        playbackEpoch &+= 1
         if isInitialized { recordProgress(force: true) }
         TVPlaybackPresenceReporter.shared.stop(owner: presenceOwner)
         presenceReported = false
@@ -304,20 +310,25 @@ final class SabrPlayerController: ObservableObject {
     }
 
     private func run(api: TypeTypeAPI, video: VideoItem,
-                     explicitPositionMs: Int64?, buffer: SabrBufferSettings) async {
+                     explicitPositionMs: Int64?, buffer: SabrBufferSettings,
+                     epoch: UInt64) async {
+        guard playbackEpoch == epoch, !Task.isCancelled else { return }
         let service = SabrService(api: api)
         playbackService = service
         do {
             // Respect the server's privacy flag before reading/writing history.
             // If settings cannot be loaded, do not silently record history.
             let settings = try? await api.accountSettings()
+            guard playbackEpoch == epoch, !Task.isCancelled else { return }
             let historyAllowed = settings != nil &&
                 settings?.disableWatchHistory != true && video.isLive != true
             historyEnabled = historyAllowed
             await progressWriter.enable(historyAllowed)
             await progressWriter.flush()
+            guard playbackEpoch == epoch, !Task.isCancelled else { return }
             let recordedPosition = historyAllowed && explicitPositionMs == nil
                 ? (try? await api.savedPosition(videoURL: video.url)) : nil
+            guard playbackEpoch == epoch, !Task.isCancelled else { return }
             var positionMs = max(0, explicitPositionMs ?? recordedPosition ?? 0)
             // Do not resume after the credits of a nearly completed video.
             if let duration = video.duration, duration > 0,
@@ -337,6 +348,7 @@ final class SabrPlayerController: ObservableObject {
                     return try await service.bootstrap(videoURL: video.url)
                 }
             }
+            guard playbackEpoch == epoch, !Task.isCancelled else { return }
             let allowSoftware = UserDefaults.standard.bool(forKey: "typetype.allowSoftwareDecode")
             let maximum = UserDefaults.standard.integer(forKey: "typetype.maxHeight")
 
@@ -419,7 +431,7 @@ final class SabrPlayerController: ObservableObject {
                     // A user may leave while the POST is in flight. If its
                     // response arrives *after* stop(), the stop path could
                     // not have known this new token; release it explicitly.
-                    if Task.isCancelled {
+                    if Task.isCancelled || playbackEpoch != epoch {
                         let abandoned = session.sessionId
                         Task.detached(priority: .utility) {
                             try? await service.release(sessionId: abandoned)
@@ -479,11 +491,13 @@ final class SabrPlayerController: ObservableObject {
         } catch is CancellationError {
             return
         } catch SabrFailure.unavailable {
+            guard playbackEpoch == epoch, !Task.isCancelled else { return }
             failure = TVL10n.value("player.videoUnavailable")
             playbackUnavailable = true
             isPlaying = false
             state = TVL10n.value("player.failed")
         } catch {
+            guard playbackEpoch == epoch, !Task.isCancelled else { return }
             failure = error.localizedDescription
             isPlaying = false
             state = TVL10n.value("player.failed")

@@ -7308,6 +7308,34 @@
           }
         }
       }
+    },
+    "player.seekFailed": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die gespeicherte Wiedergabeposition konnte nicht angesprungen werden. Die Verbindung wird erneuert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not resume at the saved position. Reconnecting the stream."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de reprendre à la position enregistrée. Reconnexion au flux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo reanudar desde la posición guardada. Reconectando el vídeo."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

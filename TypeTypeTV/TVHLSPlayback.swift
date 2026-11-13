@@ -140,7 +140,8 @@ final class TVHLSPlaybackController: ObservableObject {
                 let message = item.error?.localizedDescription ??
                     TVL10n.value("player.unavailable")
                 Task { @MainActor [weak self] in
-                    guard let self, !self.isStopped else { return }
+                    guard let self, !self.isStopped,
+                          self.player.currentItem === item else { return }
                     self.errorMessage = message
                     self.scheduleStallRecovery(delay: 3)
                 }
@@ -151,7 +152,9 @@ final class TVHLSPlaybackController: ObservableObject {
             object: item, queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.scheduleStallRecovery(delay: 12)
+                guard let self, !self.isStopped,
+                      self.player.currentItem === item else { return }
+                self.scheduleStallRecovery(delay: 12)
             }
         }
         itemEndObservation = NotificationCenter.default.addObserver(
@@ -184,12 +187,18 @@ final class TVHLSPlaybackController: ObservableObject {
             let target = CMTime(seconds: positionSeconds, preferredTimescale: 600)
             player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) {
                 [weak self] finished in
-                guard finished else { return }
                 Task { @MainActor [weak self] in
                     guard let self, !self.isStopped,
                           self.player.currentItem === item else { return }
-                    self.initialSeekFinished = true
-                    self.player.play()
+                    if finished {
+                        self.initialSeekFinished = true
+                        self.player.play()
+                    } else {
+                        // A failed initial resume seek must not leave an
+                        // indefinitely waiting player. Renew the stream.
+                        self.errorMessage = TVL10n.value("player.seekFailed")
+                        self.scheduleStallRecovery(delay: 3)
+                    }
                 }
             }
         } else {
