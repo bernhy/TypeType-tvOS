@@ -78,7 +78,8 @@ enum TypeTypeError: LocalizedError {
 enum TVLibraryRoutes {
     static func mediaURL(base: URL, collection: String,
                          videoURL: String) throws -> URL {
-        guard (collection == "favorites" || collection == "watch-later" || collection == "progress"),
+        guard (collection == "favorites" || collection == "watch-later" ||
+               collection == "progress" || collection == "videos"),
               !videoURL.isEmpty else { throw TypeTypeError.invalidServerAddress }
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#%")
