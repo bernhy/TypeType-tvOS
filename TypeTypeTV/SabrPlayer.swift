@@ -412,6 +412,16 @@ final class SabrPlayerController: ObservableObject {
                     guard !session.sessionId.isEmpty else {
                         throw SabrFailure.invalidResponse("sessionId")
                     }
+                    // A user may leave while the POST is in flight. If its
+                    // response arrives *after* stop(), the stop path could
+                    // not have known this new token; release it explicitly.
+                    if Task.isCancelled {
+                        let abandoned = session.sessionId
+                        Task.detached(priority: .utility) {
+                            try? await service.release(sessionId: abandoned)
+                        }
+                        throw CancellationError()
+                    }
                     sessionId = session.sessionId
                     generation = session.generation
                     try await consume(
@@ -547,6 +557,13 @@ final class SabrPlayerController: ObservableObject {
                         videoId: videoId, selection: choice,
                         positionMs: restartPosition
                     )
+                }
+                if Task.isCancelled {
+                    let abandoned = renewed.sessionId
+                    Task.detached(priority: .utility) {
+                        try? await service.release(sessionId: abandoned)
+                    }
+                    throw CancellationError()
                 }
                 sessionId = renewed.sessionId
                 generation = renewed.generation
