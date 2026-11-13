@@ -3,13 +3,14 @@ import SwiftUI
 /// Main sections remain accessible using a narrow icon rail. Moving left from
 /// the first thumbnail expands the rail and puts focus on the current section.
 enum TVSection: String, CaseIterable, Hashable {
-    case home, search, library, settings
+    case home, search, library, playlists, settings
 
     var label: String {
         switch self {
         case .home: return TVL10n.value("nav.home")
         case .search: return TVL10n.value("nav.search")
         case .library: return TVL10n.value("nav.library")
+        case .playlists: return TVL10n.value("nav.playlists")
         case .settings: return TVL10n.value("nav.settings")
         }
     }
@@ -18,6 +19,7 @@ enum TVSection: String, CaseIterable, Hashable {
         case .home: return "nav.home"
         case .search: return "nav.search"
         case .library: return "nav.library"
+        case .playlists: return "nav.playlists"
         case .settings: return "nav.settings"
         }
     }
@@ -26,6 +28,7 @@ enum TVSection: String, CaseIterable, Hashable {
         case .home: return "house.fill"
         case .search: return "magnifyingglass"
         case .library: return "books.vertical"
+        case .playlists: return "list.bullet.rectangle"
         case .settings: return "gearshape"
         }
     }
@@ -68,6 +71,8 @@ struct BrowseView: View {
                             SearchView(api: api)
                         case .library:
                             LibraryView(api: api)
+                        case .playlists:
+                            LibraryView(api: api, preferPlaylists: true)
                         case .settings:
                             PreferencesView(api: api, onDisconnect: onDisconnect, initialGroup: initialSettingsGroup)
                         }

@@ -10,9 +10,11 @@ private enum TVLibraryDestination: Hashable {
 
 struct LibraryView: View {
     let api: TypeTypeAPI
+    var preferPlaylists = false
 
     @State private var selected: TVLibraryDestination = .standard(.watchLater)
     @State private var playlists: [TVPlaylistDTO] = []
+    @State private var firstPlaylistSelectionPending = true
     @State private var videos: [VideoItem] = []
     @State private var statusMessage: String?
     @State private var railError: String?
@@ -94,7 +96,8 @@ struct LibraryView: View {
 
     private var secondaryRail: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("nav.library")
+            Text(preferPlaylists ? TVL10n.value("nav.playlists") :
+                    TVL10n.value("nav.library"))
                 .font(.system(size: 27, weight: .bold))
                 .padding(.top, 44)
                 .padding(.bottom, 10)
@@ -164,6 +167,11 @@ struct LibraryView: View {
     private func refresh() async {
         do {
             playlists = try await api.playlists()
+            if preferPlaylists && firstPlaylistSelectionPending,
+               let first = playlists.first {
+                selected = .playlist(first.id)
+            }
+            firstPlaylistSelectionPending = false
             railError = nil
         } catch {
             // The built-in tabs still work even if custom playlists fail.
