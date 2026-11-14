@@ -790,25 +790,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Melde dich mit Benutzername und Passwort oder einem Gerätecode bei TypeType an."
+            "value": "Verwalte die auf diesem Apple TV gespeicherten Konten, füge weitere hinzu oder melde dich ab."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to TypeType with a username and password or device code."
+            "value": "Manage the accounts saved on this Apple TV, add new ones or sign out."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connectez-vous à TypeType avec vos identifiants ou un code d’appareil."
+            "value": "Gérez les comptes enregistrés sur cette Apple TV, ajoutez-en ou déconnectez-vous."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inicia sesión en TypeType con tus credenciales o un código de dispositivo."
+            "value": "Administra las cuentas guardadas en este Apple TV, añade otras o cierra sesión."
           }
         }
       }
@@ -8453,6 +8453,258 @@
           "stringUnit": {
             "state": "translated",
             "value": "No se pudieron cargar más recomendaciones."
+          }
+        }
+      }
+    },
+    "settings.groupAccounts": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accounts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comptes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuentas"
+          }
+        }
+      }
+    },
+    "settings.savedAccountsTitle": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespeicherte Konten auf diesem Apple TV"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved accounts on this Apple TV"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comptes enregistrés sur cette Apple TV"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuentas guardadas en este Apple TV"
+          }
+        }
+      }
+    },
+    "settings.savedAccountsHelp": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konten werden ausschließlich auf diesem Gerät gespeichert. Im Hauptmenü „Konto“ kannst du zwischen ihnen wechseln."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accounts are stored only on this device. Switch users from Account in the main menu."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les comptes sont enregistrés uniquement sur cet appareil. Changez de profil via Compte dans le menu principal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las cuentas se guardan solo en este dispositivo. Cambia de perfil desde Cuenta en el menú principal."
+          }
+        }
+      }
+    },
+    "settings.noSavedAccounts": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Konten gespeichert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No saved accounts yet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun compte enregistré."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía no hay cuentas guardadas."
+          }
+        }
+      }
+    },
+    "settings.removeProfileTitle": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto von diesem Apple TV entfernen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove account from this Apple TV?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer le compte de cette Apple TV ?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Quitar la cuenta de este Apple TV?"
+          }
+        }
+      }
+    },
+    "settings.removeProfile": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Löschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar"
+          }
+        }
+      }
+    },
+    "settings.removeProfileHelp": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ wird nur von diesem Apple TV entfernt. Das Konto auf dem Server bleibt bestehen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” will only be removed from this Apple TV. The server account remains intact."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« %@ » sera supprimé uniquement de cette Apple TV. Le compte serveur sera conservé."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» se eliminará solo de este Apple TV. La cuenta del servidor se conservará."
+          }
+        }
+      }
+    },
+    "settings.removeProfileFailed": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Konto konnte nicht aus dem Schlüsselbund entfernt werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not remove the account from Keychain."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de supprimer le compte du trousseau."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo quitar la cuenta del llavero."
+          }
+        }
+      }
+    },
+    "settings.profileRemoved": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto auf diesem Apple TV entfernt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account removed from this Apple TV."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compte supprimé de cette Apple TV."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuenta eliminada de este Apple TV."
           }
         }
       }
