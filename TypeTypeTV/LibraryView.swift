@@ -138,9 +138,12 @@ struct LibraryView: View {
         }
         .background(TTTheme.ink)
         .task {
-            await refresh()
+            // Establish the subrail focus BEFORE waiting on the account's
+            // playlist/library HTTP requests. Otherwise tvOS can temporarily
+            // focus the global Home icon while the library loads.
             await Task.yield()
             focusedDestination = selected
+            await refresh()
         }
         .task(id: selected) { await loadSelected() }
         .sheet(isPresented: Binding(
