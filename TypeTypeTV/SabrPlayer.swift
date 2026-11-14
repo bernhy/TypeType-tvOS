@@ -1257,6 +1257,45 @@ struct SabrVideoSurface: UIViewRepresentable {
     func updateUIView(_ uiView: UIView, context: Context) {}
 }
 
+/// tvOS-native modal error controls. The fullscreen SiriRemotePlayerInput is
+/// removed while this is visible, so its focusable UIKit view cannot swallow
+/// left/right/select presses intended for Retry and Back.
+struct SabrPlaybackErrorDialog: View {
+    let unavailable: Bool
+    let failure: String
+    let onRetry: () -> Void
+    let onBack: () -> Void
+
+    private enum Action: Hashable { case retry, back }
+    @FocusState private var focusedAction: Action?
+
+    var body: some View {
+        VStack(spacing: 22) {
+            Text(unavailable ? "player.videoUnavailable" : "player.sabrError")
+                .font(.largeTitle)
+            Text(failure)
+                .multilineTextAlignment(.center)
+            HStack(spacing: 28) {
+                Button("common.retry", action: onRetry)
+                    .buttonStyle(.borderedProminent)
+                    .focused($focusedAction, equals: .retry)
+                Button("common.back", action: onBack)
+                    .buttonStyle(.bordered)
+                    .focused($focusedAction, equals: .back)
+            }
+            .focusSection()
+        }
+        .padding(50)
+        .background(.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 20))
+        .task {
+            // Assign after insertion into the focus tree; otherwise the
+            // removed full-screen UIKit remote view can retain focus.
+            await Task.yield()
+            focusedAction = .retry
+        }
+    }
+}
+
 struct SabrPlayerView: View {
     @Environment(\.dismiss) private var dismiss
     let api: TypeTypeAPI
@@ -1304,7 +1343,7 @@ struct SabrPlayerView: View {
             }
             .allowsHitTesting(false)
 
-            if !optionsVisible {
+            if !optionsVisible && engine.failure == nil {
                 SiriRemotePlayerInput(
                     onTouch: reveal,
                     onDirection: skip,
@@ -1333,26 +1372,18 @@ struct SabrPlayerView: View {
             }
 
             if let failure = engine.failure {
-                VStack(spacing: 22) {
-                    Text(engine.playbackUnavailable
-                        ? "player.videoUnavailable" : "player.sabrError")
-                        .font(.largeTitle)
-                    Text(failure).multilineTextAlignment(.center)
-                    HStack(spacing: 28) {
-                        Button("common.retry") {
-                            engine.start(api: api, video: video)
-                            reveal()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        Button("common.back") {
-                            engine.stop()
-                            dismiss()
-                        }
-                        .buttonStyle(.bordered)
+                SabrPlaybackErrorDialog(
+                    unavailable: engine.playbackUnavailable,
+                    failure: failure,
+                    onRetry: {
+                        engine.start(api: api, video: video)
+                        reveal()
+                    },
+                    onBack: {
+                        engine.stop()
+                        dismiss()
                     }
-                }
-                .padding(50)
-                .background(.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 20))
+                )
             } else if controlsVisible {
                 VStack {
                     HStack(alignment: .top) {
@@ -1462,6 +1493,12 @@ struct SabrPlayerView: View {
         }
         .onChange(of: engine.isPlaying) {
             if !engine.isPlaying { reveal() }
+        }
+        .onChange(of: engine.failure) { _, failure in
+            // An error always takes precedence over the quality/options
+            // overlay, so its Retry and Back buttons become the only active
+            // controls and receive the Siri Remote focus.
+            if failure != nil { optionsVisible = false }
         }
         .onChange(of: engine.playbackUnavailable) { _, unavailable in
             if unavailable { onPlaybackEvent?(.unavailable) }
