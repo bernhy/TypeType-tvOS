@@ -76,7 +76,9 @@ enum SabrSampleWindow {
             let dts = CMTimeGetSeconds(CMSampleBufferGetDecodeTimeStamp(sample))
             let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
             let time = dts.isFinite ? dts : pts
-            guard time.isFinite, time * 1_000 < Double(edge) + 1.0 else { break }
+            // Boundary is exclusive: an exact sample at 5.000s belongs to
+            // the NEXT A/V window, not the one ending at 5.000s.
+            guard time.isFinite, time * 1_000 < Double(edge) else { break }
             count += 1
         }
         return count
