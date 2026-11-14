@@ -133,6 +133,20 @@ enum TVLibraryRoutes {
     }
 }
 
+/// History is an event feed on some TypeType Server versions. A viewer
+/// should see each video once, in most-recent-first order, even if it was
+/// started repeatedly during testing. YouTube URL variants share one ID.
+enum TVHistoryDeduplicator {
+    static func unique(_ videos: [VideoItem]) -> [VideoItem] {
+        var seen = Set<String>()
+        return videos.filter { video in
+            let key = VideoAddress.youtubeID(video.url).map { "yt:" + $0 }
+                ?? (!video.url.isEmpty ? "url:" + video.url : "id:" + video.id)
+            return seen.insert(key).inserted
+        }
+    }
+}
+
 struct TVWatchLaterWrite: Encodable {
     let url: String
     let title: String
@@ -435,7 +449,7 @@ struct TypeTypeAPI {
         switch section {
         case .history:
             let rows: [TVHistoryDTO] = try await get("history")
-            return rows.map(\.video)
+            return TVHistoryDeduplicator.unique(rows.map(\.video))
         case .favorites:
             let rows: [TVFavoriteDTO] = try await get("favorites")
             return rows.map(\.video)
