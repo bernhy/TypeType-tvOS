@@ -652,6 +652,25 @@ final class SabrPlayerController: ObservableObject {
                 from: bootstrap, maxHeight: maximum > 0 ? maximum : 2160,
                 allowSoftware: allowSoftware
             )
+            #if DEBUG
+            // The selection menu only shows server-advertised SABR tracks
+            // supported by VideoToolbox. These counts explain absent codecs
+            // without exposing the video ID, media URLs or auth credentials.
+            func codecCounts(_ tracks: [SabrBootstrap.Video]) -> String {
+                let grouped = Dictionary(grouping: tracks) {
+                    $0.codec.lowercased().split(separator: ".").first.map(String.init) ?? "unknown"
+                }
+                return grouped.keys.sorted().map {
+                    "\($0)=\(grouped[$0]?.count ?? 0)"
+                }.joined(separator: ",")
+            }
+            let offered = bootstrap.videoOnlyStreams ?? []
+            let sabrOffered = offered.filter { $0.deliveryMethod == "sabr" }
+            NSLog("TypeType SABR CODECS server=%@ sabr=%@ playable=%@ maxHeight=%d allowSoftware=%d",
+                  codecCounts(offered), codecCounts(sabrOffered),
+                  codecCounts(options.map(\.video)),
+                  maximum > 0 ? maximum : 2160, allowSoftware ? 1 : 0)
+            #endif
             availableVideos = options.map(\.video)
             availableAudios = HardwareCodec.audioCandidates(from: bootstrap)
             availableSubtitles = (bootstrap.subtitles ?? []).filter { !$0.url.isEmpty }

@@ -247,8 +247,12 @@ enum HardwareCodec {
         let audio = audioCandidates(from: stream).first
         guard let audio else { return [] }
         var used = Set<Int>()
+        // The quality menu must offer every hardware-compatible SABR
+        // format. The former .prefix(8) silently hid AVC/VP9/HEVC whenever
+        // the server supplied eight higher-resolution AV1 representations.
+        // This is a user choice, not a fallback list to artificially cap.
         return videos.filter { used.insert($0.itag).inserted }
-            .prefix(8).map { SabrSelection(video: $0, audio: audio) }
+            .map { SabrSelection(video: $0, audio: audio) }
     }
 }
 

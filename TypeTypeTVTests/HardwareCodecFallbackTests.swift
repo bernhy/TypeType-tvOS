@@ -36,6 +36,34 @@ final class HardwareCodecFallbackTests: XCTestCase {
         ))
     }
 
+    func testQualityMenuDoesNotHideAVCAndVP9AfterEightAV1Formats() {
+        // The source may have many 4K AV1 representations. A hard cap on
+        // the first eight hid valid lower-resolution alternatives from UI.
+        let manyAV1 = (0..<12).map {
+            video(100 + $0, codec: "av01.0.08M.08", height: 2160, fps: 30)
+        }
+        let bootstrap = SabrBootstrap(
+            id: nil, hlsUrl: nil, isLive: nil,
+            videoOnlyStreams: manyAV1 + [
+                video(137, codec: "avc1.640028", height: 1080, fps: 30),
+                video(248, codec: "vp09.00.51.08", height: 1080, fps: 30),
+                video(900, codec: "hvc1.2.4.L153.B0", height: 1080, fps: 30)
+            ],
+            audioStreams: [SabrBootstrap.Audio(
+                itag: 140, codec: "mp4a.40.2", mimeType: "audio/mp4",
+                audioTrackId: nil, audioTrackName: nil, audioLocale: nil,
+                isOriginal: true, deliveryMethod: "sabr"
+            )]
+        )
+        // Software allowance here makes the test independent of the Xcode
+        // simulator's dynamically reported hardware decoder capabilities.
+        let options = HardwareCodec.candidates(from: bootstrap, allowSoftware: true)
+        XCTAssertEqual(options.count, 15)
+        XCTAssertTrue(options.contains { $0.video.itag == 137 })
+        XCTAssertTrue(options.contains { $0.video.itag == 248 })
+        XCTAssertTrue(options.contains { $0.video.itag == 900 })
+    }
+
     func testMissingCompatibleAudioDisablesPlaybackSelection() {
         let bootstrap = SabrBootstrap(id: nil, hlsUrl: nil, isLive: nil,
             videoOnlyStreams: [video(137, codec: "avc1.640028", height: 1080, fps: 30)],
