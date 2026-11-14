@@ -28,20 +28,28 @@ struct TVThumbnail: View {
     @State private var bitmap: UIImage?
 
     var body: some View {
-        ZStack {
-            if let bitmap {
-                Image(uiImage: bitmap)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                LinearGradient(
-                    colors: [TTTheme.surface, TTTheme.accent.opacity(0.19)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                )
-                Image(systemName: "play.rectangle.fill")
-                    .font(.system(size: 55))
-                    .foregroundStyle(TTTheme.accent.opacity(0.5))
+        // A resizable scaledToFill image has an unbounded ideal size unless
+        // we constrain BOTH axes. Without GeometryReader it can bleed into
+        // another card's header/footer in tvOS LazyVGrid focus layouts.
+        GeometryReader { geometry in
+            ZStack {
+                if let bitmap {
+                    Image(uiImage: bitmap)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                } else {
+                    LinearGradient(
+                        colors: [TTTheme.surface, TTTheme.accent.opacity(0.19)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                    Image(systemName: "play.rectangle.fill")
+                        .font(.system(size: 55))
+                        .foregroundStyle(TTTheme.accent.opacity(0.5))
+                }
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
         }
         .clipped()
         .task(id: url?.absoluteString) {
