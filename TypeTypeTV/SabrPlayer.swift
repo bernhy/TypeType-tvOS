@@ -61,6 +61,70 @@ enum SabrSampleFormatRepair {
     }
 }
 
+/// An isolated fMP4 fragment can be demuxed with timestamps relative to its
+/// own beginning, even when the server delivered an absolute timeline window.
+/// Anchor each track's presentation timestamps to the server segment start,
+/// preserving sample durations, decode ordering and A/V offsets within a track.
+/// Without this, each fragment can replay at time zero and the renderers
+/// display frames as fast as they are enqueued.
+enum SabrSampleTimeline {
+    static func aligned(_ samples: [CMSampleBuffer],
+                        segmentStartMs: Int64) throws -> [CMSampleBuffer] {
+        guard !samples.isEmpty else { return samples }
+        var earliest: CMTime?
+        for sample in samples {
+            for i in 0..<CMSampleBufferGetNumSamples(sample) {
+                var timing = CMSampleTimingInfo()
+                guard CMSampleBufferGetSampleTimingInfo(
+                    sample, at: i, timingInfoOut: &timing
+                ) == noErr,
+                CMTimeGetSeconds(timing.presentationTimeStamp).isFinite else {
+                    throw SabrFailure.invalidResponse("SABR sample has invalid presentation time")
+                }
+                if earliest == nil ||
+                    CMTimeCompare(timing.presentationTimeStamp, earliest!) < 0 {
+                    earliest = timing.presentationTimeStamp
+                }
+            }
+        }
+        guard let earliest else { return samples }
+        let desired = CMTime(value: max(0, segmentStartMs), timescale: 1_000)
+        let offset = CMTimeSubtract(desired, earliest)
+        if CMTimeCompare(offset, .zero) == 0 { return samples }
+
+        return try samples.map { sample in
+            let count = CMSampleBufferGetNumSamples(sample)
+            var timings: [CMSampleTimingInfo] = []
+            timings.reserveCapacity(count)
+            for i in 0..<count {
+                var item = CMSampleTimingInfo()
+                guard CMSampleBufferGetSampleTimingInfo(
+                    sample, at: i, timingInfoOut: &item
+                ) == noErr else {
+                    throw SabrFailure.invalidResponse("SABR sample timing unavailable")
+                }
+                item.presentationTimeStamp = CMTimeAdd(item.presentationTimeStamp, offset)
+                if CMTimeGetSeconds(item.decodeTimeStamp).isFinite {
+                    item.decodeTimeStamp = CMTimeAdd(item.decodeTimeStamp, offset)
+                }
+                timings.append(item)
+            }
+            var copy: CMSampleBuffer?
+            let code = timings.withUnsafeBufferPointer {
+                CMSampleBufferCreateCopyWithNewTiming(
+                    allocator: kCFAllocatorDefault, sampleBuffer: sample,
+                    sampleTimingEntryCount: count,
+                    sampleTimingArray: $0.baseAddress, sampleBufferOut: &copy
+                )
+            }
+            guard code == noErr, let copy else {
+                throw SabrFailure.invalidResponse("SABR timestamp alignment failed (CM \(code))")
+            }
+            return copy
+        }
+    }
+}
+
 // Client-local fMP4 reader. TypeType Server remains untouched.
 // A track consists of the init box sequence (ftyp/moov) and a single media fragment (moof/mdat).
 // AVAssetReader is asked for compressed samples (outputSettings:nil) so decoding stays in VideoToolbox.
@@ -184,6 +248,9 @@ final class SabrPlayerController: ObservableObject {
 
     init() {
         videoLayer.videoGravity = .resizeAspect
+        // Explicitly select the tvOS media playback audio route.
+        try? AVAudioSession.sharedInstance().setCategory(.playback)
+        try? AVAudioSession.sharedInstance().setActive(true)
         synchronizer.addRenderer(videoLayer)
         synchronizer.addRenderer(audioRenderer)
     }
@@ -848,8 +915,10 @@ final class SabrPlayerController: ObservableObject {
                             try await service.fragmentData(segment.url, sessionId: sid,
                                                            itag: choice.audio.itag, generation: gen)
                         }
-                        audioSamples = try await FragmentedMP4Reader.compressedSamples(
-                            initialization: audioInit, fragment: bytes, mediaType: .audio
+                        audioSamples = try SabrSampleTimeline.aligned(
+                            await FragmentedMP4Reader.compressedSamples(
+                                initialization: audioInit, fragment: bytes, mediaType: .audio
+                            ), segmentStartMs: segment.startMs
                         )
                         guard !audioSamples.isEmpty else {
                             throw SabrFailure.unsupported("SABR audio segment contains no compressed samples")
@@ -865,8 +934,10 @@ final class SabrPlayerController: ObservableObject {
                             try await service.fragmentData(segment.url, sessionId: sid,
                                                            itag: choice.video.itag, generation: gen)
                         }
-                        videoSamples = try await FragmentedMP4Reader.compressedSamples(
-                            initialization: videoInit, fragment: bytes, mediaType: .video
+                        videoSamples = try SabrSampleTimeline.aligned(
+                            await FragmentedMP4Reader.compressedSamples(
+                                initialization: videoInit, fragment: bytes, mediaType: .video
+                            ), segmentStartMs: segment.startMs
                         )
                         guard !videoSamples.isEmpty else {
                             throw SabrFailure.unsupported("SABR video segment contains no compressed samples")
