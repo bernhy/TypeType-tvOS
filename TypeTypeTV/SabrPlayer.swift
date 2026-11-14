@@ -5,6 +5,62 @@ import AVFoundation
 import CoreMedia
 import VideoToolbox
 
+/// Some tvOS AVAssetReader builds deliver compressed fMP4 CMSampleBuffers
+/// without their CMFormatDescription. Recover it from the AVAssetTrack rather
+/// than passing an undecodable sample into VideoToolbox. Preserve each sample's
+/// timing and byte boundaries (important for B-frames and multi-sample audio).
+enum SabrSampleFormatRepair {
+    static func repair(_ sample: CMSampleBuffer,
+                       fallback: CMFormatDescription?) throws -> CMSampleBuffer {
+        if CMSampleBufferGetFormatDescription(sample) != nil { return sample }
+        guard let fallback else {
+            throw SabrFailure.invalidResponse("SABR MP4 track has no codec format description")
+        }
+        guard let block = CMSampleBufferGetDataBuffer(sample) else {
+            throw SabrFailure.invalidResponse("SABR compressed sample has no data buffer")
+        }
+        let count = CMSampleBufferGetNumSamples(sample)
+        guard count > 0 && count <= 2_000 else {
+            throw SabrFailure.invalidResponse("SABR sample count out of bounds")
+        }
+        var timings: [CMSampleTimingInfo] = []
+        var sizes: [Int] = []
+        timings.reserveCapacity(count)
+        sizes.reserveCapacity(count)
+        for index in 0..<count {
+            var timing = CMSampleTimingInfo()
+            guard CMSampleBufferGetSampleTimingInfo(
+                sample, at: index, timingInfoOut: &timing
+            ) == noErr else {
+                throw SabrFailure.invalidResponse("SABR sample timing unavailable")
+            }
+            let size = CMSampleBufferGetSampleSize(sample, at: index)
+            guard size > 0 else {
+                throw SabrFailure.invalidResponse("SABR sample byte length unavailable")
+            }
+            timings.append(timing)
+            sizes.append(size)
+        }
+        var repaired: CMSampleBuffer?
+        let status = timings.withUnsafeBufferPointer { timingBuffer in
+            sizes.withUnsafeBufferPointer { sizeBuffer in
+                CMSampleBufferCreateReady(
+                    allocator: kCFAllocatorDefault,
+                    dataBuffer: block, formatDescription: fallback,
+                    sampleCount: count,
+                    sampleTimingEntryCount: count, sampleTimingArray: timingBuffer.baseAddress,
+                    sampleSizeEntryCount: count, sampleSizeArray: sizeBuffer.baseAddress,
+                    sampleBufferOut: &repaired
+                )
+            }
+        }
+        guard status == noErr, let repaired else {
+            throw SabrFailure.invalidResponse("SABR codec format repair failed (CM \\(status))")
+        }
+        return repaired
+    }
+}
+
 // Client-local fMP4 reader. TypeType Server remains untouched.
 // A track consists of the init box sequence (ftyp/moov) and a single media fragment (moof/mdat).
 // AVAssetReader is asked for compressed samples (outputSettings:nil) so decoding stays in VideoToolbox.
@@ -34,6 +90,9 @@ enum FragmentedMP4Reader {
         guard let track = tracks.first else {
             throw SabrFailure.unsupported("AVAssetReader couldn't find an \(mediaType.rawValue) track in the SABR fragment")
         }
+        // The codec description belongs to the init segment's sample entry.
+        // Keep it when AVAssetReader omits the description on individual samples.
+        let trackFormat = try await track.load(.formatDescriptions).first
         let reader = try AVAssetReader(asset: asset)
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
         output.alwaysCopiesSampleData = false
@@ -45,7 +104,9 @@ enum FragmentedMP4Reader {
         var samples: [CMSampleBuffer] = []
         while reader.status == .reading {
             guard let sample = output.copyNextSampleBuffer() else { break }
-            samples.append(sample)
+            samples.append(try SabrSampleFormatRepair.repair(
+                sample, fallback: trackFormat
+            ))
             if samples.count > 2_000 {
                 reader.cancelReading()
                 throw SabrFailure.invalidResponse("unreasonably large media fragment")
