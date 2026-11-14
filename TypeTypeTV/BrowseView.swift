@@ -161,7 +161,8 @@ struct BrowseView: View {
                 }
             }
             .padding(.horizontal, 7)
-            .frame(maxWidth: .infinity, height: 54, alignment: .leading)
+            .frame(height: 54)
+            .frame(maxWidth: .infinity, alignment: .leading)
             // Never change size or draw the native tvOS focus overlay.
             .foregroundStyle(menuFocus == item ? .white :
                              (section == item ? TTTheme.accent : TTTheme.muted))
