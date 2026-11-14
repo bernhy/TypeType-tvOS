@@ -18,7 +18,9 @@ struct RootView: View {
         #if DEBUG
         if let preview = Self.previewMode,
            let api = try? TypeTypeAPI(address: "https://preview.invalid") {
-            if ["home", "home-expanded", "search", "settings",
+            if preview == "player-error" {
+                SabrPlaybackErrorPreview()
+            } else if ["home", "home-expanded", "search", "settings",
                 "settings-content", "settings-performance", "settings-device", "settings-language",
                 "settings-account", "settings-instance", "settings-about"].contains(preview) {
                 BrowseView(
@@ -73,6 +75,28 @@ struct RootView: View {
 }
 
 #if DEBUG
+/// Network-free focus regression for the same error dialog displayed
+/// during real SABR playback. Real backend errors are not needed for this test.
+private struct SabrPlaybackErrorPreview: View {
+    @State private var selected = "none"
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            VStack(spacing: 28) {
+                SabrPlaybackErrorDialog(
+                    unavailable: false,
+                    failure: "SABR preview failure",
+                    onRetry: { selected = "retry" },
+                    onBack: { selected = "back" }
+                )
+                Text(selected)
+                    .accessibilityIdentifier("sabrErrorPreviewSelection")
+            }
+        }
+    }
+}
+
 /// Network-free screenshot fixtures for automated simulator UI reviews.
 /// These are never shown in Release builds or to ordinary users.
 enum TVShowcaseFixtures {
