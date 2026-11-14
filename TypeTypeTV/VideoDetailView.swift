@@ -20,7 +20,7 @@ struct VideoDetailView: View {
         case play, channel, markWatched, descriptionEntry, descriptionBody
     }
     @FocusState private var focusedDetail: DetailFocus?
-    @State private var initialFocusAssigned = false
+    @State private var initiallyFocusedVideoURL: String?
     @State private var descriptionScrollCommand = 0
 
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
@@ -344,9 +344,10 @@ struct VideoDetailView: View {
             .padding(.bottom, 110)
             }
             .background(TTTheme.ink)
+            .defaultFocus($focusedDetail, .play)
             .task(id: video.url) {
-                if !initialFocusAssigned {
-                    initialFocusAssigned = true
+                if initiallyFocusedVideoURL != video.url {
+                    initiallyFocusedVideoURL = video.url
                     // tvOS otherwise chooses the first focusable item,
                     // which became the channel link above Play.
                     await Task.yield()
