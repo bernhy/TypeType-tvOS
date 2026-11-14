@@ -25,18 +25,21 @@ private final class TVThumbnailMemory {
 struct TVThumbnail: View {
     let url: URL?
     let origin: URL
+    // Default to cover for hero artwork. Card artwork instead uses .fit so
+    // focusing it never cuts off faces/text along the edges.
+    var contentMode: ContentMode = .fill
     @State private var bitmap: UIImage?
 
     var body: some View {
-        // A resizable scaledToFill image has an unbounded ideal size unless
-        // we constrain BOTH axes. Without GeometryReader it can bleed into
-        // another card's header/footer in tvOS LazyVGrid focus layouts.
+        // Both axes stay bounded to the thumbnail viewport. For video
+        // cards we use .fit to preserve the whole picture when a focused
+        // card grows; hero artwork may still use the default .fill.
         GeometryReader { geometry in
             ZStack {
                 if let bitmap {
                     Image(uiImage: bitmap)
                         .resizable()
-                        .scaledToFill()
+                        .aspectRatio(contentMode: contentMode)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                 } else {
                     LinearGradient(

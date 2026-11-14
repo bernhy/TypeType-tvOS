@@ -510,6 +510,8 @@ struct HomeView: View {
                 }
                 .buttonStyle(TVRailButtonStyle())
                 .focusEffectDisabled(true)
+                .zIndex(focusedHomeVideo ==
+                    (paginate ? "recommendation-" : "recent-") + String(index) ? 5 : 0)
                 .videoActions(api: api, video: video, onChanged: {
                     Task { await refresh() }
                 }, focus: $focusedHomeVideo,

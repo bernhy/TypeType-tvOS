@@ -75,6 +75,7 @@ struct TVSubscriptionsView: View {
                                 }
                                 .buttonStyle(TVRailButtonStyle())
                                 .focusEffectDisabled(true)
+                                .zIndex(focusedVideo == video.url ? 5 : 0)
                                 .videoActions(
                                     api: api, video: video, onChanged: {},
                                     focus: $focusedVideo, focusID: video.url

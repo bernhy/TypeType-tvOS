@@ -129,6 +129,7 @@ struct LibraryView: View {
                                 }
                                 .buttonStyle(TVRailButtonStyle())
                                 .focusEffectDisabled(true)
+                                .zIndex(focusedVideoURL == video.url ? 5 : 0)
                                 .videoActions(
                                     api: api, video: video,
                                     onChanged: { Task { await refresh() } },
