@@ -30,11 +30,8 @@ struct TVVideoActionModifier: ViewModifier {
     @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
 
     private var isMarkedWatched: Bool {
-        guard let duration = video.duration, duration > 0 else { return false }
-        if let position = localProgress.positions[video.url] ?? video.watchPositionMs {
-            return position >= Int64(duration) * 900
-        }
-        return video.watched == true
+        TVWatchedState.isWatched(video, positionMs:
+            localProgress.position(for: video.url) ?? video.watchPositionMs)
     }
     @FocusState private var cardFocus: Bool
     @State private var pickerVisible = false

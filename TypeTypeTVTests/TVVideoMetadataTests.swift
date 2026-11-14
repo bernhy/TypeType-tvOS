@@ -39,4 +39,52 @@ final class TVVideoMetadataTests: XCTestCase {
         XCTAssertEqual(TVVideoMetadata.viewLabel(0, language: "de"), "0 Aufrufe")
         XCTAssertNil(TVVideoMetadata.viewLabel(-1, language: "de"))
     }
+    func testPlaylistPreservesServerViewsAndPublicationDate() throws {
+        let data = Data(#"""
+        {"url":"https://www.youtube.com/watch?v=abc123def45",
+         "title":"Example","thumbnail":"","duration":120,
+         "channelName":"Author","watchPosition":55000,
+         "watched":false,"viewCount":99122,"publishedAt":1800000000000}
+        """#.utf8)
+        let row = try JSONDecoder().decode(TVPlaylistVideoDTO.self, from: data).video
+        XCTAssertEqual(row.viewCount, 99_122)
+        XCTAssertEqual(row.publishedAt, 1_800_000_000_000)
+        XCTAssertEqual(row.watchPositionMs, 55_000)
+    }
+
+    func testYoutubeAliasesShareTheSameIdentityButSpoofedHostsDoNot() {
+        XCTAssertTrue(TVVideoIdentity.equivalent(
+            "https://youtu.be/abc123def45",
+            "https://www.youtube.com/watch?v=abc123def45"))
+        XCTAssertFalse(TVVideoIdentity.equivalent(
+            "https://notyoutube.com/watch?v=abc123def45",
+            "https://youtu.be/abc123def45"))
+        XCTAssertFalse(TVVideoIdentity.equivalent("", ""))
+    }
+
+    func testExplicitZeroProgressOverridesWatchedFlag() {
+        var video = VideoItem(
+            id: "abc123def45", title: "Example",
+            url: "https://youtu.be/abc123def45", thumbnailUrl: nil,
+            uploaderName: nil, duration: 120, isLive: false
+        )
+        video.watched = true
+        XCTAssertTrue(TVWatchedState.isWatched(video, positionMs: nil))
+        XCTAssertFalse(TVWatchedState.isWatched(video, positionMs: 0))
+        XCTAssertFalse(TVWatchedState.isWatched(video, positionMs: 107_000))
+        XCTAssertTrue(TVWatchedState.isWatched(video, positionMs: 108_000))
+    }
+
+    @MainActor
+    func testLocalProgressPropagatesAcrossYoutubeURLAliases() {
+        let progress = TVLocalProgress.shared
+        progress.clear()
+        progress.record("https://www.youtube.com/watch?v=abc123def45", positionMs: 0)
+        XCTAssertEqual(progress.position(for: "https://youtu.be/abc123def45"), 0)
+        progress.record("https://youtu.be/abc123def45", positionMs: 117_000)
+        XCTAssertEqual(progress.position(for: "https://www.youtube.com/watch?v=abc123def45"), 117_000)
+        progress.clear()
+        XCTAssertNil(progress.position(for: "https://youtu.be/abc123def45"))
+    }
+
 }

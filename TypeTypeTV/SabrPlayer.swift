@@ -254,8 +254,6 @@ final class SabrPlayerController: ObservableObject {
     private var bufferingClockPaused = false
     private var bufferingNeedsAudio = false
     private var bufferingNeedsVideo = false
-    private var submittedAudioEndMs: Int64 = 0
-    private var submittedVideoEndMs: Int64 = 0
     private var queuedAudioEndMs: Int64 = 0
     private var queuedVideoEndMs: Int64 = 0
     private var hardwareDecoder: HardwareVideoDecoder?
@@ -450,8 +448,6 @@ final class SabrPlayerController: ObservableObject {
         bufferingClockPaused = false
         bufferingNeedsAudio = false
         bufferingNeedsVideo = false
-        submittedAudioEndMs = 0
-        submittedVideoEndMs = 0
         queuedAudioEndMs = 0
         queuedVideoEndMs = 0
         rendererReadyThroughMs = 0
@@ -461,13 +457,14 @@ final class SabrPlayerController: ObservableObject {
     /// window. Do not allow audio to keep advancing beyond the shortest
     /// submitted track while video is starved.
     private func pauseForEmptyBufferIfNeeded() {
-        guard isInitialized, !prefersPause, !bufferingClockPaused,
-              submittedAudioEndMs > 0, submittedVideoEndMs > 0 else { return }
+        guard isInitialized, !prefersPause, !bufferingClockPaused else { return }
         let now = max(0, Int64(playbackSeconds() * 1_000))
-        let edge = min(submittedAudioEndMs, submittedVideoEndMs)
-        guard now >= max(0, edge - 450) else { return }
-        bufferingNeedsAudio = submittedAudioEndMs <= now + 450
-        bufferingNeedsVideo = submittedVideoEndMs <= now + 450
+        guard SabrRendererCoverage.shouldPause(
+            clockMs: now, audioEndMs: queuedAudioEndMs,
+            videoEndMs: queuedVideoEndMs
+        ) else { return }
+        bufferingNeedsAudio = queuedAudioEndMs <= now + 450
+        bufferingNeedsVideo = queuedVideoEndMs <= now + 450
         bufferingClockPaused = true
         synchronizer.setRate(0, time: synchronizer.currentTime())
         isPlaying = false
@@ -1103,10 +1100,6 @@ final class SabrPlayerController: ObservableObject {
             }
 
             positionMs = coverage.safeEndMs
-            // Only advertise the common A/V boundary to the playback
-            // underrun monitor, not unmatched fragments held in pending.
-            submittedAudioEndMs = coverage.safeEndMs
-            submittedVideoEndMs = coverage.safeEndMs
             if response.endOfStream == true {
                 guard isInitialized else {
                     throw SabrFailure.invalidResponse(

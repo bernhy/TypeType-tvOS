@@ -612,7 +612,7 @@ struct VideoCard: View {
     }
 
     private var effectivePosition: Int64? {
-        localProgress.positions[video.url] ?? video.watchPositionMs
+        localProgress.position(for: video.url) ?? video.watchPositionMs
     }
     private var fraction: Double? {
         guard video.isLive != true,
@@ -624,8 +624,7 @@ struct VideoCard: View {
         // Some server versions expose a 'watched' convenience flag whose
         // duration and progress units differ. Prefer measured millisecond
         // progress and its 90% threshold whenever the position is available.
-        if effectivePosition != nil { return (fraction ?? 0) >= 0.90 }
-        return video.watched == true
+        TVWatchedState.isWatched(video, positionMs: effectivePosition)
     }
     private var watchedTime: String? {
         guard let progress = effectivePosition, progress > 0 else { return nil }

@@ -22,9 +22,7 @@ final class TVWatchLaterMembership: ObservableObject {
     }
 
     func contains(_ videoURL: String) -> Bool {
-        if urls.contains(videoURL) { return true }
-        guard let id = VideoAddress.youtubeID(videoURL) else { return false }
-        return urls.contains { VideoAddress.youtubeID($0) == id }
+        urls.contains { TVVideoIdentity.equivalent($0, videoURL) }
     }
 
     func ensureLoaded(api: TypeTypeAPI) async {
@@ -64,10 +62,7 @@ final class TVWatchLaterMembership: ObservableObject {
         if present {
             urls.insert(url)
         } else {
-            urls.remove(url)
-            if let id = VideoAddress.youtubeID(url) {
-                urls = Set(urls.filter { VideoAddress.youtubeID($0) != id })
-            }
+            urls = Set(urls.filter { !TVVideoIdentity.equivalent($0, url) })
         }
         loaded = true
     }

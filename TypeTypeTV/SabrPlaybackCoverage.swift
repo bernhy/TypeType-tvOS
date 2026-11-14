@@ -78,3 +78,21 @@ struct SabrPlaybackCoverage {
         end = max(end, segment.startMs + segment.durationMs)
     }
 }
+
+/// Network media coverage is not the same as samples handed to both renderers.
+/// A stalled video decoder must pause the shared clock even if whole fragments
+/// are already on disk and the producer advertised their time range.
+enum SabrRendererCoverage {
+    static func commonEnd(audioEndMs: Int64, videoEndMs: Int64) -> Int64? {
+        guard audioEndMs > 0, videoEndMs > 0 else { return nil }
+        return min(audioEndMs, videoEndMs)
+    }
+
+    static func shouldPause(clockMs: Int64, audioEndMs: Int64,
+                            videoEndMs: Int64, marginMs: Int64 = 450) -> Bool {
+        guard let end = commonEnd(audioEndMs: audioEndMs, videoEndMs: videoEndMs) else {
+            return false
+        }
+        return max(0, clockMs) >= max(0, end - max(0, marginMs))
+    }
+}

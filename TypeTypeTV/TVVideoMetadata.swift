@@ -53,11 +53,22 @@ enum TVVideoMetadata {
     }
 }
 
+/// Account-independent video identity; a URL spelling is not a video identity.
+enum TVVideoIdentity {
+    static func equivalent(_ lhs: String, _ rhs: String) -> Bool {
+        if lhs == rhs { return !lhs.isEmpty }
+        guard let id = VideoAddress.youtubeID(lhs) else { return false }
+        return VideoAddress.youtubeID(rhs) == id
+    }
+}
+
 extension TVVideoMetadata {
     static func merged(_ video: VideoItem, stream: StreamInfo?) -> VideoItem {
         guard let stream else { return video }
         var row = video
-        if row.viewCount == nil || row.viewCount! < 0 { row.viewCount = stream.viewCount }
+        if (row.viewCount ?? -1) <= 0, let views = stream.viewCount, views >= 0 {
+            row.viewCount = views
+        }
         if row.publishedAt == nil || row.publishedAt! <= 0 { row.publishedAt = stream.publishedAt }
         if row.uploaded == nil || row.uploaded! <= 0 { row.uploaded = stream.uploaded }
         if row.uploadDate?.isEmpty != false { row.uploadDate = stream.uploadDate }
@@ -77,7 +88,7 @@ actor TVStreamMetadataCache {
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     func details(for video: VideoItem, api: TypeTypeAPI) async -> StreamInfo? {
-        let key = api.origin.absoluteString + "|" + video.url
+        let key = api.metadataCacheScope + "|" + video.url
         if let value = completed[key] { return value }
         if let until = failedUntil[key], until > Date() { return nil }
         if let task = pending[key] { return await task.value }

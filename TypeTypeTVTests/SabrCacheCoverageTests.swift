@@ -87,4 +87,19 @@ final class SabrCacheCoverageTests: XCTestCase {
         ], retainFromMs: 0)
         XCTAssertTrue(ranges.isEmpty)
     }
+    func testRendererUnderflowUsesActualEnqueuedSamplesNotNetworkCoverage() {
+        // The server can already report 120 seconds on disk while the
+        // audio/video renderers have only received 11 and 8 seconds.
+        XCTAssertFalse(SabrRendererCoverage.shouldPause(
+            clockMs: 2_000, audioEndMs: 0, videoEndMs: 0))
+        XCTAssertFalse(SabrRendererCoverage.shouldPause(
+            clockMs: 5_000, audioEndMs: 11_000, videoEndMs: 8_000))
+        XCTAssertTrue(SabrRendererCoverage.shouldPause(
+            clockMs: 7_600, audioEndMs: 11_000, videoEndMs: 8_000))
+        XCTAssertFalse(SabrRendererCoverage.shouldPause(
+            clockMs: 7_600, audioEndMs: 11_000, videoEndMs: 9_000))
+        XCTAssertEqual(SabrRendererCoverage.commonEnd(
+            audioEndMs: 11_000, videoEndMs: 8_000), 8_000)
+    }
+
 }

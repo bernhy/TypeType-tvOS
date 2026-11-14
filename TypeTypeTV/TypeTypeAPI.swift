@@ -215,6 +215,12 @@ struct TypeTypeAPI {
         injectedToken ?? TypeTypeCredentials.shared.token(for: origin)
     }
 
+    // Account-specific metadata must not leak between household profiles.
+    // This key is process-local and never appears in logs or HTTP requests.
+    var metadataCacheScope: String {
+        origin.absoluteString + "|" + (accountToken ?? "guest")
+    }
+
     init(address: String, session injectedSession: URLSession? = nil, token injectedToken: String? = nil) throws {
         let text = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let scheme = URLComponents(string: text)?.scheme?.lowercased(),
@@ -518,44 +524,51 @@ struct TypeTypeAPI {
 
     /// Mutate the same server-side library as the Android TV app. No
     /// tvOS-local shadow favorites and no optimistic write without rollback.
+    /// Favorites and Watch Later are keyed by exact URL on TypeType.
+    /// Resolve equivalent YouTube URLs before inserting or deleting.
     func setFavorite(videoURL: String, enabled: Bool) async throws {
+        let saved = try await library(.favorites)
+        let match = saved.first { TVVideoIdentity.equivalent($0.url, videoURL) }
+        if enabled && match != nil { return }
+        guard enabled || match != nil else { return }
         let url = try TVLibraryRoutes.mediaURL(
-            base: base, collection: "favorites", videoURL: videoURL
+            base: base, collection: "favorites",
+            videoURL: enabled ? videoURL : match!.url
         )
-        try await writeLibrary(url, method: enabled ? "POST" : "DELETE", body: nil)
+        do {
+            try await writeLibrary(url, method: enabled ? "POST" : "DELETE", body: nil)
+        } catch TypeTypeError.http(500, _) where enabled {
+            // The server uses INSERT rather than UPSERT; verify the row before
+            // treating an unavoidable concurrent duplicate as success.
+            if try await library(.favorites).contains(where: {
+                TVVideoIdentity.equivalent($0.url, videoURL)
+            }) { return }
+            throw TypeTypeError.http(500, "favorites")
+        }
     }
 
     func setWatchLater(video: VideoItem, enabled: Bool) async throws {
+        let saved = try await library(.watchLater)
+        let match = saved.first { TVVideoIdentity.equivalent($0.url, video.url) }
+        if enabled && match != nil { return }
+        guard enabled || match != nil else { return }
         let url: URL
         let body: Data?
         if enabled {
-            // TypeType Server currently inserts (user_id, url) with a PRIMARY
-            // KEY but does not upsert or translate duplicate-key errors into
-            // 409. A second POST for an already-saved video causes HTTP 500.
-            // Inspect membership at action time, not once per thumbnail.
-            let saved = try await library(.watchLater)
-            let isAlreadySaved = saved.contains {
-                $0.url == video.url ||
-                (VideoAddress.youtubeID($0.url) != nil &&
-                 VideoAddress.youtubeID($0.url) == VideoAddress.youtubeID(video.url))
-            }
-            if isAlreadySaved { return }
             url = base.appendingPathComponent("watch-later")
             body = try JSONEncoder().encode(TVWatchLaterWrite(video: video))
         } else {
             url = try TVLibraryRoutes.mediaURL(
-                base: base, collection: "watch-later", videoURL: video.url
+                base: base, collection: "watch-later", videoURL: match!.url
             )
             body = nil
         }
         do {
             try await writeLibrary(url, method: enabled ? "POST" : "DELETE", body: body)
         } catch TypeTypeError.http(500, _) where enabled {
-            // Another client can add the same video between GET and POST.
-            // Only treat this as success if the row really exists now.
-            if try await library(.watchLater).contains(where: { $0.url == video.url }) {
-                return
-            }
+            if try await library(.watchLater).contains(where: {
+                TVVideoIdentity.equivalent($0.url, video.url)
+            }) { return }
             throw TypeTypeError.http(500, "watch-later")
         }
     }
@@ -667,12 +680,15 @@ struct TypeTypeAPI {
 
     func stream(for video: VideoItem) async throws -> StreamInfo {
         let endpoint: String
-        if video.url.contains("youtube.com") || video.url.contains("youtu.be") {
+        let host = URLComponents(string: video.url)?.host?.lowercased()
+        if VideoAddress.youtubeID(video.url) != nil {
             endpoint = video.isLive == true ?
                 "streams/youtube/live" : "streams/youtube/sabr"
-        } else if video.url.contains("bilibili.com") || video.url.contains("b23.tv") {
+        } else if let host, host == "bilibili.com" || host.hasSuffix(".bilibili.com") ||
+                    host == "b23.tv" || host.hasSuffix(".b23.tv") {
             endpoint = "streams/bilibili"
-        } else if video.url.contains("nicovideo.jp") || video.url.contains("nico.ms") {
+        } else if let host, host == "nicovideo.jp" || host.hasSuffix(".nicovideo.jp") ||
+                    host == "nico.ms" || host.hasSuffix(".nico.ms") {
             endpoint = "streams/niconico"
         } else {
             throw TypeTypeError.unavailableFormat

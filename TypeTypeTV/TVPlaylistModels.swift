@@ -21,6 +21,8 @@ struct TVPlaylistVideoDTO: Decodable {
     let channelUrl: String?
     let watchPosition: Int64?
     let watched: Bool?
+    let viewCount: Int64?
+    let publishedAt: Int64?
 
     var video: VideoItem {
         var row = VideoItem(
@@ -31,6 +33,8 @@ struct TVPlaylistVideoDTO: Decodable {
         row.uploaderUrl = channelUrl
         row.watchPositionMs = watchPosition
         row.watched = watched
+        row.viewCount = viewCount
+        row.publishedAt = publishedAt
         return row
     }
 }

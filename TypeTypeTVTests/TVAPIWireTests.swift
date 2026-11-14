@@ -342,42 +342,111 @@ final class TVAPIWireTests: XCTestCase {
     func testFavoritesAndWatchLaterUseAuthenticatedWrites() async throws {
         let lock = NSLock()
         var requests: [(String, String, String?)] = []
+        var favoriteSaved = false
+        var laterSaved = false
+        let videoURL = "https://www.youtube.com/watch?v=abc123def45"
         TVAPIWireProtocol.install(host: "actions.example") { request in
             guard let url = request.url else { return (400, Data()) }
+            let method = request.httpMethod ?? ""
+            let path = url.path
             lock.lock()
             requests.append((
-                request.httpMethod ?? "",
-                URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                method, URLComponents(url: url, resolvingAgainstBaseURL: false)?
                     .percentEncodedPath ?? "",
                 request.value(forHTTPHeaderField: "Authorization")
             ))
-            lock.unlock()
-            guard request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-token"
-            else { return (401, Data()) }
-            if request.httpMethod == "GET",
-               url.path == "/api/watch-later" {
-                return (200, Data("[]".utf8))
+            var status = 204
+            var body = Data()
+            if method == "GET" && path == "/api/favorites" {
+                status = 200
+                body = favoriteSaved
+                    ? Data("[{\"videoUrl\":\"\(videoURL)\",\"title\":\"Video\",\"thumbnail\":\"\",\"channelName\":\"\",\"duration\":120}]".utf8)
+                    : Data("[]".utf8)
+            } else if method == "GET" && path == "/api/watch-later" {
+                status = 200
+                body = laterSaved
+                    ? Data("[{\"url\":\"\(videoURL)\",\"title\":\"Video\",\"thumbnail\":\"\",\"channelName\":\"\",\"duration\":120}]".utf8)
+                    : Data("[]".utf8)
+            } else if path.hasPrefix("/api/favorites/") {
+                favoriteSaved = method == "POST"
+            } else if path == "/api/watch-later" && method == "POST" {
+                laterSaved = true
+            } else if path.hasPrefix("/api/watch-later/") && method == "DELETE" {
+                laterSaved = false
             }
-            return (204, Data())
+            lock.unlock()
+            return (status, body)
         }
         let api = try fixtureAPI(host: "actions.example")
-        let url = "https://www.youtube.com/watch?v=abc123def45"
-        let video = VideoItem(id: url, title: "Video", url: url,
+        let video = VideoItem(id: videoURL, title: "Video", url: videoURL,
             thumbnailUrl: nil, uploaderName: nil, duration: 120, isLive: false)
-        try await api.setFavorite(videoURL: url, enabled: true)
-        try await api.setFavorite(videoURL: url, enabled: false)
+        try await api.setFavorite(videoURL: videoURL, enabled: true)
+        try await api.setFavorite(videoURL: videoURL, enabled: false)
         try await api.setWatchLater(video: video, enabled: true)
         try await api.setWatchLater(video: video, enabled: false)
-        lock.lock()
-        let logged = requests
-        lock.unlock()
-        XCTAssertEqual(logged.map { $0.0 }, ["POST", "DELETE", "GET", "POST", "DELETE"])
+        let logged = lock.withLock { requests }
+        XCTAssertEqual(logged.map { $0.0 },
+                       ["GET", "POST", "GET", "DELETE", "GET", "POST", "GET", "DELETE"])
         XCTAssertTrue(logged.allSatisfy { $0.2 == "Bearer fixture-token" })
-        XCTAssertTrue(logged[0].1.hasPrefix("/api/favorites/"))
-        XCTAssertTrue(logged[1].1.contains("%3Fv="))
-        XCTAssertEqual(logged[2].1, "/api/watch-later")
-        XCTAssertEqual(logged[3].1, "/api/watch-later")
-        XCTAssertTrue(logged[4].1.hasPrefix("/api/watch-later/"))
+        XCTAssertEqual(logged[0].1, "/api/favorites")
+        XCTAssertTrue(logged[1].1.hasPrefix("/api/favorites/"))
+        XCTAssertTrue(logged[3].1.contains("%3Fv="))
+        XCTAssertEqual(logged[4].1, "/api/watch-later")
+        XCTAssertEqual(logged[5].1, "/api/watch-later")
+        XCTAssertTrue(logged[7].1.hasPrefix("/api/watch-later/"))
+    }
+
+    func testLibraryActionsResolveSavedYoutubeAliasBeforeDeletion() async throws {
+        let lock = NSLock()
+        var writes: [(String, String)] = []
+        let storedURL = "https://www.youtube.com/watch?v=abc123def45"
+        let alias = "https://youtu.be/abc123def45"
+        TVAPIWireProtocol.install(host: "alias-actions.example") { request in
+            let method = request.httpMethod ?? ""
+            let path = request.url?.path ?? ""
+            if method == "GET" && path == "/api/favorites" {
+                return (200, Data("[{\"videoUrl\":\"\(storedURL)\",\"title\":\"Video\",\"thumbnail\":\"\",\"channelName\":\"\",\"duration\":120}]".utf8))
+            }
+            if method == "GET" && path == "/api/watch-later" {
+                return (200, Data("[{\"url\":\"\(storedURL)\",\"title\":\"Video\",\"thumbnail\":\"\",\"channelName\":\"\",\"duration\":120}]".utf8))
+            }
+            lock.withLock { writes.append((method, path)) }
+            return (204, Data())
+        }
+        let api = try fixtureAPI(host: "alias-actions.example")
+        let video = VideoItem(id: alias, title: "Video", url: alias,
+                              thumbnailUrl: nil, uploaderName: nil,
+                              duration: 120, isLive: false)
+        try await api.setFavorite(videoURL: alias, enabled: true)
+        try await api.setWatchLater(video: video, enabled: true)
+        try await api.setFavorite(videoURL: alias, enabled: false)
+        try await api.setWatchLater(video: video, enabled: false)
+        let items = lock.withLock { writes }
+        XCTAssertEqual(items.map { $0.0 }, ["DELETE", "DELETE"])
+        XCTAssertTrue(items.allSatisfy {
+            $0.1.contains("youtube.com/watch") && $0.1.contains("abc123def45")
+        })
+    }
+
+    func testStreamRoutingRejectsSpoofedYoutubeHost() async throws {
+        let api = try fixtureAPI(host: "host-validation.example")
+        let video = VideoItem(
+            id: "abc123def45", title: "Video",
+            url: "https://notyoutube.com/watch?v=abc123def45",
+            thumbnailUrl: nil, uploaderName: nil, duration: 120, isLive: false
+        )
+        do {
+            _ = try await api.stream(for: video)
+            XCTFail("Spoofed domains must not be sent to the YouTube route")
+        } catch TypeTypeError.unavailableFormat {
+            // Expected.
+        }
+    }
+
+    func testStreamMetadataCacheScopeIsolatedPerAccount() throws {
+        let first = try TypeTypeAPI(address: "https://scope.example", token: "user-one")
+        let second = try TypeTypeAPI(address: "https://scope.example", token: "user-two")
+        XCTAssertNotEqual(first.metadataCacheScope, second.metadataCacheScope)
     }
 
     @MainActor

@@ -13,6 +13,17 @@ final class TVLocalProgress: ObservableObject {
     func record(_ url: String, positionMs: Int64) {
         guard !url.isEmpty, positionMs >= 0 else { return }
         positions[url] = positionMs
+        if let id = VideoAddress.youtubeID(url) {
+            positions["youtube:" + id] = positionMs
+        }
+    }
+
+    /// A YouTube video may enter the app through youtube.com or youtu.be.
+    /// Preserve the exact URL and a canonical ID for instant cross-view updates.
+    func position(for url: String) -> Int64? {
+        if let id = VideoAddress.youtubeID(url),
+           let shared = positions["youtube:" + id] { return shared }
+        return positions[url]
     }
 
     func clear() {
@@ -80,4 +91,15 @@ actor TVPlaybackProgressWriter {
     }
 
     func flush() async { await lastWrite?.value }
+}
+
+/// An explicit zero progress must override an older server-side watched flag.
+/// All controls and thumbnails use this single 90% completion rule.
+enum TVWatchedState {
+    static func isWatched(_ video: VideoItem, positionMs: Int64?) -> Bool {
+        guard video.isLive != true, let duration = video.duration,
+              duration > 0, duration <= Int64.max / 900 else { return false }
+        if let positionMs { return positionMs >= Int64(duration) * 900 }
+        return video.watched == true
+    }
 }

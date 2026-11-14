@@ -21,7 +21,7 @@ struct VideoDetailView: View {
         TVVideoMetadata.merged(video, stream: streamMetadata)
     }
     private var playbackPosition: Int64 {
-        max(0, localProgress.positions[video.url] ??
+        max(0, localProgress.position(for: video.url) ??
             savedPositionMs ?? video.watchPositionMs ?? 0)
     }
     private var watchedFraction: Double {
@@ -29,8 +29,8 @@ struct VideoDetailView: View {
         return max(0, min(1, Double(playbackPosition) / (Double(duration) * 1_000)))
     }
     private var isMarkedWatched: Bool {
-        if playbackPosition > 0 { return watchedFraction >= 0.90 }
-        return detailedVideo.watched == true
+        TVWatchedState.isWatched(detailedVideo, positionMs:
+            localProgress.position(for: video.url) ?? savedPositionMs ?? video.watchPositionMs)
     }
 
 
@@ -248,8 +248,8 @@ struct VideoDetailView: View {
             async let saved = api.library(.watchLater)
             let (favoriteItems, savedItems) = try await (favorites, saved)
             guard !Task.isCancelled else { return }
-            favorite = favoriteItems.contains { $0.url == video.url }
-            watchLater = savedItems.contains { $0.url == video.url }
+            favorite = favoriteItems.contains { TVVideoIdentity.equivalent($0.url, video.url) }
+            watchLater = savedItems.contains { TVVideoIdentity.equivalent($0.url, video.url) }
             activityLoaded = true
         } catch is CancellationError {
             return
