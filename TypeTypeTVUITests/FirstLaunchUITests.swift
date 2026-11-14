@@ -86,6 +86,26 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Empfehlungen"].waitForExistence(timeout: 5))
     }
 
+    func testSabrFailureDialogAllowsRetryAndBackWithRemote() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "player-error", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["SABR-Wiedergabe fehlgeschlagen"]
+            .waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["Erneut versuchen"].exists)
+        XCTAssertTrue(app.buttons["Zurück"].exists)
+        // The first Select must ACTIVATE Retry, not toggle video playback via
+        // the underlying fullscreen UIKit remote responder.
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(app.staticTexts["retry"].waitForExistence(timeout: 8))
+        // Left/right navigation must also reach the Back button.
+        XCUIRemote.shared.press(.right)
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(app.staticTexts["back"].waitForExistence(timeout: 8))
+    }
+
     func testSearchScreenLayoutWithoutServer() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-TypeTypeTVPreview", "search", "-typetype.uiLanguage", "de"]
