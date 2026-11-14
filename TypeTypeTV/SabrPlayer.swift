@@ -251,7 +251,10 @@ final class SabrPlayerController: ObservableObject {
         // Explicitly select the tvOS media playback audio route.
         try? AVAudioSession.sharedInstance().setCategory(.playback)
         try? AVAudioSession.sharedInstance().setActive(true)
-        synchronizer.addRenderer(videoLayer)
+        // Attach the same video renderer that receives the decoded frames.
+        // The display layer owns this renderer, but enqueuing on a different
+        // legacy layer queue would bypass our shared A/V media timeline.
+        synchronizer.addRenderer(videoLayer.sampleBufferRenderer)
         synchronizer.addRenderer(audioRenderer)
     }
 
