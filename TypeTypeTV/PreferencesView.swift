@@ -11,6 +11,7 @@ struct PreferencesView: View {
     let autoPresentAddAccount: Bool
     var onAccountChanged: () -> Void = {}
     var onBackToMenu: () -> Void = {}
+    var onGroupChanged: (TVSettingsGroup) -> Void = { _ in }
     var onAddAccountDismissed: () -> Void = {}
 
     @ObservedObject private var hardware = TVHardwareDiagnostics.shared
@@ -26,6 +27,9 @@ struct PreferencesView: View {
 
     @State private var group: TVSettingsGroup
     @FocusState private var focusedGroup: TVSettingsGroup?
+    @FocusState private var firstControlFocus: TVSettingsGroup?
+    @FocusState private var profileRemovalFocus: String?
+    @State private var lastRemovalID: String?
     @State private var remote: TVServerSettings?
     @State private var remoteLoading = false
     @State private var remoteSaving = false
@@ -49,6 +53,7 @@ struct PreferencesView: View {
          autoPresentAddAccount: Bool = false,
          onAccountChanged: @escaping () -> Void = {},
          onBackToMenu: @escaping () -> Void = {},
+         onGroupChanged: @escaping (TVSettingsGroup) -> Void = { _ in },
          onAddAccountDismissed: @escaping () -> Void = {}) {
         self.api = api
         self.onDisconnect = onDisconnect
@@ -56,6 +61,7 @@ struct PreferencesView: View {
         self.autoPresentAddAccount = autoPresentAddAccount
         self.onAccountChanged = onAccountChanged
         self.onBackToMenu = onBackToMenu
+        self.onGroupChanged = onGroupChanged
         self.onAddAccountDismissed = onAddAccountDismissed
         _group = State(initialValue: initialGroup)
     }
@@ -64,7 +70,8 @@ struct PreferencesView: View {
         HStack(alignment: .top, spacing: 23) {
             groupRail
                 .frame(width: 234)
-                .defaultFocus($focusedGroup, group)
+                // A default focus on the rail can steal focus back from
+                // Picker menus and account dialogs when they close.
                 .environment(\.isFocusEffectEnabled, false)
                 .focusEffectDisabled(true)
                 .clipped()
@@ -115,13 +122,40 @@ struct PreferencesView: View {
             if group == .account { await refreshAccountIdentity() }
         }
         .onChange(of: focusedGroup) { _, next in
-            if let next { group = next }
+            if let next, group != next {
+                group = next
+                onGroupChanged(next)
+            }
+        }
+        .onChange(of: group) { _, next in
+            onGroupChanged(next)
+        }
+        .onChange(of: showAddAccountSheet) { _, visible in
+            if !visible {
+                Task { @MainActor in
+                    await Task.yield()
+                    firstControlFocus = .account
+                }
+            }
+        }
+        .onChange(of: confirmProfileRemoval) { _, showing in
+            if !showing, let id = lastRemovalID {
+                Task { @MainActor in
+                    await Task.yield()
+                    if savedAccounts.contains(where: { $0.id == id }) {
+                        profileRemovalFocus = id
+                    } else {
+                        firstControlFocus = .account
+                    }
+                }
+            }
         }
         .onExitCommand {
             // Back climbs one level at a time:
             // controls -> selected Settings group -> global Settings icon.
             // The global sidebar then handles Settings -> Home -> no-op.
             if focusedGroup == nil {
+                firstControlFocus = nil
                 focusedGroup = group
             } else {
                 onBackToMenu()
@@ -212,6 +246,17 @@ struct PreferencesView: View {
                 .buttonStyle(TVRailButtonStyle())
                 .focusEffectDisabled(true)
                 .focused($focusedGroup, equals: item)
+                .onMoveCommand { direction in
+                    if direction == .right {
+                        // The tvOS focus engine otherwise jumps back to
+                        // the global rail or leaves the panel unreachable.
+                        group = item
+                        Task { @MainActor in
+                            await Task.yield()
+                            firstControlFocus = item
+                        }
+                    }
+                }
                 .accessibilityIdentifier("settings-group-\(item.rawValue)")
                 .accessibilityLabel(TVL10n.value(item.titleKey))
                 .accessibilityAddTraits(item == group ? .isSelected : [])
@@ -241,6 +286,7 @@ struct PreferencesView: View {
         VStack(spacing: 24) {
             TVSettingsCard("settings.videoQuality", summary: "settings.localDeviceScope") {
                 Toggle("settings.allowSoftware", isOn: $allowSoftware)
+                    .focused($firstControlFocus, equals: .playback)
                 Text("settings.softwareWarning")
                     .font(.caption).foregroundStyle(TTTheme.muted)
                 TVSettingsMenuRow("settings.maxResolution", selection: $maxHeight) {
@@ -270,6 +316,7 @@ struct PreferencesView: View {
                             Text(TVL10n.value(field.titleKey))
                         }
                         .disabled(remoteSaving)
+                        .focused($firstControlFocus, equals: .content)
                     }
                     if remoteSaving { ProgressView("settings.remoteSaving") }
                     Button("common.refresh") { Task { await refreshRemote() } }
@@ -281,6 +328,7 @@ struct PreferencesView: View {
                         .foregroundStyle(TTTheme.muted)
                     Button("common.retry") { Task { await refreshRemote() } }
                         .buttonStyle(.bordered)
+                        .focused($firstControlFocus, equals: .content)
                 }
                 if let remoteError, remote != nil {
                     Text(remoteError)
@@ -297,7 +345,10 @@ struct PreferencesView: View {
     private var devicePanel: some View {
         VStack(spacing: 24) {
             TVSettingsCard("settings.remote", summary: "settings.remoteHelp") {
-                TVSettingsMenuRow("settings.skipLength", selection: $skipSeconds) {
+                TVSettingsMenuRow(
+                    "settings.skipLength", selection: $skipSeconds,
+                    focus: $firstControlFocus, focusTarget: .device
+                ) {
                     ForEach([5, 10, 15, 20], id: \.self) { seconds in
                         Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
                     }
@@ -420,7 +471,10 @@ struct PreferencesView: View {
     private var languagePanel: some View {
         VStack(spacing: 24) {
             TVSettingsCard("settings.languageControls") {
-                TVSettingsMenuRow("settings.languagePicker", selection: $uiLanguage) {
+                TVSettingsMenuRow(
+                    "settings.languagePicker", selection: $uiLanguage,
+                    focus: $firstControlFocus, focusTarget: .language
+                ) {
                     Text("language.system").tag(TVLanguages.followSystem)
                     ForEach(TVLanguages.available, id: \.self) { lang in
                         Text(TVLanguages.nativeName(lang)).tag(lang)
@@ -463,6 +517,7 @@ struct PreferencesView: View {
                             }
                             Spacer(minLength: 12)
                             Button(role: .destructive) {
+                                lastRemovalID = profile.id
                                 pendingProfileRemoval = profile
                                 confirmProfileRemoval = true
                             } label: {
@@ -470,6 +525,7 @@ struct PreferencesView: View {
                             }
                             .buttonStyle(.bordered)
                             .accessibilityIdentifier("accounts-remove-\(profile.id)")
+                            .focused($profileRemovalFocus, equals: profile.id)
                         }
                         .padding(.vertical, 10)
                         if profile.id != savedAccounts.last?.id { Divider() }
@@ -486,19 +542,7 @@ struct PreferencesView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(TTTheme.accent)
                 .accessibilityIdentifier("accounts-add")
-
-                if let identity = accountIdentity, !identity.isGuest {
-                    Divider()
-                    HStack {
-                        Label("login.accountActive", systemImage: "checkmark.shield.fill")
-                            .foregroundStyle(TTTheme.muted)
-                        Spacer()
-                        Button("settings.logout", role: .destructive) {
-                            confirmLogout = true
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
+                .focused($firstControlFocus, equals: .account)
 
                 if let accountError {
                     Text(accountError)
@@ -528,6 +572,7 @@ struct PreferencesView: View {
                 }
                 Button("common.refresh") { Task { await refreshInstance() } }
                     .buttonStyle(.bordered)
+                    .focused($firstControlFocus, equals: .instance)
                 Divider()
                 if let fingerprint = TVServerTrust.shared.fingerprint(for: api.origin) {
                     Label("settings.certTrusted", systemImage: "checkmark.shield")
@@ -550,6 +595,7 @@ struct PreferencesView: View {
         VStack(spacing: 24) {
             TVSettingsCard("settings.aboutControls") {
                 TVSettingsInfoRow(title: "settings.appName", value: "TypeType tvOS")
+                    .focused($firstControlFocus, equals: .about)
                 TVSettingsInfoRow(
                     title: "settings.appVersion",
                     value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
