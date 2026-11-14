@@ -45,8 +45,15 @@ final class TVHardwareDiagnostics: ObservableObject {
         deviceName = UIDevice.current.model
         systemVersion = UIDevice.current.systemName + " " + UIDevice.current.systemVersion
         totalMemoryMiB = ProcessInfo.processInfo.physicalMemory / (1024 * 1024)
-        let bounds = UIScreen.main.nativeBounds
-        outputSize = "\(Int(bounds.width)) × \(Int(bounds.height))"
+        // tvOS 26 no longer exposes a reliable global UIScreen.main.
+        // Read the currently attached window scene's actual display instead.
+        if let screen = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first?.screen {
+            let bounds = screen.nativeBounds
+            outputSize = "\(Int(bounds.width)) × \(Int(bounds.height))"
+        } else {
+            outputSize = "–"
+        }
         probes = [
             TVCodecProbe(name: "H.264 / AVC", codec: "avc1",
                          hardwareAvailable: HardwareCodec.supported("avc1")),
