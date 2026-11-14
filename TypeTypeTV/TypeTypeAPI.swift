@@ -222,7 +222,7 @@ struct TypeTypeAPI {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("TypeTypeTV-tvOS/0.3", forHTTPHeaderField: "User-Agent")
+        request.setValue("TypeTypeTV-tvOS/0.1", forHTTPHeaderField: "User-Agent")
         request.httpBody = try JSONEncoder().encode(
             TVPasswordLoginRequest(identifier: cleanIdentifier, password: password)
         )
@@ -249,7 +249,7 @@ struct TypeTypeAPI {
         guard let bearer = accountToken, !bearer.isEmpty else { return nil }
         var request = URLRequest(url: base.appendingPathComponent("auth/me"))
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("TypeTypeTV-tvOS/0.3", forHTTPHeaderField: "User-Agent")
+        request.setValue("TypeTypeTV-tvOS/0.1", forHTTPHeaderField: "User-Agent")
         request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         let (data, result) = try await session.data(for: request)
         guard let response = result as? HTTPURLResponse else {
@@ -556,7 +556,7 @@ struct TypeTypeAPI {
     private func authorizedRequest(_ url: URL, method: String) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.setValue("TypeTypeTV-tvOS/0.3", forHTTPHeaderField: "User-Agent")
+        request.setValue("TypeTypeTV-tvOS/0.1", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let token = accountToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -572,7 +572,7 @@ struct TypeTypeAPI {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("TypeTypeTV-tvOS/0.2", forHTTPHeaderField: "User-Agent")
+        request.setValue("TypeTypeTV-tvOS/0.1", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             request.httpBody = body
