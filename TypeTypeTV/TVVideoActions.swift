@@ -20,6 +20,7 @@ struct TVVideoActionModifier: ViewModifier {
         }
         return video.watched == true
     }
+    @FocusState private var cardFocus: Bool
     @State private var pickerVisible = false
     @State private var toBlock: TVBlockTarget?
     @State private var feedback: String?
@@ -28,6 +29,7 @@ struct TVVideoActionModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .focused($cardFocus)
             .task { await watchLaterMembership.ensureLoaded(api: api) }
             .contextMenu {
                 if let position = localProgress.positions[video.url] ?? video.watchPositionMs,
@@ -128,12 +130,18 @@ struct TVVideoActionModifier: ViewModifier {
                         .allowsHitTesting(false)
                 }
             }
-            .sheet(isPresented: $pickerVisible) {
+            .sheet(isPresented: $pickerVisible, onDismiss: restoreCardFocus) {
                 TVPlaylistPickerView(api: api, video: video) { success in
                     pickerVisible = false
                     feedback = success
                     refreshAfterFeedback()
                 }
+            }
+            .onChange(of: toBlock) { old, current in
+                if old != nil && current == nil { restoreCardFocus() }
+            }
+            .onChange(of: errorMessage) { old, current in
+                if old != nil && current == nil { restoreCardFocus() }
             }
             .confirmationDialog(
                 TVL10n.value("action.confirmBlock"),
@@ -172,6 +180,13 @@ struct TVVideoActionModifier: ViewModifier {
             } message: {
                 Text(errorMessage ?? "")
             }
+    }
+
+    private func restoreCardFocus() {
+        Task { @MainActor in
+            await Task.yield()
+            cardFocus = true
+        }
     }
 
     private func refreshAfterFeedback() {
