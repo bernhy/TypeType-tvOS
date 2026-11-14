@@ -121,6 +121,51 @@ final class TVAPIWireTests: XCTestCase {
         }
     }
 
+    func testCurrentAccountDistinguishesGuestFromSignedInUser() async throws {
+        let lock = NSLock()
+        var captured: [(String, String?)] = []
+        TVAPIWireProtocol.install(host: "guest-identity.example") { request in
+            lock.lock()
+            captured.append((request.url?.path ?? "",
+                             request.value(forHTTPHeaderField: "Authorization")))
+            lock.unlock()
+            return (200, Data(#"{"id":"guest:opaque","role":"guest","publicUsername":null}"#.utf8))
+        }
+        TVAPIWireProtocol.install(host: "member-identity.example") { request in
+            lock.lock()
+            captured.append((request.url?.path ?? "",
+                             request.value(forHTTPHeaderField: "Authorization")))
+            lock.unlock()
+            return (200, Data(#"{"id":"member-42","role":"user","publicUsername":"tester"}"#.utf8))
+        }
+        let guest = try await fixtureAPI(host: "guest-identity.example").currentAccount()
+        XCTAssertEqual(guest?.isGuest, true)
+        XCTAssertNil(guest?.visibleName)
+        let member = try await fixtureAPI(host: "member-identity.example").currentAccount()
+        XCTAssertEqual(member?.isGuest, false)
+        XCTAssertEqual(member?.visibleName, "tester")
+        lock.lock()
+        let observed = captured
+        lock.unlock()
+        XCTAssertEqual(observed.count, 2)
+        XCTAssertTrue(observed.allSatisfy {
+            $0.0 == "/api/auth/me" && $0.1 == "Bearer fixture-token"
+        })
+    }
+
+    func testCurrentAccountDoesNotTreatExpiredTokenAsGuest() async throws {
+        TVAPIWireProtocol.install(host: "expired-identity.example") { _ in
+            (401, Data(#"{"error":"Invalid token"}"#.utf8))
+        }
+        do {
+            _ = try await fixtureAPI(host: "expired-identity.example").currentAccount()
+            XCTFail("Expired account sessions must not be displayed as guests")
+        } catch TypeTypeError.http(let status, let path) {
+            XCTAssertEqual(status, 401)
+            XCTAssertEqual(path, "auth/me")
+        }
+    }
+
     func testSettingsAndProgressUseRealServerMethods() async throws {
         let lock = NSLock()
         var records: [(String, String, String, String?, Data?)] = []
