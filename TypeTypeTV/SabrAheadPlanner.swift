@@ -25,6 +25,16 @@ enum SabrLookaheadPolicy {
     }
 }
 
+/// Never jump the upstream SABR session past media that was not actually
+/// downloaded for BOTH tracks. The playback clock may run ahead during a
+/// renderer/network underrun; using it directly would skip the missing
+/// segment and produce an unrecoverable timestamp gap.
+enum SabrWindowRequestPosition {
+    static func position(playheadMs: Int64, contiguousThroughMs: Int64) -> Int64 {
+        min(max(0, playheadMs), max(0, contiguousThroughMs))
+    }
+}
+
 /// Rebuild advertised SABR ranges only from fragments *currently on disk*.
 /// A historic high-water mark is not proof that an evicted fragment is buffered.
 enum SabrCachedRangePlanner {
@@ -95,11 +105,15 @@ actor SabrWindowMailbox {
         windows.append(window)
     }
 
-    func next() async throws -> SabrWindow? {
+    /// Optional heartbeat lets playback pause its shared A/V clock when the
+    /// compressed-media queue is empty, while the server prepares the next
+    /// SABR window. This prevents the audio clock running into a video gap.
+    func next(onWait: (@Sendable () async -> Void)? = nil) async throws -> SabrWindow? {
         while windows.isEmpty {
             try Task.checkCancellation()
             if let terminalError { throw terminalError }
             if closed { return nil }
+            if let onWait { await onWait() }
             try await Task.sleep(nanoseconds: 60_000_000)
         }
         return windows.removeFirst()
