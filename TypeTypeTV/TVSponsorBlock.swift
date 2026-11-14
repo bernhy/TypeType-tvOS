@@ -51,6 +51,7 @@ enum TVSponsorBlock {
     static func visible(_ segment: TVSponsorBlockSegment, settings: TVServerSettings,
                         duration: Double) -> Bool {
         guard settings.sponsorBlockMode != "disabled",
+              (segment.category != "chapter" || settings.sponsorBlockShowChapters == true),
               action(segment.category, settings: settings) != "disabled",
               let range = bounds(segment, duration: duration),
               range.upperBound - range.lowerBound >=

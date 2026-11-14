@@ -108,6 +108,13 @@ struct TVSubscriptionFeedView: View {
             await Task.yield()
             focusedVideo = videos.first?.url
         }
+        .onChange(of: videos.count) { _, count in
+            guard count > 0, focusRequest > 0, focusedVideo == nil else { return }
+            Task { @MainActor in
+                await Task.yield()
+                focusedVideo = videos.first?.url
+            }
+        }
         .onExitCommand { onRevealMenu() }
     }
 

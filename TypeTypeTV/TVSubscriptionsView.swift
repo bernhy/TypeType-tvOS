@@ -25,6 +25,14 @@ struct TVSubscriptionsView: View {
     @FocusState private var focusedVideo: String?
     @FocusState private var loadingRailFocused: Bool
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 22), count: 3)
+    private var supportsShorts: Bool {
+        guard let url = selectedChannelURL else { return false }
+        #if DEBUG
+        if api.origin.host == "preview.invalid" { return true }
+        #endif
+        let host = URLComponents(string: url)?.host?.lowercased() ?? ""
+        return host == "youtube.com" || host.hasSuffix(".youtube.com")
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 25) {
@@ -49,15 +57,16 @@ struct TVSubscriptionsView: View {
                                 .lineLimit(3)
                         }
                     }
-                    HStack(spacing: 15) {
-                        Button("channels.videos") { showingShorts = false }
-                            .tint(showingShorts ? TTTheme.muted : TTTheme.accent)
-                        Button("channels.shorts") { showingShorts = true }
-                            .tint(showingShorts ? TTTheme.accent : TTTheme.muted)
+                    if supportsShorts {
+                        HStack(spacing: 15) {
+                            Button("channels.videos") { showingShorts = false }
+                                .tint(showingShorts ? TTTheme.muted : TTTheme.accent)
+                            Button("channels.shorts") { showingShorts = true }
+                                .tint(showingShorts ? TTTheme.accent : TTTheme.muted)
+                        }
+                        .buttonStyle(.bordered)
+                        .focusSection()
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(selectedChannelURL == nil)
-                    .focusSection()
                     if loadingVideos {
                         ProgressView("settings.remoteLoading")
                             .frame(maxWidth: .infinity, minHeight: 160)
@@ -224,6 +233,10 @@ struct TVSubscriptionsView: View {
             }
         } else {
             enterGridAfterLoad = true
+            let host = URLComponents(string: url)?.host?.lowercased() ?? ""
+            if host != "youtube.com" && !host.hasSuffix(".youtube.com") {
+                showingShorts = false
+            }
             selectedChannelURL = url
         }
     }
