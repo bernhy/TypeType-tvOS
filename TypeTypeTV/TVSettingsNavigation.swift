@@ -69,9 +69,13 @@ struct TVSettingsCard<Content: View>: View {
     }
 }
 
+/// Focusable read-only rows let the Siri Remote move through long diagnostic
+/// reports line by line. ScrollView will scroll the focused row into view,
+/// unlike a stack of static Text labels between two distant buttons.
 struct TVSettingsInfoRow: View {
     let title: String
     let value: String
+    @FocusState private var readingFocus: Bool
 
     var body: some View {
         HStack(alignment: .center, spacing: 18) {
@@ -79,12 +83,33 @@ struct TVSettingsInfoRow: View {
                 .font(.body)
             Spacer(minLength: 22)
             Text(value).font(.callout.weight(.medium))
-                .foregroundStyle(.white.opacity(0.9))
-                .lineLimit(2)
+                .foregroundStyle(readingFocus ? .white : .white.opacity(0.9))
+                .lineLimit(3)
                 .multilineTextAlignment(.trailing)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .focusable(true)
+        .focusEffectDisabled(true)
+        .focused($readingFocus)
         .accessibilityElement(children: .combine)
+    }
+}
+
+struct TVSettingsReadableText: View {
+    let key: String
+    @FocusState private var readingFocus: Bool
+
+    var body: some View {
+        Text(TVL10n.value(key))
+            .font(.callout)
+            .foregroundStyle(readingFocus ? .white : TTTheme.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+            .focusable(true)
+            .focusEffectDisabled(true)
+            .focused($readingFocus)
     }
 }
 
