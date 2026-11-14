@@ -61,6 +61,23 @@ enum SabrSampleFormatRepair {
     }
 }
 
+/// Count compressed samples belonging to the media interval covered by
+/// BOTH tracks. Samples remain in original per-track decode order (including
+/// B-frames); the boundary is a prefix so we never reorder decode dependencies.
+enum SabrSampleWindow {
+    static func prefixCount(_ samples: [CMSampleBuffer],
+                            endingBeforeMs edge: Int64) -> Int {
+        guard edge > 0 else { return 0 }
+        var count = 0
+        for sample in samples {
+            let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
+            guard pts.isFinite, pts * 1_000 < Double(edge) + 1.0 else { break }
+            count += 1
+        }
+        return count
+    }
+}
+
 /// An isolated fMP4 fragment can be demuxed with timestamps relative to its
 /// own beginning, even when the server delivered an absolute timeline window.
 /// Anchor each track's presentation timestamps to the server segment start,
@@ -941,7 +958,11 @@ final class SabrPlayerController: ObservableObject {
         var audioInitLocation = ""
         var videoInitLocation = ""
         var seen = Set<String>()
-        var startupSamples = SabrStartupAccumulator<CMSampleBuffer>()
+        // Audio (often ~10 s per fragment) and video (often ~5 s) do
+        // not share fragment indices. Keep an independent queue per track;
+        // only submit samples through the last contiguous COMMON timeline.
+        var pendingAudio: [CMSampleBuffer] = []
+        var pendingVideo: [CMSampleBuffer] = []
         var coverage = SabrPlaybackCoverage(audioItag: choice.audio.itag,
                                             videoItag: choice.video.itag, positionMs: start)
         while let response = try await mailbox.next(onWait: { [weak self] in
@@ -967,85 +988,83 @@ final class SabrPlayerController: ObservableObject {
                 videoInitLocation = video.initUrl
             }
 
-            // The first audio and video fragments may live at different
-            // segment indices or even in separate windows. Pre-roll until
-            // both tracks have compressed samples; never start a one-track
-            // renderer clock at rate zero.
-            let count = max(audio.segments.count, video.segments.count)
-            for index in 0..<count {
+            // Merge segments by media time, NEVER by array index. Index pairing
+            // incorrectly associates an audio fragment spanning 10 seconds
+            // with a 5-second video fragment. When the next audio fragment
+            // arrives, that can make video starve while audio runs ahead even
+            // though the network cache holds minutes of media.
+            for segment in audio.segments.sorted(by: { $0.startMs < $1.startMs }) {
                 try Task.checkCancellation()
-                var audioSamples: [CMSampleBuffer] = []
-                var videoSamples: [CMSampleBuffer] = []
-                var audioPart: SabrFragment?
-                var videoPart: SabrFragment?
+                let key = "a:\(segment.url)"
+                guard !seen.contains(key) else { continue }
+                let sid = sessionId, gen = generation
+                let bytes = try await cache.data(for: segment.url) {
+                    try await service.fragmentData(segment.url, sessionId: sid,
+                                                   itag: choice.audio.itag, generation: gen)
+                }
+                let samples = try SabrSampleTimeline.aligned(
+                    await FragmentedMP4Reader.compressedSamples(
+                        initialization: audioInit, fragment: bytes, mediaType: .audio
+                    ), segmentStartMs: segment.startMs
+                )
+                guard !samples.isEmpty else {
+                    throw SabrFailure.unsupported("SABR audio segment contains no compressed samples")
+                }
+                pendingAudio.append(contentsOf: samples)
+                try coverage.acceptAudio(segment)
+                seen.insert(key)
+            }
+            for segment in video.segments.sorted(by: { $0.startMs < $1.startMs }) {
+                try Task.checkCancellation()
+                let key = "v:\(segment.url)"
+                guard !seen.contains(key) else { continue }
+                let sid = sessionId, gen = generation
+                let bytes = try await cache.data(for: segment.url) {
+                    try await service.fragmentData(segment.url, sessionId: sid,
+                                                   itag: choice.video.itag, generation: gen)
+                }
+                let samples = try SabrSampleTimeline.aligned(
+                    await FragmentedMP4Reader.compressedSamples(
+                        initialization: videoInit, fragment: bytes, mediaType: .video
+                    ), segmentStartMs: segment.startMs
+                )
+                guard !samples.isEmpty else {
+                    throw SabrFailure.unsupported("SABR video segment contains no compressed samples")
+                }
+                pendingVideo.append(contentsOf: samples)
+                try coverage.acceptVideo(segment)
+                seen.insert(key)
+            }
 
-                if index < audio.segments.count {
-                    let segment = audio.segments[index]
-                    if !seen.contains("a:\(segment.url)") {
-                        let sid = sessionId, gen = generation
-                        let bytes = try await cache.data(for: segment.url) {
-                            try await service.fragmentData(segment.url, sessionId: sid,
-                                                           itag: choice.audio.itag, generation: gen)
-                        }
-                        audioSamples = try SabrSampleTimeline.aligned(
-                            await FragmentedMP4Reader.compressedSamples(
-                                initialization: audioInit, fragment: bytes, mediaType: .audio
-                            ), segmentStartMs: segment.startMs
-                        )
-                        guard !audioSamples.isEmpty else {
-                            throw SabrFailure.unsupported("SABR audio segment contains no compressed samples")
-                        }
-                        audioPart = segment
-                    }
-                }
-                if index < video.segments.count {
-                    let segment = video.segments[index]
-                    if !seen.contains("v:\(segment.url)") {
-                        let sid = sessionId, gen = generation
-                        let bytes = try await cache.data(for: segment.url) {
-                            try await service.fragmentData(segment.url, sessionId: sid,
-                                                           itag: choice.video.itag, generation: gen)
-                        }
-                        videoSamples = try SabrSampleTimeline.aligned(
-                            await FragmentedMP4Reader.compressedSamples(
-                                initialization: videoInit, fragment: bytes, mediaType: .video
-                            ), segmentStartMs: segment.startMs
-                        )
-                        guard !videoSamples.isEmpty else {
-                            throw SabrFailure.unsupported("SABR video segment contains no compressed samples")
-                        }
-                        videoPart = segment
-                    }
-                }
-                if !isInitialized {
-                    if let ready = try startupSamples.append(
-                        audio: audioSamples, video: videoSamples
-                    ) {
-                        // Interleave all accumulated samples from both tracks.
-                        // Otherwise different segment boundaries drop or
-                        // reject perfectly valid media at startup.
-                        try await enqueueInterleaved(
-                            audio: ready.audio, video: ready.video, startMs: start
-                        )
-                    }
-                } else {
+            // A video segment can be ready long before the matching audio
+            // segment (and vice versa). Keep that excess in the pending queue
+            // until the complementary track has advanced. Do not race ahead
+            // with one renderer; that creates visible freeze/catch-up bursts.
+            let commonEndMs = coverage.safeEndMs
+            let audioReadyCount = SabrSampleWindow.prefixCount(
+                pendingAudio, endingBeforeMs: commonEndMs
+            )
+            let videoReadyCount = SabrSampleWindow.prefixCount(
+                pendingVideo, endingBeforeMs: commonEndMs
+            )
+            if audioReadyCount > 0 || videoReadyCount > 0 {
+                let audioReady = Array(pendingAudio.prefix(audioReadyCount))
+                let videoReady = Array(pendingVideo.prefix(videoReadyCount))
+                // Require both tracks before starting the shared clock.
+                if isInitialized || (!audioReady.isEmpty && !videoReady.isEmpty) {
                     try await enqueueInterleaved(
-                        audio: audioSamples, video: videoSamples, startMs: start
+                        audio: audioReady, video: videoReady, startMs: start
                     )
-                }
-                if let part = audioPart {
-                    try coverage.acceptAudio(part)
-                    seen.insert("a:\(part.url)")
-                }
-                if let part = videoPart {
-                    try coverage.acceptVideo(part)
-                    seen.insert("v:\(part.url)")
+                    pendingAudio.removeFirst(audioReadyCount)
+                    pendingVideo.removeFirst(videoReadyCount)
                 }
             }
 
             positionMs = coverage.safeEndMs
-            submittedAudioEndMs = coverage.audioEndMs
-            submittedVideoEndMs = coverage.videoEndMs
+            // Only advertise the common A/V boundary to the playback
+            // underrun monitor, not unmatched fragments held in pending.
+            submittedAudioEndMs = coverage.safeEndMs
+            submittedVideoEndMs = coverage.safeEndMs
             if response.endOfStream == true {
                 guard isInitialized else {
                     throw SabrFailure.invalidResponse(
