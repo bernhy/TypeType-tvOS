@@ -50,6 +50,38 @@ final class SabrTimelineAndHistoryTests: XCTestCase {
         XCTAssertEqual(CMSampleBufferGetSampleSize(aligned[0], at: 0), 4)
     }
 
+    func testSabrRequestClampsClockAheadOfUnbufferedVideo() {
+        XCTAssertEqual(
+            SabrWindowRequestPosition.position(
+                playheadMs: 14_700, contiguousThroughMs: 10_000
+            ), 10_000
+        )
+        XCTAssertEqual(
+            SabrWindowRequestPosition.position(
+                playheadMs: 4_000, contiguousThroughMs: 10_000
+            ), 4_000
+        )
+        XCTAssertEqual(
+            SabrWindowRequestPosition.position(
+                playheadMs: -5_000, contiguousThroughMs: 10_000
+            ), 0
+        )
+    }
+
+    func testSabrSegmentGapTriggersBoundedSessionRecovery() {
+        let policy = SabrRecoveryPolicy()
+        let gap = SabrFailure.invalidResponse(
+            "SABR segment gap before next media sample"
+        )
+        XCTAssertTrue(policy.canRetry(gap, completedAttempts: 1, elapsedSeconds: 2))
+        XCTAssertFalse(policy.canRetry(gap, completedAttempts: 8, elapsedSeconds: 2))
+        XCTAssertFalse(policy.canRetry(gap, completedAttempts: 1, elapsedSeconds: 130))
+        XCTAssertFalse(policy.canRetry(
+            SabrFailure.invalidResponse("SABR sample has invalid presentation time"),
+            completedAttempts: 1, elapsedSeconds: 2
+        ))
+    }
+
     func testHistoryKeepsOneEntryForRepeatedYouTubePlayback() {
         let a = VideoItem(id: "a", title: "Latest attempt",
                           url: "https://www.youtube.com/watch?v=abc123def45",
