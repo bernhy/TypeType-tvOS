@@ -11,7 +11,6 @@ struct TVRemoteDescriptionScrollView: UIViewRepresentable {
     func makeUIView(context: Context) -> TVDescriptionTextView {
         let view = TVDescriptionTextView()
         view.backgroundColor = .clear
-        view.isEditable = false
         view.isSelectable = true
         view.isScrollEnabled = true
         view.bounces = false
