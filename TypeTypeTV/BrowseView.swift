@@ -478,7 +478,7 @@ struct HomeView: View {
             let page = try await api.home()
             guard !Task.isCancelled else { return }
             nextCursor = page.nextCursor?.isEmpty == false ? page.nextCursor : nil
-            hasMoreRecommendations = (page.hasMore ?? nextCursor != nil) &&
+            hasMoreRecommendations = (page.hasMore ?? (nextCursor != nil)) &&
                 nextCursor != nil
             loadMoreError = nil
             videos = page.items
@@ -514,7 +514,7 @@ struct HomeView: View {
             let candidate = page.nextCursor?.isEmpty == false ? page.nextCursor : nil
             // Protect against servers returning the same cursor forever.
             nextCursor = candidate != cursor ? candidate : nil
-            hasMoreRecommendations = (page.hasMore ?? nextCursor != nil) &&
+            hasMoreRecommendations = (page.hasMore ?? (nextCursor != nil)) &&
                 nextCursor != nil
         } catch is CancellationError {
             return
