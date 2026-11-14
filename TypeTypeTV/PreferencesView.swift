@@ -52,9 +52,11 @@ struct PreferencesView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 35) {
+        HStack(alignment: .top, spacing: 23) {
             groupRail
-                .frame(width: 320)
+                .frame(width: 234)
+                .focusEffectDisabled(true)
+                .clipped()
                 .focusSection()
 
             VStack(alignment: .leading, spacing: 22) {
@@ -83,8 +85,8 @@ struct PreferencesView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(.horizontal, 55)
-        .padding(.top, 46)
+        .padding(.horizontal, 28)
+        .padding(.top, 38)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TTTheme.ink)
         // Initial focus belongs to the selected settings category, not Home.
@@ -126,7 +128,7 @@ struct PreferencesView: View {
     }
 
     private var groupRail: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("TYPE TYPE")
                 .font(.subheadline.bold())
                 .tracking(2.6)
@@ -138,12 +140,12 @@ struct PreferencesView: View {
                     group = item
                     focusedGroup = item
                 } label: {
-                    HStack(spacing: 16) {
+                    HStack(spacing: 9) {
                         Image(systemName: item.symbol)
-                            .font(.system(size: 23))
-                            .frame(width: 31)
+                            .font(.system(size: 21))
+                            .frame(width: 27)
                         Text(TVL10n.value(item.titleKey))
-                            .font(.system(size: 22, weight: .semibold))
+                            .font(.system(size: 18, weight: .medium))
                             .lineLimit(1)
                         Spacer(minLength: 0)
                         if item == group {
@@ -151,15 +153,14 @@ struct PreferencesView: View {
                                 .font(.caption.bold())
                         }
                     }
-                    .padding(.horizontal, 18)
-                    .frame(maxWidth: .infinity, minHeight: 66, alignment: .leading)
-                    .background(
-                        item == group ? TTTheme.accent.opacity(0.22) : TTTheme.surface.opacity(0.65),
-                        in: RoundedRectangle(cornerRadius: 15)
-                    )
-                    .foregroundStyle(item == group ? .white : TTTheme.muted)
+                    .padding(.horizontal, 6)
+                    .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                    .foregroundStyle(item == focusedGroup ? .white :
+                                     (item == group ? TTTheme.accent : TTTheme.muted))
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .focusEffectDisabled(true)
                 .focused($focusedGroup, equals: item)
                 .accessibilityLabel(TVL10n.value(item.titleKey))
                 .accessibilityAddTraits(item == group ? .isSelected : [])
@@ -310,10 +311,12 @@ struct PreferencesView: View {
                         )
                         .foregroundStyle(result.hardwareAvailable ? .green : .orange)
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 9)
+                    .contentShape(Rectangle())
+                    .focusable(true)
+                    .focusEffectDisabled(true)
                 }
-                Text("settings.hardwareProbeNote")
-                    .font(.caption).foregroundStyle(TTTheme.muted)
+                TVSettingsReadableText(key: "settings.hardwareProbeNote")
                 Button("settings.hardwareRefresh") {
                     hardware.refresh()
                 }
@@ -347,8 +350,7 @@ struct PreferencesView: View {
                     Text("settings.hardwareNoStream")
                         .font(.callout).foregroundStyle(TTTheme.muted)
                 }
-                Text("settings.hardwareStreamNote")
-                    .font(.caption).foregroundStyle(TTTheme.muted)
+                TVSettingsReadableText(key: "settings.hardwareStreamNote")
             }
             Button("settings.reset") {
                 allowSoftware = false
