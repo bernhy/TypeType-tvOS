@@ -314,8 +314,13 @@ final class TVAPIWireTests: XCTestCase {
                 request.value(forHTTPHeaderField: "Authorization")
             ))
             lock.unlock()
-            return request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-token"
-                ? (204, Data()) : (401, Data())
+            guard request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-token"
+            else { return (401, Data()) }
+            if request.httpMethod == "GET",
+               url.path == "/api/watch-later" {
+                return (200, Data("[]".utf8))
+            }
+            return (204, Data())
         }
         let api = try fixtureAPI(host: "actions.example")
         let url = "https://www.youtube.com/watch?v=abc123def45"
@@ -328,12 +333,36 @@ final class TVAPIWireTests: XCTestCase {
         lock.lock()
         let logged = requests
         lock.unlock()
-        XCTAssertEqual(logged.map { $0.0 }, ["POST", "DELETE", "POST", "DELETE"])
+        XCTAssertEqual(logged.map { $0.0 }, ["POST", "DELETE", "GET", "POST", "DELETE"])
         XCTAssertTrue(logged.allSatisfy { $0.2 == "Bearer fixture-token" })
         XCTAssertTrue(logged[0].1.hasPrefix("/api/favorites/"))
         XCTAssertTrue(logged[1].1.contains("%3Fv="))
         XCTAssertEqual(logged[2].1, "/api/watch-later")
-        XCTAssertTrue(logged[3].1.hasPrefix("/api/watch-later/"))
+        XCTAssertEqual(logged[3].1, "/api/watch-later")
+        XCTAssertTrue(logged[4].1.hasPrefix("/api/watch-later/"))
+    }
+
+    func testWatchLaterDuplicateNeverRepostsAndDoesNotTriggerServer500() async throws {
+        let lock = NSLock()
+        var requests: [String] = []
+        let videoURL = "https://www.youtube.com/watch?v=abc123def45"
+        TVAPIWireProtocol.install(host: "existing-watch-later.example") { request in
+            let action = "\(request.httpMethod ?? "") \(request.url?.path ?? "")"
+            lock.withLock { requests.append(action) }
+            if action == "GET /api/watch-later" {
+                return (200, Data(
+                    #" [{"url":"https://www.youtube.com/watch?v=abc123def45","title":"Already saved","thumbnail":"","channelName":"Owner","duration":300}] "#.utf8
+                ))
+            }
+            // Mirror the real server's unique (user, URL) constraint.
+            return (500, Data(#"{"error":"duplicate key"}"#.utf8))
+        }
+        let video = VideoItem(id: videoURL, title: "Already saved", url: videoURL,
+                              thumbnailUrl: nil, uploaderName: "Owner",
+                              duration: 300, isLive: false)
+        let api = try fixtureAPI(host: "existing-watch-later.example")
+        try await api.setWatchLater(video: video, enabled: true)
+        XCTAssertEqual(lock.withLock { requests }, ["GET /api/watch-later"])
     }
 
     func testPlaylistsProgressBatchAndAccountBlocksUseExpectedRoutes() async throws {
