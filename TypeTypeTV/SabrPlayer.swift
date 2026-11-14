@@ -70,8 +70,13 @@ enum SabrSampleWindow {
         guard edge > 0 else { return 0 }
         var count = 0
         for sample in samples {
+            // AVC B-frames arrive in decode order, not PTS order. Prefer
+            // monotonic DTS when present; checking PTS can strand earlier
+            // B-frames behind a future P-frame at a segment boundary.
+            let dts = CMTimeGetSeconds(CMSampleBufferGetDecodeTimeStamp(sample))
             let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
-            guard pts.isFinite, pts * 1_000 < Double(edge) + 1.0 else { break }
+            let time = dts.isFinite ? dts : pts
+            guard time.isFinite, time * 1_000 < Double(edge) + 1.0 else { break }
             count += 1
         }
         return count
