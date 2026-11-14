@@ -1013,7 +1013,7 @@ final class SabrPlayerController: ObservableObject {
                 sessionId: sessionId, selection: choice, generation: generation,
                 positionMs: requestPosition,
                 ranges: SabrSequentialWindowPolicy.advertisedRanges,
-                buffer: buffer
+                buffer: buffer, requestedBufferGoalMs: Int(target)
             )
             let windowElapsedMs = Int(Date().timeIntervalSince(windowRequestStarted) * 1_000)
             if windowElapsedMs > 2_000 {

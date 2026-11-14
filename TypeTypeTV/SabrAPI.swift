@@ -94,14 +94,19 @@ struct SabrWindowRequest: Encodable {
     let audioOnly: Bool
 
     init(_ selected: SabrSelection, generation: Int64, positionMs: Int64,
-         ranges: [SabrBufferedRange], buffer: SabrBufferSettings = SabrBufferSettings()) {
+         ranges: [SabrBufferedRange], buffer: SabrBufferSettings = SabrBufferSettings(),
+         requestedBufferGoalMs: Int? = nil) {
         self.generation = generation
         playerTimeMs = positionMs
         videoItag = selected.video.itag
         audioItag = selected.audio.itag
         audioTrackId = selected.audio.audioTrackId
         playbackRate = 1
-        bufferGoalMs = buffer.forwardMilliseconds
+        // Honour the producer's bitrate-aware lookahead. Previously it
+        // capped local prefetch at ~20–36s but still asked the server
+        // to buffer 180s, causing avoidable server-side pump throttling.
+        bufferGoalMs = min(buffer.forwardMilliseconds,
+                           max(1_000, requestedBufferGoalMs ?? buffer.forwardMilliseconds))
         backBufferMs = buffer.backMilliseconds
         bufferedRanges = ranges
         audioOnly = false
@@ -438,8 +443,13 @@ final class SabrService: @unchecked Sendable {
 
     func window(sessionId: String, selection: SabrSelection, generation: Int64,
                 positionMs: Int64, ranges: [SabrBufferedRange] = [],
-                buffer: SabrBufferSettings = SabrBufferSettings()) async throws -> SabrWindow {
-        let body = try encoder.encode(SabrWindowRequest(selection, generation: generation, positionMs: positionMs, ranges: ranges, buffer: buffer))
+                buffer: SabrBufferSettings = SabrBufferSettings(),
+                requestedBufferGoalMs: Int? = nil) async throws -> SabrWindow {
+        let body = try encoder.encode(SabrWindowRequest(
+            selection, generation: generation, positionMs: positionMs,
+            ranges: ranges, buffer: buffer,
+            requestedBufferGoalMs: requestedBufferGoalMs
+        ))
         let path = "sabr/playback/\(sessionId)"
         let _: EmptyReply = try await request(path + "/position", method: "POST", body: body, allowedStatuses: [200, 202, 204], allowEmpty: true)
         var prefetched = false

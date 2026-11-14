@@ -64,6 +64,34 @@ final class HardwareCodecFallbackTests: XCTestCase {
         XCTAssertTrue(options.contains { $0.video.itag == 900 })
     }
 
+    func testTwoLevelQualityMenuGroupsCodecBeforeResolutionAndFrameRate() {
+        let tracks = [
+            video(1, codec: "av01.0.08M.08", height: 2160, fps: 30),
+            video(2, codec: "av01.0.08M.08", height: 2160, fps: 30),
+            video(3, codec: "av01.0.08M.08", height: 1080, fps: 60),
+            video(4, codec: "avc1.640028", height: 1080, fps: 30),
+            video(5, codec: "vp09.00.51.08", height: 720, fps: 30),
+            video(6, codec: "hvc1.2.4.L153.B0", height: 1080, fps: 30)
+        ]
+        XCTAssertEqual(SabrVideoQualityGroups.codecs(from: tracks),
+                       [.av1, .hevc, .vp9, .h264])
+        let choices = SabrVideoQualityGroups.variants(
+            codec: .av1, from: tracks, selectedItag: nil
+        )
+        XCTAssertEqual(choices.map(\.itag), [1, 3],
+                       "Duplicate AV1 representations should not clutter resolution list")
+        let retained = SabrVideoQualityGroups.variants(
+            codec: .av1, from: tracks, selectedItag: 2
+        )
+        XCTAssertEqual(retained.map(\.itag), [2, 3],
+                       "An already selected representation should remain checked")
+        XCTAssertEqual(
+            SabrVideoQualityGroups.variants(codec: .h264, from: tracks,
+                                            selectedItag: nil).map(\.itag),
+            [4]
+        )
+    }
+
     func testMissingCompatibleAudioDisablesPlaybackSelection() {
         let bootstrap = SabrBootstrap(id: nil, hlsUrl: nil, isLive: nil,
             videoOnlyStreams: [video(137, codec: "avc1.640028", height: 1080, fps: 30)],

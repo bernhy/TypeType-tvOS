@@ -116,6 +116,21 @@ final class SabrWireContractTests: XCTestCase {
         XCTAssertEqual(json?["bufferGoalMs"] as? Int, 180_000)
         XCTAssertEqual(json?["backBufferMs"] as? Int, 120_000)
         XCTAssertEqual(json?["generation"] as? Int, 3)
+        let bounded = SabrWindowRequest(
+            SabrSelection(video: video, audio: audio), generation: 3,
+            positionMs: 2_000, ranges: [], buffer: defaults,
+            requestedBufferGoalMs: 20_000
+        )
+        let boundedJSON = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(bounded)) as? [String: Any]
+        XCTAssertEqual(boundedJSON?["bufferGoalMs"] as? Int, 20_000,
+                       "Server must not request 180s when the local producer only buffers 20s")
+        let excessive = SabrWindowRequest(
+            SabrSelection(video: video, audio: audio), generation: 3,
+            positionMs: 2_000, ranges: [], buffer: defaults,
+            requestedBufferGoalMs: 300_000
+        )
+        XCTAssertEqual(excessive.bufferGoalMs, 180_000)
     }
 
     func testDiskCacheReusesSegmentAndClearsTemporaryFiles() async throws {
