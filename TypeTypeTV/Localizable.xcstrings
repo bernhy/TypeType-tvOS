@@ -309,34 +309,6 @@
         }
       }
     },
-    "sponsor.configure": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SponsorBlock konfigurieren"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configure SponsorBlock"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configurer SponsorBlock"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configurar SponsorBlock"
-          }
-        }
-      }
-    },
     "sponsor.mode": {
       "localizations": {
         "de": {

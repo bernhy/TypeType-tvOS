@@ -141,14 +141,17 @@ struct PreferencesView: View {
                 return
             }
             if let next, group != next {
+                // .onChange(of: group) is the only source of notification:
+                // calling the callback here too produced duplicate updates.
                 group = next
-                onGroupChanged(next)
             }
         }
         .onChange(of: focusedControl) { previous, next in
             guard let previous, next == nil, focusedGroup == nil,
                   previous == "playback.software" ||
                   previous == "device.animations" ||
+                  previous == "sponsor.refresh" ||
+                  previous.hasPrefix("sponsor.sponsorBlock") ||
                   (previous.hasPrefix("content.") &&
                    previous != "content.refresh" && previous != "content.retry")
             else { return }

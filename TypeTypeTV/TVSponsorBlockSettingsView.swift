@@ -9,8 +9,10 @@ struct TVSponsorBlockSettingsView: View {
     var onMoveLeft: () -> Void = {}
 
     @State private var settings: TVServerSettings?
-    @State private var loading = true
+    @State private var loading = false
     @State private var saving = false
+    @State private var lastWrite: Task<Void, Never>?
+    @State private var writeGeneration = 0
     @State private var error: String?
 
     var body: some View {
@@ -30,6 +32,14 @@ struct TVSponsorBlockSettingsView: View {
                     ProgressView("settings.remoteLoading")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                if let settings {
+                    choice("sponsor.mode",
+                           current: settings.sponsorBlockMode ?? "auto_skip",
+                           focusID: "sponsor.mode",
+                           choices: ["auto_skip", "mark_only", "disabled"]) { mode in
+                        setGlobalMode(mode)
+                    }
+                }
                 if saving {
                     ProgressView("settings.remoteSaving")
                 }
@@ -41,15 +51,6 @@ struct TVSponsorBlockSettingsView: View {
             }
 
             if let settings {
-                TVSettingsCard("sponsor.mode") {
-                    choice("sponsor.mode",
-                           current: settings.sponsorBlockMode ?? "auto_skip",
-                           focusID: "sponsor.mode",
-                           choices: ["auto_skip", "mark_only", "disabled"]) { mode in
-                        setGlobalMode(mode)
-                    }
-                }
-
                 TVSettingsCard("sponsor.categories") {
                     ForEach(TVSponsorBlock.categories, id: \.self) { category in
                         choice(TVSponsorBlock.titleKey(category),
@@ -163,50 +164,61 @@ struct TVSponsorBlockSettingsView: View {
     /// are serialized without disabling the currently focused control.
     private func update(_ field: String, value: TVSettingValue,
                         mutate: @escaping (inout TVServerSettings) -> Void) {
-        guard !saving, var next = settings else { return }
-        let before = next
+        guard var next = settings else { return }
         mutate(&next)
         settings = next
-        saving = true
-        error = nil
-        Task { @MainActor in
-            do {
-                settings = try await api.setAccountSetting(field, value: value)
-            } catch {
-                settings = before
-                self.error = error.localizedDescription
-            }
-            saving = false
-        }
+        enqueue([field: value])
     }
 
     private func setGlobalMode(_ mode: String) {
-        guard !saving, var next = settings else { return }
-        let before = next
+        guard var next = settings else { return }
         let actions = Dictionary(uniqueKeysWithValues:
             TVSponsorBlock.categories.map { ($0, mode) })
         next.sponsorBlockMode = mode
         next.sponsorBlockCategoryActions = actions
         settings = next
+        enqueue([
+            "sponsorBlockMode": .text(mode),
+            "sponsorBlockCategoryActions": .actions(actions)
+        ])
+    }
+
+    /// Queue fast remote interactions rather than silently dropping them
+    /// while the previous PUT is in flight. Only the latest response may
+    /// replace the optimistic UI snapshot, so old replies cannot undo it.
+    private func enqueue(_ fields: [String: TVSettingValue]) {
+        writeGeneration &+= 1
+        let generation = writeGeneration
+        let predecessor = lastWrite
         saving = true
         error = nil
-        Task { @MainActor in
+        lastWrite = Task { @MainActor in
+            await predecessor?.value
             do {
-                settings = try await api.setAccountSettings([
-                    "sponsorBlockMode": .text(mode),
-                    "sponsorBlockCategoryActions": .actions(actions)
-                ])
+                let response = try await api.setAccountSettings(fields)
+                if generation == writeGeneration {
+                    settings = response
+                    error = nil
+                }
             } catch {
-                settings = before
-                self.error = error.localizedDescription
+                if generation == writeGeneration {
+                    let message = error.localizedDescription
+                    if let fresh = try? await api.accountSettings() {
+                        settings = fresh
+                    }
+                    self.error = message
+                }
             }
-            saving = false
+            if generation == writeGeneration {
+                saving = false
+                lastWrite = nil
+            }
         }
     }
 
     @MainActor
     private func reload() async {
-        guard !saving else { return }
+        guard !saving, !loading else { return }
         loading = true
         defer { loading = false }
         #if DEBUG
@@ -225,12 +237,8 @@ struct TVSponsorBlockSettingsView: View {
         } catch is CancellationError {
             return
         } catch {
-            if settings == nil {
-                self.error = error.localizedDescription
-            } else {
-                // Keep the last usable settings on transient refresh failures.
-                self.error = error.localizedDescription
-            }
+            // Keep the last usable settings on transient refresh failures.
+            self.error = error.localizedDescription
         }
     }
 }
