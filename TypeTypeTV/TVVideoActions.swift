@@ -3,12 +3,28 @@ import SwiftUI
 /// Native tvOS context menus open by holding Select on a focused video card.
 /// Actions always operate on TypeType's account library, never an isolated
 /// Apple TV-only copy. A toast confirms success and alerts explain failures.
+private struct TVActionFocusModifier: ViewModifier {
+    let local: FocusState<Bool>.Binding
+    let external: FocusState<String?>.Binding?
+    let key: String?
+
+    func body(content: Content) -> some View {
+        if let external, let key {
+            content.focused(external, equals: key)
+        } else {
+            content.focused(local)
+        }
+    }
+}
+
 struct TVVideoActionModifier: ViewModifier {
     let api: TypeTypeAPI
     let video: VideoItem
     let onChanged: (() -> Void)?
     let onRemoveFromPlaylist: (() async throws -> Void)?
     let isWatchLaterEntry: Bool
+    let externalFocus: FocusState<String?>.Binding?
+    let focusID: String?
 
     @ObservedObject private var localProgress = TVLocalProgress.shared
     @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
@@ -29,7 +45,9 @@ struct TVVideoActionModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .focused($cardFocus)
+            .modifier(TVActionFocusModifier(
+                local: $cardFocus, external: externalFocus, key: focusID
+            ))
             .task { await watchLaterMembership.ensureLoaded(api: api) }
             .contextMenu {
                 if let position = localProgress.positions[video.url] ?? video.watchPositionMs,
@@ -185,7 +203,11 @@ struct TVVideoActionModifier: ViewModifier {
     private func restoreCardFocus() {
         Task { @MainActor in
             await Task.yield()
-            cardFocus = true
+            if let externalFocus, let focusID {
+                externalFocus.wrappedValue = focusID
+            } else {
+                cardFocus = true
+            }
         }
     }
 
@@ -221,12 +243,15 @@ extension View {
         api: TypeTypeAPI, video: VideoItem,
         onChanged: (() -> Void)? = nil,
         onRemoveFromPlaylist: (() async throws -> Void)? = nil,
-        isWatchLaterEntry: Bool = false
+        isWatchLaterEntry: Bool = false,
+        focus: FocusState<String?>.Binding? = nil,
+        focusID: String? = nil
     ) -> some View {
         modifier(TVVideoActionModifier(
             api: api, video: video, onChanged: onChanged,
             onRemoveFromPlaylist: onRemoveFromPlaylist,
-            isWatchLaterEntry: isWatchLaterEntry
+            isWatchLaterEntry: isWatchLaterEntry,
+            externalFocus: focus, focusID: focusID
         ))
     }
 }
