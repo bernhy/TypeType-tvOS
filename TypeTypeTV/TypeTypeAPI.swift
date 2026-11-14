@@ -92,6 +92,15 @@ struct TVChannelPage: Decodable {
     let nextpage: String?
 }
 
+/// A feed page (HTTP 200) or first-generation "preparing" reply
+/// (HTTP 202) share one non-throwing Decodable wire representation.
+struct TVSubscriptionFeedPage: Decodable {
+    let videos: [VideoItem]?
+    let nextpage: String?
+    let code: String?
+    let retryAfterMs: Int?
+}
+
 struct SearchResults: Decodable {
     let items: [VideoItem]
 }
@@ -340,8 +349,33 @@ struct TypeTypeAPI {
         try await get("subscriptions")
     }
 
-    func channel(_ channelURL: String, nextpage: String? = nil) async throws -> TVChannelPage {
-        var query = [URLQueryItem(name: "url", value: channelURL)]
+    func subscriptionFeed(cursor: String? = nil, limit: Int = 30) async throws -> TVSubscriptionFeedPage {
+        var query = [
+            URLQueryItem(name: "limit", value: String(max(1, min(limit, 100)))),
+            URLQueryItem(name: "order", value: "newest")
+        ]
+        if let cursor, !cursor.isEmpty {
+            query.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        return try await get("subscriptions/feed", query: query)
+    }
+
+    func channel(_ channelURL: String, nextpage: String? = nil,
+                 shorts: Bool = false) async throws -> TVChannelPage {
+        var requestURL = channelURL
+        if shorts, var parts = URLComponents(string: channelURL),
+           let host = parts.host?.lowercased(),
+           host == "youtube.com" || host.hasSuffix(".youtube.com") {
+            // The server's channel-tab resolver selects Shorts from the URL.
+            let basePath = parts.path.replacingOccurrences(
+                of: "/+$", with: "", options: .regularExpression
+            )
+            parts.path = basePath.hasSuffix("/shorts") ? basePath : basePath + "/shorts"
+            parts.query = nil
+            parts.fragment = nil
+            requestURL = parts.url?.absoluteString ?? channelURL
+        }
+        var query = [URLQueryItem(name: "url", value: requestURL)]
         if let nextpage, !nextpage.isEmpty {
             query.append(URLQueryItem(name: "nextpage", value: nextpage))
         }

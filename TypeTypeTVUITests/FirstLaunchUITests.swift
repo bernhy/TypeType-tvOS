@@ -199,6 +199,7 @@ final class TypeTypeTVUITests: XCTestCase {
         ]
         app.launch()
         XCTAssertTrue(app.buttons["Abo-Kanäle"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["Abonnements"].exists)
         XCTAssertFalse(app.buttons["Listen"].exists)
         XCTAssertTrue(app.buttons["Bibliothek"].exists)
     }
@@ -410,7 +411,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testSubscriptionsFocusChainAndRemoteBack() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "subscriptions", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "channels", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         let first = app.buttons["subscription-https://preview.invalid/channel/a"]
@@ -425,7 +426,7 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(first.hasFocus,
                       "Back from channel videos must return to channel rail")
         XCUIRemote.shared.press(.menu)
-        XCTAssertTrue(app.buttons["main-nav-subscriptions"].hasFocus,
+        XCTAssertTrue(app.buttons["main-nav-channels"].hasFocus,
                       "A second Back must select the subscriptions main icon")
     }
 

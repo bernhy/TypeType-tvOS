@@ -10,6 +10,7 @@ struct TVSubscriptionsView: View {
     @State private var subscriptions: [TVSubscription] = []
     @State private var selectedChannelURL: String?
     @State private var videos: [VideoItem] = []
+    @State private var showingShorts = false
     @State private var channelTitle = ""
     @State private var channelDescription = ""
     @State private var nextPage: String?
@@ -48,6 +49,15 @@ struct TVSubscriptionsView: View {
                                 .lineLimit(3)
                         }
                     }
+                    HStack(spacing: 15) {
+                        Button("channels.videos") { showingShorts = false }
+                            .tint(showingShorts ? TTTheme.muted : TTTheme.accent)
+                        Button("channels.shorts") { showingShorts = true }
+                            .tint(showingShorts ? TTTheme.accent : TTTheme.muted)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(selectedChannelURL == nil)
+                    .focusSection()
                     if loadingVideos {
                         ProgressView("settings.remoteLoading")
                             .frame(maxWidth: .infinity, minHeight: 160)
@@ -127,6 +137,10 @@ struct TVSubscriptionsView: View {
             if let selectedChannelURL {
                 await loadChannel(selectedChannelURL)
             }
+        }
+        .onChange(of: showingShorts) { _, _ in
+            guard let selectedChannelURL else { return }
+            Task { await loadChannel(selectedChannelURL) }
         }
     }
 
@@ -266,6 +280,7 @@ struct TVSubscriptionsView: View {
 
     @MainActor
     private func loadChannel(_ channelURL: String) async {
+        let shorts = showingShorts
         #if DEBUG
         if api.origin.host == "preview.invalid" {
             channelTitle = subscriptions.first(where: { $0.channelUrl == channelURL })?.name ?? ""
@@ -304,10 +319,10 @@ struct TVSubscriptionsView: View {
         error = nil
         defer { if channelRequestID == identifier { loadingVideos = false } }
         do {
-            let response = try await api.channel(channelURL)
+            let response = try await api.channel(channelURL, shorts: shorts)
             try Task.checkCancellation()
             guard channelRequestID == identifier,
-                  selectedChannelURL == channelURL else { return }
+                  selectedChannelURL == channelURL, showingShorts == shorts else { return }
             channelTitle = response.name
             channelDescription = response.description ?? ""
             videos = response.videos
@@ -323,12 +338,12 @@ struct TVSubscriptionsView: View {
             // first page and pagination exactly like Home and Library.
             let enriched = await api.withProgress(response.videos)
             guard !Task.isCancelled, channelRequestID == identifier,
-                  selectedChannelURL == channelURL else { return }
+                  selectedChannelURL == channelURL, showingShorts == shorts else { return }
             videos = enriched
         } catch is CancellationError {
             return
         } catch {
-            if channelRequestID == identifier && selectedChannelURL == channelURL {
+            if channelRequestID == identifier && selectedChannelURL == channelURL && showingShorts == shorts {
                 self.error = error.localizedDescription
             }
         }
@@ -339,14 +354,16 @@ struct TVSubscriptionsView: View {
         guard !loadingMore, !loadingVideos, let nextPage,
               let selectedChannelURL else { return }
         let identifier = UUID()
+        let shorts = showingShorts
         pageRequestID = identifier
         loadingMore = true
         defer { if pageRequestID == identifier { loadingMore = false } }
         do {
-            let response = try await api.channel(selectedChannelURL, nextpage: nextPage)
+            let response = try await api.channel(selectedChannelURL, nextpage: nextPage,
+                                                 shorts: shorts)
             try Task.checkCancellation()
             guard pageRequestID == identifier,
-                  self.selectedChannelURL == selectedChannelURL,
+                  self.selectedChannelURL == selectedChannelURL, showingShorts == shorts,
                   self.nextPage == nextPage else { return }
             var seen = Set(videos.map(\.url))
             let fresh = response.videos.filter { seen.insert($0.url).inserted }
@@ -354,7 +371,7 @@ struct TVSubscriptionsView: View {
             self.nextPage = response.nextpage == nextPage ? nil : response.nextpage
             let enriched = await api.withProgress(fresh)
             guard !Task.isCancelled, pageRequestID == identifier,
-                  self.selectedChannelURL == selectedChannelURL else { return }
+                  self.selectedChannelURL == selectedChannelURL, showingShorts == shorts else { return }
             // Reconcile by URL without replacing the already visible rows.
             let progressByURL = Dictionary(uniqueKeysWithValues: enriched.map { ($0.url, $0) })
             videos = videos.map { progressByURL[$0.url] ?? $0 }

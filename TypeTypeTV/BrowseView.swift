@@ -3,7 +3,7 @@ import SwiftUI
 /// Main sections remain accessible using a narrow icon rail. Moving left from
 /// the first thumbnail expands the rail and puts focus on the current section.
 enum TVSection: String, CaseIterable, Hashable {
-    case home, search, library, subscriptions, account, settings
+    case home, search, subscriptions, channels, library, account, settings
 
     var label: String {
         switch self {
@@ -11,6 +11,7 @@ enum TVSection: String, CaseIterable, Hashable {
         case .search: return TVL10n.value("nav.search")
         case .library: return TVL10n.value("nav.library")
         case .subscriptions: return TVL10n.value("nav.subscriptions")
+        case .channels: return TVL10n.value("nav.channels")
         case .account: return TVL10n.value("settings.groupAccount")
         case .settings: return TVL10n.value("nav.settings")
         }
@@ -21,6 +22,7 @@ enum TVSection: String, CaseIterable, Hashable {
         case .search: return "nav.search"
         case .library: return "nav.library"
         case .subscriptions: return "nav.subscriptions"
+        case .channels: return "nav.channels"
         case .account: return "settings.groupAccount"
         case .settings: return "nav.settings"
         }
@@ -31,6 +33,7 @@ enum TVSection: String, CaseIterable, Hashable {
         case .search: return "magnifyingglass"
         case .library: return "books.vertical"
         case .subscriptions: return "play.rectangle.on.rectangle"
+        case .channels: return "rectangle.stack"
         case .account: return "person.crop.circle"
         case .settings: return "gearshape"
         }
@@ -51,6 +54,7 @@ struct BrowseView: View {
     @State private var homeFocusRequest = 0
     @State private var libraryFocusRequest = 0
     @State private var subscriptionFocusRequest = 0
+    @State private var channelFocusRequest = 0
     @State private var accountFocusRequest = 0
     @State private var accountGeneration = 0
     @State private var returnToSwitcherAfterLogin = false
@@ -98,8 +102,12 @@ struct BrowseView: View {
                                         focusRequest: libraryFocusRequest,
                                         onRevealMenu: revealMenu)
                         case .subscriptions:
+                            TVSubscriptionFeedView(api: api,
+                                                   focusRequest: subscriptionFocusRequest,
+                                                   onRevealMenu: revealMenu)
+                        case .channels:
                             TVSubscriptionsView(api: api,
-                                                focusRequest: subscriptionFocusRequest,
+                                                focusRequest: channelFocusRequest,
                                                 onRevealMenu: revealMenu)
                         case .account:
                             TVAccountSwitcherView(
@@ -314,6 +322,7 @@ struct BrowseView: View {
         case .home: homeFocusRequest += 1
         case .library: libraryFocusRequest += 1
         case .subscriptions: subscriptionFocusRequest += 1
+        case .channels: channelFocusRequest += 1
         case .account: accountFocusRequest += 1
         case .search: break
         }
@@ -629,6 +638,7 @@ struct VideoCard: View {
     let api: TypeTypeAPI
     let video: VideoItem
     @ObservedObject private var localProgress = TVLocalProgress.shared
+    @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
     @Environment(\.isFocused) private var isFocused
     var lookupMissingMetadata = false
     @State private var streamMetadata: StreamInfo?
@@ -671,7 +681,8 @@ struct VideoCard: View {
         // and the info panel. That gap used to reveal the black grid behind.
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomTrailing) {
-                TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl), origin: api.origin)
+                TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
+                            origin: api.origin, contentMode: .fit)
                     .grayscale(completed ? 1 : 0)
                     // Never scale thumbnail content: on tvOS the duration
                     // badge at the bottom-right otherwise appears enlarged
@@ -699,14 +710,33 @@ struct VideoCard: View {
                                alignment: .topTrailing)
                         .padding(7)
                 }
-                if video.isLive == true {
-                    Text("video.liveBadge").font(.caption.bold())
-                        .padding(8).background(TTTheme.accent).padding(8)
-                } else if let duration = video.duration, duration > 0 {
-                    Text(TTTheme.time(duration))
-                        .font(.caption.monospacedDigit())
-                        .padding(8).background(.black.opacity(0.8)).padding(8)
+                VStack(alignment: .trailing, spacing: 7) {
+                    if watchLaterMembership.contains(video.url) {
+                        Image(systemName: "bookmark.fill")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(8)
+                            .background(.black.opacity(0.84),
+                                        in: RoundedRectangle(cornerRadius: 7))
+                            .accessibilityLabel("library.watchLater")
+                    }
+                    if video.isLive == true {
+                        Text("video.liveBadge").font(.caption.bold())
+                            .padding(8)
+                            .background(TTTheme.accent,
+                                        in: RoundedRectangle(cornerRadius: 6))
+                    } else if let duration = video.duration, duration > 0 {
+                        Text(TTTheme.time(duration))
+                            .font(.caption.monospacedDigit())
+                            .padding(8)
+                            .background(.black.opacity(0.8),
+                                        in: RoundedRectangle(cornerRadius: 6))
+                    }
                 }
+                .padding(9)
+                // Scale the label inversely so its background stays the
+                // original size while the entire focused card grows.
+                .scaleEffect(isFocused ? 1 / 1.065 : 1, anchor: .bottomTrailing)
                 if let fraction {
                     GeometryReader { proxy in
                         Rectangle()
@@ -743,15 +773,11 @@ struct VideoCard: View {
         .frame(minHeight: 322, alignment: .top)
         .background(TTTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        // Subtle tvOS-like focus, no red frame or zooming artwork/badges.
-        .overlay {
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(isFocused ? Color.white.opacity(0.65) : .clear,
-                              lineWidth: 2)
-                .allowsHitTesting(false)
-        }
-        .shadow(color: isFocused ? Color.white.opacity(0.13) : .clear,
-                radius: 7)
+        // Scale the complete card, not the thumbnail viewport.
+        // .fit preserves the original image edges and the progress bar.
+        .scaleEffect(isFocused ? 1.065 : 1, anchor: .center)
+        .shadow(color: isFocused ? Color.black.opacity(0.55) : .clear,
+                radius: 19, y: 10)
         .animation(.easeOut(duration: 0.13), value: isFocused)
         .foregroundStyle(.white)
         .task(id: video.url) {

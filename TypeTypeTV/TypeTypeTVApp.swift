@@ -20,7 +20,7 @@ struct RootView: View {
            let api = try? TypeTypeAPI(address: "https://preview.invalid") {
             if preview == "player-error" {
                 SabrPlaybackErrorPreview()
-            } else if ["home", "home-expanded", "search", "library", "subscriptions", "account",
+            } else if ["home", "home-expanded", "search", "library", "subscriptions", "channels", "account",
                 "settings", "settings-content", "settings-performance", "settings-device",
                 "settings-language", "settings-account", "settings-instance",
                 "settings-about"].contains(preview) {
@@ -30,8 +30,9 @@ struct RootView: View {
                     initialSection: preview == "search" ? .search :
                         (preview == "library" ? .library :
                         (preview == "subscriptions" ? .subscriptions :
+                        (preview == "channels" ? .channels :
                         (preview == "account" ? .account :
-                        (preview.hasPrefix("settings") ? .settings : .home)))),
+                        (preview.hasPrefix("settings") ? .settings : .home))))),
                     previewVideos: TVShowcaseFixtures.videos,
                     initiallyExpanded: preview == "home-expanded",
                     initialSettingsGroup: {
