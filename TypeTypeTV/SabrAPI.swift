@@ -455,9 +455,31 @@ final class SabrService: @unchecked Sendable {
         if let token = TypeTypeCredentials.shared.token(for: origin) {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        let (data, response) = try await session.data(for: req)
-        guard let http = response as? HTTPURLResponse else { throw SabrFailure.invalidResponse("HTTP response") }
-        guard allowedStatuses.contains(http.statusCode) else {
+        // TypeType's segment endpoint uses HTTP 202 for a valid but not-yet
+        // downloaded segment. Retrying is part of the API contract; never
+        // pass the JSON 202 response body to the MP4 demuxer.
+        let isMediaSegment = pathForError == "segment"
+        let mediaDeadline = Date().addingTimeInterval(25)
+        var segmentPolls = 0
+        while true {
+            try Task.checkCancellation()
+            let (data, response) = try await session.data(for: req)
+            guard let http = response as? HTTPURLResponse else {
+                throw SabrFailure.invalidResponse("HTTP response")
+            }
+            if isMediaSegment && http.statusCode == 202 {
+                segmentPolls += 1
+                guard segmentPolls < 60 && Date() < mediaDeadline else {
+                    throw SabrFailure.stalled("SABR segment still preparing after retries")
+                }
+                let fromBody = (try? JSONDecoder().decode(SabrSegmentPreparing.self, from: data))?.retryAfterMs
+                let fromHeader = SabrRetryAfter.seconds(http.value(forHTTPHeaderField: "Retry-After"))
+                    .map { $0 * 1000 }
+                let delay = min(2_000, max(150, fromBody ?? fromHeader ?? 300))
+                try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
+                continue
+            }
+            guard allowedStatuses.contains(http.statusCode) else {
             if [404, 410, 422].contains(http.statusCode),
                let issue = try? JSONDecoder().decode(TVStreamProblem.self, from: data),
                issue.isPermanentlyUnavailable {
@@ -470,9 +492,14 @@ final class SabrService: @unchecked Sendable {
                 throw SabrFailure.throttled(http.statusCode, pathForError, wait)
             }
             throw SabrFailure.server(http.statusCode, pathForError)
+            }
+            return data
         }
-        return data
     }
+}
+
+private struct SabrSegmentPreparing: Decodable {
+    let retryAfterMs: Int?
 }
 
 struct TVStreamProblem: Decodable {
