@@ -101,7 +101,6 @@ struct PreferencesView: View {
                 .focusSection()
                 .onMoveCommand { direction in
                     if direction == .left {
-                        focusedControl = nil
                         focusedGroup = group
                     }
                 }
@@ -160,7 +159,6 @@ struct PreferencesView: View {
             // controls -> selected Settings group -> global Settings icon.
             // The global sidebar then handles Settings -> Home -> no-op.
             if focusedGroup == nil {
-                focusedControl = nil
                 focusedGroup = group
             } else {
                 onBackToMenu()
@@ -284,7 +282,6 @@ struct PreferencesView: View {
     @MainActor
     private func enterGroup(_ item: TVSettingsGroup) {
         group = item
-        focusedGroup = nil
         let target = firstTarget(for: item)
         Task { @MainActor in
             await Task.yield()
@@ -312,13 +309,15 @@ struct PreferencesView: View {
                 TVSettingsSwitchRow(
                     "settings.allowSoftware", isOn: $allowSoftware,
                     focus: $focusedControl, focusID: "playback.software",
-                    accessibilityID: "settings-first-playback"
+                    accessibilityID: "settings-first-playback",
+                    onMoveLeft: { focusedGroup = .playback }
                 )
                 Text("settings.softwareWarning")
                     .font(.caption).foregroundStyle(TTTheme.muted)
                 TVSettingsMenuRow(
                     "settings.maxResolution", selection: $maxHeight,
-                    focus: $focusedControl, focusTarget: "playback.resolution"
+                    focus: $focusedControl, focusTarget: "playback.resolution",
+                    onMoveLeft: { focusedGroup = .playback }
                 ) {
                     Text("4K").tag(2160)
                     Text("1440p").tag(1440)
@@ -345,9 +344,13 @@ struct PreferencesView: View {
                                 get: { self.remote?.enabled(field) ?? remote.enabled(field) },
                                 set: { setRemote(field, enabled: $0) }
                             ),
-                            focus: $focusedControl, focusID: "content." + field.rawValue
+                            focus: $focusedControl, focusID: "content." + field.rawValue,
+                            onMoveLeft: { focusedGroup = .content }
                         )
-                        .disabled(remoteSaving)
+                        // Disabling a focused tvOS button during a network write
+                        // makes the focus engine jump to an unrelated rail.
+                        // setRemote itself serializes requests and ignores
+                        // input while saving, without destroying focus.
                     }
                     if remoteSaving { ProgressView("settings.remoteSaving") }
                     Button("common.refresh") { Task { await refreshRemote() } }
@@ -379,7 +382,8 @@ struct PreferencesView: View {
             TVSettingsCard("settings.remote", summary: "settings.remoteHelp") {
                 TVSettingsMenuRow(
                     "settings.skipLength", selection: $skipSeconds,
-                    focus: $focusedControl, focusTarget: "device.skip"
+                    focus: $focusedControl, focusTarget: "device.skip",
+                    onMoveLeft: { focusedGroup = .device }
                 ) {
                     ForEach([5, 10, 15, 20], id: \.self) { seconds in
                         Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
@@ -389,7 +393,8 @@ struct PreferencesView: View {
             TVSettingsCard("settings.buffer", summary: "settings.bufferHelp") {
                 TVSettingsMenuRow(
                     "settings.forwardBuffer", selection: $bufferForwardSeconds,
-                    focus: $focusedControl, focusTarget: "device.forward"
+                    focus: $focusedControl, focusTarget: "device.forward",
+                    onMoveLeft: { focusedGroup = .device }
                 ) {
                     ForEach([30, 60, 120, 180, 300, 600], id: \.self) { seconds in
                         Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
@@ -397,7 +402,8 @@ struct PreferencesView: View {
                 }
                 TVSettingsMenuRow(
                     "settings.backwardBuffer", selection: $bufferBackSeconds,
-                    focus: $focusedControl, focusTarget: "device.backward"
+                    focus: $focusedControl, focusTarget: "device.backward",
+                    onMoveLeft: { focusedGroup = .device }
                 ) {
                     ForEach([30, 60, 120, 180, 300], id: \.self) { seconds in
                         Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
@@ -405,7 +411,8 @@ struct PreferencesView: View {
                 }
                 TVSettingsMenuRow(
                     "settings.maxCache", selection: $bufferCacheMiB,
-                    focus: $focusedControl, focusTarget: "device.maxCache"
+                    focus: $focusedControl, focusTarget: "device.maxCache",
+                    onMoveLeft: { focusedGroup = .device }
                 ) {
                     ForEach([256, 512, 1024], id: \.self) { amount in
                         Text("\(amount) MiB").tag(amount)
@@ -417,13 +424,15 @@ struct PreferencesView: View {
             TVSettingsCard("settings.performanceControls") {
                 TVSettingsSwitchRow(
                     "settings.navigationAnimations", isOn: $navigationAnimations,
-                    focus: $focusedControl, focusID: "device.animations"
+                    focus: $focusedControl, focusID: "device.animations",
+                    onMoveLeft: { focusedGroup = .device }
                 )
                 Text("settings.navigationAnimationsHelp")
                     .font(.caption).foregroundStyle(TTTheme.muted)
                 TVSettingsMenuRow(
                     "settings.imageCacheSize", selection: $thumbnailCacheMiB,
-                    focus: $focusedControl, focusTarget: "device.imageCache"
+                    focus: $focusedControl, focusTarget: "device.imageCache",
+                    onMoveLeft: { focusedGroup = .device }
                 ) {
                     ForEach([32, 64, 128, 256], id: \.self) { count in
                         Text("\(count) MiB").tag(count)
@@ -520,7 +529,8 @@ struct PreferencesView: View {
             TVSettingsCard("settings.languageControls") {
                 TVSettingsMenuRow(
                     "settings.languagePicker", selection: $uiLanguage,
-                    focus: $focusedControl, focusTarget: "control.language"
+                    focus: $focusedControl, focusTarget: "control.language",
+                    onMoveLeft: { focusedGroup = .language }
                 ) {
                     Text("language.system").tag(TVLanguages.followSystem)
                     ForEach(TVLanguages.available, id: \.self) { lang in

@@ -809,10 +809,15 @@ final class SabrPlayerController: ObservableObject {
                 await mailbox.finish(error: CancellationError())
                 windowProducerTask = nil
                 activeMailbox = nil
-                guard policy.canRetry(
+                let allowed = policy.canRetry(
                     error, completedAttempts: recoveryAttempt + 1,
                     elapsedSeconds: Date().timeIntervalSince(recoveryStarted)
-                ) else { throw error }
+                )
+                let lastPositionMs = max(0, Int64(playbackSeconds() * 1_000))
+                // Never log the sessionId, bearer or media URL.
+                NSLog("TypeType SABR RECOVERY attempt=%d retry=%d playbackMs=%lld contiguousMs=%lld",
+                      recoveryAttempt + 1, allowed ? 1 : 0, lastPositionMs, positionMs)
+                guard allowed else { throw error }
                 // The clock may have advanced past the last actual rendered
                 // segment during a network stall. Rewind a little and clamp
                 // to the last submitted audio/video coverage.
@@ -1007,7 +1012,8 @@ final class SabrPlayerController: ObservableObject {
         var pendingAudio: [CMSampleBuffer] = []
         var pendingVideo: [CMSampleBuffer] = []
         var coverage = SabrPlaybackCoverage(audioItag: choice.audio.itag,
-                                            videoItag: choice.video.itag, positionMs: start)
+                                            videoItag: choice.video.itag,
+                                            positionMs: start, stage: "decoder")
         while let response = try await mailbox.next(onWait: { [weak self] in
             await self?.pauseForEmptyBufferIfNeeded()
         }) {

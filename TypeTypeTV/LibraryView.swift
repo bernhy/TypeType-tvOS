@@ -15,6 +15,7 @@ struct LibraryView: View {
     @State private var selected: TVLibraryDestination = .standard(.watchLater)
     @FocusState private var focusedDestination: TVLibraryDestination?
     @FocusState private var focusedVideoURL: String?
+    @FocusState private var focusedRefresh: Bool
     @FocusState private var focusedEditPlaylist: Bool
     @FocusState private var focusedDeletePlaylist: Bool
     @State private var playlists: [TVPlaylistDTO] = []
@@ -68,6 +69,10 @@ struct LibraryView: View {
                         }
                         .buttonStyle(.bordered)
                         .disabled(loading)
+                        .focused($focusedRefresh)
+                        .onMoveCommand { direction in
+                            if direction == .left { focusedDestination = selected }
+                        }
                         if case .playlist(let id) = selected {
                             Button {
                                 editPlaylistID = id
@@ -128,6 +133,13 @@ struct LibraryView: View {
                                     isWatchLaterEntry: selected == .standard(.watchLater),
                                     focus: $focusedVideoURL, focusID: video.url
                                 )
+                                .onMoveCommand { direction in
+                                    if direction == .left,
+                                       let index = videos.firstIndex(where: { $0.id == video.id }),
+                                       index % columns.count == 0 {
+                                        focusedDestination = selected
+                                    }
+                                }
                                 .accessibilityLabel(TTTheme.accessibilityText(for: video))
                             }
                         }
@@ -292,7 +304,13 @@ struct LibraryView: View {
         .focused($focusedDestination, equals: destination)
         .onMoveCommand { direction in
             if direction == .right {
-                focusedVideoURL = videos.first?.url
+                if let first = videos.first {
+                    focusedVideoURL = first.url
+                } else {
+                    // Empty history/playlists still have a Refresh action.
+                    focusedRefresh = true
+                }
+
             }
         }
         .accessibilityAddTraits(selected == destination ? .isSelected : [])

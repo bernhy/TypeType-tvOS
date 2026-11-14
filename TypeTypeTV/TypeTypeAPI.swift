@@ -299,6 +299,11 @@ struct TypeTypeAPI {
             throw TypeTypeError.unexpectedResponse
         }
         guard response.statusCode == 200 else {
+            if response.statusCode == 401 {
+                // Helpful when diagnosing a signed-in account that becomes
+                // unauthorized after an update. Never log credentials.
+                NSLog("TypeType AUTH auth/me returned 401 (bearer was supplied)")
+            }
             throw TypeTypeError.http(response.statusCode, "auth/me")
         }
         return try JSONDecoder().decode(TVAccountIdentity.self, from: data)

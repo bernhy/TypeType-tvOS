@@ -87,7 +87,10 @@ struct TVSettingsInfoRow: View {
                 .lineLimit(3)
                 .multilineTextAlignment(.trailing)
         }
+        .padding(.horizontal, 12)
         .padding(.vertical, 9)
+        .background(readingFocus ? Color.white.opacity(0.12) : .clear,
+                    in: RoundedRectangle(cornerRadius: 10))
         .contentShape(Rectangle())
         .focusable(true)
         .focusEffectDisabled(true)
@@ -105,7 +108,10 @@ struct TVSettingsReadableText: View {
             .font(.callout)
             .foregroundStyle(readingFocus ? .white : TTTheme.muted)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .background(readingFocus ? Color.white.opacity(0.12) : .clear,
+                        in: RoundedRectangle(cornerRadius: 10))
             .contentShape(Rectangle())
             .focusable(true)
             .focusEffectDisabled(true)
@@ -121,17 +127,20 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
     @Binding var selection: Value
     let focus: FocusState<String?>.Binding?
     let focusTarget: String?
+    let onMoveLeft: (() -> Void)?
     @FocusState private var pickerFocus: Bool
     @ViewBuilder let options: Options
 
     init(_ title: LocalizedStringKey, selection: Binding<Value>,
          focus: FocusState<String?>.Binding? = nil,
          focusTarget: String? = nil,
+         onMoveLeft: (() -> Void)? = nil,
          @ViewBuilder options: () -> Options) {
         self.title = title
         self._selection = selection
         self.focus = focus
         self.focusTarget = focusTarget
+        self.onMoveLeft = onMoveLeft
         self.options = options()
     }
 
@@ -141,6 +150,9 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
         }
         .labelsHidden()
         .pickerStyle(.menu)
+        .onMoveCommand { direction in
+            if direction == .left { onMoveLeft?() }
+        }
     }
 
     var body: some View {
@@ -180,15 +192,18 @@ struct TVSettingsSwitchRow: View {
     let focus: FocusState<String?>.Binding?
     let focusID: String?
     let accessibilityID: String?
+    let onMoveLeft: (() -> Void)?
 
     init(_ title: LocalizedStringKey, isOn: Binding<Bool>,
          focus: FocusState<String?>.Binding? = nil,
-         focusID: String? = nil, accessibilityID: String? = nil) {
+         focusID: String? = nil, accessibilityID: String? = nil,
+         onMoveLeft: (() -> Void)? = nil) {
         self.title = title
         self._isOn = isOn
         self.focus = focus
         self.focusID = focusID
         self.accessibilityID = accessibilityID
+        self.onMoveLeft = onMoveLeft
     }
 
     private var switchButton: some View {
@@ -224,6 +239,9 @@ struct TVSettingsSwitchRow: View {
         .focusEffectDisabled(true)
         .accessibilityValue(TVL10n.value(isOn ? "settings.hardwareYes" : "settings.hardwareNo"))
         .accessibilityIdentifier(accessibilityID ?? focusID ?? "settings-switch")
+        .onMoveCommand { direction in
+            if direction == .left { onMoveLeft?() }
+        }
     }
 
     @ViewBuilder
