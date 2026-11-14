@@ -27,6 +27,7 @@ struct TVPlaylistPlaybackView: View {
     let videos: [VideoItem]
     var startIndex = 0
 
+    @Environment(\.dismiss) private var dismiss
     @State private var index = 0
     @State private var finished = false
     @State private var skipNotice = false
@@ -94,15 +95,18 @@ struct TVPlaylistPlaybackView: View {
             }
         }
         .onAppear {
+            TVPlaybackVisibility.shared.enter()
             index = TVPlaylistAdvancePolicy.validIndex(
                 startIndex, count: videos.count
             ) ?? 0
             finished = videos.isEmpty
         }
         .onDisappear {
+            TVPlaybackVisibility.shared.leave()
             skipTask?.cancel()
             skipTask = nil
         }
+        .onExitCommand { dismiss() }
     }
 
     private func handle(_ event: TVPlaybackEvent, from playingIndex: Int) {
