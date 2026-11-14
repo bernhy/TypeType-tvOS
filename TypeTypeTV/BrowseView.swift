@@ -106,9 +106,9 @@ struct BrowseView: View {
                             PreferencesView(
                                 api: api, onDisconnect: onDisconnect,
                                 initialGroup: settingsEntryGroup,
-                                onAccountChanged: { accountDidChange(api: api) }
+                                onAccountChanged: { accountDidChange(api: api) },
+                                onBackToMenu: revealMenu
                             )
-                            .onExitCommand { revealMenu() }
                         }
                     }
                 }
@@ -171,7 +171,16 @@ struct BrowseView: View {
         .clipped()
         .animation(navigationAnimations ? .easeInOut(duration: 0.16) : nil, value: expanded)
         .focusSection()
-        .onExitCommand { revealMenu() }
+        .onExitCommand {
+            // Back while the global rail is focused goes to Home. The final
+            // Back on the Home icon is consumed here, never exits TypeType.
+            if section != .home {
+                open(.home)
+            } else {
+                menuFocus = .home
+                expanded = true
+            }
+        }
         .onChange(of: menuFocus) { _, focused in
             expanded = focused != nil
         }
