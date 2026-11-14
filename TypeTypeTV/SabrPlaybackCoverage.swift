@@ -10,10 +10,13 @@ struct SabrPlaybackCoverage {
     private(set) var videoEndMs: Int64
     let audioItag: Int
     let videoItag: Int
+    let stage: String
 
-    init(audioItag: Int, videoItag: Int, positionMs: Int64) {
+    init(audioItag: Int, videoItag: Int, positionMs: Int64,
+         stage: String = "unknown") {
         self.audioItag = audioItag
         self.videoItag = videoItag
+        self.stage = stage
         let start = max(0, positionMs)
         audioStartMs = start
         videoStartMs = start
@@ -24,11 +27,13 @@ struct SabrPlaybackCoverage {
     var safeEndMs: Int64 { min(audioEndMs, videoEndMs) }
 
     mutating func acceptAudio(_ segment: SabrFragment) throws {
-        try Self.accept(segment, end: &audioEndMs)
+        try Self.accept(segment, end: &audioEndMs,
+                        track: "audio", stage: stage, itag: audioItag)
     }
 
     mutating func acceptVideo(_ segment: SabrFragment) throws {
-        try Self.accept(segment, end: &videoEndMs)
+        try Self.accept(segment, end: &videoEndMs,
+                        track: "video", stage: stage, itag: videoItag)
     }
 
     var requestRanges: [SabrBufferedRange] { requestRanges(retainFromMs: 0) }
@@ -53,7 +58,8 @@ struct SabrPlaybackCoverage {
         return ranges
     }
 
-    private static func accept(_ segment: SabrFragment, end: inout Int64) throws {
+    private static func accept(_ segment: SabrFragment, end: inout Int64,
+                               track: String, stage: String, itag: Int) throws {
         guard segment.startMs >= 0 && segment.durationMs > 0,
               segment.startMs <= Int64.max - segment.durationMs else {
             throw SabrFailure.invalidResponse("invalid SABR media segment timestamps")
@@ -63,7 +69,7 @@ struct SabrPlaybackCoverage {
         let toleratedEnd = end > Int64.max - 250 ? Int64.max : end + 250
         guard segment.startMs <= toleratedEnd else {
             #if DEBUG
-            print("TypeType SABR gap: wanted start <= \(toleratedEnd) ms; next segment starts \(segment.startMs) ms (gap \(segment.startMs - end) ms)")
+            print("TypeType SABR GAP stage=\(stage) track=\(track) itag=\(itag) lastEnd=\(end) nextStart=\(segment.startMs) nextDuration=\(segment.durationMs) gapMs=\(segment.startMs - end)")
             #endif
             throw SabrFailure.invalidResponse("SABR segment gap before next media sample")
         }
