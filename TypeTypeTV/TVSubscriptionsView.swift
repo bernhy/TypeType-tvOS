@@ -68,8 +68,10 @@ struct TVSubscriptionsView: View {
                                     VideoCard(api: api, video: video)
                                 }
                                 .buttonStyle(.card)
-                                .focused($focusedVideo, equals: video.url)
-                                .videoActions(api: api, video: video, onChanged: {})
+                                .videoActions(
+                                    api: api, video: video, onChanged: {},
+                                    focus: $focusedVideo, focusID: video.url
+                                )
                                 .onMoveCommand { direction in
                                     if direction == .left && index % columns.count == 0 {
                                         focusedSubscription = selectedChannelURL
