@@ -48,6 +48,7 @@ struct VideoItem: Decodable, Hashable, Identifiable {
     var publishedAt: Int64? = nil // Unix epoch milliseconds
     var uploaded: Int64? = nil
     var uploadDate: String? = nil
+    var requiresMembership: Bool? = nil
 
     func withProgress(_ position: Int64) -> VideoItem {
         var result = self
@@ -63,6 +64,27 @@ struct HomeRecommendations: Decodable {
     let items: [VideoItem]
     let nextCursor: String?
     let hasMore: Bool?
+}
+
+/// GET /subscriptions is account-specific. The channel URL is passed without
+/// guessing or rebuilding service/channel identifiers.
+struct TVSubscription: Decodable, Identifiable {
+    let channelUrl: String
+    let name: String
+    let avatarUrl: String
+    let subscribedAt: Int64?
+    var id: String { channelUrl }
+}
+
+struct TVChannelPage: Decodable {
+    let name: String
+    let description: String?
+    let avatarUrl: String?
+    let bannerUrl: String?
+    let subscriberCount: Int64?
+    let isVerified: Bool?
+    let videos: [VideoItem]
+    let nextpage: String?
 }
 
 struct SearchResults: Decodable {
@@ -278,6 +300,20 @@ struct TypeTypeAPI {
             query.append(URLQueryItem(name: "cursor", value: cursor))
         }
         return try await get("recommendations/home", query: query)
+    }
+
+    /// Mirrors the web client's channel list and channel route. The server
+    /// expects the original subscribed channel URL as query parameter.
+    func subscriptions() async throws -> [TVSubscription] {
+        try await get("subscriptions")
+    }
+
+    func channel(_ channelURL: String, nextpage: String? = nil) async throws -> TVChannelPage {
+        var query = [URLQueryItem(name: "url", value: channelURL)]
+        if let nextpage, !nextpage.isEmpty {
+            query.append(URLQueryItem(name: "nextpage", value: nextpage))
+        }
+        return try await get("channel", query: query)
     }
 
     /// These are account-level preferences shared with the Android and web clients.
