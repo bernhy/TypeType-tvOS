@@ -96,6 +96,60 @@ struct SabrRecoveryBudget {
     }
 }
 
+/// The TypeType server sends a free-form terminalError alongside
+/// recoveryAction=retry_fresh_session. Keep the detailed error out of device
+/// logs because upstream messages may embed URLs, visitor identifiers or
+/// tokens. Categorize it to identify server-side failures safely.
+enum SabrServerRecoveryDiagnostics {
+    static func category(_ terminalError: String?) -> String {
+        guard let error = terminalError?.lowercased(), !error.isEmpty
+        else { return "unspecified" }
+        if error.contains("attestation") || error.contains("protected no-media") {
+            return "attestation"
+        }
+        if error.contains("binding") || error.contains("po token") ||
+            error.contains("potoken") {
+            return "token-binding"
+        }
+        if error.contains("unauthorized") || error.contains("http 403") ||
+            error.contains("http 401") {
+            return "upstream-auth"
+        }
+        if error.contains("demand stalled") || error.contains("no progress") {
+            return "demand-stalled"
+        }
+        if error.contains("timeout") || error.contains("timed out") {
+            return "upstream-timeout"
+        }
+        if error.contains("expected ump response") || error.contains("ump") {
+            return "upstream-ump"
+        }
+        if error.contains("eof") || error.contains("connection") {
+            return "upstream-transport"
+        }
+        if error.contains("initialization") { return "initialization" }
+        return "other"
+    }
+
+    static func state(_ status: String?) -> String {
+        switch status?.lowercased() {
+        case "idle": return "idle"
+        case "ready": return "ready"
+        case "requesting": return "requesting"
+        case "repositioning": return "repositioning"
+        case "throttled": return "throttled"
+        case "terminal": return "terminal"
+        case "network_failed": return "network-failed"
+        default: return "other"
+        }
+    }
+
+    static func action(_ action: String?) -> String {
+        if action == "retry_fresh_session" { return "retry-fresh-session" }
+        return action == nil ? "none" : "other"
+    }
+}
+
 /// A bootstrap 401/403 may request a guest session only when the client has
 /// no existing user credentials. Replacing an account token with a guest
 /// token would silently sign the user out and hide account history/playlists.

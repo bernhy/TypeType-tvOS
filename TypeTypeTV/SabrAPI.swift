@@ -480,10 +480,23 @@ final class SabrService: @unchecked Sendable {
                       answer.audio != nil else { throw SabrFailure.invalidResponse("window generation/tracks") }
                 return answer
             }
-            if let terminal = answer.terminalError, answer.recoveryAction != "retry_fresh_session" {
+            if answer.recoveryAction == "retry_fresh_session" {
+                // "Expired" is our client-side name for the server's
+                // instruction to create a fresh playback session; it does
+                // not prove that the session token itself timed out.
+                // Only log known categories, never the raw terminalError.
+                NSLog("TypeType SABR SERVER recovery action=%@ state=%@ cause=%@",
+                      SabrServerRecoveryDiagnostics.action(answer.recoveryAction),
+                      SabrServerRecoveryDiagnostics.state(answer.status),
+                      SabrServerRecoveryDiagnostics.category(answer.terminalError))
+                throw SabrFailure.expired
+            }
+            if let terminal = answer.terminalError {
+                NSLog("TypeType SABR SERVER terminal state=%@ cause=%@",
+                      SabrServerRecoveryDiagnostics.state(answer.status),
+                      SabrServerRecoveryDiagnostics.category(terminal))
                 throw SabrFailure.invalidResponse(terminal)
             }
-            if answer.recoveryAction == "retry_fresh_session" { throw SabrFailure.expired }
             if answer.status == "idle" { prefetched = false }
             try await Task.sleep(nanoseconds: UInt64(min(2000, max(150, answer.retryAfterMs ?? 300))) * 1_000_000)
         }

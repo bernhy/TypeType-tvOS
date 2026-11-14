@@ -5,6 +5,33 @@ import XCTest
 final class SabrRecoveryPolicyTests: XCTestCase {
     let policy = SabrRecoveryPolicy()
 
+    func testServerFreshSessionRecoveryDiagnosesAttestationWithoutLoggingSecrets() {
+        let terminal = "SABR attestation remained pending without media for 3 consecutive responses: " +
+            "privateToken=https://secret.invalid/session/token"
+        XCTAssertEqual(SabrServerRecoveryDiagnostics.category(terminal), "attestation")
+        XCTAssertEqual(SabrServerRecoveryDiagnostics.action("retry_fresh_session"),
+                       "retry-fresh-session")
+        XCTAssertEqual(SabrServerRecoveryDiagnostics.state("TERMINAL"), "terminal")
+        XCTAssertEqual(SabrServerRecoveryDiagnostics.state("sensitive untrusted text"),
+                       "other")
+        XCTAssertEqual(SabrServerRecoveryDiagnostics.action("https://secret.invalid"),
+                       "other")
+    }
+
+    func testServerRecoveryDistinguishesPersistentUpstreamFailures() {
+        XCTAssertEqual(SabrServerRecoveryDiagnostics.category("SABR demand stalled for 137:14"),
+                       "demand-stalled")
+        XCTAssertEqual(SabrServerRecoveryDiagnostics.category("upstream unauthorized HTTP 403"),
+                       "upstream-auth")
+        XCTAssertEqual(SabrServerRecoveryDiagnostics.category("SABR token binding mismatch"),
+                       "token-binding")
+        XCTAssertEqual(SabrServerRecoveryDiagnostics.category("upstream timeout"),
+                       "upstream-timeout")
+        XCTAssertEqual(SabrServerRecoveryDiagnostics.category(nil), "unspecified")
+        XCTAssertEqual(SabrServerRecoveryDiagnostics.category("unexpected unrelated details"),
+                       "other")
+    }
+
     func testRetryClassificationAvoidsPermanentClientAndDecoderFailures() {
         XCTAssertTrue(policy.canRetry(SabrFailure.expired,
             completedAttempts: 1, elapsedSeconds: 1))

@@ -946,6 +946,14 @@ final class SabrPlayerController: ObservableObject {
                     }
                     throw CancellationError()
                 }
+                // New session tokens are never printed. Confirm whether
+                // a retry actually creates a different session, and whether
+                // it is already ready when the server returns.
+                NSLog("TypeType SABR RECOVERY session-start fresh=%d ready=%d state=%@ generation=%lld",
+                      oldSession != renewed.sessionId ? 1 : 0,
+                      renewed.ready == true ? 1 : 0,
+                      SabrServerRecoveryDiagnostics.state(renewed.status),
+                      renewed.generation)
                 sessionId = renewed.sessionId
                 generation = renewed.generation
                 if oldSession != renewed.sessionId {
