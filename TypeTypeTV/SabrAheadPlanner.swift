@@ -35,6 +35,25 @@ enum SabrWindowRequestPosition {
     }
 }
 
+/// Sequential VOD window discovery: the server's 'bufferedRanges' field is
+/// NOT merely diagnostic. Its window builder treats a cached range covering
+/// playerTimeMs as permission to advance directly to that range's end.
+/// Supplying a multi-minute disk cache while the decoder has consumed only
+/// the first window can therefore skip metadata windows and produce the
+/// observable 20-25-second playback gap. Keep the discovery cursor at the
+/// contiguous end of metadata windows we have actually delivered.
+enum SabrSequentialWindowPolicy {
+    static func requestPosition(first: Bool, startMs: Int64,
+                                continuousEndMs: Int64) -> Int64 {
+        first ? max(0, startMs) : max(0, continuousEndMs)
+    }
+
+    /// Let the server return the segment descriptors for the next window.
+    /// The client still reuses the bytes in SabrFragmentCache by URL, without
+    /// allowing its stored fragments to suppress important window metadata.
+    static var advertisedRanges: [SabrBufferedRange] { [] }
+}
+
 /// Rebuild advertised SABR ranges only from fragments *currently on disk*.
 /// A historic high-water mark is not proof that an evicted fragment is buffered.
 enum SabrCachedRangePlanner {
