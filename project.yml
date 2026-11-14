@@ -4,6 +4,7 @@ options:
   deploymentTarget:
     tvOS: "17.0"
   createIntermediateGroups: true
+  preGenCommand: bash scripts/generate-build-info.sh
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -16,6 +17,10 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - TypeTypeTV
+    preBuildScripts:
+      - name: Stamp Git revision
+        script: bash "$SRCROOT/scripts/generate-build-info.sh"
+        basedOnDependencyAnalysis: false
     info:
       path: TypeTypeTV/Info.plist
       properties:
