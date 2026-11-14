@@ -3,6 +3,37 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVVideoMetadataTests: XCTestCase {
+    func testChannelURLUsesProvidedVideoOrStreamMetadataAndRejectsUnsafeLinks() throws {
+        var video = VideoItem(
+            id: "abc", title: "Sample", url: "https://youtu.be/abc",
+            thumbnailUrl: nil, uploaderName: "Creator", duration: 120, isLive: false
+        )
+        XCTAssertNil(TVVideoMetadata.channelURL(for: video, stream: nil))
+        let metadata = try JSONDecoder().decode(
+            StreamInfo.self,
+            from: Data(#"{"uploaderUrl":"https://www.youtube.com/@creator/videos"}"#.utf8)
+        )
+        XCTAssertEqual(
+            TVVideoMetadata.channelURL(for: video, stream: metadata),
+            "https://www.youtube.com/@creator/videos"
+        )
+        video.uploaderUrl = "https://www.youtube.com/channel/UC123"
+        XCTAssertEqual(
+            TVVideoMetadata.channelURL(for: video, stream: metadata),
+            video.uploaderUrl
+        )
+        for invalid in ["javascript:alert(1)", "file:///etc/passwd", "/channel/abc",
+                        "https://user:secret@example.com/channel"] {
+            video.uploaderUrl = invalid
+            XCTAssertEqual(
+                TVVideoMetadata.channelURL(for: video, stream: metadata),
+                metadata.uploaderUrl
+            )
+        }
+        video.uploaderUrl = ""
+        XCTAssertNil(TVVideoMetadata.channelURL(for: video, stream: nil))
+    }
+
     func testTypeTypeRecommendationPreservesViewsAndMillisecondPublicationTime() throws {
         let json = Data(#"""
         {"id":"abc123def45","title":"Video","url":"https://youtu.be/abc123def45",

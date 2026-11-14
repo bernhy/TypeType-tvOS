@@ -138,8 +138,11 @@ struct VideoDetailView: View {
                                         }
                                     } label: {
                                         Label {
-                                            Text(video.isLive == true
-                                                 ? "video.viewLive" : "video.play")
+                                            if video.isLive == true {
+                                                Text("video.viewLive")
+                                            } else {
+                                                Text("video.play")
+                                            }
                                         } icon: {
                                             Image(systemName: "play.fill")
                                         }
