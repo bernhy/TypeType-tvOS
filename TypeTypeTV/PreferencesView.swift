@@ -8,6 +8,7 @@ struct PreferencesView: View {
     let api: TypeTypeAPI
     let onDisconnect: () -> Void
     var onAccountChanged: () -> Void = {}
+    var onBackToMenu: () -> Void = {}
 
     @ObservedObject private var hardware = TVHardwareDiagnostics.shared
     @AppStorage("typetype.uiLanguage") private var uiLanguage = TVLanguages.defaultCode
@@ -44,10 +45,12 @@ struct PreferencesView: View {
 
     init(api: TypeTypeAPI, onDisconnect: @escaping () -> Void,
          initialGroup: TVSettingsGroup = .playback,
-         onAccountChanged: @escaping () -> Void = {}) {
+         onAccountChanged: @escaping () -> Void = {},
+         onBackToMenu: @escaping () -> Void = {}) {
         self.api = api
         self.onDisconnect = onDisconnect
         self.onAccountChanged = onAccountChanged
+        self.onBackToMenu = onBackToMenu
         _group = State(initialValue: initialGroup)
     }
 
@@ -102,6 +105,16 @@ struct PreferencesView: View {
             if let next { group = next }
         }
         .onDisappear { poller?.cancel() }
+        .onExitCommand {
+            // Back climbs one level at a time:
+            // controls -> selected Settings group -> global Settings icon.
+            // The global sidebar then handles Settings -> Home -> no-op.
+            if focusedGroup == nil {
+                focusedGroup = group
+            } else {
+                onBackToMenu()
+            }
+        }
         .confirmationDialog(
             TVL10n.value("settings.logoutConfirm"),
             isPresented: $confirmLogout
