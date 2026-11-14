@@ -308,7 +308,7 @@ final class SabrPlayerController: ObservableObject {
         hardwareDecoder?.invalidate()
         hardwareDecoder = nil
         synchronizer.setRate(0, time: synchronizer.currentTime())
-        videoLayer.flushAndRemoveImage()
+        videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
         audioRenderer.flush()
         isInitialized = false
         hasQueuedFirstAudio = false
@@ -617,7 +617,7 @@ final class SabrPlayerController: ObservableObject {
                     activeMailbox = nil
                     hardwareDecoder?.invalidate()
                     hardwareDecoder = nil
-                    videoLayer.flushAndRemoveImage()
+                    videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
                     audioRenderer.flush()
                     synchronizer.setRate(
                         0, time: CMTime(value: playbackStart, timescale: 1_000)
@@ -739,7 +739,7 @@ final class SabrPlayerController: ObservableObject {
                 if oldSession != renewed.sessionId {
                     Task { try? await service.release(sessionId: oldSession) }
                 }
-                videoLayer.flushAndRemoveImage()
+                videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
                 audioRenderer.flush()
                 hardwareDecoder?.invalidate()
                 let allowSoftware = UserDefaults.standard.bool(
@@ -1065,9 +1065,9 @@ final class SabrPlayerController: ObservableObject {
                 hasQueuedFirstAudio = true
             case .video:
                 var budget = SabrRendererWaitBudget()
-                while !videoLayer.isReadyForMoreMediaData {
+                while !videoLayer.sampleBufferRenderer.isReadyForMoreMediaData {
                     try Task.checkCancellation()
-                    guard videoLayer.status != .failed else {
+                    guard videoLayer.sampleBufferRenderer.status != .failed else {
                         throw SabrFailure.stalled("video display layer failed")
                     }
                     guard budget.shouldContinue(
