@@ -291,6 +291,7 @@ struct PreferencesView: View {
             TVSettingsCard("settings.videoQuality", summary: "settings.localDeviceScope") {
                 Toggle("settings.allowSoftware", isOn: $allowSoftware)
                     .focused($firstControlFocus, equals: .playback)
+                    .accessibilityIdentifier("settings-first-playback")
                 Text("settings.softwareWarning")
                     .font(.caption).foregroundStyle(TTTheme.muted)
                 TVSettingsMenuRow("settings.maxResolution", selection: $maxHeight) {
