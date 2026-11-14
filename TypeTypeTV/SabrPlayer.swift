@@ -1262,38 +1262,39 @@ final class SabrPlayerController: ObservableObject {
             var delivery = SabrPrefetchDelivery(
                 audio: audio.segments, video: video.segments
             )
+            let onBatch: @MainActor ([SabrMediaReference]) async throws -> Void = { batch in
+                guard !isFirstWindow else { return }
+                let next = delivery.completed(batch)
+                guard !next.audio.isEmpty || !next.video.isEmpty else { return }
+                let partial = SabrWindow(
+                    sessionId: requested.sessionId,
+                    generation: requested.generation,
+                    ready: requested.ready,
+                    retryAfterMs: requested.retryAfterMs,
+                    status: requested.status,
+                    durationMs: requested.durationMs,
+                    endOfStream: false,
+                    startTimeMs: requested.startTimeMs,
+                    audio: SabrTrack(
+                        mime: audio.mime, initUrl: audio.initUrl,
+                        segments: next.audio
+                    ),
+                    video: SabrTrack(
+                        mime: video.mime, initUrl: video.initUrl,
+                        segments: next.video
+                    ),
+                    terminalError: requested.terminalError,
+                    recoveryAction: requested.recoveryAction,
+                    retryVideoItags: requested.retryVideoItags
+                )
+                NSLog("TypeType SABR PRODUCER progressive-delivery requestMs=%lld audio=%d video=%d",
+                      requestPosition, next.audio.count, next.video.count)
+                try await mailbox.offer(partial)
+            }
             do {
                 try await cache.preloadFully(
                     refs, service: service, sessionId: sessionId,
-                    generation: generation,
-                    onBatch: isFirstWindow ? nil : { batch in
-                        let next = delivery.completed(batch)
-                        guard !next.audio.isEmpty || !next.video.isEmpty else { return }
-                        let partial = SabrWindow(
-                            sessionId: requested.sessionId,
-                            generation: requested.generation,
-                            ready: requested.ready,
-                            retryAfterMs: requested.retryAfterMs,
-                            status: requested.status,
-                            durationMs: requested.durationMs,
-                            endOfStream: false,
-                            startTimeMs: requested.startTimeMs,
-                            audio: SabrTrack(
-                                mime: audio.mime, initUrl: audio.initUrl,
-                                segments: next.audio
-                            ),
-                            video: SabrTrack(
-                                mime: video.mime, initUrl: video.initUrl,
-                                segments: next.video
-                            ),
-                            terminalError: requested.terminalError,
-                            recoveryAction: requested.recoveryAction,
-                            retryVideoItags: requested.retryVideoItags
-                        )
-                        NSLog("TypeType SABR PRODUCER progressive-delivery requestMs=%lld audio=%d video=%d",
-                              requestPosition, next.audio.count, next.video.count)
-                        try await mailbox.offer(partial)
-                    }
+                    generation: generation, onBatch: onBatch
                 )
             } catch {
                 mediaPrefetch.cancel()
