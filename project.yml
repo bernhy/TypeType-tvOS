@@ -8,6 +8,11 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
+    # Localizable.xcstrings is maintained explicitly and checked by CI.
+    # Prevent Xcode from extracting UI literals like "4K" into the catalog
+    # on every build and marking the Git working tree dirty.
+    SWIFT_EMIT_LOC_STRINGS: NO
+    LOCALIZED_STRING_SWIFTUI_SUPPORT: NO
     CODE_SIGN_STYLE: Automatic
     TARGETED_DEVICE_FAMILY: "3"
 targets:
