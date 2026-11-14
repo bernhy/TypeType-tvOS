@@ -81,12 +81,15 @@ final class HardwareVideoDecoder {
             var hardwareUsed: Bool?
             if result == noErr, let created {
                 var property: CFTypeRef?
-                if VTSessionCopyProperty(
-                    created,
-                    key: kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder,
-                    allocator: kCFAllocatorDefault,
-                    valueOut: &property
-                ) == noErr {
+                let copyStatus = withUnsafeMutablePointer(to: &property) { pointer in
+                    VTSessionCopyProperty(
+                        created,
+                        key: kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder,
+                        allocator: kCFAllocatorDefault,
+                        valueOut: pointer
+                    )
+                }
+                if copyStatus == noErr {
                     hardwareUsed = (property as? NSNumber)?.boolValue
                 }
             }
