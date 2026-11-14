@@ -285,14 +285,17 @@ struct BrowseView: View {
     private func open(_ destination: TVSection) {
         // Preserve the last active Settings category when switching away
         // and returning from Home, Library or the quick account switcher.
-        // Relinquish the global focus before rendering the destination.
-        // Settings receives a new focus request and explicitly places focus
-        // on its selected subnavigation row on the next main actor turn.
+        // Keep focus anchored on the current Settings icon until the
+        // Settings child is mounted and explicitly takes it. Clearing the
+        // global focus first causes tvOS 26 to temporarily default to Home,
+        // flashing a white overlay there before Settings appears.
         if destination == .settings {
             settingsFocusRequest += 1
+            section = destination
+        } else {
+            section = destination
+            menuFocus = nil
         }
-        section = destination
-        menuFocus = nil
         expanded = false
     }
 
