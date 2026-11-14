@@ -357,6 +357,8 @@ final class SabrWireContractTests: XCTestCase {
     func testSettingsCategoryRailHasAndroidInspiredGroups() {
         let all = TVSettingsGroup.allCases
         XCTAssertEqual(all.first, .playback)
+        XCTAssertEqual(all.dropFirst().first, .sponsor)
+        XCTAssertEqual(TVSettingsGroup.sponsor.titleKey, "sponsor.title")
         XCTAssertTrue(all.contains(.content))
         XCTAssertTrue(all.contains(.device))
         XCTAssertTrue(all.contains(.language))

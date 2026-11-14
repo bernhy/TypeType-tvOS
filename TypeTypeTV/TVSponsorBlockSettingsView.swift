@@ -9,6 +9,7 @@ struct TVSponsorBlockSettingsView: View {
     var onMoveLeft: () -> Void = {}
 
     @State private var settings: TVServerSettings?
+    @State private var lastConfirmedSettings: TVServerSettings?
     @State private var loading = true
     @State private var refreshInFlight = false
     @State private var saving = false
@@ -199,6 +200,7 @@ struct TVSponsorBlockSettingsView: View {
                 let response = try await api.setAccountSettings(fields)
                 if generation == writeGeneration {
                     settings = response
+                    lastConfirmedSettings = response
                     error = nil
                 }
             } catch {
@@ -206,6 +208,11 @@ struct TVSponsorBlockSettingsView: View {
                     let message = error.localizedDescription
                     if let fresh = try? await api.accountSettings() {
                         settings = fresh
+                        lastConfirmedSettings = fresh
+                    } else {
+                        // A failed save + failed refresh must not leave an
+                        // unconfirmed toggle looking successfully enabled.
+                        settings = lastConfirmedSettings
                     }
                     self.error = message
                 }
@@ -232,12 +239,15 @@ struct TVSponsorBlockSettingsView: View {
             settings = try? JSONDecoder().decode(
                 TVServerSettings.self, from: Data("{}".utf8)
             )
+            lastConfirmedSettings = settings
             error = nil
             return
         }
         #endif
         do {
-            settings = try await api.accountSettings()
+            let fresh = try await api.accountSettings()
+            settings = fresh
+            lastConfirmedSettings = fresh
             error = nil
         } catch is CancellationError {
             return
