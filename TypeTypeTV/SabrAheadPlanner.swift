@@ -1,5 +1,34 @@
 import Foundation
 
+/// Tracks completed SABR downloads without ever advertising a later
+/// fragment ahead of an earlier missing sequence on the same track.
+struct SabrPrefetchDelivery {
+    private let audio: [SabrFragment]
+    private let video: [SabrFragment]
+    private var ready: Set<String> = []
+    private var sent: Set<String> = []
+
+    init(audio: [SabrFragment], video: [SabrFragment]) {
+        self.audio = SabrSequenceOrder.ordered(audio)
+        self.video = SabrSequenceOrder.ordered(video)
+    }
+
+    mutating func completed(_ batch: [SabrMediaReference])
+        -> (audio: [SabrFragment], video: [SabrFragment]) {
+        for part in batch { ready.insert(part.url) }
+        return (takeReadyPrefix(audio), takeReadyPrefix(video))
+    }
+
+    private mutating func takeReadyPrefix(_ fragments: [SabrFragment]) -> [SabrFragment] {
+        var newlyAvailable: [SabrFragment] = []
+        for part in fragments {
+            guard ready.contains(part.url) else { break }
+            if sent.insert(part.url).inserted { newlyAvailable.append(part) }
+        }
+        return newlyAvailable
+    }
+}
+
 /// Policy for compressed media held locally, independent from decoded frame
 /// backpressure. The server is allowed to deliver fewer segments than requested.
 enum SabrLookaheadPolicy {

@@ -137,7 +137,8 @@ actor SabrFragmentCache {
     /// server window. A failed or cancelled segment never counts as buffered.
     func preloadFully(
         _ references: [SabrMediaReference], service: SabrService,
-        sessionId: String, generation: Int64
+        sessionId: String, generation: Int64,
+        onBatch: (@MainActor ([SabrMediaReference]) async throws -> Void)? = nil
     ) async throws {
         let ordered = references.sorted {
             if $0.startMs != $1.startMs { return $0.startMs < $1.startMs }
@@ -160,6 +161,8 @@ actor SabrFragmentCache {
                 }
                 try await group.waitForAll()
             }
+            // Publish only finished downloads, never in-flight HTTP 202s.
+            if let onBatch { try await onBatch(batch) }
         }
     }
 

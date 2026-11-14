@@ -83,6 +83,34 @@ final class SabrCacheCoverageTests: XCTestCase {
         ))
     }
 
+    func testProgressivePrefetchPublishesContiguousPerTrackPrefixes() {
+        func fragment(_ itag: Int, _ seq: Int, _ start: Int64) -> SabrFragment {
+            SabrFragment(url: "https://example.org/media/\(itag)/\(seq)",
+                         startMs: start, durationMs: 3_000)
+        }
+        func ref(_ part: SabrFragment, _ itag: Int) -> SabrMediaReference {
+            SabrMediaReference(url: part.url, itag: itag,
+                               startMs: part.startMs, durationMs: part.durationMs)
+        }
+        let v1 = fragment(137, 12, 59_826)
+        let v2 = fragment(137, 13, 64_664)
+        let a1 = fragment(140, 7, 59_907)
+        let a2 = fragment(140, 8, 69_862)
+        var delivery = SabrPrefetchDelivery(audio: [a1, a2], video: [v1, v2])
+        let initial = delivery.completed([ref(v2, 137), ref(a1, 140)])
+        XCTAssertTrue(initial.video.isEmpty)
+        XCTAssertEqual(initial.audio, [a1])
+        let next = delivery.completed([ref(v1, 137)])
+        XCTAssertEqual(next.video, [v1, v2])
+        XCTAssertTrue(next.audio.isEmpty)
+        let last = delivery.completed([ref(a2, 140)])
+        XCTAssertEqual(last.audio, [a2])
+        XCTAssertTrue(last.video.isEmpty)
+        let repeated = delivery.completed([ref(v1, 137), ref(a2, 140)])
+        XCTAssertTrue(repeated.audio.isEmpty)
+        XCTAssertTrue(repeated.video.isEmpty)
+    }
+
     func testServerWindowDiscoveryDoesNotSkipAheadToCached121Seconds() {
         // The server uses bufferedEndFor to jump to the end of a reported
         // range. With [0,121_000] the old client skipped media descriptors
