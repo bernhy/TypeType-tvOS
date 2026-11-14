@@ -11,6 +11,7 @@ struct TVVideoActionModifier: ViewModifier {
     let isWatchLaterEntry: Bool
 
     @ObservedObject private var localProgress = TVLocalProgress.shared
+    @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
 
     private var isMarkedWatched: Bool {
         guard let duration = video.duration, duration > 0 else { return false }
@@ -27,6 +28,7 @@ struct TVVideoActionModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .task { await watchLaterMembership.ensureLoaded(api: api) }
             .contextMenu {
                 if let position = localProgress.positions[video.url] ?? video.watchPositionMs,
                    position > 0 {
@@ -60,10 +62,13 @@ struct TVVideoActionModifier: ViewModifier {
                         )
                     }
                 }
-                if isWatchLaterEntry {
+                if isWatchLaterEntry || watchLaterMembership.contains(video.url) {
                     Button(role: .destructive) {
                         perform {
                             try await api.setWatchLater(video: video, enabled: false)
+                            TVWatchLaterMembership.shared.mark(
+                                video.url, present: false, api: api
+                            )
                             return TVL10n.value("action.removedWatchLater")
                         }
                     } label: {
@@ -73,6 +78,9 @@ struct TVVideoActionModifier: ViewModifier {
                     Button {
                         perform {
                             try await api.setWatchLater(video: video, enabled: true)
+                            TVWatchLaterMembership.shared.mark(
+                                video.url, present: true, api: api
+                            )
                             return TVL10n.value("action.savedWatchLater")
                         }
                     } label: {
