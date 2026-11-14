@@ -62,25 +62,17 @@ extension TypeTypeCredentials {
         item[kSecValueData as String] = Data(value.utf8)
         item[kSecAttrLabel as String] = label
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        // Replace credentials for the same user ID only, never a family
-        // member's saved account. Restore any existing record on write error.
-        var previousQuery = key
-        previousQuery[kSecReturnAttributes as String] = true
-        previousQuery[kSecReturnData as String] = true
-        var previousResult: CFTypeRef?
-        let previous = SecItemCopyMatching(previousQuery as CFDictionary, &previousResult)
-            == errSecSuccess ? previousResult as? [String: Any] : nil
-        SecItemDelete(key as CFDictionary)
-        if SecItemAdd(item as CFDictionary, nil) == errSecSuccess { return true }
-        if let previous,
-           let oldData = previous[kSecValueData as String] as? Data {
-            var restore = key
-            restore[kSecValueData as String] = oldData
-            restore[kSecAttrLabel as String] = previous[kSecAttrLabel as String] ?? identity.id
-            restore[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            SecItemAdd(restore as CFDictionary, nil)
+        // In-place updates preserve the old credential if the keychain write
+        // fails. Delete-before-insert could discard a working household login.
+        let updated = SecItemUpdate(key as CFDictionary,
+            [kSecValueData as String: Data(value.utf8),
+             kSecAttrLabel as String: label] as CFDictionary)
+        let result = updated == errSecItemNotFound
+            ? SecItemAdd(item as CFDictionary, nil) : updated
+        if result != errSecSuccess {
+            NSLog("TypeType Keychain profile write failed OSStatus=%d", result)
         }
-        return false
+        return result == errSecSuccess
     }
 
     /// Migrate a legacy single-user login into the multi-account Keychain the
@@ -111,8 +103,7 @@ extension TypeTypeCredentials {
               !selectedToken.isEmpty else { return false }
         let previousToken = token(for: origin)
         let previousLabel = displayIdentifier(for: origin)
-        save(selectedToken, for: origin)
-        if token(for: origin) != selectedToken {
+        guard save(selectedToken, for: origin), token(for: origin) == selectedToken else {
             if let previousToken {
                 save(previousToken, for: origin)
                 saveDisplayIdentifier(previousLabel, for: origin)

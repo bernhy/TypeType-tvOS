@@ -106,6 +106,44 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertFalse(selectedGroup.hasFocus)
     }
 
+    func testSettingsSelectEntersControlsAndLeftReturnsToSelectedGroup() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let group = app.buttons["settings-group-playback"]
+        let first = app.buttons["settings-first-playback"]
+        XCTAssertTrue(group.waitForExistence(timeout: 20))
+        XCTAssertTrue(first.exists)
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(first.hasFocus,
+                      "Select on Wiedergabe must enter its content column")
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(group.hasFocus,
+                      "Left must return to the selected Settings group")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(first.hasFocus,
+                      "Right must re-enter the same content column")
+    }
+
+    func testContentSettingsSwitchesCanBeTraversedIndividually() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-content", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let recommendations = app.buttons["content.hideHomeRecommendations"]
+        let continueWatching = app.buttons["content.hideContinueWatching"]
+        XCTAssertTrue(recommendations.waitForExistence(timeout: 20))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(recommendations.hasFocus,
+                      "Content has to enter the first real switch")
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(continueWatching.hasFocus,
+                      "Each content switch must have its own focus identity")
+    }
+
     func testMainNavigationUsesSubscriptionsNotDuplicatePlaylists() throws {
         let app = XCUIApplication()
         app.launchArguments = [

@@ -10,6 +10,7 @@ struct TVAccountSwitcherView: View {
 
     @State private var accounts: [TVSavedAccount] = []
     @FocusState private var focusedAccountID: String?
+    @FocusState private var addAccountFocused: Bool
     @State private var identity: TVAccountIdentity?
     @State private var loading = true
     @State private var changing = false
@@ -81,7 +82,16 @@ struct TVAccountSwitcherView: View {
                             .buttonStyle(TVRailButtonStyle())
                             .focusEffectDisabled(true)
                             .focused($focusedAccountID, equals: account.id)
-                            .disabled(changing || identity?.id == account.id)
+                            .disabled(changing)
+                            .onMoveCommand { direction in
+                                // A final row containing one or two profiles
+                                // must lead down to the Add Account button.
+                                if direction == .down,
+                                   let index = accounts.firstIndex(where: { $0.id == account.id }),
+                                   index >= accounts.count - 2 {
+                                    addAccountFocused = true
+                                }
+                            }
                             .accessibilityLabel(account.label)
                             .accessibilityAddTraits(identity?.id == account.id ? .isSelected : [])
                         }
@@ -107,6 +117,12 @@ struct TVAccountSwitcherView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(TTTheme.accent)
+                .focused($addAccountFocused)
+                .onMoveCommand { direction in
+                    if direction == .up, let last = accounts.last {
+                        focusedAccountID = last.id
+                    }
+                }
                 .focusSection()
             }
             .padding(.horizontal, 60)
@@ -136,6 +152,11 @@ struct TVAccountSwitcherView: View {
                 TypeTypeCredentials.shared.rememberActive(actual, for: api.origin)
             }
             accounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
+        } catch TypeTypeError.http(401, _) {
+            // A rejected bearer does not mean that the Keychain has vanished.
+            // Keep saved household profiles and offer a fresh sign-in.
+            identity = nil
+            errorMessage = TVL10n.value("login.sessionExpired")
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -119,14 +119,14 @@ struct TVSettingsReadableText: View {
 struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
     let title: LocalizedStringKey
     @Binding var selection: Value
-    let focus: FocusState<TVSettingsGroup?>.Binding?
-    let focusTarget: TVSettingsGroup?
+    let focus: FocusState<String?>.Binding?
+    let focusTarget: String?
     @FocusState private var pickerFocus: Bool
     @ViewBuilder let options: Options
 
     init(_ title: LocalizedStringKey, selection: Binding<Value>,
-         focus: FocusState<TVSettingsGroup?>.Binding? = nil,
-         focusTarget: TVSettingsGroup? = nil,
+         focus: FocusState<String?>.Binding? = nil,
+         focusTarget: String? = nil,
          @ViewBuilder options: () -> Options) {
         self.title = title
         self._selection = selection
@@ -166,6 +166,72 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
                     pickerFocus = true
                 }
             }
+        }
+    }
+}
+
+
+/// tvOS's default Toggle renders only ON/OFF text. This focusable button
+/// keeps the native remote Select interaction while drawing a recognisable
+/// sliding switch. The focus rectangle remains inside the settings card.
+struct TVSettingsSwitchRow: View {
+    let title: LocalizedStringKey
+    @Binding var isOn: Bool
+    let focus: FocusState<String?>.Binding?
+    let focusID: String?
+    let accessibilityID: String?
+
+    init(_ title: LocalizedStringKey, isOn: Binding<Bool>,
+         focus: FocusState<String?>.Binding? = nil,
+         focusID: String? = nil, accessibilityID: String? = nil) {
+        self.title = title
+        self._isOn = isOn
+        self.focus = focus
+        self.focusID = focusID
+        self.accessibilityID = accessibilityID
+    }
+
+    private var switchButton: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            HStack(spacing: 22) {
+                Text(title)
+                    .font(.body)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Capsule()
+                    .fill(isOn ? TTTheme.accent : Color.white.opacity(0.27))
+                    .frame(width: 72, height: 38)
+                    .overlay {
+                        Circle()
+                            .fill(.white)
+                            .frame(width: 30, height: 30)
+                            .shadow(color: .black.opacity(0.25), radius: 2)
+                            .offset(x: isOn ? 17 : -17)
+                    }
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                focus?.wrappedValue == focusID && focusID != nil
+                    ? Color.white.opacity(0.14) : .clear,
+                in: RoundedRectangle(cornerRadius: 12)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(TVRailButtonStyle())
+        .focusEffectDisabled(true)
+        .accessibilityValue(TVL10n.value(isOn ? "settings.hardwareYes" : "settings.hardwareNo"))
+        .accessibilityIdentifier(accessibilityID ?? focusID ?? "settings-switch")
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if let focus, let focusID {
+            switchButton.focused(focus, equals: focusID)
+        } else {
+            switchButton
         }
     }
 }

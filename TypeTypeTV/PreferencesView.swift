@@ -27,8 +27,7 @@ struct PreferencesView: View {
 
     @State private var group: TVSettingsGroup
     @FocusState private var focusedGroup: TVSettingsGroup?
-    @FocusState private var firstControlFocus: TVSettingsGroup?
-    @FocusState private var profileRemovalFocus: String?
+    @FocusState private var focusedControl: String?
     @State private var lastRemovalID: String?
     @State private var remote: TVServerSettings?
     @State private var remoteLoading = false
@@ -45,7 +44,7 @@ struct PreferencesView: View {
     @State private var confirmProfileRemoval = false
     @State private var accountLoading = false
     @State private var accountError: String?
-     @State private var status = ""
+    @State private var status = ""
 
     init(api: TypeTypeAPI, onDisconnect: @escaping () -> Void,
          initialGroup: TVSettingsGroup = .playback,
@@ -100,6 +99,12 @@ struct PreferencesView: View {
                 }
                 .scrollIndicators(.hidden)
                 .focusSection()
+                .onMoveCommand { direction in
+                    if direction == .left {
+                        focusedControl = nil
+                        focusedGroup = group
+                    }
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
@@ -134,7 +139,7 @@ struct PreferencesView: View {
             if !visible {
                 Task { @MainActor in
                     await Task.yield()
-                    firstControlFocus = .account
+                    focusedControl = "account.add"
                 }
             }
         }
@@ -143,9 +148,9 @@ struct PreferencesView: View {
                 Task { @MainActor in
                     await Task.yield()
                     if savedAccounts.contains(where: { $0.id == id }) {
-                        profileRemovalFocus = id
+                        focusedControl = "account.remove." + id
                     } else {
-                        firstControlFocus = .account
+                        focusedControl = "account.add"
                     }
                 }
             }
@@ -155,7 +160,7 @@ struct PreferencesView: View {
             // controls -> selected Settings group -> global Settings icon.
             // The global sidebar then handles Settings -> Home -> no-op.
             if focusedGroup == nil {
-                firstControlFocus = nil
+                focusedControl = nil
                 focusedGroup = group
             } else {
                 onBackToMenu()
@@ -221,8 +226,7 @@ struct PreferencesView: View {
                 .padding(.bottom, 14)
             ForEach(TVSettingsGroup.allCases) { item in
                 Button {
-                    group = item
-                    focusedGroup = item
+                    enterGroup(item)
                 } label: {
                     HStack(spacing: 9) {
                         Image(systemName: item.symbol)
@@ -248,17 +252,9 @@ struct PreferencesView: View {
                 .focused($focusedGroup, equals: item)
                 .onMoveCommand { direction in
                     if direction == .right {
-                        // The tvOS focus engine otherwise jumps back to
-                        // the global rail or leaves the panel unreachable.
-                        group = item
-                        Task { @MainActor in
-                            await Task.yield()
-                            if item == .account, let first = savedAccounts.first {
-                                profileRemovalFocus = first.id
-                            } else {
-                                firstControlFocus = item
-                            }
-                        }
+                        enterGroup(item)
+                    } else if direction == .left {
+                        onBackToMenu()
                     }
                 }
                 .accessibilityIdentifier("settings-group-\(item.rawValue)")
@@ -266,10 +262,34 @@ struct PreferencesView: View {
                 .accessibilityAddTraits(item == group ? .isSelected : [])
             }
             Spacer(minLength: 20)
-            Label("settings.deviceOnly", systemImage: "appletv")
-                .font(.caption)
-                .foregroundStyle(TTTheme.muted)
-                .padding(.horizontal, 15)
+        }
+    }
+
+    @MainActor
+    private func firstTarget(for item: TVSettingsGroup) -> String {
+        switch item {
+        case .playback: return "playback.software"
+        case .content:
+            return remote == nil ? "content.retry" :
+                "content." + TVServerToggle.allCases[0].rawValue
+        case .device: return "device.skip"
+        case .language: return "language.select"
+        case .account:
+            return savedAccounts.first.map { "account.remove." + $0.id } ?? "account.add"
+        case .instance: return "instance.refresh"
+        case .about: return "about.name"
+        }
+    }
+
+    @MainActor
+    private func enterGroup(_ item: TVSettingsGroup) {
+        group = item
+        focusedGroup = nil
+        let target = firstTarget(for: item)
+        Task { @MainActor in
+            await Task.yield()
+            guard group == item else { return }
+            focusedControl = target
         }
     }
 
@@ -289,12 +309,17 @@ struct PreferencesView: View {
     private var playbackPanel: some View {
         VStack(spacing: 24) {
             TVSettingsCard("settings.videoQuality", summary: "settings.localDeviceScope") {
-                Toggle("settings.allowSoftware", isOn: $allowSoftware)
-                    .focused($firstControlFocus, equals: .playback)
-                    .accessibilityIdentifier("settings-first-playback")
+                TVSettingsSwitchRow(
+                    "settings.allowSoftware", isOn: $allowSoftware,
+                    focus: $focusedControl, focusID: "playback.software",
+                    accessibilityID: "settings-first-playback"
+                )
                 Text("settings.softwareWarning")
                     .font(.caption).foregroundStyle(TTTheme.muted)
-                TVSettingsMenuRow("settings.maxResolution", selection: $maxHeight) {
+                TVSettingsMenuRow(
+                    "settings.maxResolution", selection: $maxHeight,
+                    focus: $focusedControl, focusTarget: "playback.resolution"
+                ) {
                     Text("4K").tag(2160)
                     Text("1440p").tag(1440)
                     Text("1080p").tag(1080)
@@ -314,26 +339,28 @@ struct PreferencesView: View {
                         .padding(18)
                 } else if let remote {
                     ForEach(TVServerToggle.allCases) { field in
-                        Toggle(isOn: Binding(
-                            get: { self.remote?.enabled(field) ?? remote.enabled(field) },
-                            set: { setRemote(field, enabled: $0) }
-                        )) {
-                            Text(TVL10n.value(field.titleKey))
-                        }
+                        TVSettingsSwitchRow(
+                            LocalizedStringKey(field.titleKey),
+                            isOn: Binding(
+                                get: { self.remote?.enabled(field) ?? remote.enabled(field) },
+                                set: { setRemote(field, enabled: $0) }
+                            ),
+                            focus: $focusedControl, focusID: "content." + field.rawValue
+                        )
                         .disabled(remoteSaving)
-                        .focused($firstControlFocus, equals: .content)
                     }
                     if remoteSaving { ProgressView("settings.remoteSaving") }
                     Button("common.refresh") { Task { await refreshRemote() } }
                         .buttonStyle(.bordered)
                         .disabled(remoteSaving)
+                        .focused($focusedControl, equals: "content.refresh")
                 } else {
                     Text(remoteError ?? TVL10n.value("settings.remoteLoginHelp"))
                         .font(.callout)
                         .foregroundStyle(TTTheme.muted)
                     Button("common.retry") { Task { await refreshRemote() } }
                         .buttonStyle(.bordered)
-                        .focused($firstControlFocus, equals: .content)
+                        .focused($focusedControl, equals: "content.retry")
                 }
                 if let remoteError, remote != nil {
                     Text(remoteError)
@@ -352,7 +379,7 @@ struct PreferencesView: View {
             TVSettingsCard("settings.remote", summary: "settings.remoteHelp") {
                 TVSettingsMenuRow(
                     "settings.skipLength", selection: $skipSeconds,
-                    focus: $firstControlFocus, focusTarget: .device
+                    focus: $focusedControl, focusTarget: "device.skip"
                 ) {
                     ForEach([5, 10, 15, 20], id: \.self) { seconds in
                         Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
@@ -360,17 +387,26 @@ struct PreferencesView: View {
                 }
             }
             TVSettingsCard("settings.buffer", summary: "settings.bufferHelp") {
-                TVSettingsMenuRow("settings.forwardBuffer", selection: $bufferForwardSeconds) {
+                TVSettingsMenuRow(
+                    "settings.forwardBuffer", selection: $bufferForwardSeconds,
+                    focus: $focusedControl, focusTarget: "device.forward"
+                ) {
                     ForEach([30, 60, 120, 180, 300, 600], id: \.self) { seconds in
                         Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
                     }
                 }
-                TVSettingsMenuRow("settings.backwardBuffer", selection: $bufferBackSeconds) {
+                TVSettingsMenuRow(
+                    "settings.backwardBuffer", selection: $bufferBackSeconds,
+                    focus: $focusedControl, focusTarget: "device.backward"
+                ) {
                     ForEach([30, 60, 120, 180, 300], id: \.self) { seconds in
                         Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
                     }
                 }
-                TVSettingsMenuRow("settings.maxCache", selection: $bufferCacheMiB) {
+                TVSettingsMenuRow(
+                    "settings.maxCache", selection: $bufferCacheMiB,
+                    focus: $focusedControl, focusTarget: "device.maxCache"
+                ) {
                     ForEach([256, 512, 1024], id: \.self) { amount in
                         Text("\(amount) MiB").tag(amount)
                     }
@@ -379,10 +415,16 @@ struct PreferencesView: View {
                     .font(.caption).foregroundStyle(TTTheme.muted)
             }
             TVSettingsCard("settings.performanceControls") {
-                Toggle("settings.navigationAnimations", isOn: $navigationAnimations)
+                TVSettingsSwitchRow(
+                    "settings.navigationAnimations", isOn: $navigationAnimations,
+                    focus: $focusedControl, focusID: "device.animations"
+                )
                 Text("settings.navigationAnimationsHelp")
                     .font(.caption).foregroundStyle(TTTheme.muted)
-                TVSettingsMenuRow("settings.imageCacheSize", selection: $thumbnailCacheMiB) {
+                TVSettingsMenuRow(
+                    "settings.imageCacheSize", selection: $thumbnailCacheMiB,
+                    focus: $focusedControl, focusTarget: "device.imageCache"
+                ) {
                     ForEach([32, 64, 128, 256], id: \.self) { count in
                         Text("\(count) MiB").tag(count)
                     }
@@ -478,7 +520,7 @@ struct PreferencesView: View {
             TVSettingsCard("settings.languageControls") {
                 TVSettingsMenuRow(
                     "settings.languagePicker", selection: $uiLanguage,
-                    focus: $firstControlFocus, focusTarget: .language
+                    focus: $focusedControl, focusTarget: "language.select"
                 ) {
                     Text("language.system").tag(TVLanguages.followSystem)
                     ForEach(TVLanguages.available, id: \.self) { lang in
@@ -528,7 +570,18 @@ struct PreferencesView: View {
                             }
                             .buttonStyle(.bordered)
                             .accessibilityIdentifier("accounts-remove-\(profile.id)")
-                            .focused($profileRemovalFocus, equals: profile.id)
+                            .focused($focusedControl, equals: "account.remove." + profile.id)
+                            .onMoveCommand { direction in
+                                if let index = savedAccounts.firstIndex(where: { $0.id == profile.id }) {
+                                    if direction == .down {
+                                        focusedControl = index + 1 < savedAccounts.count
+                                            ? "account.remove." + savedAccounts[index + 1].id
+                                            : "account.add"
+                                    } else if direction == .up, index > 0 {
+                                        focusedControl = "account.remove." + savedAccounts[index - 1].id
+                                    }
+                                }
+                            }
                         }
                         .padding(.vertical, 10)
                         if profile.id != savedAccounts.last?.id { Divider() }
@@ -545,7 +598,14 @@ struct PreferencesView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(TTTheme.accent)
                 .accessibilityIdentifier("accounts-add")
-                .focused($firstControlFocus, equals: .account)
+                .focused($focusedControl, equals: "account.add")
+                .onMoveCommand { direction in
+                    if direction == .up, let last = savedAccounts.last {
+                        focusedControl = "account.remove." + last.id
+                    } else if direction == .down, accountIdentity?.isGuest == false {
+                        focusedControl = "account.logout"
+                    }
+                }
 
                 // Logging out differs from deleting a saved family profile:
                 // it closes the active session, but keeps the account in
@@ -555,6 +615,7 @@ struct PreferencesView: View {
                         confirmLogout = true
                     }
                     .buttonStyle(.bordered)
+                    .focused($focusedControl, equals: "account.logout")
                 }
 
                 if let accountError {
@@ -564,6 +625,7 @@ struct PreferencesView: View {
                         Task { await refreshAccountIdentity() }
                     }
                     .buttonStyle(.bordered)
+                    .focused($focusedControl, equals: "account.retry")
                 }
                 if !status.isEmpty {
                     Text(status).foregroundStyle(TTTheme.muted)
@@ -585,7 +647,7 @@ struct PreferencesView: View {
                 }
                 Button("common.refresh") { Task { await refreshInstance() } }
                     .buttonStyle(.bordered)
-                    .focused($firstControlFocus, equals: .instance)
+                    .focused($focusedControl, equals: "instance.refresh")
                 Divider()
                 if let fingerprint = TVServerTrust.shared.fingerprint(for: api.origin) {
                     Label("settings.certTrusted", systemImage: "checkmark.shield")
@@ -615,7 +677,7 @@ struct PreferencesView: View {
         VStack(spacing: 24) {
             TVSettingsCard("settings.aboutControls") {
                 TVSettingsInfoRow(title: "settings.appName", value: "TypeType tvOS")
-                    .focused($firstControlFocus, equals: .about)
+                    .focused($focusedControl, equals: "about.name")
                 TVSettingsInfoRow(
                     title: "settings.appVersion",
                     value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
@@ -649,6 +711,9 @@ struct PreferencesView: View {
             remote = try await api.accountSettings()
         } catch {
             remoteError = error.localizedDescription
+        }
+        if group == .content && focusedControl == "content.retry" && remote != nil {
+            focusedControl = firstTarget(for: .content)
         }
     }
 
@@ -700,6 +765,11 @@ struct PreferencesView: View {
                 TypeTypeCredentials.shared.rememberActive(accountIdentity, for: api.origin)
             }
             savedAccounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
+        } catch TypeTypeError.http(401, _) {
+            // A stale bearer is a server rejection, not evidence that Apple
+            // removed the locally stored account profiles during an update.
+            accountIdentity = nil
+            accountError = TVL10n.value("login.sessionExpired")
         } catch {
             // Keep the existing display state on transient network failures.
             accountError = error.localizedDescription

@@ -199,8 +199,18 @@ struct BrowseView: View {
             menuFocus = .home
             expanded = true
         }
-        .onChange(of: menuFocus) { _, focused in
+        .onChange(of: menuFocus) { previous, focused in
             expanded = focused != nil
+            // Back already restores the active icon. A left swipe, however,
+            // lets tvOS choose the geometrically nearest (often Home) icon.
+            // On first entering the global rail, anchor to the selected
+            // section; subsequent up/down movement remains unrestricted.
+            if previous == nil, let focused, focused != section {
+                Task { @MainActor in
+                    await Task.yield()
+                    if menuFocus == focused { menuFocus = section }
+                }
+            }
         }
     }
 

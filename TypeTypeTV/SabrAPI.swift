@@ -258,17 +258,31 @@ final class TypeTypeCredentials {
         return String(data: data, encoding: .utf8)
     }
 
-    func save(_ token: String, for origin: URL) {
-        // Account changes must not leave the previous user's display identity.
-        saveDisplayIdentifier(nil, for: origin)
+    @discardableResult
+    func save(_ token: String, for origin: URL) -> Bool {
+        guard !token.isEmpty else { return false }
         let key: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "org.typetype.tvOS.auth",
             kSecAttrAccount as String: origin.absoluteString]
-        SecItemDelete(key as CFDictionary)
-        var item = key
-        item[kSecValueData as String] = Data(token.utf8)
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(item as CFDictionary, nil)
+        let updated = SecItemUpdate(key as CFDictionary,
+            [kSecValueData as String: Data(token.utf8)] as CFDictionary)
+        let result: OSStatus
+        if updated == errSecItemNotFound {
+            var item = key
+            item[kSecValueData as String] = Data(token.utf8)
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            result = SecItemAdd(item as CFDictionary, nil)
+        } else {
+            result = updated
+        }
+        guard result == errSecSuccess else {
+            // Never delete the previously working credential on a write
+            // failure (for example after provisioning/keychain changes).
+            NSLog("TypeType Keychain auth write failed OSStatus=%d", result)
+            return false
+        }
+        saveDisplayIdentifier(nil, for: origin)
+        return true
     }
 
     /// Optional display-only login identifier for accounts without a public
@@ -293,12 +307,23 @@ final class TypeTypeCredentials {
             kSecAttrService as String: "org.typetype.tvOS.account-identifier",
             kSecAttrAccount as String: origin.absoluteString
         ]
-        SecItemDelete(key as CFDictionary)
-        guard let identifier, !identifier.isEmpty else { return }
-        var item = key
-        item[kSecValueData as String] = Data(identifier.utf8)
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(item as CFDictionary, nil)
+        guard let identifier, !identifier.isEmpty else {
+            SecItemDelete(key as CFDictionary)
+            return
+        }
+        let status = SecItemUpdate(key as CFDictionary,
+            [kSecValueData as String: Data(identifier.utf8)] as CFDictionary)
+        if status == errSecItemNotFound {
+            var item = key
+            item[kSecValueData as String] = Data(identifier.utf8)
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            let added = SecItemAdd(item as CFDictionary, nil)
+            if added != errSecSuccess {
+                NSLog("TypeType Keychain label write failed OSStatus=%d", added)
+            }
+        } else if status != errSecSuccess {
+            NSLog("TypeType Keychain label update failed OSStatus=%d", status)
+        }
     }
 
     func clear(for origin: URL) {
