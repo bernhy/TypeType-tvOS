@@ -165,8 +165,11 @@ struct BrowseView: View {
             sidebarButton(.settings)
         }
         .padding(.horizontal, 4)
-        .padding(.top, 20)
-        .padding(.bottom, 20)
+        // We extend the rail through the tvOS top/bottom safe areas, but
+        // preserve comfortable logo and Settings icon positions within the
+        // actual visible screen (roughly like the YouTube TV sidebar).
+        .padding(.top, 72)
+        .padding(.bottom, 72)
         .frame(width: expanded ? 214 : 56)
         .frame(maxHeight: .infinity)
         .background(TTTheme.surface)
