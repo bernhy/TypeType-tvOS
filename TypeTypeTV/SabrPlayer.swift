@@ -1215,9 +1215,17 @@ struct SabrPlayerView: View {
                         ? "player.videoUnavailable" : "player.sabrError")
                         .font(.largeTitle)
                     Text(failure).multilineTextAlignment(.center)
-                    Button("common.retry") {
-                        engine.start(api: api, video: video)
-                        reveal()
+                    HStack(spacing: 28) {
+                        Button("common.retry") {
+                            engine.start(api: api, video: video)
+                            reveal()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Button("common.back") {
+                            engine.stop()
+                            dismiss()
+                        }
+                        .buttonStyle(.bordered)
                     }
                 }
                 .padding(50)
