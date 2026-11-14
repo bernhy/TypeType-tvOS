@@ -8,6 +8,7 @@ struct TVVideoActionModifier: ViewModifier {
     let video: VideoItem
     let onChanged: (() -> Void)?
     let onRemoveFromPlaylist: (() async throws -> Void)?
+    let isWatchLaterEntry: Bool
 
     @ObservedObject private var localProgress = TVLocalProgress.shared
     @State private var pickerVisible = false
@@ -30,13 +31,24 @@ struct TVVideoActionModifier: ViewModifier {
                     }
                     .disabled(true)
                 }
-                Button {
-                    perform {
-                        try await api.setWatchLater(video: video, enabled: true)
-                        return TVL10n.value("action.savedWatchLater")
+                if isWatchLaterEntry {
+                    Button(role: .destructive) {
+                        perform {
+                            try await api.setWatchLater(video: video, enabled: false)
+                            return TVL10n.value("action.removedWatchLater")
+                        }
+                    } label: {
+                        Label("action.removeWatchLater", systemImage: "bookmark.slash")
                     }
-                } label: {
-                    Label("action.watchLater", systemImage: "bookmark")
+                } else {
+                    Button {
+                        perform {
+                            try await api.setWatchLater(video: video, enabled: true)
+                            return TVL10n.value("action.savedWatchLater")
+                        }
+                    } label: {
+                        Label("action.watchLater", systemImage: "bookmark")
+                    }
                 }
                 Button {
                     pickerVisible = true
@@ -155,11 +167,13 @@ extension View {
     func videoActions(
         api: TypeTypeAPI, video: VideoItem,
         onChanged: (() -> Void)? = nil,
-        onRemoveFromPlaylist: (() async throws -> Void)? = nil
+        onRemoveFromPlaylist: (() async throws -> Void)? = nil,
+        isWatchLaterEntry: Bool = false
     ) -> some View {
         modifier(TVVideoActionModifier(
             api: api, video: video, onChanged: onChanged,
-            onRemoveFromPlaylist: onRemoveFromPlaylist
+            onRemoveFromPlaylist: onRemoveFromPlaylist,
+            isWatchLaterEntry: isWatchLaterEntry
         ))
     }
 }
