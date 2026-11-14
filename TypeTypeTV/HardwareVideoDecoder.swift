@@ -102,9 +102,23 @@ final class HardwareVideoDecoder {
                 width: dimensions.width, height: dimensions.height,
                 status: result, hardwareUsed: hardwareUsed
             )
+            NSLog("TypeType VT DECODER format=0x%08x width=%d height=%d status=%d hardwareUsed=%d softwareAllowed=%d",
+                  CMFormatDescriptionGetMediaSubType(description),
+                  dimensions.width, dimensions.height, result,
+                  hardwareUsed.map { $0 ? 1 : 0 } ?? -1,
+                  allowSoftware ? 1 : 0)
             guard result == noErr, let created else {
                 throw SabrFailure.unsupported(
                     "VideoToolbox decoder unavailable for stream (VT \(result))"
+                )
+            }
+            // RequireHardwareAcceleratedVideoDecoder is requested above.
+            // Validate the session's runtime report as well; never silently
+            // accept an explicitly software decoder when the toggle is off.
+            if !allowSoftware && hardwareUsed == false {
+                VTDecompressionSessionInvalidate(created)
+                throw SabrFailure.unsupported(
+                    "VideoToolbox selected software decoder despite hardware-only requirement"
                 )
             }
             session = created

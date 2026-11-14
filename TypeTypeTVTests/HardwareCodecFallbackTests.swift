@@ -92,6 +92,50 @@ final class HardwareCodecFallbackTests: XCTestCase {
         )
     }
 
+    func testAutoPlaybackPrefersHardwareOverHigherResolutionSoftwareCodec() {
+        let audio = SabrBootstrap.Audio(
+            itag: 140, codec: "mp4a.40.2", mimeType: "audio/mp4",
+            audioTrackId: nil, audioTrackName: nil, audioLocale: nil,
+            isOriginal: true, deliveryMethod: "sabr"
+        )
+        let videos = [
+            video(400, codec: "av01.0.08M.08", height: 2160, fps: 30),
+            video(137, codec: "avc1.640028", height: 1080, fps: 30),
+            video(248, codec: "vp09.00.51.08", height: 720, fps: 30),
+            video(401, codec: "av01.0.08M.08", height: 1080, fps: 30)
+        ]
+        let candidates = videos.map { SabrSelection(video: $0, audio: audio) }
+        let hardware: (String) -> Bool = { $0.hasPrefix("avc1") || $0.hasPrefix("vp09") }
+        let auto = SabrPlaybackPreferences.orderedAutomaticVideos(
+            candidates, defaultQuality: nil, deviceMax: 2160,
+            hardwareSupported: hardware
+        )
+        XCTAssertEqual(auto.map(\.video.itag), [137, 248, 400, 401],
+                       "A 4K software AV1 stream must not outrank 1080p hardware AVC")
+        let capped = SabrPlaybackPreferences.orderedAutomaticVideos(
+            candidates, defaultQuality: "1080p", deviceMax: 2160,
+            hardwareSupported: hardware
+        )
+        XCTAssertEqual(capped.map(\.video.itag), [137, 248, 401, 400])
+    }
+
+    func testAutomaticSelectionStillWorksWhenNoHardwareCodecIsOffered() {
+        let audio = SabrBootstrap.Audio(
+            itag: 140, codec: "mp4a.40.2", mimeType: "audio/mp4",
+            audioTrackId: nil, audioTrackName: nil, audioLocale: nil,
+            isOriginal: true, deliveryMethod: "sabr"
+        )
+        let av1 = SabrSelection(video: video(
+            401, codec: "av01.0.08M.08", height: 1080, fps: 30
+        ), audio: audio)
+        let auto = SabrPlaybackPreferences.orderedAutomaticVideos(
+            [av1], defaultQuality: nil, deviceMax: 2160,
+            hardwareSupported: { _ in false }
+        )
+        XCTAssertEqual(auto.map(\.video.itag), [401],
+                       "A manually permitted software-only set remains playable")
+    }
+
     func testMissingCompatibleAudioDisablesPlaybackSelection() {
         let bootstrap = SabrBootstrap(id: nil, hlsUrl: nil, isLive: nil,
             videoOnlyStreams: [video(137, codec: "avc1.640028", height: 1080, fps: 30)],

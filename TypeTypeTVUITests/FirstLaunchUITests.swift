@@ -54,6 +54,53 @@ final class TypeTypeTVUITests: XCTestCase {
         add(attachment)
     }
 
+    func testCollapsedSidebarBackdropReachesBothScreenEdges() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-about", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["App-Informationen"]
+            .waitForExistence(timeout: 20))
+        let shot = app.screenshot()
+        let attachment = XCTAttachment(screenshot: shot)
+        attachment.name = "TypeType-tvOS-Seitenleiste-vollstaendige-Hoehe"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        // Regression for the top/bottom black bands on the 56-point rail.
+        // Compare pixel brightness with the black page background at the
+        // same height; don't rely on UI frames, which omit tvOS safe areas.
+        guard let image = shot.image.cgImage,
+              let provider = image.dataProvider,
+              let data = provider.data as Data?,
+              image.bitsPerPixel >= 24 else {
+            throw XCTSkip("Screenshot pixel buffer not available")
+        }
+        let bytes = [UInt8](data)
+        let step = image.bitsPerPixel / 8
+        func brightness(x: Int, y: Int) -> Int? {
+            guard x >= 0, x < image.width,
+                  y >= 0, y < image.height else { return nil }
+            let offset = y * image.bytesPerRow + x * step
+            guard offset + 3 < bytes.count else { return nil }
+            // Channel order is unimportant for a neutral gray background.
+            // Sum of four bytes accommodates ARGB and BGRA screenshots.
+            return (0..<4).reduce(0) { $0 + Int(bytes[offset + $1]) }
+        }
+        let leftX = max(8, image.width / 120)
+        let pageX = image.width / 2
+        for y in [max(8, image.height / 100),
+                  image.height - max(8, image.height / 100)] {
+            guard let left = brightness(x: leftX, y: y),
+                  let page = brightness(x: pageX, y: y) else {
+                throw XCTSkip("Cannot sample screenshot pixels")
+            }
+            XCTAssertGreaterThan(left - page, 20,
+                "Collapsed rail must be gray at screen edge, not page black (y=\(y))")
+        }
+    }
+
     func testBackFromHomeStaysInsideApp() throws {
         let app = XCUIApplication()
         app.launchArguments = [

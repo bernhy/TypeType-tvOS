@@ -17,12 +17,35 @@ enum SabrPlaybackPreferences {
         return min(deviceMax, height ?? deviceMax)
     }
 
+    /// The automatic quality choice must prefer a real VideoToolbox
+    /// hardware decoder before considering an optional software codec.
+    /// Explicit manual itags are handled by the player and take precedence.
+    ///
+    /// Keep the user's requested height cap first, then choose hardware
+    /// support within that cap; only if no suitable hardware stream exists
+    /// may software decoding be used when it has been explicitly enabled.
+    static func orderedAutomaticVideos(
+        _ candidates: [SabrSelection],
+        defaultQuality: String?,
+        deviceMax: Int,
+        hardwareSupported: (String) -> Bool = { HardwareCodec.supported($0) }
+    ) -> [SabrSelection] {
+        let cap = defaultHeight(defaultQuality, deviceMax: deviceMax)
+        let within = candidates.filter { ($0.video.height ?? 0) <= cap }
+        let above = candidates.filter { ($0.video.height ?? 0) > cap }
+        func preferredHardwareFirst(_ entries: [SabrSelection]) -> [SabrSelection] {
+            let hardware = entries.filter { hardwareSupported($0.video.codec) }
+            let software = entries.filter { !hardwareSupported($0.video.codec) }
+            return hardware + software
+        }
+        return preferredHardwareFirst(within) + preferredHardwareFirst(above)
+    }
+
     static func preferredVideo(_ candidates: [SabrSelection],
                                defaultQuality: String?,
                                deviceMax: Int) -> SabrSelection? {
-        let cap = defaultHeight(defaultQuality, deviceMax: deviceMax)
-        return candidates.first { ($0.video.height ?? 0) <= cap }
-            ?? candidates.first
+        orderedAutomaticVideos(candidates, defaultQuality: defaultQuality,
+                               deviceMax: deviceMax).first
     }
 
     static func preferredAudio(

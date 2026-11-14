@@ -691,21 +691,20 @@ final class SabrPlayerController: ObservableObject {
                     selectSubtitle(match, origin: api.origin)
                 }
             }
+            // Automatic selection prefers an actual hardware decoder, even
+            // when the optional software-decoding setting is enabled. A
+            // manual codec/itag choice still has absolute precedence.
+            let automaticOrder = SabrPlaybackPreferences.orderedAutomaticVideos(
+                options, defaultQuality: settings?.defaultQuality,
+                deviceMax: maximum > 0 ? maximum : 2160
+            )
             let orderedOptions: [SabrSelection]
             if let requested = requestedVideoItag,
                let selected = options.first(where: { $0.video.itag == requested }) {
-                orderedOptions = [selected] + options.filter { $0.video.itag != requested }
+                orderedOptions = [selected] +
+                    automaticOrder.filter { $0.video.itag != requested }
             } else {
-                let selected = SabrPlaybackPreferences.preferredVideo(
-                    options, defaultQuality: settings?.defaultQuality,
-                    deviceMax: maximum > 0 ? maximum : 2160
-                )
-                if let selected {
-                    orderedOptions = [selected] +
-                        options.filter { $0.video.itag != selected.video.itag }
-                } else {
-                    orderedOptions = options
-                }
+                orderedOptions = automaticOrder
                 requestedVideoItag = nil
                 fixedVideoItag = nil
             }
@@ -724,6 +723,21 @@ final class SabrPlayerController: ObservableObject {
                     preferOriginal: settings?.preferOriginalLanguage == true
                 ) ?? option.audio
                 let choice = SabrSelection(video: option.video, audio: audio)
+                let hardwareReported = HardwareCodec.supported(choice.video.codec)
+                // A first-generation Apple TV 4K does not have an AV1
+                // hardware decoder. If AV1 appears in a log while software
+                // is OFF, the exact runtime codec/setting mismatch is now
+                // visible instead of merely inferred from a menu label.
+                NSLog("TypeType SABR SELECT itag=%d codec=%@ resolution=%dp fps=%d hwProbe=%d softwareAllowed=%d manual=%d",
+                      choice.video.itag, choice.video.codec,
+                      choice.video.height ?? 0, choice.video.fps ?? 0,
+                      hardwareReported ? 1 : 0, allowSoftware ? 1 : 0,
+                      requestedVideoItag == choice.video.itag ? 1 : 0)
+                guard hardwareReported || allowSoftware else {
+                    throw SabrFailure.unsupported(
+                        "Selected SABR stream has no hardware decoder while software decoding is disabled"
+                    )
+                }
                 selection = choice
                 currentVideoItag = choice.video.itag
                 currentAudioItag = choice.audio.itag

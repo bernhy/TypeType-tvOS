@@ -72,11 +72,23 @@ struct BrowseView: View {
 
     var body: some View {
         if let api = try? TypeTypeAPI(address: instanceOrigin) {
-            HStack(spacing: 0) {
+            ZStack(alignment: .leading) {
+                TTTheme.ink.ignoresSafeArea()
+                // This stripe is a sibling of the navigation layout, not a
+                // background on its clipped safe-area-constrained VStack.
+                // As a full-bleed Color it reaches the physical screen edges.
                 if !playbackVisibility.isVisible {
-                    sidebar
-                        .zIndex(1)
+                    TTTheme.surface
+                        .frame(width: expanded ? 214 : 56)
+                        .frame(maxHeight: .infinity)
+                        .ignoresSafeArea(.container, edges: [.top, .bottom, .leading])
+                        .allowsHitTesting(false)
                 }
+                HStack(spacing: 0) {
+                    if !playbackVisibility.isVisible {
+                        sidebar
+                            .zIndex(1)
+                    }
                 NavigationStack {
                     Group {
                         switch section {
@@ -126,28 +138,13 @@ struct BrowseView: View {
                     }
                 }
                 .id("\(section.rawValue)-\(accountGeneration)")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .focusSection()
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .focusSection()
+                .ignoresSafeArea(.container, edges: .leading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .ignoresSafeArea(.container, edges: .leading)
-            // Draw the full-height sidebar stripe independently of the
-            // rail's clipped button layout. Merely applying ignoresSafeArea
-            // to the sidebar's own background leaves black gaps at the top
-            // and bottom of the tvOS safe area when the rail is collapsed.
-            .background(alignment: .leading) {
-                GeometryReader { geometry in
-                    let bleedTop = max(96, geometry.safeAreaInsets.top)
-                    let bleedBottom = max(96, geometry.safeAreaInsets.bottom)
-                    TTTheme.surface
-                        .frame(width: expanded ? 214 : 56,
-                               height: geometry.size.height + bleedTop + bleedBottom,
-                               alignment: .topLeading)
-                        .offset(y: -bleedTop)
-                        .allowsHitTesting(false)
-                }
-                .ignoresSafeArea(.container, edges: [.top, .bottom, .leading])
-            }
             .background(TTTheme.ink.ignoresSafeArea())
             .task { await reloadSidebarIdentity(api: api) }
             .onChange(of: section) { old, _ in
@@ -195,13 +192,13 @@ struct BrowseView: View {
         .padding(.bottom, 72)
         .frame(width: expanded ? 214 : 56)
         .frame(maxHeight: .infinity)
-        .background(TTTheme.surface)
+        // The full-height stripe is painted by the outer ZStack.
+        // Do not clip/paint a second background inside the safe area.
         .ignoresSafeArea(.container, edges: [.top, .bottom])
         // PlainButtonStyle still permits native focus decoration on tvOS 26.
         // Disable it for the entire rail; only our pill is allowed to render.
         .environment(\.isFocusEffectEnabled, false)
         .focusEffectDisabled(true)
-        .clipped()
         .animation(navigationAnimations ? .easeInOut(duration: 0.16) : nil, value: expanded)
         .focusSection()
         .onExitCommand {
