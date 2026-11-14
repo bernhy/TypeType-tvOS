@@ -52,7 +52,8 @@ struct SabrRecoveryPolicy {
                     code == 425 || code == 429 || (500...599).contains(code)
             case .invalidResponse(let description):
                 return description == "segment window timed out" ||
-                    description == "SABR window stopped advancing"
+                    description == "SABR window stopped advancing" ||
+                    description == "SABR segment gap before next media sample"
             case .unsupported, .unavailable, .stopped: return false
             }
         }
