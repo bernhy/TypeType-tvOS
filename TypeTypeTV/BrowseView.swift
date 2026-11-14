@@ -45,6 +45,9 @@ struct BrowseView: View {
     @State private var section: TVSection
     @State private var expanded = false
     @State private var sidebarIdentity: TVAccountIdentity?
+    @State private var settingsEntryGroup: TVSettingsGroup
+    @State private var accountGeneration = 0
+    @State private var returnToSwitcherAfterLogin = false
     @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
     @FocusState private var menuFocus: TVSection?
 
@@ -58,6 +61,7 @@ struct BrowseView: View {
         self.initialSettingsGroup = initialSettingsGroup
         _section = State(initialValue: initialSection)
         _expanded = State(initialValue: initiallyExpanded)
+        _settingsEntryGroup = State(initialValue: initialSettingsGroup)
     }
 
     var body: some View {
@@ -81,21 +85,25 @@ struct BrowseView: View {
                         case .playlists:
                             LibraryView(api: api, preferPlaylists: true)
                         case .account:
-                            PreferencesView(
-                                api: api, onDisconnect: onDisconnect,
-                                initialGroup: .account,
-                                onAccountChanged: { Task { await reloadSidebarIdentity(api: api) } }
+                            TVAccountSwitcherView(
+                                api: api,
+                                onAddAccount: {
+                                    settingsEntryGroup = .account
+                                    returnToSwitcherAfterLogin = true
+                                    open(.settings)
+                                },
+                                onAccountChanged: { accountDidChange(api: api) }
                             )
                         case .settings:
                             PreferencesView(
                                 api: api, onDisconnect: onDisconnect,
-                                initialGroup: initialSettingsGroup,
-                                onAccountChanged: { Task { await reloadSidebarIdentity(api: api) } }
+                                initialGroup: settingsEntryGroup,
+                                onAccountChanged: { accountDidChange(api: api) }
                             )
                         }
                     }
                 }
-                .id(section)
+                .id("\(section.rawValue)-\(accountGeneration)")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .focusSection()
             }
@@ -230,7 +238,24 @@ struct BrowseView: View {
         }
     }
 
+    @MainActor
+    private func accountDidChange(api: TypeTypeAPI) {
+        // Unmount the previous user's Home/Library/player state immediately.
+        // Later requests and progress UI must belong to the newly selected user.
+        TVLocalProgress.shared.clear()
+        accountGeneration += 1
+        sidebarIdentity = nil
+        Task { await reloadSidebarIdentity(api: api) }
+        if returnToSwitcherAfterLogin {
+            returnToSwitcherAfterLogin = false
+            section = .account
+        }
+    }
+
     private func open(_ destination: TVSection) {
+        if destination == .settings && section != .account {
+            settingsEntryGroup = initialSettingsGroup
+        }
         section = destination
         // Focus stays on the selected rail item until the user moves right.
         // onChange(of: menuFocus) collapses the rail when focus leaves.
