@@ -1,5 +1,20 @@
 import Foundation
 
+/// A sequential SABR fragment can start after the preceding fragment's
+/// advertised end even when no sequence number is missing. This is a
+/// timestamp discontinuity, not necessarily a missing network segment.
+/// Keep producer, decoder and local-cache lookahead on one bounded policy.
+enum SabrMediaGapPolicy {
+    static let unknownSequenceToleranceMs: Int64 = 250
+    // Real itag=137 VOD traces have shown 4.370s and 7.040s jumps between
+    // adjacent sequence numbers. Do not restart the *same* segment forever.
+    static let consecutiveSequenceToleranceMs: Int64 = 8_000
+
+    static func toleranceMs(consecutive: Bool) -> Int64 {
+        consecutive ? consecutiveSequenceToleranceMs : unknownSequenceToleranceMs
+    }
+}
+
 /// Tracks media that has actually been handed to the player, not merely advertised
 /// by the server. The next SABR window may advance only to the shorter of the
 /// audio/video track ends, otherwise a slower track can be silently skipped.
@@ -90,11 +105,11 @@ struct SabrPlaybackCoverage {
         } else {
             consecutive = false
         }
-        // 250 ms handles normal rounding when the sequence is unknown.
-        // For verified consecutive media fragments, a bounded timestamp
-        // discontinuity may be a valid edit/PTS jump; letting the renderer
-        // hold the preceding frame is preferable to tearing down the session.
-        let tolerance: Int64 = consecutive ? 4_000 : 250
+        // Permit bounded PTS jumps only for immediately consecutive SABR
+        // sequence numbers. Do not treat missing sequences as playable.
+        // The renderer keeps the original PTS and can hold the last frame
+        // during an actual video gap; this does not fabricate lost frames.
+        let tolerance = SabrMediaGapPolicy.toleranceMs(consecutive: consecutive)
         let toleratedEnd = end > Int64.max - tolerance ? Int64.max : end + tolerance
         if segment.startMs > end + min(Int64(250), Int64.max - end) {
             NSLog("TypeType SABR GAP stage=%@ track=%@ itag=%d lastEndMs=%lld nextStartMs=%lld nextDurationMs=%lld gapMs=%lld priorSeq=%d nextSeq=%d consecutive=%d",
