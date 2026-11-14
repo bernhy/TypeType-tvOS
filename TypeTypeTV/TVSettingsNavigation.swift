@@ -119,24 +119,38 @@ struct TVSettingsReadableText: View {
 struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
     let title: LocalizedStringKey
     @Binding var selection: Value
+    let focus: FocusState<TVSettingsGroup?>.Binding?
+    let focusTarget: TVSettingsGroup?
     @ViewBuilder let options: Options
 
     init(_ title: LocalizedStringKey, selection: Binding<Value>,
+         focus: FocusState<TVSettingsGroup?>.Binding? = nil,
+         focusTarget: TVSettingsGroup? = nil,
          @ViewBuilder options: () -> Options) {
         self.title = title
         self._selection = selection
+        self.focus = focus
+        self.focusTarget = focusTarget
         self.options = options()
+    }
+
+    private var picker: some View {
+        Picker(title, selection: $selection) {
+            options
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
     }
 
     var body: some View {
         HStack(spacing: 24) {
             Text(title).font(.body)
             Spacer(minLength: 20)
-            Picker(title, selection: $selection) {
-                options
+            if let focus, let focusTarget {
+                picker.focused(focus, equals: focusTarget)
+            } else {
+                picker
             }
-            .labelsHidden()
-            .pickerStyle(.menu)
         }
         .padding(.vertical, 6)
         .accessibilityElement(children: .contain)
