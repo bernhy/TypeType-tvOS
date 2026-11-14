@@ -16,6 +16,13 @@ struct VideoDetailView: View {
     @State private var progressError: String?
     @ObservedObject private var localProgress = TVLocalProgress.shared
 
+    private enum DetailFocus: Hashable {
+        case play, channel, markWatched, descriptionEntry, descriptionBody
+    }
+    @FocusState private var focusedDetail: DetailFocus?
+    @State private var initialFocusAssigned = false
+    @State private var descriptionScrollCommand = 0
+
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
 
     private var channelName: String? {
@@ -63,7 +70,8 @@ struct VideoDetailView: View {
 
 
     var body: some View {
-        ScrollView {
+        ScrollViewReader { page in
+            ScrollView {
                 // The hero sizes itself to the complete title and action rows.
                 // A fixed GeometryReader height used to clip buttons on long
                 // titles while the progress section overlapped them.
@@ -97,6 +105,7 @@ struct VideoDetailView: View {
                                 .buttonStyle(.bordered)
                                 .tint(TTTheme.muted)
                                 .accessibilityIdentifier("video-open-channel")
+                                .focused($focusedDetail, equals: .channel)
                             } else {
                                 Label(channel, systemImage: "person.crop.circle")
                                     .font(.title3)
@@ -149,6 +158,15 @@ struct VideoDetailView: View {
                                     }
                                     .buttonStyle(.borderedProminent)
                                     .tint(TTTheme.accent)
+                                    .focused($focusedDetail, equals: .play)
+                                    .accessibilityIdentifier("video-play")
+                                    .onMoveCommand { direction in
+                                        // Live streams have no second action row.
+                                        if direction == .down, video.isLive == true,
+                                           descriptionText?.isEmpty == false {
+                                            focusedDetail = .descriptionEntry
+                                        }
+                                    }
 
                                     Button { dismiss() } label: {
                                         Label("common.back", systemImage: "chevron.left")
@@ -192,6 +210,16 @@ struct VideoDetailView: View {
                                     }
                                     .buttonStyle(.bordered)
                                     .disabled(progressSaving)
+                                    .focused($focusedDetail, equals: .markWatched)
+                                    .onMoveCommand { direction in
+                                        if direction == .down,
+                                           descriptionText?.isEmpty == false {
+                                            // The body is beyond the initial viewport;
+                                            // focus it explicitly so the outer page
+                                            // can scroll there before the text scrolls.
+                                            focusedDetail = .descriptionEntry
+                                        }
+                                    }
                                 }
                                 if let progressError {
                                     Text(progressError)
@@ -264,12 +292,48 @@ struct VideoDetailView: View {
                 }
                 if let description = descriptionText,
                    !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("video.descriptionHeading").font(.title2.bold())
-                    TVRemoteDescriptionScrollView(text: description)
+                    Button {
+                        focusedDetail = .descriptionBody
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text("video.descriptionHeading")
+                                .font(.title2.bold())
+                            Image(systemName: "chevron.down")
+                                .font(.callout.bold())
+                        }
+                        .foregroundStyle(focusedDetail == .descriptionEntry
+                                         ? .white : TTTheme.muted)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(focusedDetail == .descriptionEntry
+                                    ? Color.white.opacity(0.12) : .clear,
+                                    in: RoundedRectangle(cornerRadius: 9))
+                    }
+                    .buttonStyle(.plain)
+                    .focused($focusedDetail, equals: .descriptionEntry)
+                    .accessibilityIdentifier("video-description-entry")
+                    .onMoveCommand { direction in
+                        if direction == .down { focusedDetail = .descriptionBody }
+                    }
+                    TVRemoteDescriptionScrollView(
+                        text: description,
+                        scrollCommand: descriptionScrollCommand
+                    )
                         .frame(height: 370)
                         .background(TTTheme.surface,
                                     in: RoundedRectangle(cornerRadius: 12))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
+                        // Give tvOS a real focus destination below the hero;
+                        // UIKit handles swipes, SwiftUI handles arrow fallback.
+                        .focusable(true)
+                        .focusEffectDisabled()
+                        .focused($focusedDetail, equals: .descriptionBody)
+                        .accessibilityIdentifier("video-description-focus")
+                        .onMoveCommand { direction in
+                            if direction == .down { descriptionScrollCommand += 1 }
+                            if direction == .up { descriptionScrollCommand -= 1 }
+                        }
+                        .id("description-viewport")
                         .focusSection()
                 }
             }
@@ -278,10 +342,26 @@ struct VideoDetailView: View {
             }
             .background(TTTheme.ink)
             .task(id: video.url) {
+                if !initialFocusAssigned {
+                    initialFocusAssigned = true
+                    // tvOS otherwise chooses the first focusable item,
+                    // which became the channel link above Play.
+                    await Task.yield()
+                    focusedDetail = .play
+                }
                 async let activity: Void = loadActivity()
                 async let enrichment: Void = loadMetadata()
                 _ = await (activity, enrichment)
             }
+            .onChange(of: focusedDetail) { _, next in
+                guard next == .descriptionEntry || next == .descriptionBody else { return }
+                // A nested text scroller cannot be reached if its enclosing
+                // SwiftUI ScrollView never brings the offscreen row onscreen.
+                withAnimation(.easeOut(duration: 0.24)) {
+                    page.scrollTo("description-viewport", anchor: .center)
+                }
+            }
+        }
     }
 
     @MainActor

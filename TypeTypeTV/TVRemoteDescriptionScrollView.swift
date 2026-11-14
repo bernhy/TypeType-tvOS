@@ -7,6 +7,13 @@ import UIKit
 /// Apple describes this specific pattern in "Mastering UIKit on tvOS".
 struct TVRemoteDescriptionScrollView: UIViewRepresentable {
     let text: String
+    var scrollCommand: Int = 0
+
+    final class Coordinator {
+        var lastCommand = 0
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> TVDescriptionTextView {
         let view = TVDescriptionTextView()
@@ -39,6 +46,21 @@ struct TVRemoteDescriptionScrollView: UIViewRepresentable {
             view.text = text
             view.setContentOffset(
                 CGPoint(x: 0, y: -view.adjustedContentInset.top), animated: false
+            )
+        }
+        let delta = scrollCommand - context.coordinator.lastCommand
+        guard delta != 0 else { return }
+        context.coordinator.lastCommand = scrollCommand
+        let insetTop = view.adjustedContentInset.top
+        if let next = TVDescriptionScrollPolicy.targetY(
+            current: view.contentOffset.y + insetTop,
+            delta: CGFloat(delta) * 125,
+            contentHeight: view.contentSize.height + view.adjustedContentInset.bottom,
+            viewportHeight: view.bounds.height
+        ) {
+            view.setContentOffset(
+                CGPoint(x: view.contentOffset.x, y: next - insetTop),
+                animated: true
             )
         }
     }
