@@ -9,6 +9,7 @@ struct TVAccountSwitcherView: View {
     let onAccountChanged: () -> Void
 
     @State private var accounts: [TVSavedAccount] = []
+    @FocusState private var focusedAccountID: String?
     @State private var identity: TVAccountIdentity?
     @State private var loading = true
     @State private var changing = false
@@ -67,11 +68,19 @@ struct TVAccountSwitcherView: View {
                                 }
                                 .padding(24)
                                 .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
-                                .background(TTTheme.surface,
+                                .background(focusedAccountID == account.id
+                                                ? Color.white.opacity(0.13) : TTTheme.surface,
                                             in: RoundedRectangle(cornerRadius: 16))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .strokeBorder(focusedAccountID == account.id
+                                                      ? Color.white : .clear,
+                                                      lineWidth: 3)
+                                }
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(TVRailButtonStyle())
                             .focusEffectDisabled(true)
+                            .focused($focusedAccountID, equals: account.id)
                             .disabled(changing || identity?.id == account.id)
                             .accessibilityLabel(account.label)
                             .accessibilityAddTraits(identity?.id == account.id ? .isSelected : [])
