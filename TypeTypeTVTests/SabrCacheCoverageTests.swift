@@ -130,7 +130,7 @@ final class SabrCacheCoverageTests: XCTestCase {
         // session returned identical metadata and could never fix this.
         func video(_ seq: Int, _ start: Int64, _ duration: Int64) -> SabrFragment {
             SabrFragment(
-                url: "https://example.org/sabr/playback/session/137/segment/\\(seq)",
+                url: "https://example.org/sabr/playback/session/137/segment/\(seq)",
                 startMs: start, durationMs: duration
             )
         }
@@ -166,7 +166,7 @@ final class SabrCacheCoverageTests: XCTestCase {
     func testLargeOrMissingSequenceVODGapStillFails() throws {
         func video(_ seq: Int, _ start: Int64, _ duration: Int64) -> SabrFragment {
             SabrFragment(
-                url: "https://example.org/sabr/playback/session/137/segment/\\(seq)",
+                url: "https://example.org/sabr/playback/session/137/segment/\(seq)",
                 startMs: start, durationMs: duration
             )
         }
