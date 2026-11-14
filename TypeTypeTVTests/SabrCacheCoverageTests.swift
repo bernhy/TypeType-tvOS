@@ -48,6 +48,41 @@ final class SabrCacheCoverageTests: XCTestCase {
         XCTAssertEqual(ranges[0].endMs, 192_693)
     }
 
+    func testMissingVODWindowDescriptorIsRecoveredByExactSessionURL() {
+        let reference = "https://example.org/api/sabr/playback/opaque/137/segment/34?generation=7"
+        let response = [SabrFragment(
+            url: reference, startMs: 185_952, durationMs: 6_741
+        )]
+        let repaired = SabrMissingSegmentRepair.augmented(response, after: 32)
+        XCTAssertEqual(repaired.count, 2)
+        XCTAssertEqual(repaired.compactMap { SabrSequenceOrder.sequence($0.url) }, [33, 34])
+        XCTAssertEqual(repaired[0].url,
+                       "https://example.org/api/sabr/playback/opaque/137/segment/33?generation=7")
+        XCTAssertEqual(repaired[0].durationMs, 1)
+        XCTAssertEqual(repaired[1], response[0])
+        XCTAssertEqual(SabrMissingSegmentRepair.augmented(response, after: 33), response)
+        XCTAssertEqual(SabrMissingSegmentRepair.augmented(response, after: nil), response)
+    }
+
+    func testMissingMediaRepairRejectsUnrelatedOrUntrustedAddresses() {
+        let noGeneration = SabrFragment(
+            url: "https://example.org/api/sabr/playback/opaque/137/segment/34",
+            startMs: 185_952, durationMs: 6_741
+        )
+        XCTAssertEqual(SabrMissingSegmentRepair.augmented([noGeneration], after: 32),
+                       [noGeneration])
+        let jump = SabrFragment(
+            url: "https://example.org/api/sabr/playback/opaque/137/segment/35?generation=7",
+            startMs: 185_952, durationMs: 6_741
+        )
+        // Do not guess two or more missing media fragments.
+        XCTAssertEqual(SabrMissingSegmentRepair.augmented([jump], after: 32), [jump])
+        XCTAssertNil(SabrMissingSegmentRepair.missingURL(
+            before: "https://example.org/api/sabr/playback/opaque/137/init?generation=7",
+            sequence: 33
+        ))
+    }
+
     func testServerWindowDiscoveryDoesNotSkipAheadToCached121Seconds() {
         // The server uses bufferedEndFor to jump to the end of a reported
         // range. With [0,121_000] the old client skipped media descriptors

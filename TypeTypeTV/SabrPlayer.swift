@@ -1079,6 +1079,8 @@ final class SabrPlayerController: ObservableObject {
         var previousEnd = start
         var first = true
         var stalled = 0
+        var lastAudioSequence: Int?
+        var lastVideoSequence: Int?
         let target = SabrLookaheadPolicy.targetMilliseconds(
             buffer, videoBitrate: choice.video.bitrate
         )
@@ -1112,7 +1114,7 @@ final class SabrPlayerController: ObservableObject {
                   requestPosition, playhead, retainedEnd, target)
             #endif
             let windowRequestStarted = Date()
-            let requested = try await service.window(
+            let original = try await service.window(
                 sessionId: sessionId, selection: choice, generation: generation,
                 positionMs: requestPosition,
                 ranges: SabrSequentialWindowPolicy.advertisedRanges,
@@ -1124,8 +1126,42 @@ final class SabrPlayerController: ObservableObject {
                       requestPosition, windowElapsedMs)
             }
             try Task.checkCancellation()
-            guard let audio = requested.audio, let video = requested.video else {
+            guard let originalAudio = original.audio, let originalVideo = original.video else {
                 throw SabrFailure.invalidResponse("SABR window has no audio/video pair")
+            }
+            let audio = SabrTrack(
+                mime: originalAudio.mime, initUrl: originalAudio.initUrl,
+                segments: SabrMissingSegmentRepair.augmented(
+                    originalAudio.segments, after: lastAudioSequence
+                )
+            )
+            let video = SabrTrack(
+                mime: originalVideo.mime, initUrl: originalVideo.initUrl,
+                segments: SabrMissingSegmentRepair.augmented(
+                    originalVideo.segments, after: lastVideoSequence
+                )
+            )
+            let requested = SabrWindow(
+                sessionId: original.sessionId, generation: original.generation,
+                ready: original.ready, retryAfterMs: original.retryAfterMs,
+                status: original.status, durationMs: original.durationMs,
+                endOfStream: original.endOfStream, startTimeMs: original.startTimeMs,
+                audio: audio, video: video, terminalError: original.terminalError,
+                recoveryAction: original.recoveryAction,
+                retryVideoItags: original.retryVideoItags
+            )
+            for (track, originalParts, repairedParts) in [
+                ("audio", originalAudio.segments, audio.segments),
+                ("video", originalVideo.segments, video.segments)
+            ] {
+                if repairedParts.count > originalParts.count {
+                    let missing = Set(repairedParts.map(\.url))
+                        .subtracting(originalParts.map(\.url))
+                    for url in missing {
+                        NSLog("TypeType SABR REPAIR stage=producer track=%@ seq=%d reason=missing-window-descriptor",
+                              track, SabrSequenceOrder.sequence(url) ?? -1)
+                    }
+                }
             }
             #if DEBUG
             let audioFirst = audio.segments.first?.startMs ?? -1
@@ -1205,6 +1241,12 @@ final class SabrPlayerController: ObservableObject {
             }
             for part in SabrSequenceOrder.ordered(video.segments) {
                 try coverage.acceptVideo(part)
+            }
+            if let maximum = audio.segments.compactMap({ SabrSequenceOrder.sequence($0.url) }).max() {
+                lastAudioSequence = max(maximum, lastAudioSequence ?? 0)
+            }
+            if let maximum = video.segments.compactMap({ SabrSequenceOrder.sequence($0.url) }).max() {
+                lastVideoSequence = max(maximum, lastVideoSequence ?? 0)
             }
             let downloadedEnd = coverage.safeEndMs
             cachedThroughMs = await cache.cachedThroughMs(

@@ -43,6 +43,47 @@ enum SabrSequenceOrder {
     }
 }
 
+/// The VOD window builder can advance from seq 32 straight to seq 34 when
+/// the preceding segment's advertised start/duration disagrees with its fMP4
+/// timebase. The omitted seq 33 can still be fetched by its *existing*
+/// session-scoped media endpoint. Do not fabricate media or interpolate PTS.
+enum SabrMissingSegmentRepair {
+    static func augmented(_ fragments: [SabrFragment],
+                          after previousSequence: Int?) -> [SabrFragment] {
+        var result: [SabrFragment] = []
+        var last = previousSequence
+        for part in SabrSequenceOrder.ordered(fragments) {
+            if let prior = last, prior > 0,
+               let next = SabrSequenceOrder.sequence(part.url),
+               next > prior, next - prior == 2,
+               let url = missingURL(before: part.url, sequence: prior + 1) {
+                // Placeholder coverage only: the decoder derives the actual
+                // media extent and relative PTS from the fetched fMP4 samples.
+                result.append(SabrFragment(
+                    url: url, startMs: part.startMs, durationMs: 1
+                ))
+            }
+            result.append(part)
+            if let sequence = SabrSequenceOrder.sequence(part.url),
+               sequence > (last ?? 0) { last = sequence }
+        }
+        return result
+    }
+
+    static func missingURL(before reference: String, sequence: Int) -> String? {
+        guard sequence > 0,
+              var parts = URLComponents(string: reference),
+              parts.queryItems?.contains(where: { $0.name == "generation" }) == true
+        else { return nil }
+        var path = parts.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard path.count >= 3, path[path.count - 2] == "segment",
+              Int(path[path.count - 1]) == sequence + 1 else { return nil }
+        path[path.count - 1] = String(sequence)
+        parts.path = (parts.path.hasPrefix("/") ? "/" : "") + path.joined(separator: "/")
+        return parts.string
+    }
+}
+
 /// Tracks media that has actually been handed to the player, not merely advertised
 /// by the server. The next SABR window may advance only to the shorter of the
 /// audio/video track ends, otherwise a slower track can be silently skipped.
