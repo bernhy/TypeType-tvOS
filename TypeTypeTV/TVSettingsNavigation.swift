@@ -3,11 +3,12 @@ import SwiftUI
 /// Mirrors the Android TV settings group rail, while keeping actual Apple TV
 /// decoder, remote and buffer controls device-local.
 enum TVSettingsGroup: String, CaseIterable, Identifiable {
-    case playback, content, device, language, account, instance, about
+    case playback, sponsor, content, device, language, account, instance, about
     var id: String { rawValue }
     var symbol: String {
         switch self {
         case .playback: return "play.rectangle"
+        case .sponsor: return "forward.end.fill"
         case .content: return "square.grid.2x2"
         case .device: return "appletv"
         case .language: return "globe"
@@ -19,6 +20,7 @@ enum TVSettingsGroup: String, CaseIterable, Identifiable {
     var titleKey: String {
         switch self {
         case .playback: return "settings.playback"
+        case .sponsor: return "sponsor.title"
         case .content: return "settings.groupContent"
         case .device: return "settings.groupDevice"
         case .language: return "settings.language"
@@ -30,6 +32,7 @@ enum TVSettingsGroup: String, CaseIterable, Identifiable {
     var subtitleKey: String {
         switch self {
         case .playback: return "settings.playbackHelp"
+        case .sponsor: return "sponsor.description"
         case .content: return "settings.groupContentHelp"
         case .device: return "settings.groupDeviceHelp"
         case .language: return "settings.languageHelp"

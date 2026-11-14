@@ -38,7 +38,6 @@ struct PreferencesView: View {
     @State private var confirmCertificateRemoval = false
     @State private var confirmLogout = false
     @State private var showAddAccountSheet = false
-    @State private var showSponsorBlockSheet = false
     @State private var accountIdentity: TVAccountIdentity?
     @State private var savedAccounts: [TVSavedAccount] = []
     @State private var pendingProfileRemoval: TVSavedAccount?
@@ -197,9 +196,6 @@ struct PreferencesView: View {
                 onBackToMenu()
             }
         }
-        .sheet(isPresented: $showSponsorBlockSheet) {
-            TVSponsorBlockSettingsView(api: api)
-        }
         .sheet(isPresented: $showAddAccountSheet,
                onDismiss: onAddAccountDismissed) {
             TVAddAccountSheet(api: api) {
@@ -316,6 +312,7 @@ struct PreferencesView: View {
     private func firstTarget(for item: TVSettingsGroup) -> String {
         switch item {
         case .playback: return "playback.software"
+        case .sponsor: return "sponsor.refresh"
         case .content:
             return remote == nil ? "content.retry" :
                 "content." + TVServerToggle.allCases[0].rawValue
@@ -343,6 +340,10 @@ struct PreferencesView: View {
     private var groupContent: some View {
         switch group {
         case .playback: playbackPanel
+        case .sponsor:
+            TVSponsorBlockSettingsView(api: api,
+                                       focus: $focusedControl,
+                                       onMoveLeft: returnFocusToGroup)
         case .content: contentPanel
         case .device: devicePanel
         case .language: languagePanel
@@ -373,18 +374,6 @@ struct PreferencesView: View {
                     Text("1080p").tag(1080)
                     Text("720p").tag(720)
                     Text("480p").tag(480)
-                }
-            }
-            TVSettingsCard("sponsor.title", summary: "sponsor.description") {
-                Button {
-                    showSponsorBlockSheet = true
-                } label: {
-                    Label("sponsor.configure", systemImage: "slider.horizontal.3")
-                }
-                .buttonStyle(.bordered)
-                .focused($focusedControl, equals: "playback.sponsor")
-                .onMoveCommand { direction in
-                    if direction == .left { returnFocusToGroup() }
                 }
             }
         }

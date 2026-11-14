@@ -174,6 +174,32 @@ final class TypeTypeTVUITests: XCTestCase {
                       "Right must re-enter the same content column")
     }
 
+    func testSponsorBlockIsOwnSettingsNavigationPage() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-sponsor", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let sponsorGroup = app.buttons["settings-group-sponsor"]
+        let playbackGroup = app.buttons["settings-group-playback"]
+        let refresh = app.buttons["sponsor-refresh"]
+        XCTAssertTrue(sponsorGroup.waitForExistence(timeout: 20))
+        XCTAssertTrue(playbackGroup.exists)
+        XCTAssertTrue(refresh.waitForExistence(timeout: 10))
+        XCTAssertTrue(sponsorGroup.hasFocus,
+                      "SponsorBlock must open as a selected settings category")
+        XCTAssertTrue(app.staticTexts["Kategorien"].exists)
+        XCTAssertTrue(app.staticTexts["Weitere Optionen"].exists)
+        XCTAssertFalse(app.buttons["SponsorBlock konfigurieren"].exists,
+                       "There must no longer be a modal launcher in Playback")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(refresh.hasFocus,
+                      "Right from SponsorBlock must enter the content column")
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(sponsorGroup.hasFocus,
+                      "Left must return to SponsorBlock in the settings rail")
+    }
+
     func testContentSettingsSwitchesCanBeTraversedIndividually() throws {
         let app = XCUIApplication()
         app.launchArguments = [

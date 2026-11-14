@@ -1,110 +1,134 @@
 import SwiftUI
 
-/// Dedicated SponsorBlock settings panel. Preferences stay on TypeType Server
-/// and are shared with the web interface.
+/// Inline settings category, not a modal: the outer PreferencesView owns the
+/// left-hand rail, ScrollView and Back navigation. Every row has a stable
+/// focus target, including the Refresh button while account data is loading.
 struct TVSponsorBlockSettingsView: View {
     let api: TypeTypeAPI
-    @Environment(\.dismiss) private var dismiss
+    let focus: FocusState<String?>.Binding
+    var onMoveLeft: () -> Void = {}
+
     @State private var settings: TVServerSettings?
     @State private var loading = true
     @State private var saving = false
     @State private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                Text("sponsor.title").font(.system(size: 36, weight: .bold))
-                Spacer()
-                Button("common.back") { dismiss() }.buttonStyle(.bordered)
+        VStack(alignment: .leading, spacing: 24) {
+            TVSettingsCard("sponsor.title", summary: "settings.remoteSynced") {
+                Text("sponsor.lookupPrivacy")
+                    .font(.callout)
+                    .foregroundStyle(TTTheme.muted)
+                Button("common.refresh") { Task { await reload() } }
+                    .buttonStyle(.bordered)
+                    .focused(focus, equals: "sponsor.refresh")
+                    .onMoveCommand { direction in
+                        if direction == .left { onMoveLeft() }
+                    }
+                    .accessibilityIdentifier("sponsor-refresh")
+                if loading {
+                    ProgressView("settings.remoteLoading")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if saving {
+                    ProgressView("settings.remoteSaving")
+                }
+                if let error {
+                    Text(error)
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                }
             }
-            if loading {
-                ProgressView("settings.remoteLoading")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let settings {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("sponsor.mode").font(.title3.bold())
-                        Text("sponsor.lookupPrivacy")
-                            .font(.caption)
-                            .foregroundStyle(TTTheme.muted)
-                        choice("sponsor.mode", current: settings.sponsorBlockMode ?? "auto_skip",
-                               choices: ["auto_skip", "mark_only", "disabled"]) { mode in
-                            Task { await updateGlobalMode(mode) }
-                        }
-                        Divider()
-                        Text("sponsor.categories").font(.title3.bold())
-                        ForEach(TVSponsorBlock.categories, id: \.self) { category in
-                            choice(TVSponsorBlock.titleKey(category),
-                                   current: TVSponsorBlock.action(category, settings: settings),
-                                   choices: ["auto_skip", "mark_only", "disabled"]) { next in
-                                var actions = settings.sponsorBlockCategoryActions ??
-                                    TVSponsorBlock.defaults
-                                actions[category] = next
-                                Task { await write("sponsorBlockCategoryActions",
-                                                   value: .actions(actions)) }
+
+            if let settings {
+                TVSettingsCard("sponsor.mode") {
+                    choice("sponsor.mode",
+                           current: settings.sponsorBlockMode ?? "auto_skip",
+                           focusID: "sponsor.mode",
+                           choices: ["auto_skip", "mark_only", "disabled"]) { mode in
+                        setGlobalMode(mode)
+                    }
+                }
+
+                TVSettingsCard("sponsor.categories") {
+                    ForEach(TVSponsorBlock.categories, id: \.self) { category in
+                        choice(TVSponsorBlock.titleKey(category),
+                               current: TVSponsorBlock.action(category, settings: settings),
+                               focusID: "sponsor.category." + category,
+                               choices: ["auto_skip", "mark_only", "disabled"]) { action in
+                            var actions = settings.sponsorBlockCategoryActions ??
+                                TVSponsorBlock.defaults
+                            actions[category] = action
+                            update("sponsorBlockCategoryActions", value: .actions(actions)) {
+                                $0.sponsorBlockCategoryActions = actions
                             }
                         }
-                        Divider()
-                        Text("sponsor.advanced").font(.title3.bold())
-                        choice("sponsor.minimum",
-                               current: String(settings.sponsorBlockMinimumDuration ?? 0),
-                               choices: ["0", "3", "5", "10", "15", "30"]) { next in
-                            Task { await write("sponsorBlockMinimumDuration",
-                                               value: .integer(Int(next) ?? 0)) }
-                        }
-                        settingSwitch("sponsor.showCurrent", field: "sponsorBlockShowCurrentSegment",
-                                      value: settings.sponsorBlockShowCurrentSegment ?? true)
-                        settingSwitch("sponsor.showChapters", field: "sponsorBlockShowChapters",
-                                      value: settings.sponsorBlockShowChapters ?? false)
-                        settingSwitch("sponsor.showFull", field: "sponsorBlockShowFullVideoLabels",
-                                      value: settings.sponsorBlockShowFullVideoLabels ?? true)
-                        settingSwitch("sponsor.manualFull", field: "sponsorBlockManualSkipOnFullVideo",
-                                      value: settings.sponsorBlockManualSkipOnFullVideo ?? true)
-                        settingSwitch("sponsor.music", field: "sponsorBlockSkipNonMusicOnlyOnMusicVideos",
-                                      value: settings.sponsorBlockSkipNonMusicOnlyOnMusicVideos ?? false)
-                        settingSwitch("sponsor.mute", field: "sponsorBlockMuteInsteadOfSkip",
-                                      value: settings.sponsorBlockMuteInsteadOfSkip ?? false)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 55)
                 }
-                .scrollIndicators(.visible)
-                .focusSection()
-                if saving { ProgressView("settings.remoteSaving") }
-            } else {
-                Text("sponsor.loadError").foregroundStyle(TTTheme.muted)
-                Button("common.retry") { Task { await reload() } }.buttonStyle(.bordered)
-            }
-            if let error {
-                Text(error).font(.callout).foregroundStyle(.orange).lineLimit(3)
+
+                TVSettingsCard("sponsor.advanced") {
+                    choice("sponsor.minimum",
+                           current: String(settings.sponsorBlockMinimumDuration ?? 0),
+                           focusID: "sponsor.minimum",
+                           choices: ["0", "3", "5", "10", "15", "30"]) { amount in
+                        let seconds = Int(amount) ?? 0
+                        update("sponsorBlockMinimumDuration", value: .integer(seconds)) {
+                            $0.sponsorBlockMinimumDuration = seconds
+                        }
+                    }
+
+                    settingSwitch("sponsor.showCurrent",
+                                  field: "sponsorBlockShowCurrentSegment",
+                                  keyPath: \.sponsorBlockShowCurrentSegment,
+                                  defaultValue: true)
+                    settingSwitch("sponsor.showChapters",
+                                  field: "sponsorBlockShowChapters",
+                                  keyPath: \.sponsorBlockShowChapters,
+                                  defaultValue: false)
+                    settingSwitch("sponsor.showFull",
+                                  field: "sponsorBlockShowFullVideoLabels",
+                                  keyPath: \.sponsorBlockShowFullVideoLabels,
+                                  defaultValue: true)
+                    settingSwitch("sponsor.manualFull",
+                                  field: "sponsorBlockManualSkipOnFullVideo",
+                                  keyPath: \.sponsorBlockManualSkipOnFullVideo,
+                                  defaultValue: true)
+                    settingSwitch("sponsor.music",
+                                  field: "sponsorBlockSkipNonMusicOnlyOnMusicVideos",
+                                  keyPath: \.sponsorBlockSkipNonMusicOnlyOnMusicVideos,
+                                  defaultValue: false)
+                    settingSwitch("sponsor.mute",
+                                  field: "sponsorBlockMuteInsteadOfSkip",
+                                  keyPath: \.sponsorBlockMuteInsteadOfSkip,
+                                  defaultValue: false)
+                }
+            } else if !loading {
+                TVSettingsCard("sponsor.loadError") {
+                    Text("settings.remoteLoginHelp")
+                        .font(.callout)
+                        .foregroundStyle(TTTheme.muted)
+                }
             }
         }
-        .padding(36)
-        .frame(width: 1050, height: 910)
-        .background(.ultraThickMaterial,
-                    in: RoundedRectangle(cornerRadius: 24))
         .task { await reload() }
-        .onExitCommand { dismiss() }
     }
 
-    private func choice(_ title: String, current: String, choices: [String],
-                        change: @escaping (String) -> Void) -> some View {
-        HStack(spacing: 18) {
-            Text(TVL10n.value(title)).font(.body)
-            Spacer(minLength: 14)
-            Picker(TVL10n.value(title), selection: Binding(
+    private func choice(_ title: String, current: String, focusID: String,
+                        choices: [String], change: @escaping (String) -> Void) -> some View {
+        TVSettingsMenuRow(
+            LocalizedStringKey(title),
+            selection: Binding(
                 get: { current },
                 set: { change($0) }
-            )) {
-                ForEach(choices, id: \.self) { next in
-                    Text(optionLabel(next)).tag(next)
-                }
+            ),
+            focus: focus,
+            focusTarget: focusID,
+            onMoveLeft: onMoveLeft
+        ) {
+            ForEach(choices, id: \.self) { option in
+                Text(optionLabel(option)).tag(option)
             }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(width: 310)
         }
-        .frame(minHeight: 46)
     }
 
     private func optionLabel(_ value: String) -> String {
@@ -116,16 +140,68 @@ struct TVSponsorBlockSettingsView: View {
         }
     }
 
-    private func settingSwitch(_ title: String, field: String, value: Bool) -> some View {
+    private func settingSwitch(_ title: String, field: String,
+                               keyPath: WritableKeyPath<TVServerSettings, Bool?>,
+                               defaultValue: Bool) -> some View {
         TVSettingsSwitchRow(
             LocalizedStringKey(title),
             isOn: Binding(
-                get: { value },
-                set: { next in
-                    Task { await write(field, value: .boolean(next)) }
+                get: { settings?[keyPath: keyPath] ?? defaultValue },
+                set: { enabled in
+                    update(field, value: .boolean(enabled)) {
+                        $0[keyPath: keyPath] = enabled
+                    }
                 }
-            )
+            ),
+            focus: focus, focusID: "sponsor." + field,
+            onMoveLeft: onMoveLeft
         )
+    }
+
+    /// Update the screen immediately so a Picker or Switch does not jump
+    /// back to its previous value while waiting on the server. Network writes
+    /// are serialized without disabling the currently focused control.
+    private func update(_ field: String, value: TVSettingValue,
+                        mutate: @escaping (inout TVServerSettings) -> Void) {
+        guard !saving, var next = settings else { return }
+        let before = next
+        mutate(&next)
+        settings = next
+        saving = true
+        error = nil
+        Task { @MainActor in
+            do {
+                settings = try await api.setAccountSetting(field, value: value)
+            } catch {
+                settings = before
+                self.error = error.localizedDescription
+            }
+            saving = false
+        }
+    }
+
+    private func setGlobalMode(_ mode: String) {
+        guard !saving, var next = settings else { return }
+        let before = next
+        let actions = Dictionary(uniqueKeysWithValues:
+            TVSponsorBlock.categories.map { ($0, mode) })
+        next.sponsorBlockMode = mode
+        next.sponsorBlockCategoryActions = actions
+        settings = next
+        saving = true
+        error = nil
+        Task { @MainActor in
+            do {
+                settings = try await api.setAccountSettings([
+                    "sponsorBlockMode": .text(mode),
+                    "sponsorBlockCategoryActions": .actions(actions)
+                ])
+            } catch {
+                settings = before
+                self.error = error.localizedDescription
+            }
+            saving = false
+        }
     }
 
     @MainActor
@@ -133,47 +209,28 @@ struct TVSponsorBlockSettingsView: View {
         guard !saving else { return }
         loading = true
         defer { loading = false }
+        #if DEBUG
+        if api.origin.host == "preview.invalid" {
+            // Deterministic network-free tvOS screenshots and focus tests.
+            settings = try? JSONDecoder().decode(
+                TVServerSettings.self, from: Data("{}".utf8)
+            )
+            error = nil
+            return
+        }
+        #endif
         do {
             settings = try await api.accountSettings()
             error = nil
+        } catch is CancellationError {
+            return
         } catch {
-            settings = nil
-            self.error = error.localizedDescription
+            if settings == nil {
+                self.error = error.localizedDescription
+            } else {
+                // Keep the last usable settings on transient refresh failures.
+                self.error = error.localizedDescription
+            }
         }
-    }
-
-    @MainActor
-    private func updateGlobalMode(_ mode: String) async {
-        guard !saving else { return }
-        saving = true
-        error = nil
-        do {
-            // Global mode and categories must always change together.
-            // Two separate PUTs could otherwise leave inconsistent rules.
-            let actions = Dictionary(uniqueKeysWithValues:
-                TVSponsorBlock.categories.map { ($0, mode) })
-            settings = try await api.setAccountSettings([
-                "sponsorBlockCategoryActions": .actions(actions),
-                "sponsorBlockMode": .text(mode)
-            ])
-        } catch {
-            self.error = error.localizedDescription
-            settings = try? await api.accountSettings()
-        }
-        saving = false
-    }
-
-    @MainActor
-    private func write(_ field: String, value: TVSettingValue) async {
-        guard !saving else { return }
-        saving = true
-        error = nil
-        do {
-            settings = try await api.setAccountSetting(field, value: value)
-        } catch {
-            self.error = error.localizedDescription
-            settings = try? await api.accountSettings()
-        }
-        saving = false
     }
 }
