@@ -224,6 +224,11 @@ final class SabrPlayerController: ObservableObject {
     private var isInitialized = false
     private var hasQueuedFirstAudio = false
     private var hasQueuedFirstVideo = false
+    private var bufferingClockPaused = false
+    private var bufferingNeedsAudio = false
+    private var bufferingNeedsVideo = false
+    private var submittedAudioEndMs: Int64 = 0
+    private var submittedVideoEndMs: Int64 = 0
     private var hardwareDecoder: HardwareVideoDecoder?
     private var playbackService: SabrService?
     private var segmentCache: SabrFragmentCache?
@@ -316,6 +321,7 @@ final class SabrPlayerController: ObservableObject {
         isInitialized = false
         hasQueuedFirstAudio = false
         hasQueuedFirstVideo = false
+        resetBufferClock()
         isPlaying = false
         sessionId = ""
     }
@@ -393,6 +399,15 @@ final class SabrPlayerController: ObservableObject {
 
     func togglePause() {
         guard isInitialized else { return }
+        // Buffering has paused the clock already. A remote Play/Pause press
+        // must not restart it before both tracks have supplied fresh samples.
+        if bufferingClockPaused {
+            prefersPause.toggle()
+            hardwareDecoder?.playbackPaused = prefersPause
+            state = TVL10n.value(prefersPause ? "player.paused" : "player.buffering")
+            recordProgress(force: true)
+            return
+        }
         let rate: Float = isPlaying ? 0 : 1
         synchronizer.setRate(rate, time: synchronizer.currentTime())
         isPlaying.toggle()
@@ -400,6 +415,50 @@ final class SabrPlayerController: ObservableObject {
         hardwareDecoder?.playbackPaused = prefersPause
         state = isPlaying ? TVL10n.value("player.playing") : TVL10n.value("player.paused")
         recordProgress(force: true)
+    }
+
+    private func resetBufferClock() {
+        bufferingClockPaused = false
+        bufferingNeedsAudio = false
+        bufferingNeedsVideo = false
+        submittedAudioEndMs = 0
+        submittedVideoEndMs = 0
+    }
+
+    /// Called while the decoder waits for a new, already downloaded media
+    /// window. Do not allow audio to keep advancing beyond the shortest
+    /// submitted track while video is starved.
+    private func pauseForEmptyBufferIfNeeded() {
+        guard isInitialized, !prefersPause, !bufferingClockPaused,
+              submittedAudioEndMs > 0, submittedVideoEndMs > 0 else { return }
+        let now = max(0, Int64(playbackSeconds() * 1_000))
+        let edge = min(submittedAudioEndMs, submittedVideoEndMs)
+        guard now >= max(0, edge - 450) else { return }
+        bufferingNeedsAudio = submittedAudioEndMs <= now + 450
+        bufferingNeedsVideo = submittedVideoEndMs <= now + 450
+        bufferingClockPaused = true
+        synchronizer.setRate(0, time: synchronizer.currentTime())
+        isPlaying = false
+        state = TVL10n.value("player.buffering")
+    }
+
+    private func noteQueuedMedia(_ track: SabrMediaInterleave.Track,
+                                 sample: CMSampleBuffer) {
+        guard bufferingClockPaused else { return }
+        let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
+        let clock = CMTimeGetSeconds(synchronizer.currentTime())
+        guard pts.isFinite, clock.isFinite, pts >= clock - 0.05 else { return }
+        switch track {
+        case .audio: bufferingNeedsAudio = false
+        case .video: bufferingNeedsVideo = false
+        }
+        guard !bufferingNeedsAudio && !bufferingNeedsVideo else { return }
+        bufferingClockPaused = false
+        if !prefersPause {
+            synchronizer.setRate(1, time: synchronizer.currentTime())
+            isPlaying = true
+            state = TVL10n.value("player.playing")
+        }
     }
 
     func recordProgress(started: Bool = false, force: Bool = false) {
@@ -629,6 +688,7 @@ final class SabrPlayerController: ObservableObject {
                     isInitialized = false
                     hasQueuedFirstAudio = false
                     hasQueuedFirstVideo = false
+                    resetBufferClock()
                     isPlaying = false
                     if fixedVideoItag != nil { fixedVideoItag = nil }
                     cachedThroughMs = playbackStart
@@ -756,6 +816,7 @@ final class SabrPlayerController: ObservableObject {
                 isInitialized = false
                 hasQueuedFirstAudio = false
                 hasQueuedFirstVideo = false
+                resetBufferClock()
                 cachedThroughMs = restartPosition
                 diskCacheBytes = 0
                 await cache.clear()
@@ -796,11 +857,17 @@ final class SabrPlayerController: ObservableObject {
                 try await Task.sleep(nanoseconds: 250_000_000)
                 continue
             }
+            // When the shared clock outruns an unready media track, asking
+            // the server for the clock's time skips the missing fragment.
+            // Always request from no later than continuous A/V coverage.
+            let requestPosition = SabrWindowRequestPosition.position(
+                playheadMs: playhead, contiguousThroughMs: coverage.safeEndMs
+            )
             let requested = try await service.window(
                 sessionId: sessionId, selection: choice, generation: generation,
-                positionMs: playhead,
+                positionMs: requestPosition,
                 ranges: await cache.cachedRanges(
-                    retainFromMs: max(0, playhead - Int64(buffer.backMilliseconds))
+                    retainFromMs: max(0, requestPosition - Int64(buffer.backMilliseconds))
                 ),
                 buffer: buffer
             )
@@ -877,7 +944,9 @@ final class SabrPlayerController: ObservableObject {
         var startupSamples = SabrStartupAccumulator<CMSampleBuffer>()
         var coverage = SabrPlaybackCoverage(audioItag: choice.audio.itag,
                                             videoItag: choice.video.itag, positionMs: start)
-        while let response = try await mailbox.next() {
+        while let response = try await mailbox.next(onWait: { [weak self] in
+            await self?.pauseForEmptyBufferIfNeeded()
+        }) {
             try Task.checkCancellation()
             if let ms = response.durationMs { durationMs = ms }
             guard let audio = response.audio, let video = response.video else {
@@ -975,6 +1044,8 @@ final class SabrPlayerController: ObservableObject {
             }
 
             positionMs = coverage.safeEndMs
+            submittedAudioEndMs = coverage.audioEndMs
+            submittedVideoEndMs = coverage.videoEndMs
             if response.endOfStream == true {
                 guard isInitialized else {
                     throw SabrFailure.invalidResponse(
@@ -1064,6 +1135,7 @@ final class SabrPlayerController: ObservableObject {
                     try await Task.sleep(nanoseconds: 20_000_000)
                 }
                 audioRenderer.enqueue(audio[ai])
+                noteQueuedMedia(.audio, sample: audio[ai])
                 ai += 1
                 hasQueuedFirstAudio = true
             case .video:
@@ -1084,6 +1156,7 @@ final class SabrPlayerController: ObservableObject {
                     throw SabrFailure.invalidResponse("decoder missing")
                 }
                 try await hardwareDecoder.decode(video[vi])
+                noteQueuedMedia(.video, sample: video[vi])
                 vi += 1
                 hasQueuedFirstVideo = true
             }
