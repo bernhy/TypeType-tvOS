@@ -442,11 +442,16 @@ final class SabrService: @unchecked Sendable {
         return reply
     }
 
-    func start(videoId: String, selection: SabrSelection, positionMs: Int64 = 0) async throws -> SabrSessionReply {
+    func start(videoId: String, selection: SabrSelection, positionMs: Int64 = 0,
+               refreshUpstream: Bool = false) async throws -> SabrSessionReply {
         guard videoId.range(of: "^[A-Za-z0-9_-]{11}$", options: .regularExpression) != nil else {
             throw SabrFailure.invalidResponse("videoId")
         }
-        return try await request("sabr/playback/\(videoId)", method: "POST",
+        // Local TypeType-Server extension. Without the local server patch the
+        // optional query parameter is ignored, leaving normal playback intact.
+        let query = refreshUpstream
+            ? [URLQueryItem(name: "refreshUpstream", value: "true")] : []
+        return try await request("sabr/playback/\(videoId)", query: query, method: "POST",
                                  body: try encoder.encode(SabrSessionRequest(selection, positionMs: positionMs)),
                                  allowedStatuses: [200, 202])
     }
