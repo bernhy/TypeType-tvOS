@@ -278,6 +278,31 @@ final class SabrTransportTests: XCTestCase {
         XCTAssertEqual(count, 0)
         await cache.clear()
     }
+    func testPlaybackStartRequestsFreshUpstreamOnlyOnExplicitRecovery() async throws {
+        let lock = NSLock()
+        var requests: [(String, String?)] = []
+        MockSabrProtocol.use { request in
+            lock.lock()
+            requests.append((request.url?.path ?? "", request.url?.query))
+            lock.unlock()
+            return (202, Data(
+                #"{"sessionId":"new-session","generation":0,"ready":false,"status":"IDLE"}"#.utf8
+            ))
+        }
+        let service = try fixtureService()
+        _ = try await service.start(videoId: "abc123def45",
+                                    selection: fixtureSelection(), positionMs: 59_584)
+        _ = try await service.start(videoId: "abc123def45",
+                                    selection: fixtureSelection(), positionMs: 59_584,
+                                    refreshUpstream: true)
+        let captured = lock.withLock { requests }
+        XCTAssertEqual(captured.count, 2)
+        XCTAssertEqual(captured[0].0, "/api/sabr/playback/abc123def45")
+        XCTAssertNil(captured[0].1)
+        XCTAssertEqual(captured[1].0, "/api/sabr/playback/abc123def45")
+        XCTAssertEqual(captured[1].1, "refreshUpstream=true")
+    }
+
     func testServer1171ReleaseImmediatelyFreesSabrSession() async throws {
         let lock = NSLock()
         var requests: [(String, String)] = []
