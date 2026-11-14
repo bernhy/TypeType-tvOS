@@ -11,6 +11,7 @@ struct PreferencesView: View {
     let autoPresentAddAccount: Bool
     var onAccountChanged: () -> Void = {}
     var onBackToMenu: () -> Void = {}
+    var onAddAccountDismissed: () -> Void = {}
 
     @ObservedObject private var hardware = TVHardwareDiagnostics.shared
     @AppStorage("typetype.uiLanguage") private var uiLanguage = TVLanguages.defaultCode
@@ -47,13 +48,15 @@ struct PreferencesView: View {
          focusRequest: Int = 0,
          autoPresentAddAccount: Bool = false,
          onAccountChanged: @escaping () -> Void = {},
-         onBackToMenu: @escaping () -> Void = {}) {
+         onBackToMenu: @escaping () -> Void = {},
+         onAddAccountDismissed: @escaping () -> Void = {}) {
         self.api = api
         self.onDisconnect = onDisconnect
         self.focusRequest = focusRequest
         self.autoPresentAddAccount = autoPresentAddAccount
         self.onAccountChanged = onAccountChanged
         self.onBackToMenu = onBackToMenu
+        self.onAddAccountDismissed = onAddAccountDismissed
         _group = State(initialValue: initialGroup)
     }
 
@@ -124,7 +127,8 @@ struct PreferencesView: View {
                 onBackToMenu()
             }
         }
-        .sheet(isPresented: $showAddAccountSheet) {
+        .sheet(isPresented: $showAddAccountSheet,
+               onDismiss: onAddAccountDismissed) {
             TVAddAccountSheet(api: api) {
                 // The add-account sheet persists the new profile before
                 // switching the active TypeType session.
