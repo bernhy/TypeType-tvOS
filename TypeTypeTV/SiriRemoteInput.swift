@@ -7,6 +7,7 @@ private final class TVRemoteCaptureView: UIView {
     var onTogglePlayback: (() -> Void)?
     var onSelect: (() -> Void)?
     var onOptions: (() -> Void)?
+    var onExit: (() -> Void)?
 
     override var canBecomeFocused: Bool { true }
 
@@ -18,6 +19,7 @@ private final class TVRemoteCaptureView: UIView {
             case .rightArrow: onDirection?(1)
             case .playPause: onTogglePlayback?()
             case .select: onSelect?()
+            case .menu: onExit?()
             case .upArrow, .downArrow: onOptions?()
             default: unhandled.insert(item)
             }
@@ -39,6 +41,7 @@ struct SiriRemotePlayerInput: UIViewRepresentable {
     let onTogglePlayback: () -> Void
     let onSelect: () -> Void
     let onOptions: () -> Void
+    let onExit: () -> Void
 
     final class Coordinator: NSObject {
         var onTouch: () -> Void
@@ -57,6 +60,7 @@ struct SiriRemotePlayerInput: UIViewRepresentable {
         view.onTogglePlayback = onTogglePlayback
         view.onSelect = onSelect
         view.onOptions = onOptions
+        view.onExit = onExit
         let pan = UIPanGestureRecognizer(
             target: context.coordinator, action: #selector(Coordinator.moved(_:))
         )
@@ -72,6 +76,7 @@ struct SiriRemotePlayerInput: UIViewRepresentable {
         view.onTogglePlayback = onTogglePlayback
         view.onSelect = onSelect
         view.onOptions = onOptions
+        view.onExit = onExit
         context.coordinator.onTouch = onTouch
     }
 }
