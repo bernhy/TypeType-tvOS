@@ -45,6 +45,7 @@ struct BrowseView: View {
     @State private var section: TVSection
     @State private var expanded = false
     @State private var sidebarIdentity: TVAccountIdentity?
+    @ObservedObject private var playbackVisibility = TVPlaybackVisibility.shared
     @State private var settingsEntryGroup: TVSettingsGroup
     @State private var accountGeneration = 0
     @State private var returnToSwitcherAfterLogin = false
@@ -67,8 +68,10 @@ struct BrowseView: View {
     var body: some View {
         if let api = try? TypeTypeAPI(address: instanceOrigin) {
             HStack(spacing: 0) {
-                sidebar
-                    .zIndex(1)
+                if !playbackVisibility.isVisible {
+                    sidebar
+                        .zIndex(1)
+                }
                 NavigationStack {
                     Group {
                         switch section {
@@ -76,7 +79,8 @@ struct BrowseView: View {
                             HomeView(
                                 api: api, previewVideos: previewVideos,
                                 onRevealMenu: revealMenu,
-                                onOpenAccount: { open(.account) }
+                                onOpenAccount: { open(.account) },
+                                sidebarFocused: menuFocus != nil
                             )
                         case .search:
                             SearchView(api: api)
@@ -107,16 +111,11 @@ struct BrowseView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .focusSection()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea(.container, edges: .leading)
-            .onExitCommand {
-                // The root screen owns Menu/Back. Never fall through to the
-                // system's default app exit while already at the left rail.
-                if menuFocus == nil {
-                    menuFocus = section
-                    expanded = true
-                }
-            }
-            .background(TTTheme.ink)
+            // The exit command belongs to each root content screen. Placing it
+            // here intercepted tvOS Back during nested full-screen playback.
+            .background(TTTheme.ink.ignoresSafeArea())
             .task { await reloadSidebarIdentity(api: api) }
             .onChange(of: section) { old, _ in
                 if old == .account || old == .settings {
@@ -160,13 +159,14 @@ struct BrowseView: View {
         .padding(.bottom, 20)
         .frame(width: expanded ? 214 : 56)
         .frame(maxHeight: .infinity)
-        .background(TTTheme.surface)
+        .background(TTTheme.surface.ignoresSafeArea())
         // Disable inherited tvOS lift/glow on the whole rail, not only on
         // each button. Otherwise the focus overlay can exceed its bounds.
         .focusEffectDisabled(true)
         .clipped()
         .animation(navigationAnimations ? .easeInOut(duration: 0.16) : nil, value: expanded)
         .focusSection()
+        .onExitCommand { revealMenu() }
         .onChange(of: menuFocus) { _, focused in
             expanded = focused != nil
         }
@@ -205,8 +205,12 @@ struct BrowseView: View {
             // Never change size or draw the native tvOS focus overlay.
             .foregroundStyle(menuFocus == item ? .white :
                              (section == item ? TTTheme.accent : TTTheme.muted))
-            .contentShape(Rectangle())
-            .clipped()
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(menuFocus == item ? Color.white.opacity(0.16) : .clear)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
         .focusEffectDisabled(true)
