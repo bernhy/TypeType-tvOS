@@ -606,9 +606,14 @@ struct VideoCard: View {
     @Environment(\.isFocused) private var isFocused
     var lookupMissingMetadata = false
     @State private var streamMetadata: StreamInfo?
+    @State private var metadataVideoURL: String?
 
     private var metadataVideo: VideoItem {
-        TVVideoMetadata.merged(video, stream: streamMetadata)
+        // SwiftUI recycles cards in grids. Never show the previous video's
+        // stream metadata on a newly reused thumbnail cell.
+        TVVideoMetadata.merged(
+            video, stream: metadataVideoURL == video.url ? streamMetadata : nil
+        )
     }
 
     private var effectivePosition: Int64? {
@@ -718,9 +723,14 @@ struct VideoCard: View {
         .animation(.easeOut(duration: 0.18), value: isFocused)
         .foregroundStyle(.white)
         .task(id: video.url) {
+            metadataVideoURL = video.url
+            streamMetadata = nil
             guard lookupMissingMetadata &&
-                (video.viewCount == nil || TVVideoMetadata.publicationDate(for: video) == nil) else { return }
-            streamMetadata = await TVStreamMetadataCache.shared.details(for: video, api: api)
+                (video.viewCount == nil || TVVideoMetadata.publicationDate(for: video) == nil)
+            else { return }
+            let fetched = await TVStreamMetadataCache.shared.details(for: video, api: api)
+            guard !Task.isCancelled else { return }
+            streamMetadata = fetched
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(TTTheme.accessibilityText(for: video))

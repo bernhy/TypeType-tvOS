@@ -53,6 +53,9 @@ struct TVThumbnail: View {
         }
         .clipped()
         .task(id: url?.absoluteString) {
+            // SwiftUI may reuse a card for a different URL. Do not keep the
+            // previous video's artwork visible while the new image loads.
+            bitmap = nil
             await load()
         }
     }
@@ -63,13 +66,17 @@ struct TVThumbnail: View {
             bitmap = nil
             return
         }
-        let key = url.absoluteString as NSString
+        let firstParty = url.host?.lowercased() == origin.host?.lowercased() &&
+            url.scheme == origin.scheme && url.port == origin.port
+        // A first-party media route can be account-specific. Keep the image
+        // cache scoped to its bearer token, even on a shared household Apple TV.
+        let accountToken = firstParty ? TypeTypeCredentials.shared.token(for: origin) : nil
+        let key = (url.absoluteString +
+            (firstParty ? "|account:" + (accountToken ?? "guest") : "")) as NSString
         if let cached = TVThumbnailMemory.shared.configuredCache().object(forKey: key) {
             bitmap = cached
             return
         }
-        let firstParty = url.host?.lowercased() == origin.host?.lowercased() &&
-            url.scheme == origin.scheme && url.port == origin.port
         guard url.scheme == "https" || (firstParty && url.scheme == "http") else {
             bitmap = nil
             return
@@ -78,8 +85,8 @@ struct TVThumbnail: View {
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
         request.setValue("image/avif,image/webp,image/png,image/jpeg,*/*", forHTTPHeaderField: "Accept")
-        if firstParty, let token = TypeTypeCredentials.shared.token(for: origin) {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if firstParty, let accountToken {
+            request.setValue("Bearer \(accountToken)", forHTTPHeaderField: "Authorization")
         }
         do {
             let session = firstParty ? TVNetwork.session(for: origin) : URLSession.shared
