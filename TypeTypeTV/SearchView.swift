@@ -100,9 +100,9 @@ struct SearchView: View {
                                     VideoCard(api: api, video: video)
                                 }
                                 .buttonStyle(.card)
-                                .videoActions(api: api, video: video) {
+                                .videoActions(api: api, video: video, onChanged: {
                                     Task { await execute(searchedTerm) }
-                                }
+                                })
                                 .accessibilityLabel(TTTheme.accessibilityText(for: video))
                             }
                         }
