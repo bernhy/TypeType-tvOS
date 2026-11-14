@@ -55,7 +55,11 @@ final class HardwareVideoDecoder {
         recordedFirstFrame = false
     }
 
-    func decode(_ compressed: CMSampleBuffer) async throws {
+    /// Returns the latest presentation timestamp actually enqueued on the
+    /// video sample renderer. A compressed sample can produce zero images due
+    /// to frame reordering; counting its PTS as already queued overstated the
+    /// 'Renderer' diagnostic and could start audio before any video appeared.
+    func decode(_ compressed: CMSampleBuffer) async throws -> CMTime? {
         guard active else { throw SabrFailure.stopped }
         guard let description = CMSampleBufferGetFormatDescription(compressed) else {
             throw SabrFailure.invalidResponse("compressed sample without format description")
@@ -119,14 +123,21 @@ final class HardwareVideoDecoder {
         guard result == noErr, output.error == nil else {
             throw SabrFailure.unsupported("VideoToolbox hardware decode error (\(output.error ?? result))")
         }
+        var lastEnqueuedPTS: CMTime?
         for (image, pts, duration) in output.frames {
             try Task.checkCancellation()
             try await present(image, pts: pts, duration: duration)
+            if CMTimeGetSeconds(pts).isFinite,
+               lastEnqueuedPTS == nil ||
+               CMTimeCompare(pts, lastEnqueuedPTS!) > 0 {
+                lastEnqueuedPTS = pts
+            }
             if !recordedFirstFrame {
                 recordedFirstFrame = true
                 TVHardwareDiagnostics.shared.recordDecodedFrame()
             }
         }
+        return lastEnqueuedPTS
     }
 
     private func present(_ image: CVImageBuffer, pts: CMTime, duration: CMTime) async throws {
