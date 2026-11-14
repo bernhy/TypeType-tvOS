@@ -276,6 +276,7 @@ struct HomeView: View {
     let api: TypeTypeAPI
     let onRevealMenu: () -> Void
     let onOpenAccount: () -> Void
+    let sidebarFocused: Bool
     private let previewVideos: [VideoItem]?
 
     @State private var videos: [VideoItem]
@@ -290,11 +291,13 @@ struct HomeView: View {
 
     init(api: TypeTypeAPI, previewVideos: [VideoItem]? = nil,
          onRevealMenu: @escaping () -> Void = {},
-         onOpenAccount: @escaping () -> Void = {}) {
+         onOpenAccount: @escaping () -> Void = {},
+         sidebarFocused: Bool = false) {
         self.api = api
         self.previewVideos = previewVideos
         self.onRevealMenu = onRevealMenu
         self.onOpenAccount = onOpenAccount
+        self.sidebarFocused = sidebarFocused
         _videos = State(initialValue: previewVideos ?? [])
         _recentVideos = State(initialValue: previewVideos.map {
             Array($0.prefix(4))
@@ -322,6 +325,9 @@ struct HomeView: View {
                         Label("common.refresh", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(.bordered)
+                    // Do not steal the initial Right move from the icon rail.
+                    // Once a thumbnail receives focus, Up can reach Refresh.
+                    .focusDisabled(sidebarFocused)
                     .disabled((loading && loadingRecent) || previewVideos != nil)
                 }
 
@@ -387,6 +393,7 @@ struct HomeView: View {
         .task {
             if previewVideos == nil { await refresh() }
         }
+        .onExitCommand { onRevealMenu() }
     }
 
     @ViewBuilder
