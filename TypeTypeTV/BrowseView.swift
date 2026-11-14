@@ -606,13 +606,24 @@ struct VideoCard: View {
                     .aspectRatio(16.0 / 9.0, contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipped()
+                if video.requiresMembership == true {
+                    Label("video.membersOnly", systemImage: "person.crop.circle.badge.checkmark")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                        .padding(7)
+                        .background(.black.opacity(0.88),
+                                    in: RoundedRectangle(cornerRadius: 7))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: .topLeading)
+                        .padding(8)
+                }
                 if let position = watchedTime, video.isLive != true {
                     Label(position, systemImage: completed ? "checkmark.circle.fill" : "play.circle")
                         .font(.caption.monospacedDigit())
                         .padding(7)
                         .background(.black.opacity(0.84), in: RoundedRectangle(cornerRadius: 6))
                         .frame(maxWidth: .infinity, maxHeight: .infinity,
-                               alignment: .topLeading)
+                               alignment: .topTrailing)
                         .padding(7)
                 }
                 if video.isLive == true {
