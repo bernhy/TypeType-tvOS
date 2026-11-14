@@ -163,6 +163,31 @@ enum SabrSampleTimeline {
     }
 }
 
+/// Diagnostics only: compare raw fMP4 presentation times with the
+/// server-provided fragment metadata before applying the tvOS timestamp
+/// alignment. We cannot assume a metadata gap means missing decoded frames.
+enum SabrSampleTimingProbe {
+    static func presentationRangeMs(_ samples: [CMSampleBuffer]) -> (first: Int64, last: Int64)? {
+        var minimum = Double.infinity
+        var maximum = -Double.infinity
+        for sample in samples {
+            let count = CMSampleBufferGetNumSamples(sample)
+            for index in 0..<count {
+                var timing = CMSampleTimingInfo()
+                guard CMSampleBufferGetSampleTimingInfo(
+                    sample, at: index, timingInfoOut: &timing
+                ) == noErr else { continue }
+                let pts = CMTimeGetSeconds(timing.presentationTimeStamp)
+                guard pts.isFinite, abs(pts) < 1_000_000_000 else { continue }
+                minimum = min(minimum, pts)
+                maximum = max(maximum, pts)
+            }
+        }
+        guard minimum.isFinite, maximum.isFinite else { return nil }
+        return (Int64(minimum * 1_000), Int64(maximum * 1_000))
+    }
+}
+
 // Client-local fMP4 reader. TypeType Server remains untouched.
 // A track consists of the init box sequence (ftyp/moov) and a single media fragment (moof/mdat).
 // AVAssetReader is asked for compressed samples (outputSettings:nil) so decoding stays in VideoToolbox.
@@ -807,6 +832,27 @@ final class SabrPlayerController: ObservableObject {
                     )
                     await mailbox.finish()
                 } catch {
+                    // This error can occur minutes before the renderer drains
+                    // its already-queued data and discovers the closed mailbox.
+                    // Log now, without the URL, session ID or bearer token.
+                    let reason: String
+                    if let failure = error as? SabrFailure {
+                        switch failure {
+                        case .invalidResponse: reason = "invalidResponse"
+                        case .stalled: reason = "stalled"
+                        case .expired: reason = "expired"
+                        case .server: reason = "http"
+                        case .throttled: reason = "throttled"
+                        case .unsupported: reason = "unsupported"
+                        case .unavailable: reason = "unavailable"
+                        case .stopped: reason = "stopped"
+                        }
+                    } else {
+                        reason = error is CancellationError ? "cancelled" : "other"
+                    }
+                    NSLog("TypeType SABR PRODUCER failed reason=%@ playbackMs=%lld cachedMs=%lld",
+                          reason, max(0, Int64(self.playbackSeconds() * 1_000)),
+                          self.cachedThroughMs)
                     await mailbox.finish(error: error)
                 }
             }
@@ -937,12 +983,22 @@ final class SabrPlayerController: ObservableObject {
                 first: first, startMs: start,
                 continuousEndMs: coverage.safeEndMs
             )
+            #if DEBUG
+            NSLog("TypeType SABR PRODUCER window-request requestMs=%lld playbackMs=%lld cachedMs=%lld targetMs=%lld",
+                  requestPosition, playhead, retainedEnd, target)
+            #endif
+            let windowRequestStarted = Date()
             let requested = try await service.window(
                 sessionId: sessionId, selection: choice, generation: generation,
                 positionMs: requestPosition,
                 ranges: SabrSequentialWindowPolicy.advertisedRanges,
                 buffer: buffer
             )
+            let windowElapsedMs = Int(Date().timeIntervalSince(windowRequestStarted) * 1_000)
+            if windowElapsedMs > 2_000 {
+                NSLog("TypeType SABR PRODUCER slow-window requestMs=%lld elapsedMs=%d",
+                      requestPosition, windowElapsedMs)
+            }
             try Task.checkCancellation()
             guard let audio = requested.audio, let video = requested.video else {
                 throw SabrFailure.invalidResponse("SABR window has no audio/video pair")
@@ -969,8 +1025,14 @@ final class SabrPlayerController: ObservableObject {
                 SabrMediaReference(url: $0.url, itag: choice.video.itag,
                                    startMs: $0.startMs, durationMs: $0.durationMs)
             }
+            let prefetchStarted = Date()
             try await cache.preloadFully(refs, service: service,
                                          sessionId: sessionId, generation: generation)
+            let prefetchMs = Int(Date().timeIntervalSince(prefetchStarted) * 1_000)
+            if prefetchMs > 2_000 {
+                NSLog("TypeType SABR PRODUCER slow-prefetch requestMs=%lld audioSegments=%d videoSegments=%d elapsedMs=%d",
+                      requestPosition, audio.segments.count, video.segments.count, prefetchMs)
+            }
             try Task.checkCancellation()
             for part in audio.segments.sorted(by: { $0.startMs < $1.startMs }) {
                 try coverage.acceptAudio(part)
@@ -1086,11 +1148,25 @@ final class SabrPlayerController: ObservableObject {
                     try await service.fragmentData(segment.url, sessionId: sid,
                                                    itag: choice.video.itag, generation: gen)
                 }
-                let samples = try SabrSampleTimeline.aligned(
-                    await FragmentedMP4Reader.compressedSamples(
-                        initialization: videoInit, fragment: bytes, mediaType: .video
-                    ), segmentStartMs: segment.startMs
+                let rawSamples = try await FragmentedMP4Reader.compressedSamples(
+                    initialization: videoInit, fragment: bytes, mediaType: .video
                 )
+                let samples = try SabrSampleTimeline.aligned(
+                    rawSamples, segmentStartMs: segment.startMs
+                )
+                #if DEBUG
+                let precedingEnd = coverage.videoEndMs
+                if segment.startMs > precedingEnd,
+                   segment.startMs - precedingEnd > 250 {
+                    let before = SabrSampleTimingProbe.presentationRangeMs(rawSamples)
+                    let after = SabrSampleTimingProbe.presentationRangeMs(samples)
+                    let sequence = Int(URL(string: segment.url)?.lastPathComponent ?? "") ?? -1
+                    NSLog("TypeType SABR SAMPLE GAP itag=%d seq=%d metadataGapMs=%lld rawPTS=%lld..%lld alignedPTS=%lld..%lld sampleBuffers=%d",
+                          choice.video.itag, sequence, segment.startMs - precedingEnd,
+                          before?.first ?? -1, before?.last ?? -1,
+                          after?.first ?? -1, after?.last ?? -1, samples.count)
+                }
+                #endif
                 guard !samples.isEmpty else {
                     throw SabrFailure.unsupported("SABR video segment contains no compressed samples")
                 }
