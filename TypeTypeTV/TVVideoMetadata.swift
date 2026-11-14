@@ -3,6 +3,22 @@ import Foundation
 /// Metadata is supplied by TypeType Server: viewCount and publishedAt are
 /// first-class VideoItem fields. Avoid guessing from thumbnail text.
 enum TVVideoMetadata {
+
+    /// Use provider-supplied channel URLs only. Never infer or synthesize
+    /// a channel from the display name, and never open local/unsafe schemes.
+    static func channelURL(for video: VideoItem, stream: StreamInfo?) -> String? {
+        for raw in [video.uploaderUrl, stream?.uploaderUrl] {
+            guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty,
+                  let url = URLComponents(string: value),
+                  let scheme = url.scheme?.lowercased(),
+                  scheme == "https" || scheme == "http",
+                  let host = url.host, !host.isEmpty,
+                  url.user == nil, url.password == nil else { continue }
+            return value
+        }
+        return nil
+    }
     static func viewLabel(_ count: Int64, language: String = TVLanguages.activeLanguage) -> String? {
         guard count >= 0 else { return nil }
         let compact: String

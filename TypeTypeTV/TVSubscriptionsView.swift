@@ -6,6 +6,11 @@ struct TVSubscriptionsView: View {
     let api: TypeTypeAPI
     var focusRequest = 0
     var onRevealMenu: () -> Void = {}
+    /// When opened from a video's channel link, show this specific channel
+    /// even if it is not part of the signed-in user's subscriptions.
+    var directChannelURL: String? = nil
+    var directChannelName: String? = nil
+    @Environment(\.dismiss) private var dismiss
 
     @State private var subscriptions: [TVSubscription] = []
     @State private var selectedChannelURL: String?
@@ -37,15 +42,18 @@ struct TVSubscriptionsView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 25) {
-            channelRail
-                .frame(width: 285)
-                .environment(\.isFocusEffectEnabled, false)
-                .focusEffectDisabled(true)
-                .focusSection()
+            if directChannelURL == nil {
+                channelRail
+                    .frame(width: 285)
+                    .environment(\.isFocusEffectEnabled, false)
+                    .focusEffectDisabled(true)
+                    .focusSection()
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     VStack(alignment: .leading, spacing: 9) {
-                        Text("subscriptions.kicker")
+                        Text(directChannelURL == nil
+                             ? "subscriptions.kicker" : "channels.videos")
                             .font(.subheadline.bold())
                             .tracking(2)
                             .foregroundStyle(TTTheme.accent)
@@ -91,7 +99,10 @@ struct TVSubscriptionsView: View {
                         TVContentMessage(
                             symbol: "play.rectangle",
                             title: TVL10n.value("subscriptions.emptyVideos"),
-                            detail: TVL10n.value("subscriptions.chooseChannel")
+                            detail: TVL10n.value(
+                                directChannelURL == nil
+                                    ? "subscriptions.chooseChannel" : "subscriptions.emptyVideos"
+                            )
                         )
                     } else {
                         LazyVGrid(columns: columns, spacing: 28) {
@@ -110,7 +121,8 @@ struct TVSubscriptionsView: View {
                                 )
                                 .accessibilityIdentifier("subscription-video-\(index)")
                                 .onMoveCommand { direction in
-                                    if direction == .left && index % columns.count == 0 {
+                                    if direction == .left && index % columns.count == 0,
+                                       directChannelURL == nil {
                                         returnToChannelRail()
                                     }
                                 }
@@ -136,23 +148,38 @@ struct TVSubscriptionsView: View {
                     }
                 }
                 .padding(.top, 38)
+                .padding(.leading, directChannelURL == nil ? 0 : 72)
                 .padding(.trailing, 44)
                 .padding(.bottom, 110)
             }
             .focusSection()
         }
         .background(TTTheme.ink)
-        .task { await reload() }
+        .task {
+            if let directChannelURL {
+                channelTitle = directChannelName ?? ""
+                enterGridAfterLoad = true
+                selectedChannelURL = directChannelURL
+            } else {
+                await reload()
+            }
+        }
         .task(id: focusRequest) {
             await Task.yield()
-            if let selectedChannelURL {
+            if directChannelURL != nil {
+                if let first = videos.first { focusedVideo = first.url }
+            } else if let selectedChannelURL {
                 focusedSubscription = selectedChannelURL
             } else {
                 loadingRailFocused = true
             }
         }
         .onExitCommand {
-            if focusedSubscription != nil || loadingRailFocused {
+            if directChannelURL != nil {
+                // This view is pushed from VideoDetailView. Menu/Back must
+                // pop to *that* video, never to the global app sidebar.
+                dismiss()
+            } else if focusedSubscription != nil || loadingRailFocused {
                 onRevealMenu()
             } else {
                 returnToChannelRail()
@@ -312,7 +339,8 @@ struct TVSubscriptionsView: View {
         let shorts = showingShorts
         #if DEBUG
         if api.origin.host == "preview.invalid" {
-            channelTitle = subscriptions.first(where: { $0.channelUrl == channelURL })?.name ?? ""
+            channelTitle = subscriptions.first(where: { $0.channelUrl == channelURL })?.name
+                ?? (directChannelURL == channelURL ? directChannelName ?? "" : "")
             channelDescription = ""
             videos = (0..<9).map { index in
                 var video = VideoItem(
@@ -343,7 +371,8 @@ struct TVSubscriptionsView: View {
         loadingVideos = true
         videos = []
         nextPage = nil
-        channelTitle = subscriptions.first(where: { $0.channelUrl == channelURL })?.name ?? ""
+        channelTitle = subscriptions.first(where: { $0.channelUrl == channelURL })?.name
+            ?? (directChannelURL == channelURL ? directChannelName ?? "" : "")
         channelDescription = ""
         error = nil
         pageError = nil

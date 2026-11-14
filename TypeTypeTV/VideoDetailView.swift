@@ -17,6 +17,29 @@ struct VideoDetailView: View {
     @ObservedObject private var localProgress = TVLocalProgress.shared
 
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
+
+    private var channelName: String? {
+        let fromVideo = video.uploaderName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fromStream = streamMetadata?.uploaderName?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return [fromVideo, fromStream].compactMap { $0 }.first { !$0.isEmpty }
+    }
+
+    private var channelURL: String? {
+        TVVideoMetadata.channelURL(for: video, stream: streamMetadata)
+    }
+
+    private var descriptionText: String? {
+        #if DEBUG
+        if api.origin.host == "preview.invalid" {
+            return Array(repeating:
+                "Eine ausführliche Testbeschreibung für die Siri Remote. " +
+                "Dieser Text bleibt ein einziger Block und kann in beide Richtungen gescrollt werden.",
+                count: 38).joined(separator: "\n\n")
+        }
+        #endif
+        return streamMetadata?.description
+    }
     private var detailedVideo: VideoItem {
         TVVideoMetadata.merged(video, stream: streamMetadata)
     }
@@ -52,10 +75,33 @@ struct VideoDetailView: View {
                             .font(.system(size: 53, weight: .bold))
                             .frame(maxWidth: 830, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
-                        if let channel = video.uploaderName, !channel.isEmpty {
-                            Label(channel, systemImage: "person.crop.circle")
-                                .font(.title3)
-                                .foregroundStyle(.white.opacity(0.8))
+                        if let channel = channelName {
+                            if let channelURL {
+                                NavigationLink {
+                                    TVSubscriptionsView(
+                                        api: api,
+                                        directChannelURL: channelURL,
+                                        directChannelName: channel
+                                    )
+                                } label: {
+                                    Label {
+                                        HStack(spacing: 10) {
+                                            Text(channel)
+                                            Image(systemName: "chevron.right")
+                                                .font(.caption.bold())
+                                        }
+                                    } icon: {
+                                        Image(systemName: "person.crop.circle")
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(TTTheme.muted)
+                                .accessibilityIdentifier("video-open-channel")
+                            } else {
+                                Label(channel, systemImage: "person.crop.circle")
+                                    .font(.title3)
+                                    .foregroundStyle(.white.opacity(0.8))
+                            }
                         }
                         if let metadata = TVVideoMetadata.subtitle(for: detailedVideo) {
                             Text(metadata)
@@ -75,83 +121,107 @@ struct VideoDetailView: View {
                         }
                         .font(.callout)
                         .foregroundStyle(.white.opacity(0.72))
-                        VStack(alignment: .leading, spacing: 16) {
-                            HStack(spacing: 22) {
-                                NavigationLink {
-                                    if let playbackQueue,
-                                       let position = playbackQueue.firstIndex(where: {
-                                           $0.url == video.url
-                                       }) {
-                                        TVPlaylistPlaybackView(
-                                            api: api, videos: playbackQueue,
-                                            startIndex: position
-                                        )
-                                    } else {
-                                        PlaybackView(api: api, video: video)
+                        HStack(alignment: .top, spacing: 36) {
+                            VStack(alignment: .leading, spacing: 18) {
+                                HStack(spacing: 18) {
+                                    NavigationLink {
+                                        if let playbackQueue,
+                                           let position = playbackQueue.firstIndex(where: {
+                                               $0.url == video.url
+                                           }) {
+                                            TVPlaylistPlaybackView(
+                                                api: api, videos: playbackQueue,
+                                                startIndex: position
+                                            )
+                                        } else {
+                                            PlaybackView(api: api, video: video)
+                                        }
+                                    } label: {
+                                        Label {
+                                            Text(video.isLive == true
+                                                 ? "video.viewLive" : "video.play")
+                                        } icon: {
+                                            Image(systemName: "play.fill")
+                                        }
                                     }
-                                } label: {
-                                    Label {
-                                        if video.isLive == true { Text("video.viewLive") }
-                                        else { Text("video.play") }
-                                    } icon: {
-                                        Image(systemName: "play.fill")
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(TTTheme.accent)
+
+                                    Button { dismiss() } label: {
+                                        Label("common.back", systemImage: "chevron.left")
                                     }
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .tint(TTTheme.accent)
+                                    .buttonStyle(.bordered)
 
-                                Button {
-                                    dismiss()
-                                } label: {
-                                    Label("common.back", systemImage: "chevron.left")
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                            HStack(spacing: 22) {
-                                Button {
-                                    Task { await changeFavorite() }
-                                } label: {
-                                    Label(TVL10n.value("library.favorites"),
-                                          systemImage: favorite ? "heart.fill" : "heart")
-                                }
-                                .accessibilityAddTraits(favorite ? .isSelected : [])
-                                .buttonStyle(.bordered)
-                                .tint(favorite ? TTTheme.accent : TTTheme.muted)
-                                .disabled(!activityLoaded || activitySaving)
+                                    Button {
+                                        Task { await changeFavorite() }
+                                    } label: {
+                                        Label(TVL10n.value("library.favorites"),
+                                              systemImage: favorite ? "heart.fill" : "heart")
+                                    }
+                                    .accessibilityAddTraits(favorite ? .isSelected : [])
+                                    .buttonStyle(.bordered)
+                                    .tint(favorite ? TTTheme.accent : TTTheme.muted)
+                                    .disabled(!activityLoaded || activitySaving)
 
-                                Button {
-                                    Task { await changeWatchLater() }
-                                } label: {
-                                    Label(TVL10n.value("library.watchLater"),
-                                          systemImage: watchLater ? "bookmark.fill" : "bookmark")
+                                    Button {
+                                        Task { await changeWatchLater() }
+                                    } label: {
+                                        Label(TVL10n.value("library.watchLater"),
+                                              systemImage: watchLater ? "bookmark.fill" : "bookmark")
+                                    }
+                                    .accessibilityAddTraits(watchLater ? .isSelected : [])
+                                    .buttonStyle(.bordered)
+                                    .tint(watchLater ? TTTheme.accent : TTTheme.muted)
+                                    .disabled(!activityLoaded || activitySaving)
                                 }
-                                .accessibilityAddTraits(watchLater ? .isSelected : [])
-                                .buttonStyle(.bordered)
-                                .tint(watchLater ? TTTheme.accent : TTTheme.muted)
-                                .disabled(!activityLoaded || activitySaving)
 
+                                // Mark-as-watched is a separate, less prominent
+                                // action; never allow its long translated label
+                                // to squeeze the primary controls/progress.
                                 if video.isLive != true, (video.duration ?? 0) > 0 {
                                     Button {
                                         Task { await changeWatched() }
                                     } label: {
-                                        Label(isMarkedWatched ? "action.markUnwatched" : "action.markWatched",
-                                              systemImage: isMarkedWatched ? "arrow.uturn.backward.circle" : "checkmark.circle")
+                                        Label(isMarkedWatched
+                                              ? "action.markUnwatched" : "action.markWatched",
+                                              systemImage: isMarkedWatched
+                                                  ? "arrow.uturn.backward.circle" : "checkmark.circle")
                                     }
                                     .buttonStyle(.bordered)
                                     .disabled(progressSaving)
+                                }
+                                if let progressError {
+                                    Text(progressError)
+                                        .font(.caption)
+                                        .foregroundStyle(.orange)
+                                        .lineLimit(2)
+                                }
+                                if let activityError {
+                                    Text(activityError)
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                        .lineLimit(2)
                                 }
                                 if !activityLoaded {
                                     ProgressView().controlSize(.small)
                                 }
                             }
-                            if let progressError {
-                                Text(progressError).font(.caption).foregroundStyle(.orange).lineLimit(2)
-                            }
-                            if let activityError {
-                                Text(activityError)
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
-                                    .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            if video.isLive != true, let duration = video.duration,
+                               duration > 0 {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text("video.progressHeading")
+                                        .font(.callout.bold())
+                                    ProgressView(value: watchedFraction)
+                                        .tint(TTTheme.accent)
+                                    Text("\(TTTheme.time(Int(playbackPosition / 1_000))) / \(TTTheme.time(duration)) · \(Int(watchedFraction * 100))%")
+                                        .font(.callout.monospacedDigit())
+                                        .foregroundStyle(TTTheme.muted)
+                                }
+                                .frame(width: 350, alignment: .leading)
+                                .padding(.top, 13)
+                                .accessibilityIdentifier("video-progress-side")
                             }
                         }
                         .focusSection()
@@ -182,15 +252,6 @@ struct VideoDetailView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 26) {
-                if video.isLive != true, let duration = video.duration, duration > 0 {
-                    Text("video.progressHeading")
-                        .font(.title2.bold())
-                    ProgressView(value: watchedFraction)
-                        .tint(TTTheme.accent)
-                    Text("\(TTTheme.time(Int(playbackPosition / 1_000))) / \(TTTheme.time(duration)) · \(Int(watchedFraction * 100))%")
-                        .font(.callout.monospacedDigit())
-                        .foregroundStyle(TTTheme.muted)
-                }
                 if let likes = streamMetadata?.likeCount, likes >= 0 {
                     HStack {
                         Image(systemName: "hand.thumbsup")
@@ -198,25 +259,15 @@ struct VideoDetailView: View {
                     }
                     .font(.callout)
                 }
-                if let description = streamMetadata?.description,
+                if let description = descriptionText,
                    !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("video.descriptionHeading").font(.title2.bold())
-                    // Text stays a single selectable, independently scrollable
-                    // region. No pseudo-list rows or a separate modal dialog.
-                    ScrollView(.vertical) {
-                        Text(description)
-                            .font(.body)
-                            .foregroundStyle(TTTheme.muted)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(18)
-                    }
-                    .frame(height: 370)
-                    .scrollIndicators(.visible)
-                    .background(TTTheme.surface,
-                                in: RoundedRectangle(cornerRadius: 12))
-                    .contentShape(RoundedRectangle(cornerRadius: 12))
-                    .focusable(true)
-                    .focusSection()
+                    TVRemoteDescriptionScrollView(text: description)
+                        .frame(height: 370)
+                        .background(TTTheme.surface,
+                                    in: RoundedRectangle(cornerRadius: 12))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .focusSection()
                 }
             }
             .padding(.horizontal, 90)

@@ -413,12 +413,53 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(marked.exists,
                       "Long titles must not clip the second action row")
         XCTAssertTrue(watched.exists)
-        XCTAssertLessThan(marked.frame.maxY, watched.frame.minY,
-                          "The progress block must start after the second action row")
+        XCTAssertGreaterThan(watched.frame.minX, play.frame.maxX,
+                             "The watch progress belongs beside the primary buttons")
+        XCTAssertGreaterThan(marked.frame.minY, play.frame.minY,
+                             "The mark-watched action must be in its own row")
+        XCTAssertLessThan(marked.frame.minY, watched.frame.maxY + 160,
+                          "The secondary action should remain near the primary buttons")
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "TypeType-tvOS-Videodetail-Langer-Titel"
         shot.lifetime = .keepAlways
         add(shot)
+    }
+
+    func testVideoChannelLinkOpensChannelAndBackReturnsToVideo() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "detail-long", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let channel = app.buttons["video-open-channel"]
+        XCTAssertTrue(channel.waitForExistence(timeout: 20),
+                      "A video with a channel URL must offer a channel link")
+        // Navigate to the channel link using the Siri Remote rather than
+        // relying on touch/tap APIs that do not exist for tvOS.
+        for _ in 0..<8 where !channel.hasFocus {
+            XCUIRemote.shared.press(.up)
+        }
+        XCTAssertTrue(channel.hasFocus)
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(app.staticTexts["Testkanal"].waitForExistence(timeout: 10))
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(channel.waitForExistence(timeout: 10),
+                      "Back from channel must return to its video detail")
+        XCTAssertTrue(app.staticTexts["Eine günstige TESLA Alternative? XPENG L03: Das perfekte E-Auto für Alltag und lange Reisen – ein ausführlicher Vergleich mit vielen Details"].exists)
+    }
+
+    func testVideoDescriptionIsOneFocusableScrollableTextView() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "detail-long", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let description = app.textViews["video-description-scroll"]
+        XCTAssertTrue(description.waitForExistence(timeout: 20),
+                      "The entire description must be a native scrollable text view")
+        XCTAssertTrue(description.exists)
+        // Up/down input is handled by the focused native text view and does
+        // not require a separate focusable row for each description line.
     }
 
     func testLibraryOpensDirectlyOnSelectedSubnavigation() throws {

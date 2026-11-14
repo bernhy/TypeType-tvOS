@@ -109,13 +109,17 @@ private struct SabrPlaybackErrorPreview: View {
 /// Network-free screenshot fixtures for automated simulator UI reviews.
 /// These are never shown in Release builds or to ordinary users.
 enum TVShowcaseFixtures {
-    static let longTitleVideo = VideoItem(
-        id: "ui-preview-long-title",
-        title: "Eine günstige TESLA Alternative? XPENG L03: Das perfekte E-Auto für Alltag und lange Reisen – ein ausführlicher Vergleich mit vielen Details",
-        url: "https://youtu.be/dQw4w9WgXcQ",
-        thumbnailUrl: nil, uploaderName: "Testkanal",
-        duration: 2196, isLive: false
-    )
+    static let longTitleVideo: VideoItem = {
+        var video = VideoItem(
+            id: "ui-preview-long-title",
+            title: "Eine günstige TESLA Alternative? XPENG L03: Das perfekte E-Auto für Alltag und lange Reisen – ein ausführlicher Vergleich mit vielen Details",
+            url: "https://youtu.be/dQw4w9WgXcQ",
+            thumbnailUrl: nil, uploaderName: "Testkanal",
+            duration: 2196, isLive: false
+        )
+        video.uploaderUrl = "https://preview.invalid/channel/a"
+        return video
+    }()
 
     static let titles = [
         "Neuigkeiten aus der Welt der Technik",
@@ -149,6 +153,7 @@ enum TVShowcaseFixtures {
                     item.watchPositionMs = Int64(duration) * 950
                 }
             }
+            item.uploaderUrl = "https://preview.invalid/channel/a"
             samples.append(item)
         }
         return samples
