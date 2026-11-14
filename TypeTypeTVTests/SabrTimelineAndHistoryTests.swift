@@ -82,6 +82,29 @@ final class SabrTimelineAndHistoryTests: XCTestCase {
         ))
     }
 
+    func testDifferentAudioVideoSegmentLengthsUseCommonMediaBoundary() throws {
+        // Typical SABR: an AAC fragment covers ten seconds, while the first
+        // H.264 fragment covers only five. Segment index pairing would have
+        // handed audio 5-10 s to the renderer too early.
+        let audio = try (0..<10).map { try sample(at: Int64($0)) }
+        let video = try (0..<5).map { try sample(at: Int64($0)) }
+        XCTAssertEqual(
+            SabrSampleWindow.prefixCount(audio, endingBeforeMs: 5_000), 5
+        )
+        XCTAssertEqual(
+            SabrSampleWindow.prefixCount(video, endingBeforeMs: 5_000), 5
+        )
+        let nextVideo = try (5..<10).map { try sample(at: Int64($0)) }
+        XCTAssertEqual(
+            SabrSampleWindow.prefixCount(
+                Array(audio.dropFirst(5)), endingBeforeMs: 10_000
+            ), 5
+        )
+        XCTAssertEqual(
+            SabrSampleWindow.prefixCount(nextVideo, endingBeforeMs: 10_000), 5
+        )
+    }
+
     func testHistoryKeepsOneEntryForRepeatedYouTubePlayback() {
         let a = VideoItem(id: "a", title: "Latest attempt",
                           url: "https://www.youtube.com/watch?v=abc123def45",
