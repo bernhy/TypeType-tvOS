@@ -8708,6 +8708,34 @@
           }
         }
       }
+    },
+    "player.rendererAhead": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renderer: %d s"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renderer: %d s"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rendu : %d s"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renderizador: %d s"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
