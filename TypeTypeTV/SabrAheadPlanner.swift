@@ -64,8 +64,9 @@ enum SabrSequentialWindowPolicy {
 /// A historic high-water mark is not proof that an evicted fragment is buffered.
 enum SabrCachedRangePlanner {
     /// The local *lookahead* needs a playable frontier, not a byte-exact
-    /// one. A stream may use adjacent SABR sequence numbers with a PTS gap
-    /// of up to 4s (observed at 24.391 -> 24.758 and 31.566 -> 35.168).
+    /// one. A stream may use adjacent SABR sequence numbers with a bounded
+    /// PTS jump; use the same tolerance as the actual producer and decoder
+    /// so cached-through cannot stall after successful playback admission.
     /// Without this, the lookahead is stuck at 24.391 forever and repeatedly
     /// fetches windows until the server hits its own 24 MiB throttle.
     ///
@@ -102,7 +103,8 @@ enum SabrCachedRangePlanner {
                     last < Int.max && sequence == last + 1 ? true : nil
                 } ?? false
                 let allowedGap = nextSequence && part.startMs > previous.range.endMs &&
-                    part.startMs - previous.range.endMs <= 4_000
+                    part.startMs - previous.range.endMs <=
+                    SabrMediaGapPolicy.consecutiveSequenceToleranceMs
                 if touches || allowedGap {
                     previous.range = SabrBufferedRange(
                         itag: part.itag, startMs: previous.range.startMs,
