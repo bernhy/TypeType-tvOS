@@ -167,7 +167,7 @@ struct VideoDetailView: View {
                                             focusedDetail = .markWatched
                                         } else if descriptionText?.isEmpty == false {
                                             // Live streams have no watched row.
-                                            focusedDetail = .descriptionEntry
+                                            revealDescription(using: page)
                                         }
                                     }
 
@@ -217,10 +217,10 @@ struct VideoDetailView: View {
                                     .onMoveCommand { direction in
                                         if direction == .down,
                                            descriptionText?.isEmpty == false {
-                                            // The body is beyond the initial viewport;
-                                            // focus it explicitly so the outer page
-                                            // can scroll there before the text scrolls.
-                                            focusedDetail = .descriptionEntry
+                                            // The nested text view is offscreen. Scroll
+                                            // the enclosing page *before* transferring
+                                            // focus so tvOS can actually reach it.
+                                            revealDescription(using: page)
                                         }
                                     }
                                 }
@@ -365,6 +365,19 @@ struct VideoDetailView: View {
                     page.scrollTo("description-viewport", anchor: .center)
                 }
             }
+        }
+    }
+
+    @MainActor
+    private func revealDescription(using page: ScrollViewProxy) {
+        guard descriptionText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        else { return }
+        withAnimation(.easeOut(duration: 0.24)) {
+            page.scrollTo("description-viewport", anchor: .center)
+        }
+        Task { @MainActor in
+            await Task.yield()
+            focusedDetail = .descriptionEntry
         }
     }
 
