@@ -253,7 +253,11 @@ struct PreferencesView: View {
                         group = item
                         Task { @MainActor in
                             await Task.yield()
-                            firstControlFocus = item
+                            if item == .account, let first = savedAccounts.first {
+                                profileRemovalFocus = first.id
+                            } else {
+                                firstControlFocus = item
+                            }
                         }
                     }
                 }
