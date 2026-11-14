@@ -537,25 +537,38 @@ final class SabrPlayerController: ObservableObject {
         return String(format: "%02d:%02d", max(0,current) / 60, max(0,current) % 60)
     }
 
+    /// An external Play/Pause command is an *absolute intent*, not a
+    /// blind toggle. In particular, buffering leaves isPlaying=false while
+    /// the user's desired state can still be "play".
+    @discardableResult
+    func setPaused(_ paused: Bool) -> Bool {
+        guard currentVideo != nil, failure == nil, !playbackFinished else { return false }
+        if prefersPause == paused { return true }
+        prefersPause = paused
+        hardwareDecoder?.playbackPaused = paused
+
+        if bufferingClockPaused {
+            // Keep the synchronizer paused until both media tracks are ready.
+            state = TVL10n.value(paused ? "player.paused" : "player.buffering")
+        } else if isInitialized {
+            synchronizer.setRate(paused ? 0 : 1, time: synchronizer.currentTime())
+            isPlaying = !paused
+            state = TVL10n.value(paused ? "player.paused" : "player.playing")
+        } else if paused {
+            // Honor an AirPods pause sent during SABR startup. The initial
+            // media clock uses prefersPause when both renderers are ready.
+            state = TVL10n.value("player.paused")
+        }
+        if isInitialized { recordProgress(force: true) }
+        return true
+    }
+
     func togglePause() {
         guard isInitialized else { return }
-        // Buffering has paused the clock already. A remote Play/Pause press
-        // must not restart it before both tracks have supplied fresh samples.
-        if bufferingClockPaused {
-            prefersPause.toggle()
-            hardwareDecoder?.playbackPaused = prefersPause
-            state = TVL10n.value(prefersPause ? "player.paused" : "player.buffering")
-            recordProgress(force: true)
-            return
-        }
-        let rate: Float = isPlaying ? 0 : 1
-        synchronizer.setRate(rate, time: synchronizer.currentTime())
-        isPlaying.toggle()
-        prefersPause = !isPlaying
-        hardwareDecoder?.playbackPaused = prefersPause
-        state = isPlaying ? TVL10n.value("player.playing") : TVL10n.value("player.paused")
-        recordProgress(force: true)
+        _ = setPaused(!prefersPause)
     }
+
+    var userRequestedPause: Bool { prefersPause }
 
     private func resetBufferClock() {
         bufferingClockPaused = false
@@ -1897,13 +1910,13 @@ struct SabrPlayerView: View {
                     onTouch: reveal,
                     onDirection: skip,
                     onTogglePlayback: {
-                        engine.togglePause()
+                        TVSabrNowPlayingCenter.shared.localToggle(for: engine)
                         reveal()
                     },
                     onSelect: {
                         // A Clickpad click always toggles playback; a simple
                         // touch only reveals the controls.
-                        engine.togglePause()
+                        TVSabrNowPlayingCenter.shared.localToggle(for: engine)
                         reveal()
                     },
                     onOptions: {
@@ -2035,7 +2048,17 @@ struct SabrPlayerView: View {
         }
         .task {
             engine.start(api: api, video: video)
+            TVSabrNowPlayingCenter.shared.activate(for: engine, video: video)
             reveal()
+        }
+        .task {
+            // A periodic snapshot keeps AirPods/Control Center's timeline
+            // in sync, including after a seek or stream quality restart.
+            while !Task.isCancelled {
+                TVSabrNowPlayingCenter.shared.refresh(for: engine)
+                do { try await Task.sleep(nanoseconds: 5_000_000_000) }
+                catch { return }
+            }
         }
         .task {
             while !Task.isCancelled {
@@ -2070,9 +2093,14 @@ struct SabrPlayerView: View {
             }
         }
         .onChange(of: engine.isPlaying) {
+            TVSabrNowPlayingCenter.shared.refresh(for: engine)
             if !engine.isPlaying { reveal() }
         }
+        .onChange(of: engine.durationMs) { _, _ in
+            TVSabrNowPlayingCenter.shared.refresh(for: engine)
+        }
         .onChange(of: engine.failure) { _, failure in
+            TVSabrNowPlayingCenter.shared.refresh(for: engine)
             // An error always takes precedence over the quality/options
             // overlay, so its Retry and Back buttons become the only active
             // controls and receive the Siri Remote focus.
@@ -2082,7 +2110,10 @@ struct SabrPlayerView: View {
             if unavailable { onPlaybackEvent?(.unavailable) }
         }
         .onChange(of: engine.playbackFinished) { _, finished in
-            if finished { onPlaybackEvent?(.finished) }
+            if finished {
+                TVSabrNowPlayingCenter.shared.deactivate(for: engine)
+                onPlaybackEvent?(.finished)
+            }
         }
         .task {
             while !Task.isCancelled {
@@ -2100,6 +2131,9 @@ struct SabrPlayerView: View {
                 dismiss()
             }
         }
-        .onDisappear { engine.stop() }
+        .onDisappear {
+            TVSabrNowPlayingCenter.shared.deactivate(for: engine)
+            engine.stop()
+        }
     }
 }
