@@ -458,9 +458,9 @@ struct HomeView: View {
                     VideoCard(api: api, video: video)
                 }
                 .buttonStyle(.card)
-                .videoActions(api: api, video: video) {
+                .videoActions(api: api, video: video, onChanged: {
                     Task { await refresh() }
-                }
+                })
                 .onMoveCommand { direction in
                     if direction == .left && index % columns.count == 0 {
                         onRevealMenu()
