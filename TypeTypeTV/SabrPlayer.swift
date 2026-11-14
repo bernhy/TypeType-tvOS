@@ -1139,6 +1139,7 @@ struct SabrVideoSurface: UIViewRepresentable {
 }
 
 struct SabrPlayerView: View {
+    @Environment(\.dismiss) private var dismiss
     let api: TypeTypeAPI
     let video: VideoItem
     var onPlaybackEvent: ((TVPlaybackEvent) -> Void)? = nil
@@ -1338,6 +1339,15 @@ struct SabrPlayerView: View {
                 try? await Task.sleep(nanoseconds: 15_000_000_000)
                 if Task.isCancelled { break }
                 engine.recordProgress()
+            }
+        }
+        .onExitCommand {
+            if optionsVisible {
+                optionsVisible = false
+                reveal()
+            } else {
+                engine.stop()
+                dismiss()
             }
         }
         .onDisappear { engine.stop() }
