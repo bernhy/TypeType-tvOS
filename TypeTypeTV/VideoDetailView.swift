@@ -184,6 +184,7 @@ struct VideoDetailView: View {
         defer { activitySaving = false }
         do {
             try await api.setWatchLater(video: video, enabled: watchLater)
+            TVWatchLaterMembership.shared.mark(video.url, present: watchLater, api: api)
         } catch {
             watchLater = old
             activityError = error.localizedDescription
