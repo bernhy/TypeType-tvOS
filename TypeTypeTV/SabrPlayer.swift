@@ -329,6 +329,9 @@ final class SabrPlayerController: ObservableObject {
     @Published private(set) var selectedSubtitleURL: String?
     @Published private(set) var subtitleCues: [SabrCaptionCue] = []
     @Published private(set) var subtitleError: String?
+    @Published private(set) var sponsorSegments: [TVSponsorBlockSegment] = []
+    @Published private(set) var sponsorSettings: TVServerSettings?
+    @Published private(set) var sponsorStreamCategory: String?
 
     let videoLayer = AVSampleBufferDisplayLayer()
     private let audioRenderer = AVSampleBufferAudioRenderer()
@@ -422,6 +425,9 @@ final class SabrPlayerController: ObservableObject {
         subtitleTask?.cancel()
         subtitleTask = nil
         subtitleCues = []
+        sponsorSegments = []
+        sponsorSettings = nil
+        sponsorStreamCategory = nil
         let previousService = playbackService
         playbackService = nil
         let previousSession = sessionId
@@ -701,6 +707,7 @@ final class SabrPlayerController: ObservableObject {
             let historyAllowed = settings != nil &&
                 settings?.disableWatchHistory != true && video.isLive != true
             historyEnabled = historyAllowed
+            sponsorSettings = settings
             await lastProgressSubmission?.value
             guard playbackEpoch == epoch, !Task.isCancelled else { return }
             await progressWriter.flush()
@@ -735,6 +742,8 @@ final class SabrPlayerController: ObservableObject {
                 }
             }
             guard playbackEpoch == epoch, !Task.isCancelled else { return }
+            sponsorSegments = bootstrap.sponsorBlockSegments ?? []
+            sponsorStreamCategory = bootstrap.category
             let allowSoftware = UserDefaults.standard.bool(forKey: "typetype.allowSoftwareDecode")
             let maximum = UserDefaults.standard.integer(forKey: "typetype.maxHeight")
 
@@ -1805,6 +1814,7 @@ struct SabrPlayerView: View {
     @State private var controlsVisible = true
     @State private var revealIndex = 0
     @State private var optionsVisible = false
+    @State private var sponsorSkipCooldown: Date = .distantPast
 
     private func reveal() {
         controlsVisible = true
@@ -1841,6 +1851,27 @@ struct SabrPlayerView: View {
                 }
             }
             .allowsHitTesting(false)
+
+            if let settings = engine.sponsorSettings, controlsVisible {
+                TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                    if let label = TVSponsorBlock.label(
+                        segments: engine.sponsorSegments, settings: settings,
+                        position: engine.playbackSeconds(),
+                        duration: Double(engine.durationMs) / 1_000
+                    ) {
+                        Text(label)
+                            .font(.callout.bold())
+                            .padding(12)
+                            .background(.black.opacity(0.8),
+                                        in: RoundedRectangle(cornerRadius: 8))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity,
+                                   alignment: .bottomTrailing)
+                            .padding(.bottom, 220)
+                            .padding(.trailing, 80)
+                    }
+                }
+                .allowsHitTesting(false)
+            }
 
             if !optionsVisible && engine.failure == nil {
                 SiriRemotePlayerInput(
@@ -1986,6 +2017,24 @@ struct SabrPlayerView: View {
         .task {
             engine.start(api: api, video: video)
             reveal()
+        }
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(nanoseconds: 350_000_000) }
+                catch { return }
+                guard engine.isPlaying, engine.failure == nil,
+                      let settings = engine.sponsorSettings,
+                      Date().timeIntervalSince(sponsorSkipCooldown) >= 2.5 else { continue }
+                let current = engine.playbackSeconds()
+                guard let end = TVSponsorBlock.target(
+                    segments: engine.sponsorSegments, settings: settings,
+                    position: current, duration: Double(engine.durationMs) / 1_000,
+                    streamCategory: engine.sponsorStreamCategory
+                ), end > current + 0.15 else { continue }
+                sponsorSkipCooldown = Date()
+                engine.seek(api: api, video: video,
+                            offsetMs: Int64((end - current) * 1_000))
+            }
         }
         .task(id: revealIndex) {
             try? await Task.sleep(nanoseconds: 5_000_000_000)

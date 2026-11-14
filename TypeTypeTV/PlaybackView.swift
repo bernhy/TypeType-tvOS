@@ -7,6 +7,7 @@ struct PlaybackView: View {
     var onPlaybackEvent: ((TVPlaybackEvent) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var hlsURL: URL?
+    @State private var hlsMetadata: StreamInfo?
     @State private var errorMessage: String?
 
     var body: some View {
@@ -15,6 +16,7 @@ struct PlaybackView: View {
                 SabrPlayerView(api: api, video: video, onPlaybackEvent: onPlaybackEvent)
             } else if let hlsURL {
                 TVHLSPlaybackView(api: api, video: video, url: hlsURL,
+                                  streamMetadata: hlsMetadata,
                                   onPlaybackEvent: onPlaybackEvent)
                     .ignoresSafeArea()
             } else if let errorMessage {
@@ -52,6 +54,7 @@ struct PlaybackView: View {
                     throw TypeTypeError.unavailableFormat
                 }
                 guard !Task.isCancelled else { return }
+                hlsMetadata = stream
                 hlsURL = url
                 return
             } catch is CancellationError {

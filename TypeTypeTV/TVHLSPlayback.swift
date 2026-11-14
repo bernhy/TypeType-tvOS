@@ -9,6 +9,7 @@ struct TVHLSPlaybackView: View {
     let api: TypeTypeAPI
     let video: VideoItem
     let url: URL
+    var streamMetadata: StreamInfo? = nil
     var onPlaybackEvent: ((TVPlaybackEvent) -> Void)? = nil
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var playback = TVHLSPlaybackController()
@@ -30,7 +31,8 @@ struct TVHLSPlaybackView: View {
             }
         }
         .task(id: url.absoluteString) {
-            await playback.prepare(api: api, video: video, url: url)
+            await playback.prepare(api: api, video: video, url: url,
+                                   streamMetadata: streamMetadata)
         }
         .onChange(of: playback.playbackFinished) { _, finished in
             if finished { onPlaybackEvent?(.finished) }
@@ -77,12 +79,20 @@ final class TVHLSPlaybackController: ObservableObject {
     private var playbackGeneration: UInt64 = 0
     private var isStopped = false
     private var initialSeekFinished = false
+    private var sponsorSegments: [TVSponsorBlockSegment] = []
+    private var sponsorSettings: TVServerSettings?
+    private var sponsorStreamCategory: String?
+    private var lastSponsorSeek = Date.distantPast
 
-    func prepare(api: TypeTypeAPI, video: VideoItem, url: URL) async {
+    func prepare(api: TypeTypeAPI, video: VideoItem, url: URL,
+                 streamMetadata: StreamInfo? = nil) async {
         tearDown(save: true)
         self.api = api
         self.video = video
         self.streamURL = url
+        sponsorSegments = streamMetadata?.sponsorBlockSegments ?? []
+        sponsorStreamCategory = streamMetadata?.category
+        lastSponsorSeek = .distantPast
         isStopped = false
         let generation = playbackGeneration
         historyRecorded = false
@@ -95,6 +105,7 @@ final class TVHLSPlaybackController: ObservableObject {
         // If account preferences cannot be read, fail closed: never create
         // history entries while the server's privacy choice is unknown.
         let settings = try? await api.accountSettings()
+        sponsorSettings = settings
         let allowed = settings != nil &&
             settings?.disableWatchHistory != true && video.isLive != true
         historyEnabled = allowed
@@ -120,11 +131,15 @@ final class TVHLSPlaybackController: ObservableObject {
         initialSeekFinished = positionSeconds == 0
 
         periodicObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 15, preferredTimescale: 600),
+            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.checkpoint()
+                guard let self else { return }
+                self.checkSponsorBlock()
+                // The progress writer independently debounces checkpoints.
+                // This periodic observer also drives segment detection.
+                self.checkpoint()
             }
         }
         timeControlObservation = player.observe(
@@ -215,6 +230,23 @@ final class TVHLSPlaybackController: ObservableObject {
         } else {
             player.play()
         }
+    }
+
+    private func checkSponsorBlock() {
+        guard !isStopped, initialSeekFinished,
+              player.timeControlStatus == .playing,
+              Date().timeIntervalSince(lastSponsorSeek) >= 2.5,
+              let settings = sponsorSettings else { return }
+        let seconds = player.currentTime().seconds
+        let duration = video?.duration.map(Double.init) ?? 0
+        guard let end = TVSponsorBlock.target(
+            segments: sponsorSegments, settings: settings,
+            position: seconds, duration: duration,
+            streamCategory: sponsorStreamCategory
+        ), end > seconds + 0.15 else { return }
+        lastSponsorSeek = Date()
+        player.seek(to: CMTime(seconds: end, preferredTimescale: 600),
+                    toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
     private func announcePresenceIfNeeded() {
@@ -345,6 +377,8 @@ final class TVHLSPlaybackController: ObservableObject {
                 guard !Task.isCancelled, !isStopped,
                       playbackGeneration == generation else { return }
                 let seconds = max(0, Double(lastPositionMs) / 1_000)
+                sponsorSegments = stream.sponsorBlockSegments ?? []
+                sponsorStreamCategory = stream.category
                 tearDown(save: false)
                 isStopped = false
                 streamURL = nextURL
