@@ -86,6 +86,38 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Empfehlungen"].waitForExistence(timeout: 5))
     }
 
+    func testSettingsPlaybackRightOpensControlColumn() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings",
+            "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Videoqualität"].waitForExistence(timeout: 20))
+        let first = app.descendants(matching: .any)["settings-first-playback"]
+        XCTAssertTrue(first.exists)
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(first.hasFocus,
+                      "Right from Settings/Wiedergabe must focus the actual toggle")
+        XCUIRemote.shared.press(.down)
+        // The 4K resolution menu is the next control. Do not get trapped in
+        // the outer global rail or on an invisible group focus rectangle.
+        let selectedGroup = app.buttons["settings-group-playback"]
+        XCTAssertFalse(selectedGroup.hasFocus)
+    }
+
+    func testMainNavigationUsesSubscriptionsNotDuplicatePlaylists() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home",
+            "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCTAssertTrue(app.buttons["Abo-Kanäle"].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.buttons["Listen"].exists)
+        XCTAssertTrue(app.buttons["Bibliothek"].exists)
+    }
+
     func testSabrFailureDialogAllowsRetryAndBackWithRemote() throws {
         let app = XCUIApplication()
         app.launchArguments = [
