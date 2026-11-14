@@ -878,7 +878,9 @@ final class SabrPlayerController: ObservableObject {
                                  cache: SabrFragmentCache,
                                  mailbox: SabrWindowMailbox) async throws {
         var coverage = SabrPlaybackCoverage(audioItag: choice.audio.itag,
-                                            videoItag: choice.video.itag, positionMs: start)
+                                            videoItag: choice.video.itag,
+                                            positionMs: start,
+                                            stage: "producer")
         var previousEnd = start
         var first = true
         var stalled = 0
@@ -920,6 +922,13 @@ final class SabrPlayerController: ObservableObject {
             guard let audio = requested.audio, let video = requested.video else {
                 throw SabrFailure.invalidResponse("SABR window has no audio/video pair")
             }
+            #if DEBUG
+            let audioFirst = audio.segments.first?.startMs ?? -1
+            let audioLast = audio.segments.last.map { $0.startMs + $0.durationMs } ?? -1
+            let videoFirst = video.segments.first?.startMs ?? -1
+            let videoLast = video.segments.last.map { $0.startMs + $0.durationMs } ?? -1
+            print("TypeType SABR WINDOW requestMs=\(requestPosition) a=\(audio.segments.count)[\(audioFirst)..\(audioLast)] v=\(video.segments.count)[\(videoFirst)..\(videoLast)] cachedMs=\(retainedEnd) playbackMs=\(playhead)")
+            #endif
 
             // Show the first window promptly. Subsequent windows are delivered
             // only when all compressed fragments are already in the local cache.
