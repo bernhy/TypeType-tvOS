@@ -17,3 +17,6 @@ build/
 
 # Generated at xcodegen and compile time from the current Git checkout
 TypeTypeTV/TVBuildInfo.generated.swift
+
+# Rasterized official TypeType icon layers, generated before xcodegen
+TypeTypeTV/Assets.xcassets/App Icon & Top Shelf Image.brandassets/**/*.png
