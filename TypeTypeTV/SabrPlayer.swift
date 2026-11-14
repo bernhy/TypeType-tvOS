@@ -428,6 +428,7 @@ final class SabrPlayerController: ObservableObject {
         sponsorSegments = []
         sponsorSettings = nil
         sponsorStreamCategory = nil
+        audioRenderer.isMuted = false
         let previousService = playbackService
         playbackService = nil
         let previousSession = sessionId
@@ -511,6 +512,10 @@ final class SabrPlayerController: ObservableObject {
         let wasPaused = prefersPause
         start(api: api, video: video, positionMs: min(upper, max(0, anchor + offsetMs)))
         prefersPause = wasPaused
+    }
+
+    func setSponsorMuted(_ muted: Bool) {
+        if audioRenderer.isMuted != muted { audioRenderer.isMuted = muted }
     }
 
     func playbackSeconds() -> Double {
@@ -2022,15 +2027,23 @@ struct SabrPlayerView: View {
             while !Task.isCancelled {
                 do { try await Task.sleep(nanoseconds: 350_000_000) }
                 catch { return }
-                guard engine.isPlaying, engine.failure == nil,
-                      let settings = engine.sponsorSettings,
-                      Date().timeIntervalSince(sponsorSkipCooldown) >= 2.5 else { continue }
+                guard engine.failure == nil, let settings = engine.sponsorSettings else {
+                    engine.setSponsorMuted(false)
+                    continue
+                }
                 let current = engine.playbackSeconds()
-                guard let end = TVSponsorBlock.target(
+                let end = TVSponsorBlock.target(
                     segments: engine.sponsorSegments, settings: settings,
                     position: current, duration: Double(engine.durationMs) / 1_000,
                     streamCategory: engine.sponsorStreamCategory
-                ), end > current + 0.15 else { continue }
+                )
+                if settings.sponsorBlockMuteInsteadOfSkip == true {
+                    engine.setSponsorMuted(end != nil)
+                    continue
+                }
+                engine.setSponsorMuted(false)
+                guard engine.isPlaying, Date().timeIntervalSince(sponsorSkipCooldown) >= 2.5,
+                      let end, end > current + 0.15 else { continue }
                 sponsorSkipCooldown = Date()
                 engine.seek(api: api, video: video,
                             offsetMs: Int64((end - current) * 1_000))

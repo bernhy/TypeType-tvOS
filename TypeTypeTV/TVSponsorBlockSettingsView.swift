@@ -59,6 +59,8 @@ struct TVSponsorBlockSettingsView: View {
                                       value: settings.sponsorBlockManualSkipOnFullVideo ?? true)
                         settingSwitch("sponsor.music", field: "sponsorBlockSkipNonMusicOnlyOnMusicVideos",
                                       value: settings.sponsorBlockSkipNonMusicOnlyOnMusicVideos ?? false)
+                        settingSwitch("sponsor.mute", field: "sponsorBlockMuteInsteadOfSkip",
+                                      value: settings.sponsorBlockMuteInsteadOfSkip ?? false)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.bottom, 55)

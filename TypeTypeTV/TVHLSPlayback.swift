@@ -62,6 +62,7 @@ final class TVHLSPlaybackController: ObservableObject {
     private let presenceOwner = UUID()
     private var presenceAnnounced = false
     private var periodicObserver: Any?
+    private var sponsorObserver: Any?
     private var timeControlObservation: NSKeyValueObservation?
     private var itemFailureObservation: NSObjectProtocol?
     private var itemEndObservation: NSObjectProtocol?
@@ -131,16 +132,18 @@ final class TVHLSPlaybackController: ObservableObject {
         initialSeekFinished = positionSeconds == 0
 
         periodicObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
+            forInterval: CMTime(seconds: 15, preferredTimescale: 600),
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.checkSponsorBlock()
-                // The progress writer independently debounces checkpoints.
-                // This periodic observer also drives segment detection.
-                self.checkpoint()
+                self?.checkpoint()
             }
+        }
+        sponsorObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.checkSponsorBlock() }
         }
         timeControlObservation = player.observe(
             \.timeControlStatus, options: [.new]
@@ -239,11 +242,17 @@ final class TVHLSPlaybackController: ObservableObject {
               let settings = sponsorSettings else { return }
         let seconds = player.currentTime().seconds
         let duration = video?.duration.map(Double.init) ?? 0
-        guard let end = TVSponsorBlock.target(
+        let end = TVSponsorBlock.target(
             segments: sponsorSegments, settings: settings,
             position: seconds, duration: duration,
             streamCategory: sponsorStreamCategory
-        ), end > seconds + 0.15 else { return }
+        )
+        if settings.sponsorBlockMuteInsteadOfSkip == true {
+            player.isMuted = end != nil
+            return
+        }
+        if player.isMuted { player.isMuted = false }
+        guard let end, end > seconds + 0.15 else { return }
         lastSponsorSeek = Date()
         player.seek(to: CMTime(seconds: end, preferredTimescale: 600),
                     toleranceBefore: .zero, toleranceAfter: .zero)
@@ -333,6 +342,11 @@ final class TVHLSPlaybackController: ObservableObject {
             player.removeTimeObserver(periodicObserver)
             self.periodicObserver = nil
         }
+        if let sponsorObserver {
+            player.removeTimeObserver(sponsorObserver)
+            self.sponsorObserver = nil
+        }
+        player.isMuted = false
         if let itemFailureObservation {
             NotificationCenter.default.removeObserver(itemFailureObservation)
             self.itemFailureObservation = nil
