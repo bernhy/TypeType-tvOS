@@ -108,8 +108,10 @@ final class SabrTimelineAndHistoryTests: XCTestCase {
         let followup = tracker.resolve(
             sequence: 14, metadataStartMs: 86_000, decodeStartMs: 84_010
         )
-        XCTAssertFalse(followup.corrected)
-        XCTAssertEqual(followup.startMs, 86_000)
+        // Keep the corrected native timebase while server metadata is still
+        // offset by 2 seconds on subsequent consecutive fragments.
+        XCTAssertTrue(followup.corrected)
+        XCTAssertEqual(followup.startMs, 84_000)
     }
 
     func testNativeTimelineRejectsUnprovenOrMissingSequenceCorrection() {
