@@ -9,7 +9,8 @@ struct TVSponsorBlockSettingsView: View {
     var onMoveLeft: () -> Void = {}
 
     @State private var settings: TVServerSettings?
-    @State private var loading = false
+    @State private var loading = true
+    @State private var refreshInFlight = false
     @State private var saving = false
     @State private var lastWrite: Task<Void, Never>?
     @State private var writeGeneration = 0
@@ -218,9 +219,13 @@ struct TVSponsorBlockSettingsView: View {
 
     @MainActor
     private func reload() async {
-        guard !saving, !loading else { return }
+        guard !saving, !refreshInFlight else { return }
+        refreshInFlight = true
         loading = true
-        defer { loading = false }
+        defer {
+            loading = false
+            refreshInFlight = false
+        }
         #if DEBUG
         if api.origin.host == "preview.invalid" {
             // Deterministic network-free tvOS screenshots and focus tests.
