@@ -9,6 +9,21 @@ private struct TVPasswordLoginResponse: Decodable {
     let accessToken: String
 }
 
+/// Server identity from GET /auth/me. A token alone is not evidence
+/// of a signed-in account: guest tokens use the same Keychain slot.
+struct TVAccountIdentity: Decodable {
+    let id: String
+    let role: String?
+    let publicUsername: String?
+
+    var isGuest: Bool { id.hasPrefix("guest:") }
+    var visibleName: String? {
+        guard let name = publicUsername?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else { return nil }
+        return name
+    }
+}
+
 struct InstanceInfo: Decodable {
     let name: String
     let version: String
@@ -211,6 +226,25 @@ struct TypeTypeAPI {
         let reply = try JSONDecoder().decode(TVPasswordLoginResponse.self, from: data)
         guard !reply.accessToken.isEmpty else { throw TypeTypeError.unexpectedResponse }
         return reply.accessToken
+    }
+
+    /// Resolve the actual signed-in account, or distinguish a guest token.
+    /// This lookup is repeated when opening Account so a previous app launch
+    /// can restore the correct visible identity from the existing Keychain token.
+    func currentAccount() async throws -> TVAccountIdentity? {
+        guard let bearer = accountToken, !bearer.isEmpty else { return nil }
+        var request = URLRequest(url: base.appendingPathComponent("auth/me"))
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("TypeTypeTV-tvOS/0.3", forHTTPHeaderField: "User-Agent")
+        request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        let (data, result) = try await session.data(for: request)
+        guard let response = result as? HTTPURLResponse else {
+            throw TypeTypeError.unexpectedResponse
+        }
+        guard response.statusCode == 200 else {
+            throw TypeTypeError.http(response.statusCode, "auth/me")
+        }
+        return try JSONDecoder().decode(TVAccountIdentity.self, from: data)
     }
 
     func home() async throws -> HomeRecommendations {
