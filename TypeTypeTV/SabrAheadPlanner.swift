@@ -80,7 +80,7 @@ enum SabrCachedRangePlanner {
             var lastSequence: Int?
         }
         let earliest = max(0, retainFromMs)
-        let ordered = fragments.compactMap { item -> (SabrBufferedRange, Int?)? in
+        let prepared = fragments.compactMap { item -> (SabrBufferedRange, Int?)? in
             guard item.startMs >= 0, item.durationMs > 0,
                   item.startMs <= Int64.max - item.durationMs else { return nil }
             let end = item.startMs + item.durationMs
@@ -90,8 +90,15 @@ enum SabrCachedRangePlanner {
             let sequence = Int(last).flatMap { $0 > 0 ? $0 : nil }
             return (SabrBufferedRange(itag: item.itag, startMs: start, endMs: end),
                     sequence)
-        }.sorted {
+        }
+        let sequencedTracks = Dictionary(grouping: prepared, by: { $0.0.itag })
+            .mapValues { $0.allSatisfy { $0.1 != nil } }
+        let ordered = prepared.sorted {
             if $0.0.itag != $1.0.itag { return $0.0.itag < $1.0.itag }
+            if sequencedTracks[$0.0.itag] == true,
+               let left = $0.1, let right = $1.1, left != right {
+                return left < right
+            }
             if $0.0.startMs != $1.0.startMs { return $0.0.startMs < $1.0.startMs }
             return $0.0.endMs < $1.0.endMs
         }
@@ -107,7 +114,8 @@ enum SabrCachedRangePlanner {
                     SabrMediaGapPolicy.consecutiveSequenceToleranceMs
                 if touches || allowedGap {
                     previous.range = SabrBufferedRange(
-                        itag: part.itag, startMs: previous.range.startMs,
+                        itag: part.itag,
+                        startMs: min(previous.range.startMs, part.startMs),
                         endMs: max(previous.range.endMs, part.endMs))
                     previous.lastSequence = sequence
                     merged[merged.count - 1] = previous

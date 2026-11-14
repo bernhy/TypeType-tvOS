@@ -15,6 +15,34 @@ enum SabrMediaGapPolicy {
     }
 }
 
+/// SABR sequence numbers are stable even when a segment's advertised startMs
+/// is incorrect. Sorting only by startMs can process seq 33 before seq 32 and
+/// leave a false decoder gap at seq 34 (observed 2026-11-14 at 03:01).
+enum SabrSequenceOrder {
+    static func sequence(_ reference: String) -> Int? {
+        guard let url = URL(string: reference),
+              let candidate = url.pathComponents.last,
+              let number = Int(candidate), number > 0 else { return nil }
+        return number
+    }
+
+    static func ordered(_ fragments: [SabrFragment]) -> [SabrFragment] {
+        guard fragments.allSatisfy({ sequence($0.url) != nil }) else {
+            return fragments.sorted {
+                if $0.startMs != $1.startMs { return $0.startMs < $1.startMs }
+                return $0.url < $1.url
+            }
+        }
+        return fragments.sorted {
+            let left = sequence($0.url) ?? 0
+            let right = sequence($1.url) ?? 0
+            if left != right { return left < right }
+            if $0.startMs != $1.startMs { return $0.startMs < $1.startMs }
+            return $0.url < $1.url
+        }
+    }
+}
+
 /// Tracks media that has actually been handed to the player, not merely advertised
 /// by the server. The next SABR window may advance only to the shorter of the
 /// audio/video track ends, otherwise a slower track can be silently skipped.
@@ -84,12 +112,6 @@ struct SabrPlaybackCoverage {
     ///
     /// Never bridge a missing sequence or an unverified gap: those still
     /// trigger session recovery. Keep the original diagnostic for both cases.
-    private static func sequence(_ reference: String) -> Int? {
-        guard let url = URL(string: reference),
-              let last = url.pathComponents.last,
-              let number = Int(last), number > 0 else { return nil }
-        return number
-    }
 
     private static func accept(_ segment: SabrFragment, end: inout Int64,
                                lastSequence: inout Int?,
@@ -98,7 +120,7 @@ struct SabrPlaybackCoverage {
               segment.startMs <= Int64.max - segment.durationMs else {
             throw SabrFailure.invalidResponse("invalid SABR media segment timestamps")
         }
-        let nextSequence = sequence(segment.url)
+        let nextSequence = SabrSequenceOrder.sequence(segment.url)
         let consecutive: Bool
         if let lastSequence, let nextSequence, lastSequence < Int.max {
             consecutive = nextSequence == lastSequence + 1

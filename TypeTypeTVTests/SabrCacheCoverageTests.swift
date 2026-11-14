@@ -6,6 +6,48 @@ final class SabrCacheCoverageTests: XCTestCase {
         SabrMediaReference(url: url, itag: itag, startMs: start, durationMs: duration)
     }
 
+    func testIncomingVideoSegmentsSortBySequenceNotIncorrectMetadataStart() {
+        // Observed seq 32 was advertised at 183.683s although its native
+        // fMP4 decode start was 176.643s; seq 33 starts before that advertised
+        // timestamp. Sorting by startMs skips it in the decoder's timeline.
+        func segment(_ number: Int, _ start: Int64, _ duration: Int64) -> SabrFragment {
+            SabrFragment(
+                url: "https://example.org/sabr/playback/s/137/segment/\(number)",
+                startMs: start, durationMs: duration
+            )
+        }
+        let incoming = [
+            segment(34, 185_952, 6_741),
+            segment(32, 183_683, 3_003),
+            segment(33, 181_482, 4_470)
+        ]
+        XCTAssertEqual(
+            SabrSequenceOrder.ordered(incoming).compactMap {
+                SabrSequenceOrder.sequence($0.url)
+            },
+            [32, 33, 34]
+        )
+        let fallback = [
+            SabrFragment(url: "https://example.org/unknown", startMs: 20, durationMs: 10),
+            SabrFragment(url: "https://example.org/other", startMs: 10, durationMs: 10)
+        ]
+        XCTAssertEqual(SabrSequenceOrder.ordered(fallback).map(\.startMs), [10, 20])
+    }
+
+    func testCachedLookaheadKeepsSequenceOrderDespiteMetadataReversal() {
+        let references: [SabrMediaReference] = [
+            fragment(137, 183_683, 3_003, "https://example.org/s/137/32"),
+            fragment(137, 181_482, 200, "https://example.org/s/137/33"),
+            fragment(137, 185_952, 6_741, "https://example.org/s/137/34")
+        ]
+        let ranges = SabrCachedRangePlanner.playableRanges(
+            from: references, retainFromMs: 181_000
+        )
+        XCTAssertEqual(ranges.count, 1)
+        XCTAssertEqual(ranges[0].startMs, 181_482)
+        XCTAssertEqual(ranges[0].endMs, 192_693)
+    }
+
     func testServerWindowDiscoveryDoesNotSkipAheadToCached121Seconds() {
         // The server uses bufferedEndFor to jump to the end of a reported
         // range. With [0,121_000] the old client skipped media descriptors

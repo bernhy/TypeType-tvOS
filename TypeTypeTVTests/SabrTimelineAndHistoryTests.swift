@@ -118,7 +118,9 @@ final class SabrTimelineAndHistoryTests: XCTestCase {
         var insufficient = SabrNativeTimelineResolver()
         _ = insufficient.resolve(sequence: 10, metadataStartMs: 60_000,
                                  decodeStartMs: 60_010)
-        insufficient.recordActualEndMs(66_000)
+        // No direct continuity evidence: the preceding sample ended 300ms
+        // before the candidate native start, so preserve metadata.
+        insufficient.recordActualEndMs(65_700)
         let firstJump = insufficient.resolve(sequence: 11, metadataStartMs: 70_000,
                                              decodeStartMs: 66_010)
         XCTAssertFalse(firstJump.corrected)
@@ -143,6 +145,22 @@ final class SabrTimelineAndHistoryTests: XCTestCase {
         XCTAssertFalse(zeroDecode.resolve(
             sequence: 2, metadataStartMs: 18_000, decodeStartMs: 0
         ).corrected)
+    }
+
+    func testNativeTimelineCorrectsObservedSevenSecondJumpWithoutWarmup() {
+        var tracker = SabrNativeTimelineResolver()
+        let preceding = tracker.resolve(
+            sequence: 397, metadataStartMs: 2_170_968,
+            decodeStartMs: 2_170_968
+        )
+        XCTAssertFalse(preceding.corrected)
+        tracker.recordActualEndMs(2_177_975)
+        let shifted = tracker.resolve(
+            sequence: 398, metadataStartMs: 2_184_915,
+            decodeStartMs: 2_177_975
+        )
+        XCTAssertTrue(shifted.corrected)
+        XCTAssertEqual(shifted.startMs, 2_177_975)
     }
 
     func testSampleTimingExtendsCoverageOnlyWhenFramesProveIt() throws {

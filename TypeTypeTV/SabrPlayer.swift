@@ -1200,10 +1200,10 @@ final class SabrPlayerController: ObservableObject {
                       requestPosition, audio.segments.count, video.segments.count, prefetchMs)
             }
             try Task.checkCancellation()
-            for part in audio.segments.sorted(by: { $0.startMs < $1.startMs }) {
+            for part in SabrSequenceOrder.ordered(audio.segments) {
                 try coverage.acceptAudio(part)
             }
-            for part in video.segments.sorted(by: { $0.startMs < $1.startMs }) {
+            for part in SabrSequenceOrder.ordered(video.segments) {
                 try coverage.acceptVideo(part)
             }
             let downloadedEnd = coverage.safeEndMs
@@ -1288,7 +1288,7 @@ final class SabrPlayerController: ObservableObject {
             // with a 5-second video fragment. When the next audio fragment
             // arrives, that can make video starve while audio runs ahead even
             // though the network cache holds minutes of media.
-            for segment in audio.segments.sorted(by: { $0.startMs < $1.startMs }) {
+            for segment in SabrSequenceOrder.ordered(audio.segments) {
                 try Task.checkCancellation()
                 let key = "a:\(segment.url)"
                 guard !seen.contains(key) else { continue }
@@ -1332,7 +1332,7 @@ final class SabrPlayerController: ObservableObject {
                 ))
                 seen.insert(key)
             }
-            for segment in video.segments.sorted(by: { $0.startMs < $1.startMs }) {
+            for segment in SabrSequenceOrder.ordered(video.segments) {
                 try Task.checkCancellation()
                 let key = "v:\(segment.url)"
                 guard !seen.contains(key) else { continue }

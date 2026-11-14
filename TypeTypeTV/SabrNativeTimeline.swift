@@ -92,13 +92,11 @@ struct SabrNativeTimelineResolver {
 
     private struct Previous {
         let sequence: Int
-        let metadataStartMs: Int64
         let decodeStartMs: Int64
         let resolvedStartMs: Int64
         var actualEndMs: Int64?
     }
     private var previous: Previous?
-    private var matchedDeltas = 0
 
     var lastActualEndMs: Int64? { previous?.actualEndMs }
 
@@ -108,7 +106,6 @@ struct SabrNativeTimelineResolver {
               metadataStartMs >= 0, metadataStartMs <= 7 * 24 * 60 * 60 * 1_000,
               let decodeStartMs, decodeStartMs >= 0 else {
             previous = nil
-            matchedDeltas = 0
             return Decision(startMs: metadataStartMs, corrected: false, predictedMs: nil)
         }
         var start = metadataStartMs
@@ -117,36 +114,27 @@ struct SabrNativeTimelineResolver {
         if let last = previous, last.sequence < Int.max,
            sequence == last.sequence + 1 {
             let nativeDelta = decodeStartMs - last.decodeStartMs
-            let metadataDelta = metadataStartMs - last.metadataStartMs
             if nativeDelta > 0, nativeDelta <= 120_000,
                last.resolvedStartMs <= Int64.max - nativeDelta {
                 let expected = last.resolvedStartMs + nativeDelta
                 predicted = expected
                 let difference = metadataStartMs - expected
-                // Require proof from independent sample PTS/durations,
-                // not just a disagreement between two metadata sources.
-                if matchedDeltas >= 2,
-                   abs(difference) >= 450,
+                // Require two independent pieces of evidence:
+                // immediately adjacent SABR sequence numbers AND the
+                // previous *actual sample* end matching tfdt progression.
+                // A warmup counter is not needed once this direct proof
+                // exists (seq 398 was otherwise left 6.940s too late).
+                if abs(difference) >= 450,
                    abs(difference) <= 8_000,
                    let actualEnd = last.actualEndMs,
                    abs(expected - actualEnd) <= 250 {
                     start = expected
                     corrected = true
                 }
-                if abs(metadataDelta - nativeDelta) <= 250 {
-                    matchedDeltas = min(4, matchedDeltas + 1)
-                } else if !corrected {
-                    matchedDeltas = 0
-                }
-            } else {
-                matchedDeltas = 0
             }
-        } else {
-            matchedDeltas = 0
         }
-        previous = Previous(sequence: sequence, metadataStartMs: metadataStartMs,
-                            decodeStartMs: decodeStartMs, resolvedStartMs: start,
-                            actualEndMs: nil)
+        previous = Previous(sequence: sequence, decodeStartMs: decodeStartMs,
+                            resolvedStartMs: start, actualEndMs: nil)
         return Decision(startMs: start, corrected: corrected, predictedMs: predicted)
     }
 
