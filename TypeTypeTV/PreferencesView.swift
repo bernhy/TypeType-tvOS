@@ -591,6 +591,9 @@ struct PreferencesView: View {
         defer { accountLoading = false }
         do {
             accountIdentity = try await api.currentAccount()
+            if let accountIdentity, !accountIdentity.isGuest {
+                TypeTypeCredentials.shared.rememberActive(accountIdentity, for: api.origin)
+            }
         } catch {
             // Keep the existing display state on transient network failures.
             accountError = error.localizedDescription
@@ -605,6 +608,11 @@ struct PreferencesView: View {
         poller = nil
         loginCode = nil
         loginLink = nil
+        if let accountIdentity, !accountIdentity.isGuest {
+            // Logging out removes the selected user from this Apple TV, but
+            // never wipes another household member's saved credentials.
+            TypeTypeCredentials.shared.forget(accountIdentity.id, for: api.origin)
+        }
         TypeTypeCredentials.shared.clear(for: api.origin)
         accountIdentity = nil
         accountError = nil
@@ -646,6 +654,16 @@ struct PreferencesView: View {
             remote = nil
             status = TVL10n.value("login.success")
             await refreshAccountIdentity()
+            if accountIdentity?.isGuest == false,
+               let accountIdentity,
+               let currentToken = TypeTypeCredentials.shared.token(for: api.origin),
+               !TypeTypeCredentials.shared.remember(
+                  accountIdentity, token: currentToken,
+                  displayIdentifier: TypeTypeCredentials.shared.displayIdentifier(for: api.origin),
+                  for: api.origin
+               ) {
+                status = TVL10n.value("profiles.saveFailed")
+            }
             onAccountChanged()
         } catch {
             status = error.localizedDescription
@@ -687,6 +705,14 @@ struct PreferencesView: View {
                     loginCode = nil
                     loginLink = nil
                     await refreshAccountIdentity()
+                    if let accountIdentity, !accountIdentity.isGuest,
+                       let currentToken = TypeTypeCredentials.shared.token(for: api.origin),
+                       !TypeTypeCredentials.shared.remember(
+                          accountIdentity, token: currentToken,
+                          displayIdentifier: nil, for: api.origin
+                       ) {
+                        status = TVL10n.value("profiles.saveFailed")
+                    }
                     onAccountChanged()
                     return
                 }
