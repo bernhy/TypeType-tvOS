@@ -186,6 +186,55 @@ enum SabrSampleTimingProbe {
         guard minimum.isFinite, maximum.isFinite else { return nil }
         return (Int64(minimum * 1_000), Int64(maximum * 1_000))
     }
+
+    /// Actual presentation end, including the duration of the final frame.
+    /// Unlike the SABR header, this is measured from decoded fMP4 sample
+    /// timing, without assuming the advertised fragment duration is correct.
+    static func actualEndMs(_ samples: [CMSampleBuffer]) -> Int64? {
+        var endSeconds = -Double.infinity
+        for sample in samples {
+            for index in 0..<CMSampleBufferGetNumSamples(sample) {
+                var timing = CMSampleTimingInfo()
+                guard CMSampleBufferGetSampleTimingInfo(
+                    sample, at: index, timingInfoOut: &timing
+                ) == noErr else { continue }
+                let pts = CMTimeGetSeconds(timing.presentationTimeStamp)
+                let duration = CMTimeGetSeconds(timing.duration)
+                guard pts.isFinite, pts >= 0, pts <= 7 * 24 * 60 * 60,
+                      duration.isFinite, duration > 0, duration <= 5 else { continue }
+                endSeconds = max(endSeconds, pts + duration)
+            }
+        }
+        guard endSeconds.isFinite else { return nil }
+        return Int64(ceil(endSeconds * 1_000))
+    }
+
+    /// Use sample evidence to correct a fragment's *coverage*, without
+    /// extending it beyond a bounded duration or inventing compressed frames.
+    static func measuredFragment(_ segment: SabrFragment, startMs: Int64,
+                                 actualEndMs: Int64?) -> SabrFragment {
+        let nominalEnd = startMs + segment.durationMs
+        let cap = startMs + max(30_000, min(120_000, segment.durationMs * 2))
+        let measuredEnd = actualEndMs.flatMap { $0 >= startMs && $0 <= cap ? $0 : nil }
+        let end = max(nominalEnd, measuredEnd ?? nominalEnd)
+        return SabrFragment(url: segment.url, startMs: startMs,
+                            durationMs: end - startMs)
+    }
+
+    static func logEvidence(track: String, itag: Int, sequence: Int?,
+                            metadataStartMs: Int64, metadataDurationMs: Int64,
+                            nativeStartMs: Int64?, resolvedStartMs: Int64,
+                            priorSampleEndMs: Int64?, actualEndMs: Int64?,
+                            corrected: Bool) {
+        let metadataEnd = metadataStartMs + metadataDurationMs
+        let durationDifference = actualEndMs.map { $0 - metadataEnd } ?? 0
+        let sampleGap = priorSampleEndMs.map { resolvedStartMs - $0 } ?? 0
+        guard corrected || abs(durationDifference) > 250 || abs(sampleGap) > 250 else { return }
+        NSLog("TypeType SABR TIMELINE track=%@ itag=%d seq=%d metadataStartMs=%lld metadataEndMs=%lld nativeDecodeMs=%lld resolvedStartMs=%lld priorSampleEndMs=%lld actualSampleEndMs=%lld sampleGapMs=%lld corrected=%d",
+              track, itag, sequence ?? -1, metadataStartMs, metadataEnd,
+              nativeStartMs ?? -1, resolvedStartMs, priorSampleEndMs ?? -1,
+              actualEndMs ?? -1, sampleGap, corrected ? 1 : 0)
+    }
 }
 
 // Client-local fMP4 reader. TypeType Server remains untouched.
@@ -1199,6 +1248,8 @@ final class SabrPlayerController: ObservableObject {
         // only submit samples through the last contiguous COMMON timeline.
         var pendingAudio: [CMSampleBuffer] = []
         var pendingVideo: [CMSampleBuffer] = []
+        var audioTimeline = SabrNativeTimelineResolver()
+        var videoTimeline = SabrNativeTimelineResolver()
         var coverage = SabrPlaybackCoverage(audioItag: choice.audio.itag,
                                             videoItag: choice.video.itag,
                                             positionMs: start, stage: "decoder")
@@ -1216,6 +1267,7 @@ final class SabrPlayerController: ObservableObject {
                     itag: choice.audio.itag, generation: generation
                 )
                 audioInitLocation = audio.initUrl
+                audioTimeline = SabrNativeTimelineResolver()
             }
             if videoInitLocation != video.initUrl {
                 videoInit = try await service.fragmentData(
@@ -1223,6 +1275,7 @@ final class SabrPlayerController: ObservableObject {
                     itag: choice.video.itag, generation: generation
                 )
                 videoInitLocation = video.initUrl
+                videoTimeline = SabrNativeTimelineResolver()
             }
 
             // Merge segments by media time, NEVER by array index. Index pairing
@@ -1239,16 +1292,39 @@ final class SabrPlayerController: ObservableObject {
                     try await service.fragmentData(segment.url, sessionId: sid,
                                                    itag: choice.audio.itag, generation: gen)
                 }
+                let rawSamples = try await FragmentedMP4Reader.compressedSamples(
+                    initialization: audioInit, fragment: bytes, mediaType: .audio
+                )
+                let sequence = Int(URL(string: segment.url)?.lastPathComponent ?? "")
+                let nativeStart = SabrMP4NativeTiming.decodeStartMs(
+                    initialization: audioInit, fragment: bytes
+                )
+                let previousSampleEnd = audioTimeline.lastActualEndMs
+                let resolved = audioTimeline.resolve(
+                    sequence: sequence, metadataStartMs: segment.startMs,
+                    decodeStartMs: nativeStart
+                )
                 let samples = try SabrSampleTimeline.aligned(
-                    await FragmentedMP4Reader.compressedSamples(
-                        initialization: audioInit, fragment: bytes, mediaType: .audio
-                    ), segmentStartMs: segment.startMs
+                    rawSamples, segmentStartMs: resolved.startMs
                 )
                 guard !samples.isEmpty else {
                     throw SabrFailure.unsupported("SABR audio segment contains no compressed samples")
                 }
+                let actualEnd = SabrSampleTimingProbe.actualEndMs(samples)
+                audioTimeline.recordActualEndMs(actualEnd)
+                #if DEBUG
+                SabrSampleTimingProbe.logEvidence(
+                    track: "audio", itag: choice.audio.itag, sequence: sequence,
+                    metadataStartMs: segment.startMs, metadataDurationMs: segment.durationMs,
+                    nativeStartMs: nativeStart, resolvedStartMs: resolved.startMs,
+                    priorSampleEndMs: previousSampleEnd, actualEndMs: actualEnd,
+                    corrected: resolved.corrected
+                )
+                #endif
                 pendingAudio.append(contentsOf: samples)
-                try coverage.acceptAudio(segment)
+                try coverage.acceptAudio(SabrSampleTimingProbe.measuredFragment(
+                    segment, startMs: resolved.startMs, actualEndMs: actualEnd
+                ))
                 seen.insert(key)
             }
             for segment in video.segments.sorted(by: { $0.startMs < $1.startMs }) {
@@ -1263,27 +1339,36 @@ final class SabrPlayerController: ObservableObject {
                 let rawSamples = try await FragmentedMP4Reader.compressedSamples(
                     initialization: videoInit, fragment: bytes, mediaType: .video
                 )
-                let samples = try SabrSampleTimeline.aligned(
-                    rawSamples, segmentStartMs: segment.startMs
+                let sequence = Int(URL(string: segment.url)?.lastPathComponent ?? "")
+                let nativeStart = SabrMP4NativeTiming.decodeStartMs(
+                    initialization: videoInit, fragment: bytes
                 )
-                #if DEBUG
-                let precedingEnd = coverage.videoEndMs
-                if segment.startMs > precedingEnd,
-                   segment.startMs - precedingEnd > 250 {
-                    let before = SabrSampleTimingProbe.presentationRangeMs(rawSamples)
-                    let after = SabrSampleTimingProbe.presentationRangeMs(samples)
-                    let sequence = Int(URL(string: segment.url)?.lastPathComponent ?? "") ?? -1
-                    NSLog("TypeType SABR SAMPLE GAP itag=%d seq=%d metadataGapMs=%lld rawPTS=%lld..%lld alignedPTS=%lld..%lld sampleBuffers=%d",
-                          choice.video.itag, sequence, segment.startMs - precedingEnd,
-                          before?.first ?? -1, before?.last ?? -1,
-                          after?.first ?? -1, after?.last ?? -1, samples.count)
-                }
-                #endif
+                let previousSampleEnd = videoTimeline.lastActualEndMs
+                let resolved = videoTimeline.resolve(
+                    sequence: sequence, metadataStartMs: segment.startMs,
+                    decodeStartMs: nativeStart
+                )
+                let samples = try SabrSampleTimeline.aligned(
+                    rawSamples, segmentStartMs: resolved.startMs
+                )
                 guard !samples.isEmpty else {
                     throw SabrFailure.unsupported("SABR video segment contains no compressed samples")
                 }
+                let actualEnd = SabrSampleTimingProbe.actualEndMs(samples)
+                videoTimeline.recordActualEndMs(actualEnd)
+                #if DEBUG
+                SabrSampleTimingProbe.logEvidence(
+                    track: "video", itag: choice.video.itag, sequence: sequence,
+                    metadataStartMs: segment.startMs, metadataDurationMs: segment.durationMs,
+                    nativeStartMs: nativeStart, resolvedStartMs: resolved.startMs,
+                    priorSampleEndMs: previousSampleEnd, actualEndMs: actualEnd,
+                    corrected: resolved.corrected
+                )
+                #endif
                 pendingVideo.append(contentsOf: samples)
-                try coverage.acceptVideo(segment)
+                try coverage.acceptVideo(SabrSampleTimingProbe.measuredFragment(
+                    segment, startMs: resolved.startMs, actualEndMs: actualEnd
+                ))
                 seen.insert(key)
             }
 
