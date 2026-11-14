@@ -900,18 +900,20 @@ final class SabrPlayerController: ObservableObject {
                 try await Task.sleep(nanoseconds: 250_000_000)
                 continue
             }
-            // When the shared clock outruns an unready media track, asking
-            // the server for the clock's time skips the missing fragment.
-            // Always request from no later than continuous A/V coverage.
-            let requestPosition = SabrWindowRequestPosition.position(
-                playheadMs: playhead, contiguousThroughMs: coverage.safeEndMs
+            // The server treats bufferedRanges as permission to SEEK over
+            // entire cached intervals. Its 12-segment window limit means that
+            // reporting the multi-minute disk cache can skip over a window
+            // the consumer has not yet decoded and cause a gap ~20s in.
+            // Walk media metadata sequentially, independent of the live
+            // presentation clock. Compressed bytes remain cached by URL.
+            let requestPosition = SabrSequentialWindowPolicy.requestPosition(
+                first: first, startMs: start,
+                continuousEndMs: coverage.safeEndMs
             )
             let requested = try await service.window(
                 sessionId: sessionId, selection: choice, generation: generation,
                 positionMs: requestPosition,
-                ranges: await cache.cachedRanges(
-                    retainFromMs: max(0, requestPosition - Int64(buffer.backMilliseconds))
-                ),
+                ranges: SabrSequentialWindowPolicy.advertisedRanges,
                 buffer: buffer
             )
             try Task.checkCancellation()
