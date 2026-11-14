@@ -35,6 +35,9 @@ struct PreferencesView: View {
     @State private var password = ""
     @State private var passwordSigningIn = false
     @State private var accountIdentity: TVAccountIdentity?
+    @State private var savedAccounts: [TVSavedAccount] = []
+    @State private var pendingProfileRemoval: TVSavedAccount?
+    @State private var confirmProfileRemoval = false
     @State private var accountLoading = false
     @State private var accountError: String?
     @State private var changingAccount = false
@@ -125,6 +128,21 @@ struct PreferencesView: View {
             Button("common.cancel", role: .cancel) {}
         } message: {
             Text("settings.logoutHelp")
+        }
+        .confirmationDialog(
+            TVL10n.value("settings.removeProfileTitle"),
+            isPresented: $confirmProfileRemoval
+        ) {
+            Button("settings.removeProfile", role: .destructive) {
+                removePendingProfile()
+            }
+            Button("common.cancel", role: .cancel) {
+                pendingProfileRemoval = nil
+            }
+        } message: {
+            Text(TVL10n.formatted(
+                "settings.removeProfileHelp", pendingProfileRemoval?.label ?? ""
+            ))
         }
         .confirmationDialog(
             TVL10n.value("settings.certForgetTitle"),
@@ -396,6 +414,55 @@ struct PreferencesView: View {
 
     private var accountPanel: some View {
         VStack(spacing: 24) {
+            TVSettingsCard("settings.savedAccountsTitle",
+                           summary: "settings.savedAccountsHelp") {
+                if savedAccounts.isEmpty {
+                    Text("settings.noSavedAccounts")
+                        .foregroundStyle(TTTheme.muted)
+                } else {
+                    ForEach(savedAccounts) { profile in
+                        HStack(spacing: 18) {
+                            Image(systemName: "person.crop.circle.fill")
+                                .font(.system(size: 34))
+                                .foregroundStyle(TTTheme.accent)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(profile.label)
+                                    .font(.title3.weight(.medium))
+                                    .lineLimit(2)
+                                if accountIdentity?.id == profile.id {
+                                    Label("profiles.current", systemImage: "checkmark.circle.fill")
+                                        .font(.callout)
+                                        .foregroundStyle(.green)
+                                }
+                            }
+                            Spacer(minLength: 16)
+                            // Removing a local Keychain entry is deliberately
+                            // possible only here, NEVER on the quick switcher.
+                            Button(role: .destructive) {
+                                pendingProfileRemoval = profile
+                                confirmProfileRemoval = true
+                            } label: {
+                                Label("settings.removeProfile", systemImage: "trash")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        .padding(.vertical, 10)
+                        .focusSection()
+                        Divider()
+                    }
+                }
+                Button {
+                    changingAccount = true
+                    status = ""
+                    loginCode = nil
+                    loginLink = nil
+                } label: {
+                    Label("profiles.add", systemImage: "person.crop.circle.badge.plus")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(TTTheme.accent)
+            }
+
             TVSettingsCard("settings.accountControls") {
                 if accountLoading {
                     ProgressView("login.accountChecking")
@@ -414,19 +481,13 @@ struct PreferencesView: View {
                             .font(.title2.bold())
                             .lineLimit(2)
                             .accessibilityLabel(label)
-                        HStack(spacing: 22) {
-                            Button("settings.logout", role: .destructive) {
-                                confirmLogout = true
-                            }
-                            .buttonStyle(.bordered)
-                            Button("login.switchAccount") {
-                                changingAccount = true
-                                status = ""
-                            }
-                            .buttonStyle(.bordered)
+                        Button("settings.logout", role: .destructive) {
+                            confirmLogout = true
                         }
+                        .buttonStyle(.bordered)
                     }
-                } else if !accountLoading && TypeTypeCredentials.shared.token(for: api.origin) == nil {
+                } else if !accountLoading &&
+                    TypeTypeCredentials.shared.token(for: api.origin) == nil {
                     Label("login.notSignedIn", systemImage: "person.crop.circle.badge.xmark")
                         .foregroundStyle(TTTheme.muted)
                 }
@@ -439,8 +500,8 @@ struct PreferencesView: View {
                         .buttonStyle(.bordered)
                 }
 
-                // Guest sessions, signed-out devices and explicit account
-                // switching can log in. Successful sign-in hides these fields.
+                // Login for guests or via the explicit Add Account action.
+                // The active user's form stays hidden during normal browsing.
                 if !accountLoading &&
                     (accountIdentity == nil || accountIdentity?.isGuest == true || changingAccount) {
                     TextField("login.identifier", text: $username)
@@ -593,6 +654,7 @@ struct PreferencesView: View {
 
     @MainActor
     private func refreshAccountIdentity() async {
+        savedAccounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
         if api.origin.host == "preview.invalid" {
             accountIdentity = nil
             accountError = nil
@@ -607,10 +669,40 @@ struct PreferencesView: View {
             if let accountIdentity, !accountIdentity.isGuest {
                 TypeTypeCredentials.shared.rememberActive(accountIdentity, for: api.origin)
             }
+            savedAccounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
         } catch {
             // Keep the existing display state on transient network failures.
             accountError = error.localizedDescription
         }
+    }
+
+    @MainActor
+    private func removePendingProfile() {
+        guard let profile = pendingProfileRemoval else { return }
+        pendingProfileRemoval = nil
+        let credentials = TypeTypeCredentials.shared
+        guard credentials.forget(profile.id, for: api.origin) else {
+            status = TVL10n.value("settings.removeProfileFailed")
+            return
+        }
+        if accountIdentity?.id == profile.id {
+            // Forgetting the active profile must also clear the legacy
+            // selected token. Otherwise refreshAccountIdentity would silently
+            // re-add the deleted user on the next appearance.
+            poller?.cancel()
+            poller = nil
+            credentials.clear(for: api.origin)
+            accountIdentity = nil
+            accountError = nil
+            changingAccount = false
+            username = ""
+            password = ""
+            TVLocalProgress.shared.clear()
+            remote = nil
+            onAccountChanged()
+        }
+        savedAccounts = credentials.savedAccounts(for: api.origin)
+        status = TVL10n.value("settings.profileRemoved")
     }
 
     @MainActor
@@ -627,6 +719,7 @@ struct PreferencesView: View {
             TypeTypeCredentials.shared.forget(accountIdentity.id, for: api.origin)
         }
         TypeTypeCredentials.shared.clear(for: api.origin)
+        savedAccounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
         accountIdentity = nil
         accountError = nil
         changingAccount = false
