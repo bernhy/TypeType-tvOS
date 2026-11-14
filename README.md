@@ -2,11 +2,11 @@
 
 Native, GPL-3.0 Apple TV client for [TypeType](https://github.com/TypeType-Video/TypeType), based on the Android TV reference (dev branch, 2026-11-13).
 
-**Status (2026-11-13):** Xcode 26.2 **builds successfully** in free GitHub Actions, and tvOS Simulator **SABR contract tests pass**. Direct native YouTube SABR playback is an **experimental implementation**; live streams, long-run playback, A/V sync, 4K/HDR and AV1 are **not yet validated on actual Apple TV hardware**. This is not yet a production-ready app or full Android-TV feature-parity port.
+**Status (2026-11-14):** Xcode 26.2 **builds successfully** in free GitHub Actions, and tvOS Simulator **SABR contract tests pass**. Direct native YouTube SABR playback is an **experimental implementation**; live streams, long-run playback, A/V sync, 4K/HDR and AV1 are **not yet validated on actual Apple TV hardware**. This is not yet a production-ready app or full Android-TV feature-parity port.
 
 ## Device and architecture decisions
 
-- Support **Apple TV 4K first generation (2017) or newer**; Apple TV HD is out of scope. Minimum deployment target: **tvOS 17.0**.
+- Support **Apple TV 4K first generation (2017) or newer**; Apple TV HD is out of scope. Minimum deployment target: **tvOS 26.0**.
 - **No modifications to TypeType Server**. YouTube uses the existing TypeType **SABR API v1** directly. No HLS-bridge changes or server-side transcoding.
 - Default **hardware-only decoding**: codec discovery uses VideoToolbox and the video pipeline creates a decoder with `kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder`. Unsupported combinations fail rather than silently falling back to software. Explicit software-decoding opt-in is **OFF** by default.
 - Use public Apple APIs (SwiftUI, CoreMedia, AVFoundation, VideoToolbox, URLSession, Keychain).
@@ -68,3 +68,7 @@ Local HTTP is an explicit opt-in and unencrypted, including account traffic. The
 ### Two-stage SABR lookahead (experimental)
 
 The pipeline now separates a network/disk-cache producer from the audio/video decoder consumer. The producer uses the actual playback clock when sending server `/position` and `/prefetch` requests; per-track cached `bufferedRanges` let the server return later media windows **without falsely seeking the player's position**. Each new server window is fully downloaded before advancing to another, with at most two concurrent segment requests per prefetch batch. A bounded, ordered mailbox prevents window drops and unlimited metadata growth. The user-selected forward goal is additionally limited by an approximate video-bitrate/cache-capacity estimate (unknown bitrate: 60 s) so unusually high-bitrate 4K clips cannot prematurely evict too much active media. The first window remains available to the decoder immediately while its cache fills. This still requires real-server and real-device validation; an 180-second setting is a maximum target, not a measured guarantee.
+
+## App branding
+
+App version **0.1** and minimum **tvOS 26.0** are defined in `project.yml`. The Apple TV icon and top shelf art use the [official TypeType TV-mark SVG](https://github.com/TypeType-Video/TypeType-Frontend/blob/main/apps/web/public/logo.svg), preserved at `assets/TypeType-logo.svg`. `xcodegen generate` invokes `scripts/generate-app-icons.swift` via the project pre-generation command to rasterize the red mark as layered tvOS app icon assets. The generated PNGs are ignored by git. Do not manually edit generated PNGs.
