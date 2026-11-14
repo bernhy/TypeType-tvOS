@@ -50,6 +50,115 @@ final class SabrTimelineAndHistoryTests: XCTestCase {
         XCTAssertEqual(CMSampleBufferGetSampleSize(aligned[0], at: 0), 4)
     }
 
+    private func bigEndian(_ value: UInt64, count: Int) -> Data {
+        Data((0..<count).reversed().map { index in
+            UInt8((value >> (index * 8)) & 0xff)
+        })
+    }
+
+    private func mp4Box(_ type: String, payload: Data) -> Data {
+        bigEndian(UInt64(payload.count + 8), count: 4) + Data(type.utf8) + payload
+    }
+
+    func testReadsNativeDecodeTimeFromRealIsoBmffBoxLayout() {
+        let mdhd = mp4Box("mdhd", payload:
+            Data([0, 0, 0, 0]) + bigEndian(0, count: 4) +
+            bigEndian(0, count: 4) + bigEndian(90_000, count: 4) +
+            bigEndian(0, count: 4))
+        let initBytes = mp4Box("ftyp", payload: Data([0, 0, 0, 0])) +
+            mp4Box("moov", payload:
+                mp4Box("trak", payload: mp4Box("mdia", payload: mdhd)))
+        let tfdt = mp4Box("tfdt", payload:
+            Data([1, 0, 0, 0]) + bigEndian(90_000 * 644, count: 8))
+        let media = mp4Box("moof", payload:
+            mp4Box("traf", payload: tfdt)) +
+            mp4Box("mdat", payload: Data(repeating: 1, count: 500))
+        XCTAssertEqual(SabrMP4NativeTiming.decodeStartMs(
+            initialization: initBytes, fragment: media
+        ), 644_000)
+        XCTAssertNil(SabrMP4NativeTiming.decodeStartMs(
+            initialization: initBytes, fragment: Data([0, 0, 0, 8])
+        ))
+        XCTAssertNil(SabrMP4NativeTiming.decodeStartMs(
+            initialization: initBytes, fragment: Data()
+        ))
+    }
+
+    func testNativeTimelineCorrectsOnlyVerifiedContiguousMetadataJump() {
+        var tracker = SabrNativeTimelineResolver()
+        for index in 0..<3 {
+            let begin = Int64(60_000 + index * 6_000)
+            let decision = tracker.resolve(
+                sequence: 10 + index, metadataStartMs: begin,
+                decodeStartMs: begin + 10
+            )
+            XCTAssertEqual(decision.startMs, begin)
+            XCTAssertFalse(decision.corrected)
+            tracker.recordActualEndMs(begin + 6_000)
+        }
+        // Metadata claims 80s, but tfdt progression and the real preceding
+        // sample end independently establish that the next sample starts at 78s.
+        let corrected = tracker.resolve(
+            sequence: 13, metadataStartMs: 80_000, decodeStartMs: 78_010
+        )
+        XCTAssertTrue(corrected.corrected)
+        XCTAssertEqual(corrected.startMs, 78_000)
+
+        tracker.recordActualEndMs(84_000)
+        let followup = tracker.resolve(
+            sequence: 14, metadataStartMs: 86_000, decodeStartMs: 84_010
+        )
+        XCTAssertFalse(followup.corrected)
+        XCTAssertEqual(followup.startMs, 86_000)
+    }
+
+    func testNativeTimelineRejectsUnprovenOrMissingSequenceCorrection() {
+        var insufficient = SabrNativeTimelineResolver()
+        _ = insufficient.resolve(sequence: 10, metadataStartMs: 60_000,
+                                 decodeStartMs: 60_010)
+        insufficient.recordActualEndMs(66_000)
+        let firstJump = insufficient.resolve(sequence: 11, metadataStartMs: 70_000,
+                                             decodeStartMs: 66_010)
+        XCTAssertFalse(firstJump.corrected)
+        XCTAssertEqual(firstJump.startMs, 70_000)
+
+        var missing = SabrNativeTimelineResolver()
+        for index in 0..<3 {
+            let begin = Int64(60_000 + index * 6_000)
+            _ = missing.resolve(sequence: 10 + index,
+                                metadataStartMs: begin, decodeStartMs: begin + 10)
+            missing.recordActualEndMs(begin + 6_000)
+        }
+        let discontinuous = missing.resolve(sequence: 14,
+                                            metadataStartMs: 80_000,
+                                            decodeStartMs: 78_010)
+        XCTAssertFalse(discontinuous.corrected)
+
+        // A reset to zero tfdt on every fragment is not a valid timebase.
+        var zeroDecode = SabrNativeTimelineResolver()
+        _ = zeroDecode.resolve(sequence: 1, metadataStartMs: 10_000, decodeStartMs: 0)
+        zeroDecode.recordActualEndMs(15_000)
+        XCTAssertFalse(zeroDecode.resolve(
+            sequence: 2, metadataStartMs: 18_000, decodeStartMs: 0
+        ).corrected)
+    }
+
+    func testSampleTimingExtendsCoverageOnlyWhenFramesProveIt() throws {
+        let observed = try [sample(at: 0), sample(at: 1), sample(at: 3)]
+        XCTAssertEqual(SabrSampleTimingProbe.actualEndMs(observed), 3_034)
+        let segment = SabrFragment(
+            url: "https://example.org/sabr/playback/session/137/segment/119",
+            startMs: 0, durationMs: 2_000
+        )
+        let adjusted = SabrSampleTimingProbe.measuredFragment(
+            segment, startMs: 0, actualEndMs: 3_034
+        )
+        XCTAssertEqual(adjusted.durationMs, 3_034)
+        XCTAssertEqual(SabrSampleTimingProbe.measuredFragment(
+            segment, startMs: 0, actualEndMs: 200_000
+        ).durationMs, 2_000)
+    }
+
     func testSabrRequestClampsClockAheadOfUnbufferedVideo() {
         XCTAssertEqual(
             SabrWindowRequestPosition.position(
