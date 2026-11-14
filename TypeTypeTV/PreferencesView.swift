@@ -29,6 +29,10 @@ struct PreferencesView: View {
     @State private var instanceError: String?
     @State private var confirmCertificateRemoval = false
     @State private var confirmLogout = false
+    @State private var username = ""
+    @State private var password = ""
+    @State private var passwordSigningIn = false
+    @State private var accountRevision = 0
     @State private var loginCode: String?
     @State private var loginLink: URL?
     @State private var status = ""
@@ -85,7 +89,7 @@ struct PreferencesView: View {
             if group == .content && remote == nil { await refreshRemote() }
             if group == .instance && instanceInfo == nil { await refreshInstance() }
         }
-        .onChange(of: focusedGroup) { next in
+        .onChange(of: focusedGroup) { _, next in
             if let next { group = next }
         }
         .onDisappear { poller?.cancel() }
@@ -371,7 +375,7 @@ struct PreferencesView: View {
     private var accountPanel: some View {
         VStack(spacing: 24) {
             TVSettingsCard("settings.accountControls") {
-                if TypeTypeCredentials.shared.token(for: api.origin) != nil {
+                if accountRevision >= 0 && TypeTypeCredentials.shared.token(for: api.origin) != nil {
                     Label("settings.tokenSaved", systemImage: "checkmark.shield")
                         .foregroundStyle(.green)
                     Button("settings.logout", role: .destructive) {
@@ -379,6 +383,26 @@ struct PreferencesView: View {
                     }
                     .buttonStyle(.bordered)
                 }
+                TextField("login.identifier", text: $username)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.emailAddress)
+                SecureField("login.password", text: $password)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .onSubmit { Task { await passwordSignIn() } }
+                Button {
+                    Task { await passwordSignIn() }
+                } label: {
+                    if passwordSigningIn {
+                        ProgressView()
+                    } else {
+                        Text("login.passwordButton")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(passwordSigningIn || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || password.isEmpty)
+                Divider()
                 Button("settings.pair") {
                     poller?.cancel()
                     poller = Task { await startLogin() }
@@ -508,12 +532,40 @@ struct PreferencesView: View {
         loginCode = nil
         loginLink = nil
         TypeTypeCredentials.shared.clear(for: api.origin)
+        accountRevision += 1
+        password = ""
         TVLocalProgress.shared.clear()
         remote = nil
         remoteError = nil
         status = TypeTypeCredentials.shared.token(for: api.origin) == nil
             ? TVL10n.value("login.signedOut")
             : TVL10n.value("settings.logoutFailed")
+    }
+
+    @MainActor
+    private func passwordSignIn() async {
+        guard !passwordSigningIn else { return }
+        poller?.cancel()
+        poller = nil
+        loginCode = nil
+        loginLink = nil
+        passwordSigningIn = true
+        status = TVL10n.value("login.passwordStarting")
+        defer { passwordSigningIn = false; password = "" }
+        do {
+            let token = try await api.passwordLogin(identifier: username, password: password)
+            TypeTypeCredentials.shared.save(token, for: api.origin)
+            guard TypeTypeCredentials.shared.token(for: api.origin) == token else {
+                status = TVL10n.value("settings.loginSaveFailed")
+                return
+            }
+            accountRevision += 1
+            TVLocalProgress.shared.clear()
+            remote = nil
+            status = TVL10n.value("login.success")
+        } catch {
+            status = error.localizedDescription
+        }
     }
 
     @MainActor
@@ -540,6 +592,7 @@ struct PreferencesView: View {
                 try Task.checkCancellation()
                 if let token = answer.accessToken, !token.isEmpty {
                     TypeTypeCredentials.shared.save(token, for: api.origin)
+                    accountRevision += 1
                     TVLocalProgress.shared.clear()
                     status = TypeTypeCredentials.shared.token(for: api.origin) == token
                         ? TVL10n.value("login.success")
