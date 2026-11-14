@@ -7532,6 +7532,34 @@
           }
         }
       }
+    },
+    "player.buffering": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puffere Audio und Video …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buffering audio and video…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mise en tampon audio et vidéo…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Almacenando audio y vídeo en búfer…"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

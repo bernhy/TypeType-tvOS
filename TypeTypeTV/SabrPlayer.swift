@@ -876,7 +876,10 @@ final class SabrPlayerController: ObservableObject {
                 playbackFinished = true
                 return
             }
-            state = TVL10n.value("player.playing")
+            state = TVL10n.value(
+                !isInitialized ? "player.buffering" :
+                    (prefersPause ? "player.paused" : "player.playing")
+            )
         }
     }
 
