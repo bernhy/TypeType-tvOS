@@ -125,10 +125,42 @@ struct PreferencesView: View {
             if group == .instance && instanceInfo == nil { await refreshInstance() }
             if group == .account { await refreshAccountIdentity() }
         }
-        .onChange(of: focusedGroup) { _, next in
+        .onChange(of: focusedGroup) { previous, next in
+            if previous == nil, let next, next != group {
+                // A Left swipe from content can make tvOS pick a vertically
+                // adjacent group rather than the group just being viewed.
+                // Restore the selected group; explicit Up/Down on the rail
+                // (where previous != nil) is still allowed to change it.
+                let selected = group
+                Task { @MainActor in
+                    await Task.yield()
+                    if group == selected, focusedGroup == next {
+                        focusedGroup = selected
+                    }
+                }
+                return
+            }
             if let next, group != next {
                 group = next
                 onGroupChanged(next)
+            }
+        }
+        .onChange(of: focusedControl) { previous, next in
+            guard let previous, next == nil, focusedGroup == nil,
+                  previous == "playback.software" ||
+                  previous == "device.animations" ||
+                  (previous.hasPrefix("content.") &&
+                   previous != "content.refresh" && previous != "content.retry")
+            else { return }
+            // The engine sometimes skips the Settings rail entirely and
+            // chooses a global icon. Restore the selected Settings group in
+            // that case, without disturbing Picker presentations.
+            let selected = group
+            Task { @MainActor in
+                await Task.yield()
+                guard group == selected, focusedControl == nil,
+                      focusedGroup == nil else { return }
+                focusedGroup = selected
             }
         }
         .onChange(of: group) { _, next in
