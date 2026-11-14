@@ -124,12 +124,14 @@ extension TypeTypeCredentials {
     }
 
     /// Forget one signed-in user locally. Other household profiles survive.
-    func forget(_ userID: String, for origin: URL) {
+    @discardableResult
+    func forget(_ userID: String, for origin: URL) -> Bool {
         let key: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.profileService,
             kSecAttrAccount as String: Self.profileKey(origin: origin, userID: userID)
         ]
-        SecItemDelete(key as CFDictionary)
+        let status = SecItemDelete(key as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
     }
 }
