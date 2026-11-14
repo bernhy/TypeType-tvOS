@@ -118,12 +118,12 @@ struct LibraryView: View {
                                     VideoCard(api: api, video: video)
                                 }
                                 .buttonStyle(.card)
-                                .focused($focusedVideoURL, equals: video.url)
                                 .videoActions(
                                     api: api, video: video,
                                     onChanged: { Task { await refresh() } },
                                     onRemoveFromPlaylist: removalAction(for: video),
-                                    isWatchLaterEntry: selected == .standard(.watchLater)
+                                    isWatchLaterEntry: selected == .standard(.watchLater),
+                                    focus: $focusedVideoURL, focusID: video.url
                                 )
                                 .accessibilityLabel(TTTheme.accessibilityText(for: video))
                             }
