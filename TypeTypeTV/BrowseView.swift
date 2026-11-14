@@ -3,14 +3,14 @@ import SwiftUI
 /// Main sections remain accessible using a narrow icon rail. Moving left from
 /// the first thumbnail expands the rail and puts focus on the current section.
 enum TVSection: String, CaseIterable, Hashable {
-    case home, search, library, playlists, account, settings
+    case home, search, library, subscriptions, account, settings
 
     var label: String {
         switch self {
         case .home: return TVL10n.value("nav.home")
         case .search: return TVL10n.value("nav.search")
         case .library: return TVL10n.value("nav.library")
-        case .playlists: return TVL10n.value("nav.playlists")
+        case .subscriptions: return TVL10n.value("nav.subscriptions")
         case .account: return TVL10n.value("settings.groupAccount")
         case .settings: return TVL10n.value("nav.settings")
         }
@@ -20,7 +20,7 @@ enum TVSection: String, CaseIterable, Hashable {
         case .home: return "nav.home"
         case .search: return "nav.search"
         case .library: return "nav.library"
-        case .playlists: return "nav.playlists"
+        case .subscriptions: return "nav.subscriptions"
         case .account: return "settings.groupAccount"
         case .settings: return "nav.settings"
         }
@@ -30,7 +30,7 @@ enum TVSection: String, CaseIterable, Hashable {
         case .home: return "house.fill"
         case .search: return "magnifyingglass"
         case .library: return "books.vertical"
-        case .playlists: return "list.bullet.rectangle"
+        case .subscriptions: return "play.rectangle.on.rectangle"
         case .account: return "person.crop.circle"
         case .settings: return "gearshape"
         }
@@ -89,8 +89,8 @@ struct BrowseView: View {
                         case .library:
                             LibraryView(api: api)
                                 .onExitCommand { revealMenu() }
-                        case .playlists:
-                            LibraryView(api: api, preferPlaylists: true)
+                        case .subscriptions:
+                            TVSubscriptionsView(api: api)
                                 .onExitCommand { revealMenu() }
                         case .account:
                             TVAccountSwitcherView(
@@ -111,6 +111,7 @@ struct BrowseView: View {
                                 autoPresentAddAccount: returnToSwitcherAfterLogin,
                                 onAccountChanged: { accountDidChange(api: api) },
                                 onBackToMenu: revealMenu,
+                                onGroupChanged: { settingsEntryGroup = $0 },
                                 onAddAccountDismissed: { returnToSwitcherAfterLogin = false }
                             )
                         }
@@ -281,18 +282,17 @@ struct BrowseView: View {
     }
 
     private func open(_ destination: TVSection) {
-        if destination == .settings && section != .account {
-            settingsEntryGroup = initialSettingsGroup
-        }
+        // Preserve the last active Settings category when switching away
+        // and returning from Home, Library or the quick account switcher.
         // Relinquish the global focus before rendering the destination.
         // Settings receives a new focus request and explicitly places focus
         // on its selected subnavigation row on the next main actor turn.
-        menuFocus = nil
-        expanded = false
         if destination == .settings {
             settingsFocusRequest += 1
         }
         section = destination
+        menuFocus = nil
+        expanded = false
     }
 
     private func revealMenu() {
