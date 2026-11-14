@@ -106,6 +106,56 @@ final class TVAPIWireTests: XCTestCase {
         XCTAssertEqual(json?["password"], "sample-password")
     }
 
+    func testWatchedTogglePersistsExactMillisecondsOnTypeTypeServer() async throws {
+        let lock = NSLock()
+        var writes: [(String, String?, Int64)] = []
+        TVAPIWireProtocol.install(host: "watched-progress.example") { request in
+            let json = (try? JSONSerialization.jsonObject(
+                with: request.httpBody ?? Data()
+            )) as? [String: Int64]
+            lock.withLock {
+                writes.append((
+                    request.httpMethod ?? "",
+                    request.url?.query,
+                    json?["position"] ?? -1
+                ))
+            }
+            return (200, Data(#"{"videoUrl":"unused","position":0}"#.utf8))
+        }
+        let video = VideoItem(id: "video-1", title: "Sample",
+                              url: "https://www.youtube.com/watch?v=abc123def45",
+                              thumbnailUrl: nil, uploaderName: nil,
+                              duration: 87, isLive: false)
+        let api = try fixtureAPI(host: "watched-progress.example")
+        try await api.setWatched(true, video: video)
+        try await api.setWatched(false, video: video)
+        let recorded = lock.withLock { writes }
+        XCTAssertEqual(recorded.count, 2)
+        XCTAssertEqual(recorded.map(\.0), ["PUT", "PUT"])
+        XCTAssertEqual(recorded.map(\.2), [87_000, 0])
+        XCTAssertTrue(recorded.allSatisfy { $0.1?.contains("url=") == true })
+    }
+
+    func testRecommendationsForwardServerCursor() async throws {
+        let lock = NSLock()
+        var queries: [String] = []
+        TVAPIWireProtocol.install(host: "recommendations-page.example") { request in
+            lock.withLock { queries.append(request.url?.query ?? "") }
+            return (200, Data(
+                #"{"items":[{"id":"vid","title":"Video","url":"https://youtu.be/abc123def45"}],"nextCursor":"third-page","hasMore":true}"#.utf8
+            ))
+        }
+        let api = try fixtureAPI(host: "recommendations-page.example")
+        let page = try await api.home(cursor: "second-page", limit: 30)
+        XCTAssertEqual(page.items.count, 1)
+        XCTAssertEqual(page.nextCursor, "third-page")
+        XCTAssertEqual(page.hasMore, true)
+        let query = try XCTUnwrap(lock.withLock { queries.last })
+        let parameters = URLComponents(string: "https://example.invalid/?" + query)?.queryItems ?? []
+        XCTAssertEqual(parameters.first(where: { $0.name == "cursor" })?.value, "second-page")
+        XCTAssertEqual(parameters.first(where: { $0.name == "limit" })?.value, "30")
+    }
+
     func testPasswordLoginRejectsIncorrectCredentials() async throws {
         TVAPIWireProtocol.install(host: "password-reject.example") { _ in
             (401, Data(#"{"error":"Invalid credentials"}"#.utf8))
