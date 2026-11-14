@@ -1,3 +1,11 @@
+/// Poll sooner than a 30 fps video frame (33.3ms). The prior 15ms and
+/// 20ms wakeups could consume nearly a whole presentation interval when
+/// both the compressed and decoded sample queues were full.
+enum SabrRendererPolling {
+    static let milliseconds = 5
+    static let nanoseconds: UInt64 = UInt64(milliseconds) * 1_000_000
+}
+
 /// A paused clock naturally fills the hardware and audio renderer queues.
 /// Only a *running* renderer should consume the 15-second stall budget.
 struct SabrRendererWaitBudget {

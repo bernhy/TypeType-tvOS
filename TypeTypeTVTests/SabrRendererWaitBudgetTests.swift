@@ -2,6 +2,12 @@ import XCTest
 @testable import TypeTypeTV
 
 final class SabrRendererWaitBudgetTests: XCTestCase {
+    func testRendererPollIntervalLeavesRoomWithinThirtyFpsFrame() {
+        XCTAssertEqual(SabrRendererPolling.milliseconds, 5)
+        XCTAssertLessThan(SabrRendererPolling.milliseconds, 33)
+        XCTAssertEqual(SabrRendererPolling.nanoseconds, 5_000_000)
+    }
+
     func testLongPauseCannotBeMisclassifiedAsRendererStall() {
         var budget = SabrRendererWaitBudget()
         for _ in 0..<5_000 {

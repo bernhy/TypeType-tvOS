@@ -183,11 +183,12 @@ final class HardwareVideoDecoder {
         while active && !display.sampleBufferRenderer.isReadyForMoreMediaData {
             try Task.checkCancellation()
             guard display.sampleBufferRenderer.status != .failed,
-                  budget.shouldContinue(paused: playbackPaused, stepMilliseconds: 15)
+                  budget.shouldContinue(paused: playbackPaused,
+                                        stepMilliseconds: SabrRendererPolling.milliseconds)
             else {
                 throw SabrFailure.stalled("video display stopped accepting decoded frames")
             }
-            try await Task.sleep(nanoseconds: 15_000_000)
+            try await Task.sleep(nanoseconds: SabrRendererPolling.nanoseconds)
         }
         guard active else { throw SabrFailure.stopped }
         guard display.sampleBufferRenderer.status != .failed else {

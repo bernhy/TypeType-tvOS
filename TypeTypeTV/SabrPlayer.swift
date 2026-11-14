@@ -357,6 +357,8 @@ final class SabrPlayerController: ObservableObject {
     private var maxVideoDeliveryMs = 0
     private var lateVideoSamples = 0
     private var videoSamplesDelivered = 0
+    private var maxVideoReadyWaitMs = 0
+    private var videoReadyWaits = 0
     private var playbackService: SabrService?
     private var segmentCache: SabrFragmentCache?
     private var windowProducerTask: Task<Void, Never>?
@@ -580,6 +582,8 @@ final class SabrPlayerController: ObservableObject {
         maxVideoDeliveryMs = 0
         lateVideoSamples = 0
         videoSamplesDelivered = 0
+        maxVideoReadyWaitMs = 0
+        videoReadyWaits = 0
     }
 
     /// Print measured renderer queue headroom *during* playback. Previous
@@ -596,15 +600,18 @@ final class SabrPlayerController: ObservableObject {
                 let clockMs = Int64(max(0, self.playbackSeconds() * 1_000))
                 let audioAhead = self.queuedAudioEndMs - clockMs
                 let videoAhead = self.queuedVideoEndMs - clockMs
-                NSLog("TypeType SABR RENDER clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld audioQueuedMs=%lld videoQueuedMs=%lld deliveryMaxMs=%d delivered=%d lateVideo=%d buffering=%d rate=%.2f",
+                NSLog("TypeType SABR RENDER clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld audioQueuedMs=%lld videoQueuedMs=%lld deliveryMaxMs=%d delivered=%d lateVideo=%d videoWaitMaxMs=%d videoWaitCount=%d buffering=%d rate=%.2f",
                       clockMs, audioAhead, videoAhead, self.queuedAudioEndMs,
                       self.queuedVideoEndMs, self.maxVideoDeliveryMs,
                       self.videoSamplesDelivered, self.lateVideoSamples,
+                      self.maxVideoReadyWaitMs, self.videoReadyWaits,
                       self.bufferingClockPaused ? 1 : 0,
                       Double(self.synchronizer.rate))
                 self.maxVideoDeliveryMs = 0
                 self.lateVideoSamples = 0
                 self.videoSamplesDelivered = 0
+                self.maxVideoReadyWaitMs = 0
+                self.videoReadyWaits = 0
             }
         }
     }
@@ -1694,11 +1701,11 @@ final class SabrPlayerController: ObservableObject {
                         throw SabrFailure.stalled("audio renderer reported failure")
                     }
                     guard budget.shouldContinue(
-                        paused: prefersPause, stepMilliseconds: 20
+                        paused: prefersPause, stepMilliseconds: SabrRendererPolling.milliseconds
                     ) else {
                         throw SabrFailure.stalled("audio renderer stopped accepting samples")
                     }
-                    try await Task.sleep(nanoseconds: 20_000_000)
+                    try await Task.sleep(nanoseconds: SabrRendererPolling.nanoseconds)
                 }
                 audioRenderer.enqueue(audio[ai])
                 noteQueuedMedia(.audio, sample: audio[ai])
@@ -1706,17 +1713,24 @@ final class SabrPlayerController: ObservableObject {
                 hasQueuedFirstAudio = true
             case .video:
                 var budget = SabrRendererWaitBudget()
+                var waitedMs = 0
                 while !videoLayer.sampleBufferRenderer.isReadyForMoreMediaData {
                     try Task.checkCancellation()
                     guard videoLayer.sampleBufferRenderer.status != .failed else {
                         throw SabrFailure.stalled("video display layer failed")
                     }
                     guard budget.shouldContinue(
-                        paused: prefersPause, stepMilliseconds: 20
+                        paused: prefersPause,
+                        stepMilliseconds: SabrRendererPolling.milliseconds
                     ) else {
                         throw SabrFailure.stalled("video renderer stopped accepting samples")
                     }
-                    try await Task.sleep(nanoseconds: 20_000_000)
+                    waitedMs += SabrRendererPolling.milliseconds
+                    try await Task.sleep(nanoseconds: SabrRendererPolling.nanoseconds)
+                }
+                if waitedMs > 0 {
+                    maxVideoReadyWaitMs = max(maxVideoReadyWaitMs, waitedMs)
+                    videoReadyWaits += 1
                 }
                 guard let hardwareDecoder else {
                     throw SabrFailure.invalidResponse("decoder missing")
