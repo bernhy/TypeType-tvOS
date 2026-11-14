@@ -1,5 +1,14 @@
 import Foundation
 
+private struct TVPasswordLoginRequest: Encodable {
+    let identifier: String
+    let password: String
+}
+
+private struct TVPasswordLoginResponse: Decodable {
+    let accessToken: String
+}
+
 struct InstanceInfo: Decodable {
     let name: String
     let version: String
@@ -55,6 +64,9 @@ enum TypeTypeError: LocalizedError {
     case unavailableFormat
     case videoUnavailable
     case retryAfter(Int, String, Int)
+    case loginMissingFields
+    case loginInvalidCredentials
+    case loginDisabled
 
     var errorDescription: String? {
         switch self {
@@ -74,6 +86,12 @@ enum TypeTypeError: LocalizedError {
             return TVL10n.value("player.videoUnavailable")
         case .retryAfter(let status, let route, let seconds):
             return TVL10n.formatted("error.retryAfter", status, seconds, route)
+        case .loginMissingFields:
+            return TVL10n.value("login.missingFields")
+        case .loginInvalidCredentials:
+            return TVL10n.value("login.invalidCredentials")
+        case .loginDisabled:
+            return TVL10n.value("login.disabled")
         }
     }
 }
@@ -162,6 +180,37 @@ struct TypeTypeAPI {
     func validate() async throws {
         let info = try await instance()
         guard info.apiVersion == 1 else { throw TypeTypeError.incompatibleServer(info.apiVersion) }
+    }
+
+    /// TypeType's existing local account endpoint. Only the returned access
+    /// token is persisted by the caller; the password is never saved.
+    func passwordLogin(identifier: String, password: String) async throws -> String {
+        let cleanIdentifier = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanIdentifier.isEmpty, !password.isEmpty else {
+            throw TypeTypeError.loginMissingFields
+        }
+        var request = URLRequest(url: base.appendingPathComponent("auth/login"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("TypeTypeTV-tvOS/0.3", forHTTPHeaderField: "User-Agent")
+        request.httpBody = try JSONEncoder().encode(
+            TVPasswordLoginRequest(identifier: cleanIdentifier, password: password)
+        )
+        // No guest/account bearer token on this credential-based endpoint.
+        let (data, result) = try await session.data(for: request)
+        guard let response = result as? HTTPURLResponse else {
+            throw TypeTypeError.unexpectedResponse
+        }
+        switch response.statusCode {
+        case 200: break
+        case 401: throw TypeTypeError.loginInvalidCredentials
+        case 403: throw TypeTypeError.loginDisabled
+        default: throw TypeTypeError.http(response.statusCode, "auth/login")
+        }
+        let reply = try JSONDecoder().decode(TVPasswordLoginResponse.self, from: data)
+        guard !reply.accessToken.isEmpty else { throw TypeTypeError.unexpectedResponse }
+        return reply.accessToken
     }
 
     func home() async throws -> HomeRecommendations {
