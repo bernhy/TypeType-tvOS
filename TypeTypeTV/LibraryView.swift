@@ -13,6 +13,10 @@ struct LibraryView: View {
     var preferPlaylists = false
 
     @State private var selected: TVLibraryDestination = .standard(.watchLater)
+    @FocusState private var focusedDestination: TVLibraryDestination?
+    @FocusState private var focusedVideoURL: String?
+    @FocusState private var focusedEditPlaylist: Bool
+    @FocusState private var focusedDeletePlaylist: Bool
     @State private var playlists: [TVPlaylistDTO] = []
     @State private var firstPlaylistSelectionPending = true
     @State private var editPlaylistID: String?
@@ -30,6 +34,8 @@ struct LibraryView: View {
         HStack(alignment: .top, spacing: 20) {
             secondaryRail
                 .frame(width: 240)
+                .environment(\.isFocusEffectEnabled, false)
+                .focusEffectDisabled(true)
                 .focusSection()
             ScrollView {
                 VStack(alignment: .leading, spacing: 23) {
@@ -69,6 +75,7 @@ struct LibraryView: View {
                             }
                             .buttonStyle(.bordered)
                             .disabled(savingPlaylist)
+                            .focused($focusedEditPlaylist)
                             Button(role: .destructive) {
                                 playlistToDelete = id
                             } label: {
@@ -76,6 +83,7 @@ struct LibraryView: View {
                             }
                             .buttonStyle(.bordered)
                             .disabled(savingPlaylist)
+                            .focused($focusedDeletePlaylist)
                         }
                     }
                     if let mutationError {
@@ -110,6 +118,7 @@ struct LibraryView: View {
                                     VideoCard(api: api, video: video)
                                 }
                                 .buttonStyle(.card)
+                                .focused($focusedVideoURL, equals: video.url)
                                 .videoActions(
                                     api: api, video: video,
                                     onChanged: { Task { await refresh() } },
@@ -128,12 +137,21 @@ struct LibraryView: View {
             }
         }
         .background(TTTheme.ink)
-        .task { await refresh() }
+        .task {
+            await refresh()
+            await Task.yield()
+            focusedDestination = selected
+        }
         .task(id: selected) { await loadSelected() }
         .sheet(isPresented: Binding(
             get: { editPlaylistID != nil },
             set: { if !$0 { editPlaylistID = nil } }
-        )) {
+        ), onDismiss: {
+            Task { @MainActor in
+                await Task.yield()
+                focusedEditPlaylist = true
+            }
+        }) {
             if let id = editPlaylistID {
                 TVPlaylistRenameView(
                     api: api, playlistID: id, initialName: title,
@@ -143,6 +161,14 @@ struct LibraryView: View {
                     },
                     onCancel: { editPlaylistID = nil }
                 )
+            }
+        }
+        .onChange(of: playlistToDelete) { _, current in
+            if current == nil {
+                Task { @MainActor in
+                    await Task.yield()
+                    focusedDeletePlaylist = true
+                }
             }
         }
         .confirmationDialog(
@@ -231,6 +257,7 @@ struct LibraryView: View {
         .padding(.bottom, 30)
         .frame(maxHeight: .infinity)
         .background(TTTheme.surface)
+        .focusEffectDisabled(true)
     }
 
     private func railButton(_ destination: TVLibraryDestination,
@@ -249,13 +276,19 @@ struct LibraryView: View {
             .font(.system(size: 19, weight: .medium))
             .padding(.horizontal, 13)
             .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
-            .background(
-                selected == destination
-                    ? TTTheme.accent.opacity(0.22) : .clear,
-                in: RoundedRectangle(cornerRadius: 11)
-            )
+            .modifier(TVRailRowHighlight(
+                focused: focusedDestination == destination,
+                selected: selected == destination
+            ))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TVRailButtonStyle())
+        .focusEffectDisabled(true)
+        .focused($focusedDestination, equals: destination)
+        .onMoveCommand { direction in
+            if direction == .right {
+                focusedVideoURL = videos.first?.url
+            }
+        }
         .accessibilityAddTraits(selected == destination ? .isSelected : [])
     }
 
