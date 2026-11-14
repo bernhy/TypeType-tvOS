@@ -84,10 +84,13 @@ struct BrowseView: View {
                             )
                         case .search:
                             SearchView(api: api)
+                                .onExitCommand { revealMenu() }
                         case .library:
                             LibraryView(api: api)
+                                .onExitCommand { revealMenu() }
                         case .playlists:
                             LibraryView(api: api, preferPlaylists: true)
+                                .onExitCommand { revealMenu() }
                         case .account:
                             TVAccountSwitcherView(
                                 api: api,
@@ -98,12 +101,14 @@ struct BrowseView: View {
                                 },
                                 onAccountChanged: { accountDidChange(api: api) }
                             )
+                            .onExitCommand { revealMenu() }
                         case .settings:
                             PreferencesView(
                                 api: api, onDisconnect: onDisconnect,
                                 initialGroup: settingsEntryGroup,
                                 onAccountChanged: { accountDidChange(api: api) }
                             )
+                            .onExitCommand { revealMenu() }
                         }
                     }
                 }
