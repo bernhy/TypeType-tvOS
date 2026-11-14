@@ -1202,6 +1202,10 @@ struct SabrPlayerView: View {
                     onOptions: {
                         controlsVisible = true
                         optionsVisible = true
+                    },
+                    onExit: {
+                        engine.stop()
+                        dismiss()
                     }
                 )
                 .accessibilityLabel("player.remoteAccessibility")
