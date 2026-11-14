@@ -7,6 +7,7 @@ import SwiftUI
 struct PreferencesView: View {
     let api: TypeTypeAPI
     let onDisconnect: () -> Void
+    var onAccountChanged: () -> Void = {}
 
     @ObservedObject private var hardware = TVHardwareDiagnostics.shared
     @AppStorage("typetype.uiLanguage") private var uiLanguage = TVLanguages.defaultCode
@@ -32,16 +33,21 @@ struct PreferencesView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var passwordSigningIn = false
-    @State private var accountRevision = 0
+    @State private var accountIdentity: TVAccountIdentity?
+    @State private var accountLoading = false
+    @State private var accountError: String?
+    @State private var changingAccount = false
     @State private var loginCode: String?
     @State private var loginLink: URL?
     @State private var status = ""
     @State private var poller: Task<Void, Never>?
 
     init(api: TypeTypeAPI, onDisconnect: @escaping () -> Void,
-         initialGroup: TVSettingsGroup = .playback) {
+         initialGroup: TVSettingsGroup = .playback,
+         onAccountChanged: @escaping () -> Void = {}) {
         self.api = api
         self.onDisconnect = onDisconnect
+        self.onAccountChanged = onAccountChanged
         _group = State(initialValue: initialGroup)
     }
 
@@ -88,6 +94,7 @@ struct PreferencesView: View {
         .task(id: group) {
             if group == .content && remote == nil { await refreshRemote() }
             if group == .instance && instanceInfo == nil { await refreshInstance() }
+            if group == .account { await refreshAccountIdentity() }
         }
         .onChange(of: focusedGroup) { _, next in
             if let next { group = next }
@@ -375,40 +382,82 @@ struct PreferencesView: View {
     private var accountPanel: some View {
         VStack(spacing: 24) {
             TVSettingsCard("settings.accountControls") {
-                if accountRevision >= 0 && TypeTypeCredentials.shared.token(for: api.origin) != nil {
-                    Label("settings.tokenSaved", systemImage: "checkmark.shield")
-                        .foregroundStyle(.green)
-                    Button("settings.logout", role: .destructive) {
-                        confirmLogout = true
+                if accountLoading {
+                    ProgressView("login.accountChecking")
+                }
+                if let identity = accountIdentity {
+                    if identity.isGuest {
+                        Label("login.guestActive", systemImage: "person.crop.circle")
+                            .foregroundStyle(TTTheme.muted)
+                    } else {
+                        Label("login.accountActive", systemImage: "checkmark.shield.fill")
+                            .foregroundStyle(.green)
+                        let label = identity.visibleName
+                            ?? TypeTypeCredentials.shared.displayIdentifier(for: api.origin)
+                            ?? TVL10n.value("login.accountUnnamed")
+                        Text(label)
+                            .font(.title2.bold())
+                            .lineLimit(2)
+                            .accessibilityLabel(label)
+                        HStack(spacing: 22) {
+                            Button("settings.logout", role: .destructive) {
+                                confirmLogout = true
+                            }
+                            .buttonStyle(.bordered)
+                            Button("login.switchAccount") {
+                                changingAccount = true
+                                status = ""
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                } else if !accountLoading && TypeTypeCredentials.shared.token(for: api.origin) == nil {
+                    Label("login.notSignedIn", systemImage: "person.crop.circle.badge.xmark")
+                        .foregroundStyle(TTTheme.muted)
+                }
+
+                if let accountError {
+                    Text(accountError)
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                    Button("common.retry") { Task { await refreshAccountIdentity() } }
+                        .buttonStyle(.bordered)
+                }
+
+                // Guest sessions, signed-out devices and explicit account
+                // switching can log in. Successful sign-in hides these fields.
+                if !accountLoading &&
+                    (accountIdentity == nil || accountIdentity?.isGuest == true || changingAccount) {
+                    TextField("login.identifier", text: $username)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.emailAddress)
+                    SecureField("login.password", text: $password)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .onSubmit { Task { await passwordSignIn() } }
+                    Button {
+                        Task { await passwordSignIn() }
+                    } label: {
+                        if passwordSigningIn {
+                            ProgressView()
+                        } else {
+                            Text("login.passwordButton")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(passwordSigningIn ||
+                        username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        password.isEmpty)
+                    Divider()
+                    Button("settings.pair") {
+                        poller?.cancel()
+                        poller = Task { await startLogin() }
                     }
                     .buttonStyle(.bordered)
+                    .disabled(passwordSigningIn)
                 }
-                TextField("login.identifier", text: $username)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.emailAddress)
-                SecureField("login.password", text: $password)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .onSubmit { Task { await passwordSignIn() } }
-                Button {
-                    Task { await passwordSignIn() }
-                } label: {
-                    if passwordSigningIn {
-                        ProgressView()
-                    } else {
-                        Text("login.passwordButton")
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(passwordSigningIn || username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || password.isEmpty)
-                Divider()
-                Button("settings.pair") {
-                    poller?.cancel()
-                    poller = Task { await startLogin() }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(TTTheme.accent)
+
                 if let code = loginCode, let link = loginLink {
                     Text(TVL10n.formatted("login.deviceCode", code))
                         .font(.title2.bold())
@@ -418,7 +467,9 @@ struct PreferencesView: View {
                         .foregroundStyle(TTTheme.muted)
                     Text("settings.deviceHelp").font(.callout)
                 }
-                if !status.isEmpty { Text(status).foregroundStyle(TTTheme.muted) }
+                if !status.isEmpty {
+                    Text(status).foregroundStyle(TTTheme.muted)
+                }
             }
         }
     }
@@ -463,6 +514,8 @@ struct PreferencesView: View {
                     value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
                         ?? TVL10n.value("settings.developmentBuild")
                 )
+                TVSettingsInfoRow(title: "settings.gitRevision", value: TVBuildInfo.gitShortRevision)
+                TVSettingsInfoRow(title: "settings.gitBranch", value: TVBuildInfo.gitBranch)
                 TVSettingsInfoRow(title: "settings.platform", value: "Apple TV 4K · tvOS 17+")
                 Text("settings.licenseInfo")
                     .font(.callout).foregroundStyle(TTTheme.muted)
@@ -524,6 +577,25 @@ struct PreferencesView: View {
     }
 
     @MainActor
+    private func refreshAccountIdentity() async {
+        if api.origin.host == "preview.invalid" {
+            accountIdentity = nil
+            accountError = nil
+            return
+        }
+        guard !accountLoading else { return }
+        accountLoading = true
+        accountError = nil
+        defer { accountLoading = false }
+        do {
+            accountIdentity = try await api.currentAccount()
+        } catch {
+            // Keep the existing display state on transient network failures.
+            accountError = error.localizedDescription
+        }
+    }
+
+    @MainActor
     private func logOut() {
         // Invalidate pending device-code polls before clearing credentials.
         // Otherwise an in-flight token response could sign us back in.
@@ -532,8 +604,12 @@ struct PreferencesView: View {
         loginCode = nil
         loginLink = nil
         TypeTypeCredentials.shared.clear(for: api.origin)
-        accountRevision += 1
+        accountIdentity = nil
+        accountError = nil
+        changingAccount = false
+        username = ""
         password = ""
+        onAccountChanged()
         TVLocalProgress.shared.clear()
         remote = nil
         remoteError = nil
@@ -559,10 +635,16 @@ struct PreferencesView: View {
                 status = TVL10n.value("settings.loginSaveFailed")
                 return
             }
-            accountRevision += 1
+            TypeTypeCredentials.shared.saveDisplayIdentifier(
+                username.trimmingCharacters(in: .whitespacesAndNewlines), for: api.origin
+            )
+            username = ""
+            changingAccount = false
             TVLocalProgress.shared.clear()
             remote = nil
             status = TVL10n.value("login.success")
+            await refreshAccountIdentity()
+            onAccountChanged()
         } catch {
             status = error.localizedDescription
         }
@@ -592,7 +674,9 @@ struct PreferencesView: View {
                 try Task.checkCancellation()
                 if let token = answer.accessToken, !token.isEmpty {
                     TypeTypeCredentials.shared.save(token, for: api.origin)
-                    accountRevision += 1
+                    changingAccount = false
+                    username = ""
+                    password = ""
                     TVLocalProgress.shared.clear()
                     status = TypeTypeCredentials.shared.token(for: api.origin) == token
                         ? TVL10n.value("login.success")
@@ -600,6 +684,8 @@ struct PreferencesView: View {
                     remote = nil
                     loginCode = nil
                     loginLink = nil
+                    await refreshAccountIdentity()
+                    onAccountChanged()
                     return
                 }
                 if answer.code == "access_denied" || answer.code == "denied" {
