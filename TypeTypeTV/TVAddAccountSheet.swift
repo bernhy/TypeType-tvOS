@@ -24,6 +24,7 @@ struct TVAddAccountSheet: View {
     @State private var deviceLink: URL?
     @State private var message: String?
     @State private var busy = false
+    @State private var passwordTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
@@ -75,10 +76,10 @@ struct TVAddAccountSheet: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .focused($focus, equals: .password)
-                    .onSubmit { Task { await signInWithPassword() } }
+                    .onSubmit { submitPassword() }
                 HStack(spacing: 22) {
                     Button {
-                        Task { await signInWithPassword() }
+                        submitPassword()
                     } label: {
                         if busy { ProgressView() }
                         else { Text("login.passwordButton") }
@@ -155,9 +156,21 @@ struct TVAddAccountSheet: View {
             }
         }
         .onDisappear {
+            // A cancelled dialog must not sign in later when a slow network
+            // request finally completes.
+            passwordTask?.cancel()
+            passwordTask = nil
             password = ""
             deviceCode = nil
             deviceLink = nil
+        }
+    }
+
+    private func submitPassword() {
+        guard passwordTask == nil else { return }
+        passwordTask = Task {
+            await signInWithPassword()
+            passwordTask = nil
         }
     }
 
