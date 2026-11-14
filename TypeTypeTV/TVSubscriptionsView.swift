@@ -23,7 +23,6 @@ struct TVSubscriptionsView: View {
     @FocusState private var focusedSubscription: String?
     @FocusState private var focusedVideo: String?
     @FocusState private var loadingRailFocused: Bool
-    @FocusState private var focusedContentRetry: Bool
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 22), count: 3)
 
     var body: some View {
@@ -190,12 +189,7 @@ struct TVSubscriptionsView: View {
                         }
                         .accessibilityIdentifier("subscription-\(channel.channelUrl)")
                     }
-                    if subscriptions.isEmpty && !loadingSubscriptions {
-                        Text("subscriptions.empty")
-                            .font(.callout)
-                            .foregroundStyle(TTTheme.muted)
-                            .padding(15)
-                    }
+
                 }
             }
         }
@@ -275,7 +269,17 @@ struct TVSubscriptionsView: View {
         if api.origin.host == "preview.invalid" {
             channelTitle = subscriptions.first(where: { $0.channelUrl == channelURL })?.name ?? ""
             channelDescription = ""
-            videos = Array(TVShowcaseFixtures.videos.prefix(9))
+            videos = (0..<9).map { index in
+                var video = VideoItem(
+                    id: "subscription-preview-\(index)",
+                    title: "Abonniertes Video \(index + 1)",
+                    url: "https://youtu.be/ui-preview-\(index)",
+                    thumbnailUrl: nil, uploaderName: "Beispielkanal",
+                    duration: 500, isLive: false
+                )
+                if index == 2 { video.watchPositionMs = 480_000 }
+                return video
+            }
             nextPage = nil
             loadingVideos = false
             if enterGridAfterLoad {

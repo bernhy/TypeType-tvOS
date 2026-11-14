@@ -158,6 +158,50 @@ final class SabrWireContractTests: XCTestCase {
         ), "Do not announce non-contiguous media as buffered")
     }
 
+    func testConsecutiveSabrVideoSequenceCanContainBoundedTimestampJumps() throws {
+        // Real hardware traces on itag 137 had 367 ms at ~24 s and
+        // 3035 ms at ~47 s. Adjacent sequence numbers are not missing
+        // fragments; metadata duration can disagree with the next PTS.
+        var coverage = SabrPlaybackCoverage(
+            audioItag: 140, videoItag: 137, positionMs: 0, stage: "test"
+        )
+        func fragment(_ seq: Int, _ start: Int64, _ duration: Int64) -> SabrFragment {
+            SabrFragment(
+                url: "https://example.org/api/sabr/playback/session/137/segment/\(seq)?generation=0",
+                startMs: start, durationMs: duration
+            )
+        }
+        try coverage.acceptVideo(fragment(11, 0, 24_391))
+        try coverage.acceptVideo(fragment(12, 24_758, 3_404))
+        try coverage.acceptVideo(fragment(13, 28_162, 19_120))
+        try coverage.acceptVideo(fragment(14, 50_317, 6_774))
+        XCTAssertEqual(coverage.videoEndMs, 57_091)
+    }
+
+    func testMissingSabrSequenceStillTriggersRecoveryEvenForShortGap() throws {
+        var coverage = SabrPlaybackCoverage(audioItag: 140, videoItag: 137, positionMs: 0)
+        try coverage.acceptVideo(SabrFragment(
+            url: "https://example.org/137/segment/11?generation=0",
+            startMs: 0, durationMs: 24_391
+        ))
+        XCTAssertThrowsError(try coverage.acceptVideo(SabrFragment(
+            url: "https://example.org/137/segment/13?generation=0",
+            startMs: 24_758, durationMs: 3_404
+        )))
+    }
+
+    func testLargeTimestampHoleStillFailsEvenWithConsecutiveSequences() throws {
+        var coverage = SabrPlaybackCoverage(audioItag: 140, videoItag: 137, positionMs: 0)
+        try coverage.acceptVideo(SabrFragment(
+            url: "https://example.org/137/segment/11?generation=0",
+            startMs: 0, durationMs: 24_391
+        ))
+        XCTAssertThrowsError(try coverage.acceptVideo(SabrFragment(
+            url: "https://example.org/137/segment/12?generation=0",
+            startMs: 31_000, durationMs: 4_000
+        )))
+    }
+
     func testSabrCoverageAllowsOverlapAndSeekStart() throws {
         var coverage = SabrPlaybackCoverage(audioItag: 140, videoItag: 137, positionMs: 30000)
         try coverage.acceptAudio(SabrFragment(url: "a", startMs: 29000, durationMs: 5000))

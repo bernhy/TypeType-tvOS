@@ -141,7 +141,7 @@ struct TVAccountSwitcherView: View {
             focusFirstAccount()
         }
         .onChange(of: accounts.count) { _, _ in
-            if focusedAccountID == nil && !addAccountFocused {
+            if focusedAccountID == nil {
                 focusFirstAccount()
             }
         }

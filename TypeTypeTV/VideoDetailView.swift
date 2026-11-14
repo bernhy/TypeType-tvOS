@@ -22,8 +22,13 @@ struct VideoDetailView: View {
         TVVideoMetadata.merged(video, stream: streamMetadata)
     }
     private var playbackPosition: Int64 {
-        max(0, localProgress.position(for: video.url) ??
+        let saved = max(0, localProgress.position(for: video.url) ??
             savedPositionMs ?? video.watchPositionMs ?? 0)
+        // A stale server progress record can exceed the video's duration
+        // (e.g. the screenshot showed 10:20 / 3:33). Never present an
+        // impossible position even if its completed flag is correct.
+        guard let duration = video.duration, duration > 0 else { return saved }
+        return min(saved, Int64(duration) * 1_000)
     }
     private var watchedFraction: Double {
         guard let duration = video.duration, duration > 0 else { return 0 }
