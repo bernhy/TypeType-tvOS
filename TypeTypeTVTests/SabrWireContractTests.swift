@@ -213,7 +213,7 @@ final class SabrWireContractTests: XCTestCase {
         ))
         XCTAssertThrowsError(try coverage.acceptVideo(SabrFragment(
             url: "https://example.org/137/segment/12?generation=0",
-            startMs: 31_000, durationMs: 4_000
+            startMs: 33_000, durationMs: 4_000
         )))
     }
 
