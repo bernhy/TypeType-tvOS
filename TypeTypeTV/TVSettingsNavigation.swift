@@ -121,6 +121,7 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
     @Binding var selection: Value
     let focus: FocusState<TVSettingsGroup?>.Binding?
     let focusTarget: TVSettingsGroup?
+    @FocusState private var pickerFocus: Bool
     @ViewBuilder let options: Options
 
     init(_ title: LocalizedStringKey, selection: Binding<Value>,
@@ -149,10 +150,22 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
             if let focus, let focusTarget {
                 picker.focused(focus, equals: focusTarget)
             } else {
-                picker
+                picker.focused($pickerFocus)
             }
         }
         .padding(.vertical, 6)
         .accessibilityElement(children: .contain)
+        .onChange(of: selection) { _, _ in
+            // Returning from a tvOS Picker menu should restore the very
+            // Picker that opened it, not the Settings group to its left.
+            Task { @MainActor in
+                await Task.yield()
+                if let focus, let focusTarget {
+                    focus.wrappedValue = focusTarget
+                } else {
+                    pickerFocus = true
+                }
+            }
+        }
     }
 }
