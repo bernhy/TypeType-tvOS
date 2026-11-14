@@ -273,7 +273,7 @@ struct PreferencesView: View {
             return remote == nil ? "content.retry" :
                 "content." + TVServerToggle.allCases[0].rawValue
         case .device: return "device.skip"
-        case .language: return "language.select"
+        case .language: return "control.language"
         case .account:
             return savedAccounts.first.map { "account.remove." + $0.id } ?? "account.add"
         case .instance: return "instance.refresh"
@@ -520,7 +520,7 @@ struct PreferencesView: View {
             TVSettingsCard("settings.languageControls") {
                 TVSettingsMenuRow(
                     "settings.languagePicker", selection: $uiLanguage,
-                    focus: $focusedControl, focusTarget: "language.select"
+                    focus: $focusedControl, focusTarget: "control.language"
                 ) {
                     Text("language.system").tag(TVLanguages.followSystem)
                     ForEach(TVLanguages.available, id: \.self) { lang in
