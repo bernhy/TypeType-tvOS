@@ -44,6 +44,7 @@ struct BrowseView: View {
     let initialSettingsGroup: TVSettingsGroup
     @State private var section: TVSection
     @State private var expanded = false
+    @State private var sidebarIdentity: TVAccountIdentity?
     @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
     @FocusState private var menuFocus: TVSection?
 
@@ -82,10 +83,15 @@ struct BrowseView: View {
                         case .account:
                             PreferencesView(
                                 api: api, onDisconnect: onDisconnect,
-                                initialGroup: .account
+                                initialGroup: .account,
+                                onAccountChanged: { Task { await reloadSidebarIdentity(api: api) } }
                             )
                         case .settings:
-                            PreferencesView(api: api, onDisconnect: onDisconnect, initialGroup: initialSettingsGroup)
+                            PreferencesView(
+                                api: api, onDisconnect: onDisconnect,
+                                initialGroup: initialSettingsGroup,
+                                onAccountChanged: { Task { await reloadSidebarIdentity(api: api) } }
+                            )
                         }
                     }
                 }
@@ -94,9 +100,11 @@ struct BrowseView: View {
                 .focusSection()
             }
             .background(TTTheme.ink)
-            .onAppear {
-                // Initial focus is evaluated by tvOS; entering the icon rail
-                // expands it automatically instead of requiring a toggle.
+            .task { await reloadSidebarIdentity(api: api) }
+            .onChange(of: section) { old, _ in
+                if old == .account || old == .settings {
+                    Task { await reloadSidebarIdentity(api: api) }
+                }
             }
         } else {
             TVContentMessage(symbol: "exclamationmark.triangle",
@@ -150,13 +158,25 @@ struct BrowseView: View {
             open(item)
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: item.icon)
+                Image(systemName: item == .account && sidebarIdentity?.isGuest == false
+                      ? "person.crop.circle.fill" : item.icon)
                     .font(.system(size: 24, weight: .medium))
                     .frame(width: 38, height: 54)
                 if expanded {
-                    Text(item.localizedLabel)
-                        .font(.system(size: 20, weight: .medium))
-                        .lineLimit(1)
+                    if item == .account {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.localizedLabel)
+                                .font(.system(size: 20, weight: .medium))
+                            Text(sidebarAccountLabel)
+                                .font(.system(size: 12))
+                                .foregroundStyle(TTTheme.muted)
+                                .lineLimit(1)
+                        }
+                    } else {
+                        Text(item.localizedLabel)
+                            .font(.system(size: 20, weight: .medium))
+                            .lineLimit(1)
+                    }
                     Spacer(minLength: 0)
                 }
             }
@@ -173,6 +193,29 @@ struct BrowseView: View {
         .focused($menuFocus, equals: item)
         .accessibilityLabel(item.label)
         .accessibilityAddTraits(item == section ? .isSelected : [])
+    }
+
+    private var sidebarAccountLabel: String {
+        if let identity = sidebarIdentity {
+            if identity.isGuest { return TVL10n.value("login.guestActive") }
+            if let name = identity.visibleName { return name }
+            if let api = try? TypeTypeAPI(address: instanceOrigin),
+               let known = TypeTypeCredentials.shared.displayIdentifier(for: api.origin) {
+                return known
+            }
+            return TVL10n.value("login.accountActive")
+        }
+        return TVL10n.value("login.notSignedIn")
+    }
+
+    @MainActor
+    private func reloadSidebarIdentity(api: TypeTypeAPI) async {
+        guard api.origin.host != "preview.invalid" else { return }
+        do {
+            sidebarIdentity = try await api.currentAccount()
+        } catch {
+            // Network hiccups must not discard the last known identity.
+        }
     }
 
     private func open(_ destination: TVSection) {
