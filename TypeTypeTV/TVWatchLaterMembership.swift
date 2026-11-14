@@ -18,10 +18,9 @@ final class TVWatchLaterMembership: ObservableObject {
     private init() {}
 
     private func scopeKey(for api: TypeTypeAPI) -> String {
-        // The token never leaves process memory and is never logged. A
-        // different household user must see their own Watch Later entries.
-        api.origin.absoluteString + "|" +
-            (TypeTypeCredentials.shared.token(for: api.origin) ?? "guest")
+        // Use exactly the same account namespace as the stream metadata cache.
+        // In particular, tests and alternate sessions can inject a bearer token.
+        api.metadataCacheScope
     }
 
     func contains(_ videoURL: String) -> Bool {

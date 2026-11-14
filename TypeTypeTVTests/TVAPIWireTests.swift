@@ -71,12 +71,12 @@ private final class TVAPIWireProtocol: URLProtocol {
 }
 
 final class TVAPIWireTests: XCTestCase {
-    private func fixtureAPI(host: String) throws -> TypeTypeAPI {
+    private func fixtureAPI(host: String, token: String = "fixture-token") throws -> TypeTypeAPI {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [TVAPIWireProtocol.self]
         return try TypeTypeAPI(
             address: "https://\(host)", session: URLSession(configuration: config),
-            token: "fixture-token"
+            token: token
         )
     }
 
@@ -230,9 +230,7 @@ final class TVAPIWireTests: XCTestCase {
         let member = try await fixtureAPI(host: "member-identity.example").currentAccount()
         XCTAssertEqual(member?.isGuest, false)
         XCTAssertEqual(member?.visibleName, "tester")
-        lock.lock()
-        let observed = captured
-        lock.unlock()
+        let observed = lock.withLock { captured }
         XCTAssertEqual(observed.count, 2)
         XCTAssertTrue(observed.allSatisfy {
             $0.0 == "/api/auth/me" && $0.1 == "Bearer fixture-token"
@@ -287,9 +285,7 @@ final class TVAPIWireTests: XCTestCase {
             thumbnailUrl: nil, uploaderName: nil, duration: 300, isLive: false
         )
         try await api.addHistory(video: video, milliseconds: 90_500)
-        lock.lock()
-        let captured = records
-        lock.unlock()
+        let captured = lock.withLock { records }
         XCTAssertEqual(captured.map { $0.0 }, ["GET","PUT","GET","PUT","POST"])
         XCTAssertTrue(captured.allSatisfy { $0.3 == "Bearer fixture-token" })
         XCTAssertEqual(captured[0].1, "/api/settings")
@@ -478,6 +474,55 @@ final class TVAPIWireTests: XCTestCase {
         store.invalidate()
     }
 
+    @MainActor
+    func testWatchLaterInFlightSnapshotCannotUndoNewlySavedVideo() async throws {
+        let lock = NSLock()
+        var started = false
+        let gate = DispatchSemaphore(value: 0)
+        let stored = "https://youtu.be/abc123def45"
+        let newlySaved = "https://youtu.be/def456ghi78"
+        TVAPIWireProtocol.install(host: "pending-watch-later.example") { request in
+            lock.withLock { started = true }
+            _ = gate.wait(timeout: .now() + 8)
+            return (200, Data("[{\"url\":\"\(stored)\",\"title\":\"Old\",\"thumbnail\":\"\",\"channelName\":\"Owner\",\"duration\":300}]".utf8))
+        }
+        let api = try fixtureAPI(host: "pending-watch-later.example")
+        let membership = TVWatchLaterMembership.shared
+        membership.invalidate()
+        let loading = Task { await membership.ensureLoaded(api: api) }
+        for _ in 0..<200 {
+            if lock.withLock({ started }) { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(lock.withLock { started })
+        membership.mark(newlySaved, present: true, api: api)
+        gate.signal()
+        await loading.value
+        XCTAssertTrue(membership.contains(stored))
+        XCTAssertTrue(membership.contains(newlySaved))
+        membership.invalidate()
+    }
+
+    @MainActor
+    func testWatchLaterSnapshotsAreScopedToTheAuthenticatedUser() async throws {
+        TVAPIWireProtocol.install(host: "scoped-watch-later.example") { request in
+            let isFirst = request.value(forHTTPHeaderField: "Authorization") == "Bearer first"
+            let url = isFirst
+                ? "https://youtu.be/abc123def45" : "https://youtu.be/def456ghi78"
+            return (200, Data("[{\"url\":\"\(url)\",\"title\":\"Saved\",\"thumbnail\":\"\",\"channelName\":\"Owner\",\"duration\":300}]".utf8))
+        }
+        let first = try fixtureAPI(host: "scoped-watch-later.example", token: "first")
+        let second = try fixtureAPI(host: "scoped-watch-later.example", token: "second")
+        let membership = TVWatchLaterMembership.shared
+        membership.invalidate()
+        await membership.ensureLoaded(api: first)
+        XCTAssertTrue(membership.contains("https://youtu.be/abc123def45"))
+        await membership.ensureLoaded(api: second)
+        XCTAssertFalse(membership.contains("https://youtu.be/abc123def45"))
+        XCTAssertTrue(membership.contains("https://youtu.be/def456ghi78"))
+        membership.invalidate()
+    }
+
     func testWatchLaterDuplicateNeverRepostsAndDoesNotTriggerServer500() async throws {
         let lock = NSLock()
         var requests: [String] = []
@@ -552,9 +597,7 @@ final class TVAPIWireTests: XCTestCase {
         try await api.blockChannel(video)
         let decorated = await api.withProgress([video])
         XCTAssertEqual(decorated.first?.watchPositionMs, 68_000)
-        lock.lock()
-        let items = requests
-        lock.unlock()
+        let items = lock.withLock { requests }
         XCTAssertTrue(items.contains { $0.0 == "POST" && $0.1 == "/api/playlists/one/videos" })
         XCTAssertTrue(items.contains { $0.0 == "PUT" && $0.1 == "/api/playlists/one" })
         XCTAssertTrue(items.contains { $0.0 == "DELETE" && $0.1 == "/api/playlists/one" })
@@ -639,9 +682,7 @@ final class TVAPIWireTests: XCTestCase {
         reporter.stop(owner: owner)
         await reporter.flush()
 
-        lock.lock()
-        let captured = calls
-        lock.unlock()
+        let captured = lock.withLock { calls }
         XCTAssertEqual(captured.map { $0.method }, ["POST", "POST", "POST"])
         XCTAssertEqual(captured.map { $0.path }, [
             "/api/sessions/playback/start",
@@ -703,9 +744,7 @@ final class TVAPIWireTests: XCTestCase {
         reporter.progress(owner: old, video: first, positionMs: 800, paused: false)
         reporter.stop(owner: next)
         await reporter.flush()
-        lock.lock()
-        let captured = paths
-        lock.unlock()
+        let captured = lock.withLock { paths }
         XCTAssertEqual(captured, [
             "/api/sessions/playback/start",
             "/api/sessions/playback/start",
