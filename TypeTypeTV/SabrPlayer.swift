@@ -216,6 +216,9 @@ final class SabrPlayerController: ObservableObject {
     @Published var positionMs: Int64 = 0
     @Published var cachedThroughMs: Int64 = 0
     @Published var diskCacheBytes = 0
+    // Unlike the network cache, this is the last media timestamp actually
+    // handed to BOTH sample renderers. Show it separately in the HUD.
+    @Published private(set) var rendererReadyThroughMs: Int64 = 0
     @Published private(set) var availableVideos: [SabrBootstrap.Video] = []
     @Published private(set) var availableAudios: [SabrBootstrap.Audio] = []
     @Published private(set) var currentVideoItag: Int?
@@ -246,6 +249,8 @@ final class SabrPlayerController: ObservableObject {
     private var bufferingNeedsVideo = false
     private var submittedAudioEndMs: Int64 = 0
     private var submittedVideoEndMs: Int64 = 0
+    private var queuedAudioEndMs: Int64 = 0
+    private var queuedVideoEndMs: Int64 = 0
     private var hardwareDecoder: HardwareVideoDecoder?
     private var playbackService: SabrService?
     private var segmentCache: SabrFragmentCache?
@@ -440,6 +445,9 @@ final class SabrPlayerController: ObservableObject {
         bufferingNeedsVideo = false
         submittedAudioEndMs = 0
         submittedVideoEndMs = 0
+        queuedAudioEndMs = 0
+        queuedVideoEndMs = 0
+        rendererReadyThroughMs = 0
     }
 
     /// Called while the decoder waits for a new, already downloaded media
@@ -461,10 +469,21 @@ final class SabrPlayerController: ObservableObject {
 
     private func noteQueuedMedia(_ track: SabrMediaInterleave.Track,
                                  sample: CMSampleBuffer) {
-        guard bufferingClockPaused else { return }
         let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
+        guard pts.isFinite && pts >= 0 else { return }
+        let duration = CMTimeGetSeconds(CMSampleBufferGetDuration(sample))
+        let endMs = Int64((pts + (duration.isFinite && duration > 0 ? duration : 0)) * 1_000)
+        switch track {
+        case .audio: queuedAudioEndMs = max(queuedAudioEndMs, endMs)
+        case .video: queuedVideoEndMs = max(queuedVideoEndMs, endMs)
+        }
+        let shared = min(queuedAudioEndMs, queuedVideoEndMs)
+        if shared > rendererReadyThroughMs + 250 {
+            rendererReadyThroughMs = shared
+        }
+        guard bufferingClockPaused else { return }
         let clock = CMTimeGetSeconds(synchronizer.currentTime())
-        guard pts.isFinite, clock.isFinite, pts >= clock - 0.05 else { return }
+        guard clock.isFinite, pts >= clock - 0.05 else { return }
         switch track {
         case .audio: bufferingNeedsAudio = false
         case .video: bufferingNeedsVideo = false
@@ -1352,6 +1371,10 @@ struct SabrPlayerView: View {
                                 let aheadSeconds = max(0, Double(engine.cachedThroughMs) / 1_000
                                                        - engine.playbackSeconds())
                                 Text(TVL10n.formatted("player.ahead", Int(aheadSeconds)))
+                                    .font(.caption).foregroundStyle(.white.opacity(0.8))
+                                let readyAhead = max(0, Double(engine.rendererReadyThroughMs) / 1_000
+                                                     - engine.playbackSeconds())
+                                Text(TVL10n.formatted("player.rendererAhead", Int(readyAhead)))
                                     .font(.caption).foregroundStyle(.white.opacity(0.8))
                             }
                         }
