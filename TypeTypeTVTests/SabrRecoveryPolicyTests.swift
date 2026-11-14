@@ -123,6 +123,24 @@ final class SabrRecoveryPolicyTests: XCTestCase {
         XCTAssertFalse(last.allowed)
     }
 
+    func testRepeatedSamePositionStallEscalatesToBootstrapOnce() {
+        XCTAssertFalse(SabrRecoveryRefreshPolicy.shouldRefresh(
+            attempt: 1, currentFailurePositionMs: 50_800,
+            previousFailurePositionMs: nil, alreadyRefreshed: false))
+        XCTAssertTrue(SabrRecoveryRefreshPolicy.shouldRefresh(
+            attempt: 2, currentFailurePositionMs: 50_800,
+            previousFailurePositionMs: 51_554, alreadyRefreshed: false))
+        XCTAssertFalse(SabrRecoveryRefreshPolicy.shouldRefresh(
+            attempt: 3, currentFailurePositionMs: 50_800,
+            previousFailurePositionMs: 51_554, alreadyRefreshed: true))
+        XCTAssertFalse(SabrRecoveryRefreshPolicy.shouldRefresh(
+            attempt: 2, currentFailurePositionMs: 65_000,
+            previousFailurePositionMs: 50_800, alreadyRefreshed: false))
+        XCTAssertFalse(SabrRecoveryRefreshPolicy.shouldRefresh(
+            attempt: 2, currentFailurePositionMs: 50_800,
+            previousFailurePositionMs: nil, alreadyRefreshed: false))
+    }
+
     func testGuestLoginNeverOverwritesAuthenticatedAccount() {
         XCTAssertTrue(SabrGuestAuthPolicy.shouldAttemptGuest(
             responseCode: 401, existingToken: nil
