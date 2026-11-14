@@ -131,12 +131,22 @@ struct BrowseView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea(.container, edges: .leading)
-            // The global rail background must cover the whole screen, not only
-            // the vertically inset tvOS safe area occupied by its buttons.
+            // Draw the full-height sidebar stripe independently of the
+            // rail's clipped button layout. Merely applying ignoresSafeArea
+            // to the sidebar's own background leaves black gaps at the top
+            // and bottom of the tvOS safe area when the rail is collapsed.
             .background(alignment: .leading) {
-                TTTheme.surface
-                    .frame(width: expanded ? 214 : 56)
-                    .ignoresSafeArea(.container, edges: [.top, .bottom, .leading])
+                GeometryReader { geometry in
+                    let bleedTop = max(96, geometry.safeAreaInsets.top)
+                    let bleedBottom = max(96, geometry.safeAreaInsets.bottom)
+                    TTTheme.surface
+                        .frame(width: expanded ? 214 : 56,
+                               height: geometry.size.height + bleedTop + bleedBottom,
+                               alignment: .topLeading)
+                        .offset(y: -bleedTop)
+                        .allowsHitTesting(false)
+                }
+                .ignoresSafeArea(.container, edges: [.top, .bottom, .leading])
             }
             .background(TTTheme.ink.ignoresSafeArea())
             .task { await reloadSidebarIdentity(api: api) }

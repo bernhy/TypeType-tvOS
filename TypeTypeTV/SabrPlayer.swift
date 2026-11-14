@@ -5,6 +5,20 @@ import AVFoundation
 import CoreMedia
 import VideoToolbox
 
+/// A resumed stream can have a nonzero playhead before the initial SABR
+/// response tells us its duration. Clamp the HUD value explicitly; SwiftUI
+/// otherwise reports out-of-bounds ProgressView warnings every second.
+enum SabrProgressDisplay {
+    static func total(durationMs: Int64) -> Double {
+        max(1, Double(max(0, durationMs)) / 1_000)
+    }
+
+    static func value(_ seconds: Double, durationMs: Int64) -> Double {
+        guard seconds.isFinite else { return 0 }
+        return min(total(durationMs: durationMs), max(0, seconds))
+    }
+}
+
 /// Some tvOS AVAssetReader builds deliver compressed fMP4 CMSampleBuffers
 /// without their CMFormatDescription. Recover it from the AVAssetTrack rather
 /// than passing an undecodable sample into VideoToolbox. Preserve each sample's
@@ -1444,8 +1458,11 @@ struct SabrPlayerView: View {
                             HStack(spacing: 20) {
                                 Text(engine.timeLabel())
                                     .monospacedDigit().frame(width: 105)
-                                ProgressView(value: engine.playbackSeconds(),
-                                             total: max(1.0, Double(engine.durationMs) / 1_000))
+                                ProgressView(
+                                    value: SabrProgressDisplay.value(
+                                        engine.playbackSeconds(), durationMs: engine.durationMs),
+                                    total: SabrProgressDisplay.total(durationMs: engine.durationMs)
+                                )
                                 Text(engine.totalTimeLabel())
                                     .monospacedDigit().frame(width: 105)
                             }

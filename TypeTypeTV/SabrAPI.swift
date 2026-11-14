@@ -510,7 +510,14 @@ final class SabrService: @unchecked Sendable {
         // downloaded segment. Retrying is part of the API contract; never
         // pass the JSON 202 response body to the MP4 demuxer.
         let isMediaSegment = pathForError == "segment"
-        let mediaDeadline = Date().addingTimeInterval(25)
+        let mediaStarted = Date()
+        let mediaDeadline = mediaStarted.addingTimeInterval(25)
+        // The URL contains a private playback session token. Extract only
+        // numeric itag/sequence diagnostics, never log the URL or token.
+        let segmentItag = isMediaSegment
+            ? Int(address.pathComponents.dropLast(2).last ?? "") ?? -1 : -1
+        let segmentSequence = isMediaSegment
+            ? Int(address.lastPathComponent) ?? -1 : -1
         var segmentPolls = 0
         var didRefreshAuth = false
         while true {
@@ -533,13 +540,25 @@ final class SabrService: @unchecked Sendable {
             }
             if isMediaSegment && http.statusCode == 202 {
                 segmentPolls += 1
-                guard segmentPolls < 60 && Date() < mediaDeadline else {
-                    throw SabrFailure.stalled("SABR segment still preparing after retries")
-                }
-                let fromBody = (try? JSONDecoder().decode(SabrSegmentPreparing.self, from: data))?.retryAfterMs
+                let preparing = try? JSONDecoder().decode(SabrSegmentPreparing.self, from: data)
                 let fromHeader = SabrRetryAfter.seconds(http.value(forHTTPHeaderField: "Retry-After"))
                     .map { $0 * 1000 }
-                let delay = min(2_000, max(150, fromBody ?? fromHeader ?? 300))
+                let delay = min(2_000, max(150, preparing?.retryAfterMs ?? fromHeader ?? 300))
+                let elapsedMs = Int(Date().timeIntervalSince(mediaStarted) * 1_000)
+                // One initial diagnostic, then periodic updates, then a
+                // definitive timeout. This distinguishes a slow network
+                // from the server never making a particular media seq ready.
+                if segmentPolls == 1 || segmentPolls.isMultiple(of: 10) {
+                    NSLog("TypeType SABR SEGMENT pending itag=%d seq=%d polls=%d elapsedMs=%d retryMs=%d status=%@",
+                          segmentItag, segmentSequence, segmentPolls, elapsedMs,
+                          delay, String((preparing?.status ?? "unknown").prefix(32)))
+                }
+                guard segmentPolls < 60 && Date() < mediaDeadline else {
+                    NSLog("TypeType SABR SEGMENT timeout itag=%d seq=%d polls=%d elapsedMs=%d status=%@",
+                          segmentItag, segmentSequence, segmentPolls, elapsedMs,
+                          String((preparing?.status ?? "unknown").prefix(32)))
+                    throw SabrFailure.stalled("SABR segment still preparing after retries")
+                }
                 try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
                 continue
             }
@@ -564,6 +583,7 @@ final class SabrService: @unchecked Sendable {
 
 private struct SabrSegmentPreparing: Decodable {
     let retryAfterMs: Int?
+    let status: String?
 }
 
 struct TVStreamProblem: Decodable {

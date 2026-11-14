@@ -102,4 +102,15 @@ final class SabrCacheCoverageTests: XCTestCase {
             audioEndMs: 11_000, videoEndMs: 8_000), 8_000)
     }
 
+    func testPlaybackHUDDoesNotOverrunBeforeDurationIsKnown() {
+        // Resume at 49.654 seconds before the first SABR response advertises
+        // the total duration: ProgressView must not be given value > total.
+        XCTAssertEqual(SabrProgressDisplay.total(durationMs: 0), 1)
+        XCTAssertEqual(SabrProgressDisplay.value(49.654, durationMs: 0), 1)
+        XCTAssertEqual(SabrProgressDisplay.value(49.654, durationMs: 100_000), 49.654)
+        XCTAssertEqual(SabrProgressDisplay.value(200, durationMs: 100_000), 100)
+        XCTAssertEqual(SabrProgressDisplay.value(-2, durationMs: 100_000), 0)
+        XCTAssertEqual(SabrProgressDisplay.value(.infinity, durationMs: 100_000), 0)
+    }
+
 }
