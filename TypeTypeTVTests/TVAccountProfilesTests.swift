@@ -52,6 +52,33 @@ final class TVAccountProfilesTests: XCTestCase {
         XCTAssertEqual(store.savedAccounts(for: origin).map(\.id), ["family-alice"])
     }
 
+    func testEachHouseholdProfileRetainsItsOwnRotatingRefreshToken() throws {
+        let origin = URL(string: "https://refresh-profiles-\(UUID().uuidString).invalid")!
+        let credentials = TypeTypeCredentials.shared
+        defer {
+            credentials.forget("member-a", for: origin)
+            credentials.forget("member-b", for: origin)
+            credentials.clear(for: origin)
+        }
+        guard credentials.save("access-a", for: origin),
+              credentials.saveRefreshToken("refresh-a", for: origin) else {
+            throw XCTSkip("Simulator Keychain unavailable")
+        }
+        let a = TVAccountIdentity(id: "member-a", role: "user", publicUsername: "A")
+        let b = TVAccountIdentity(id: "member-b", role: "user", publicUsername: "B")
+        XCTAssertTrue(credentials.remember(a, token: "access-a", displayIdentifier: nil, for: origin))
+        XCTAssertTrue(credentials.save("access-b", for: origin))
+        XCTAssertTrue(credentials.saveRefreshToken("refresh-b", for: origin))
+        XCTAssertTrue(credentials.remember(b, token: "access-b", displayIdentifier: nil, for: origin))
+        XCTAssertTrue(credentials.activate(TVSavedAccount(id: "member-a", label: "A"), for: origin))
+        XCTAssertEqual(credentials.refreshToken(for: origin), "refresh-a")
+        XCTAssertTrue(credentials.activate(TVSavedAccount(id: "member-b", label: "B"), for: origin))
+        XCTAssertEqual(credentials.refreshToken(for: origin), "refresh-b")
+        credentials.forget("member-a", for: origin)
+        XCTAssertNil(credentials.profileRefreshToken("member-a", for: origin))
+        XCTAssertEqual(credentials.profileRefreshToken("member-b", for: origin), "refresh-b")
+    }
+
     func testGuestCannotBecomeSavedFamilyProfile() {
         let origin = URL(string: "https://guest-profiles.invalid")!
         let guest = TVAccountIdentity(id: "guest:opaque", role: "guest", publicUsername: nil)

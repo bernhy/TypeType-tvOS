@@ -80,6 +80,89 @@ final class TVAPIWireTests: XCTestCase {
         )
     }
 
+    func testExpiredAccountJWTAutomaticallyRefreshesWithSavedCookie() async throws {
+        let host = "refresh-token-contract.example"
+        let origin = try TypeTypeAPI(address: "https://" + host).origin
+        let store = TypeTypeCredentials.shared
+        store.clear(for: origin)
+        guard store.save("expired-jwt", for: origin),
+              store.saveRefreshToken("old-refresh-secret", for: origin) else {
+            throw XCTSkip("Simulator Keychain not available")
+        }
+        defer { store.clear(for: origin) }
+
+        let lock = NSLock()
+        var routes: [(String, String, String?, String?)] = []
+        TVAPIWireProtocol.install(
+            host: host,
+            headers: ["Set-Cookie":
+                "refresh_token=rotated-secret; Path=/; HttpOnly; Secure; SameSite=Lax"]
+        ) { request in
+            let path = request.url?.path ?? ""
+            let json = (try? JSONSerialization.jsonObject(
+                with: request.httpBody ?? Data()
+            )) as? [String: String]
+            lock.withLock {
+                routes.append((request.httpMethod ?? "", path,
+                               request.value(forHTTPHeaderField: "Authorization"),
+                               json?["token"]))
+            }
+            if path == "/api/auth/refresh" {
+                return (200, Data(#"{"accessToken":"renewed-jwt"}"#.utf8))
+            }
+            if path == "/api/auth/me" {
+                let renewed = request.value(forHTTPHeaderField: "Authorization")
+                    == "Bearer renewed-jwt"
+                return (renewed ? 200 : 401,
+                    Data(renewed
+                        ? #"{"id":"member-42","role":"user","publicUsername":"tester"}"#.utf8
+                        : #"{"error":"Invalid token"}"#.utf8))
+            }
+            return (404, Data())
+        }
+        let api = try fixtureAPI(host: host, token: "unused")
+        // A test-only injected token must not silently mutate Keychain.
+        do {
+            _ = try await api.currentAccount()
+            XCTFail("Injected tokens should not be automatically refreshed")
+        } catch TypeTypeError.http(401, _) {}
+
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [TVAPIWireProtocol.self]
+        let realAccountAPI = try TypeTypeAPI(
+            address: "https://" + host, session: URLSession(configuration: config)
+        )
+        let identity = try await realAccountAPI.currentAccount()
+        XCTAssertEqual(identity?.id, "member-42")
+        XCTAssertEqual(store.token(for: origin), "renewed-jwt")
+        XCTAssertEqual(store.refreshToken(for: origin), "rotated-secret")
+        let captured = lock.withLock { routes }
+        XCTAssertTrue(captured.contains { $0.1 == "/api/auth/refresh" &&
+            $0.3 == "old-refresh-secret" })
+        XCTAssertTrue(captured.contains { $0.1 == "/api/auth/me" &&
+            $0.2 == "Bearer renewed-jwt" })
+    }
+
+    func testPasswordLoginReadsRefreshCookieWithoutPersistingGuestBearer() async throws {
+        TVAPIWireProtocol.install(
+            host: "password-cookie.example",
+            headers: ["Set-Cookie":
+                "refresh_token=password-rotation; Path=/; HttpOnly; Secure; SameSite=Lax"]
+        ) { request in
+            guard request.url?.path == "/api/auth/login" else {
+                return (404, Data())
+            }
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            return (200, Data(#"{"accessToken":"access-from-password"}"#.utf8))
+        }
+        let api = try fixtureAPI(host: "password-cookie.example")
+        let result = try await api.passwordLoginSession(
+            identifier: "user@example.org", password: "test"
+        )
+        XCTAssertEqual(result.accessToken, "access-from-password")
+        XCTAssertEqual(result.refreshToken, "password-rotation")
+    }
+
     func testPasswordLoginUsesIdentifierWithoutGuestBearer() async throws {
         let lock = NSLock()
         var captured: (String, String, String?, Data?)?

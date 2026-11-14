@@ -171,6 +171,7 @@ struct TVAccountSwitcherView: View {
         let credentials = TypeTypeCredentials.shared
         let oldToken = credentials.token(for: api.origin)
         let oldLabel = credentials.displayIdentifier(for: api.origin)
+        let oldRefresh = credentials.refreshToken(for: api.origin)
         guard credentials.activate(account, for: api.origin) else {
             errorMessage = TVL10n.value("profiles.switchFailed")
             return
@@ -184,17 +185,23 @@ struct TVAccountSwitcherView: View {
             TVLocalProgress.shared.clear()
             onAccountChanged()
         } catch {
-            restore(token: oldToken, label: oldLabel)
+            restore(token: oldToken, label: oldLabel, refresh: oldRefresh)
             errorMessage = error.localizedDescription
         }
     }
 
-    private func restore(token: String?, label: String?) {
+    private func restore(token: String?, label: String?, refresh: String?) {
+        let credentials = TypeTypeCredentials.shared
         if let token {
-            TypeTypeCredentials.shared.save(token, for: api.origin)
-            TypeTypeCredentials.shared.saveDisplayIdentifier(label, for: api.origin)
+            credentials.save(token, for: api.origin)
+            credentials.saveDisplayIdentifier(label, for: api.origin)
         } else {
-            TypeTypeCredentials.shared.clear(for: api.origin)
+            credentials.clear(for: api.origin)
+        }
+        if let refresh {
+            credentials.saveRefreshToken(refresh, for: api.origin)
+        } else {
+            credentials.clearRefreshToken(for: api.origin)
         }
     }
 }

@@ -101,7 +101,7 @@ struct PreferencesView: View {
                 .focusSection()
                 .onMoveCommand { direction in
                     if direction == .left {
-                        focusedGroup = group
+                        returnFocusToGroup()
                     }
                 }
             }
@@ -263,6 +263,19 @@ struct PreferencesView: View {
         }
     }
 
+    /// A horizontal remote move is resolved by the tvOS focus engine after
+    /// the button's move handler. Defer restoration to the following turn so
+    /// the engine cannot overwrite it with the geometrically nearest icon.
+    @MainActor
+    private func returnFocusToGroup() {
+        let destination = group
+        Task { @MainActor in
+            await Task.yield()
+            guard group == destination else { return }
+            focusedGroup = destination
+        }
+    }
+
     @MainActor
     private func firstTarget(for item: TVSettingsGroup) -> String {
         switch item {
@@ -310,14 +323,14 @@ struct PreferencesView: View {
                     "settings.allowSoftware", isOn: $allowSoftware,
                     focus: $focusedControl, focusID: "playback.software",
                     accessibilityID: "settings-first-playback",
-                    onMoveLeft: { focusedGroup = .playback }
+                    onMoveLeft: { returnFocusToGroup() }
                 )
                 Text("settings.softwareWarning")
                     .font(.caption).foregroundStyle(TTTheme.muted)
                 TVSettingsMenuRow(
                     "settings.maxResolution", selection: $maxHeight,
                     focus: $focusedControl, focusTarget: "playback.resolution",
-                    onMoveLeft: { focusedGroup = .playback }
+                    onMoveLeft: { returnFocusToGroup() }
                 ) {
                     Text("4K").tag(2160)
                     Text("1440p").tag(1440)
@@ -345,7 +358,7 @@ struct PreferencesView: View {
                                 set: { setRemote(field, enabled: $0) }
                             ),
                             focus: $focusedControl, focusID: "content." + field.rawValue,
-                            onMoveLeft: { focusedGroup = .content }
+                            onMoveLeft: { returnFocusToGroup() }
                         )
                         // Disabling a focused tvOS button during a network write
                         // makes the focus engine jump to an unrelated rail.
@@ -383,7 +396,7 @@ struct PreferencesView: View {
                 TVSettingsMenuRow(
                     "settings.skipLength", selection: $skipSeconds,
                     focus: $focusedControl, focusTarget: "device.skip",
-                    onMoveLeft: { focusedGroup = .device }
+                    onMoveLeft: { returnFocusToGroup() }
                 ) {
                     ForEach([5, 10, 15, 20], id: \.self) { seconds in
                         Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
@@ -394,7 +407,7 @@ struct PreferencesView: View {
                 TVSettingsMenuRow(
                     "settings.forwardBuffer", selection: $bufferForwardSeconds,
                     focus: $focusedControl, focusTarget: "device.forward",
-                    onMoveLeft: { focusedGroup = .device }
+                    onMoveLeft: { returnFocusToGroup() }
                 ) {
                     ForEach([30, 60, 120, 180, 300, 600], id: \.self) { seconds in
                         Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
@@ -403,7 +416,7 @@ struct PreferencesView: View {
                 TVSettingsMenuRow(
                     "settings.backwardBuffer", selection: $bufferBackSeconds,
                     focus: $focusedControl, focusTarget: "device.backward",
-                    onMoveLeft: { focusedGroup = .device }
+                    onMoveLeft: { returnFocusToGroup() }
                 ) {
                     ForEach([30, 60, 120, 180, 300], id: \.self) { seconds in
                         Text(TVL10n.formatted("common.seconds", seconds)).tag(seconds)
@@ -412,7 +425,7 @@ struct PreferencesView: View {
                 TVSettingsMenuRow(
                     "settings.maxCache", selection: $bufferCacheMiB,
                     focus: $focusedControl, focusTarget: "device.maxCache",
-                    onMoveLeft: { focusedGroup = .device }
+                    onMoveLeft: { returnFocusToGroup() }
                 ) {
                     ForEach([256, 512, 1024], id: \.self) { amount in
                         Text("\(amount) MiB").tag(amount)
@@ -425,14 +438,14 @@ struct PreferencesView: View {
                 TVSettingsSwitchRow(
                     "settings.navigationAnimations", isOn: $navigationAnimations,
                     focus: $focusedControl, focusID: "device.animations",
-                    onMoveLeft: { focusedGroup = .device }
+                    onMoveLeft: { returnFocusToGroup() }
                 )
                 Text("settings.navigationAnimationsHelp")
                     .font(.caption).foregroundStyle(TTTheme.muted)
                 TVSettingsMenuRow(
                     "settings.imageCacheSize", selection: $thumbnailCacheMiB,
                     focus: $focusedControl, focusTarget: "device.imageCache",
-                    onMoveLeft: { focusedGroup = .device }
+                    onMoveLeft: { returnFocusToGroup() }
                 ) {
                     ForEach([32, 64, 128, 256], id: \.self) { count in
                         Text("\(count) MiB").tag(count)
@@ -530,7 +543,7 @@ struct PreferencesView: View {
                 TVSettingsMenuRow(
                     "settings.languagePicker", selection: $uiLanguage,
                     focus: $focusedControl, focusTarget: "control.language",
-                    onMoveLeft: { focusedGroup = .language }
+                    onMoveLeft: { returnFocusToGroup() }
                 ) {
                     Text("language.system").tag(TVLanguages.followSystem)
                     ForEach(TVLanguages.available, id: \.self) { lang in

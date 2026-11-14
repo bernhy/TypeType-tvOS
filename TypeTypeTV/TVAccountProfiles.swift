@@ -71,8 +71,14 @@ extension TypeTypeCredentials {
             ? SecItemAdd(item as CFDictionary, nil) : updated
         if result != errSecSuccess {
             NSLog("TypeType Keychain profile write failed OSStatus=%d", result)
+            return false
         }
-        return result == errSecSuccess
+        // Household profile switching must carry its own rotating refresh
+        // credential, not merely the one-hour access JWT.
+        if let refresh = refreshToken(for: origin) {
+            return saveRefreshToken(refresh, for: origin, userID: identity.id)
+        }
+        return true
     }
 
     /// Migrate a legacy single-user login into the multi-account Keychain the
@@ -83,6 +89,22 @@ extension TypeTypeCredentials {
         return remember(identity, token: current,
                         displayIdentifier: displayIdentifier(for: origin),
                         for: origin)
+    }
+
+    /// Keep a previously saved household profile synchronized with the
+    /// rotated access token. Never implicitly create profiles from JWT claims.
+    @discardableResult
+    func updateSavedProfileAccessToken(_ token: String, for origin: URL,
+                                       userID: String) -> Bool {
+        guard !token.isEmpty, !userID.isEmpty else { return false }
+        let key: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.profileService,
+            kSecAttrAccount as String: Self.profileKey(origin: origin, userID: userID)
+        ]
+        return SecItemUpdate(key as CFDictionary, [
+            kSecValueData as String: Data(token.utf8)
+        ] as CFDictionary) == errSecSuccess
     }
 
     /// Make one saved user active using the legacy active-token slot, so all
@@ -103,12 +125,33 @@ extension TypeTypeCredentials {
               !selectedToken.isEmpty else { return false }
         let previousToken = token(for: origin)
         let previousLabel = displayIdentifier(for: origin)
-        guard save(selectedToken, for: origin), token(for: origin) == selectedToken else {
+        let previousRefresh = refreshToken(for: origin)
+        let selectedRefresh = profileRefreshToken(account.id, for: origin)
+
+        func rollback() {
             if let previousToken {
                 save(previousToken, for: origin)
                 saveDisplayIdentifier(previousLabel, for: origin)
+            } else {
+                clear(for: origin)
             }
-            return false
+            if let previousRefresh {
+                saveRefreshToken(previousRefresh, for: origin)
+            } else {
+                clearRefreshToken(for: origin)
+            }
+        }
+
+        guard save(selectedToken, for: origin) else { return false }
+        if let selectedRefresh {
+            guard saveRefreshToken(selectedRefresh, for: origin) else {
+                rollback()
+                return false
+            }
+        } else {
+            // Never let the previous household user's refresh secret renew
+            // the newly selected account's access token.
+            clearRefreshToken(for: origin)
         }
         saveDisplayIdentifier(account.label, for: origin)
         return true
@@ -123,6 +166,10 @@ extension TypeTypeCredentials {
             kSecAttrAccount as String: Self.profileKey(origin: origin, userID: userID)
         ]
         let status = SecItemDelete(key as CFDictionary)
-        return status == errSecSuccess || status == errSecItemNotFound
+        if status == errSecSuccess || status == errSecItemNotFound {
+            clearRefreshToken(for: origin, userID: userID)
+            return true
+        }
+        return false
     }
 }

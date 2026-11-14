@@ -184,11 +184,12 @@ struct TVAddAccountSheet: View {
             busy = false
         }
         do {
-            let token = try await api.passwordLogin(
+            let session = try await api.passwordLoginSession(
                 identifier: identifier, password: password
             )
             try Task.checkCancellation()
-            try await finishLogin(token: token,
+            try await finishLogin(token: session.accessToken,
+                                  refreshToken: session.refreshToken,
                                   fallbackName: identifier.trimmingCharacters(
                                     in: .whitespacesAndNewlines))
         } catch is CancellationError {
@@ -224,7 +225,9 @@ struct TVAddAccountSheet: View {
                 let result = try await service.deviceLoginPoll(flow.deviceCode)
                 try Task.checkCancellation()
                 if let token = result.accessToken, !token.isEmpty {
-                    try await finishLogin(token: token, fallbackName: nil)
+                    try await finishLogin(token: token,
+                                          refreshToken: result.refreshToken,
+                                          fallbackName: nil)
                     return
                 }
                 if result.code == "access_denied" || result.code == "denied" {
@@ -243,12 +246,30 @@ struct TVAddAccountSheet: View {
     /// Verify before adding a household member. On failure restore the
     /// previous active token; never disturb the credentials of other profiles.
     @MainActor
-    private func finishLogin(token: String, fallbackName: String?) async throws {
+    private func finishLogin(token: String, refreshToken: String?,
+                             fallbackName: String?) async throws {
         try Task.checkCancellation()
         let credentials = TypeTypeCredentials.shared
         let previousToken = credentials.token(for: api.origin)
         let previousName = credentials.displayIdentifier(for: api.origin)
-        credentials.save(token, for: api.origin)
+        let previousRefresh = credentials.refreshToken(for: api.origin)
+        guard credentials.save(token, for: api.origin) else {
+            throw TypeTypeError.unexpectedResponse
+        }
+        if let refreshToken {
+            guard credentials.saveRefreshToken(refreshToken, for: api.origin) else {
+                // Restore the old account without deleting its working token.
+                if let previousToken {
+                    credentials.save(previousToken, for: api.origin)
+                    credentials.saveDisplayIdentifier(previousName, for: api.origin)
+                } else {
+                    credentials.clear(for: api.origin)
+                }
+                throw TypeTypeError.unexpectedResponse
+            }
+        } else {
+            credentials.clearRefreshToken(for: api.origin)
+        }
         credentials.saveDisplayIdentifier(fallbackName, for: api.origin)
         do {
             guard credentials.token(for: api.origin) == token,
@@ -271,6 +292,11 @@ struct TVAddAccountSheet: View {
                 credentials.saveDisplayIdentifier(previousName, for: api.origin)
             } else {
                 credentials.clear(for: api.origin)
+            }
+            if let previousRefresh {
+                credentials.saveRefreshToken(previousRefresh, for: api.origin)
+            } else {
+                credentials.clearRefreshToken(for: api.origin)
             }
             throw error
         }

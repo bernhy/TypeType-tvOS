@@ -330,6 +330,7 @@ final class TypeTypeCredentials {
         SecItemDelete([kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "org.typetype.tvOS.auth",
             kSecAttrAccount as String: origin.absoluteString] as CFDictionary)
+        clearRefreshToken(for: origin)
         saveDisplayIdentifier(nil, for: origin)
     }
 }
@@ -381,9 +382,16 @@ final class SabrService: @unchecked Sendable {
     }
 
     func deviceLoginPoll(_ code: String) async throws -> DeviceToken {
-        try await request("auth/device/token", method: "POST",
-                          body: try encoder.encode(DeviceTokenRequest(deviceCode: code)),
-                          allowedStatuses: [200, 400])
+        let (data, response) = try await read(
+            base.appendingPathComponent("auth/device/token"), method: "POST",
+            body: try encoder.encode(DeviceTokenRequest(deviceCode: code)),
+            allowedStatuses: [200, 400], pathForError: "auth/device/token"
+        )
+        var reply = try json.decode(DeviceToken.self, from: data)
+        if response.statusCode == 200, reply.accessToken?.isEmpty == false {
+            reply.refreshToken = TVAuthCookie.token(from: response, for: origin)
+        }
+        return reply
     }
 
     func start(videoId: String, selection: SabrSelection, positionMs: Int64 = 0) async throws -> SabrSessionReply {
@@ -455,7 +463,8 @@ final class SabrService: @unchecked Sendable {
               URLComponents(url: address, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "generation" })?.value == String(generation)
         else { throw SabrFailure.invalidResponse("media URL is outside TypeType session") }
-        return try await read(address, method: "GET", body: nil, allowedStatuses: [200], pathForError: "segment")
+        return try await read(address, method: "GET", body: nil,
+                              allowedStatuses: [200], pathForError: "segment").data
     }
 
     private func request<T: Decodable>(_ path: String, query: [URLQueryItem] = [], method: String = "GET",
@@ -463,12 +472,14 @@ final class SabrService: @unchecked Sendable {
         var components = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)
         components?.queryItems = query.isEmpty ? nil : query
         guard let address = components?.url else { throw SabrFailure.invalidResponse("URL") }
-        let data = try await read(address, method: method, body: body, allowedStatuses: allowedStatuses, pathForError: path)
+        let data = try await read(address, method: method, body: body,
+                                  allowedStatuses: allowedStatuses, pathForError: path).data
         if allowEmpty, let empty = EmptyReply() as? T { return empty }
         return try json.decode(T.self, from: data)
     }
 
-    private func read(_ address: URL, method: String, body: Data?, allowedStatuses: Set<Int>, pathForError: String) async throws -> Data {
+    private func read(_ address: URL, method: String, body: Data?, allowedStatuses: Set<Int>,
+                      pathForError: String) async throws -> (data: Data, response: HTTPURLResponse) {
         var req = URLRequest(url: address)
         req.httpMethod = method
         if method == "POST" {
@@ -486,11 +497,24 @@ final class SabrService: @unchecked Sendable {
         let isMediaSegment = pathForError == "segment"
         let mediaDeadline = Date().addingTimeInterval(25)
         var segmentPolls = 0
+        var didRefreshAuth = false
         while true {
             try Task.checkCancellation()
             let (data, response) = try await session.data(for: req)
             guard let http = response as? HTTPURLResponse else {
                 throw SabrFailure.invalidResponse("HTTP response")
+            }
+            if http.statusCode == 401, !didRefreshAuth,
+               let header = req.value(forHTTPHeaderField: "Authorization"),
+               header.hasPrefix("Bearer ") {
+                didRefreshAuth = true
+                let stale = String(header.dropFirst("Bearer ".count))
+                if let renewed = try? await TVAuthRefreshCoordinator.shared.refresh(
+                    origin: origin, session: session, failedAccessToken: stale
+                ), renewed != stale {
+                    req.setValue("Bearer \(renewed)", forHTTPHeaderField: "Authorization")
+                    continue
+                }
             }
             if isMediaSegment && http.statusCode == 202 {
                 segmentPolls += 1
@@ -518,7 +542,7 @@ final class SabrService: @unchecked Sendable {
             }
             throw SabrFailure.server(http.statusCode, pathForError)
             }
-            return data
+            return (data, http)
         }
     }
 }
@@ -541,7 +565,12 @@ private struct EmptyReply: Decodable { init() {} }
 struct DeviceStartRequest: Encodable { let deviceName: String }
 struct DeviceTokenRequest: Encodable { let deviceCode: String }
 struct DeviceStart: Decodable { let userCode: String; let deviceCode: String; let interval: Int; let expiresIn: Int }
-struct DeviceToken: Decodable { let accessToken: String?; let code: String? }
+struct DeviceToken: Decodable {
+    let accessToken: String?
+    let code: String?
+    // Filled from the server's HttpOnly Set-Cookie, not its JSON body.
+    var refreshToken: String? = nil
+}
 
 enum VideoAddress {
     static func youtubeID(_ value: String) -> String? {

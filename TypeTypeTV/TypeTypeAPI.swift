@@ -9,6 +9,11 @@ private struct TVPasswordLoginResponse: Decodable {
     let accessToken: String
 }
 
+struct TVAuthLoginSession {
+    let accessToken: String
+    let refreshToken: String?
+}
+
 /// Server identity from GET /auth/me. A token alone is not evidence
 /// of a signed-in account: guest tokens use the same Keychain slot.
 struct TVAccountIdentity: Decodable {
@@ -257,6 +262,10 @@ struct TypeTypeAPI {
     /// TypeType's existing local account endpoint. Only the returned access
     /// token is persisted by the caller; the password is never saved.
     func passwordLogin(identifier: String, password: String) async throws -> String {
+        try await passwordLoginSession(identifier: identifier, password: password).accessToken
+    }
+
+    func passwordLoginSession(identifier: String, password: String) async throws -> TVAuthLoginSession {
         let cleanIdentifier = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanIdentifier.isEmpty, !password.isEmpty else {
             throw TypeTypeError.loginMissingFields
@@ -282,7 +291,10 @@ struct TypeTypeAPI {
         }
         let reply = try JSONDecoder().decode(TVPasswordLoginResponse.self, from: data)
         guard !reply.accessToken.isEmpty else { throw TypeTypeError.unexpectedResponse }
-        return reply.accessToken
+        return TVAuthLoginSession(
+            accessToken: reply.accessToken,
+            refreshToken: TVAuthCookie.token(from: response, for: origin)
+        )
     }
 
     /// Resolve the actual signed-in account, or distinguish a guest token.
@@ -294,7 +306,7 @@ struct TypeTypeAPI {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("TypeTypeTV-tvOS/0.1", forHTTPHeaderField: "User-Agent")
         request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
-        let (data, result) = try await session.data(for: request)
+        let (data, result) = try await authenticatedData(for: request)
         guard let response = result as? HTTPURLResponse else {
             throw TypeTypeError.unexpectedResponse
         }
@@ -356,7 +368,7 @@ struct TypeTypeAPI {
         }
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONEncoder().encode([field: value])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await authenticatedData(for: request)
         guard let response = response as? HTTPURLResponse else {
             throw TypeTypeError.unexpectedResponse
         }
@@ -503,7 +515,7 @@ struct TypeTypeAPI {
         guard accountToken != nil else { throw TypeTypeError.http(401, path) }
         request.httpBody = try JSONEncoder().encode(payload)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await authenticatedData(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw TypeTypeError.unexpectedResponse
         }
@@ -589,7 +601,7 @@ struct TypeTypeAPI {
         )
         var request = authorizedRequest(url, method: "GET")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await authenticatedData(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw TypeTypeError.unexpectedResponse
         }
@@ -642,6 +654,25 @@ struct TypeTypeAPI {
         )
     }
 
+    /// Retry an authenticated request once after renewing the one-hour JWT.
+    /// Concurrent calls share the same refresh task; injected test tokens are
+    /// never persisted to the real Apple TV Keychain.
+    private func authenticatedData(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let first = try await session.data(for: request)
+        guard injectedToken == nil,
+              let http = first.1 as? HTTPURLResponse, http.statusCode == 401,
+              let header = request.value(forHTTPHeaderField: "Authorization"),
+              header.hasPrefix("Bearer ") else { return first }
+        let stale = String(header.dropFirst("Bearer ".count))
+        guard !stale.isEmpty,
+              let updated = try? await TVAuthRefreshCoordinator.shared.refresh(
+                origin: origin, session: session, failedAccessToken: stale
+              ), updated != stale else { return first }
+        var retry = request
+        retry.setValue("Bearer \(updated)", forHTTPHeaderField: "Authorization")
+        return try await session.data(for: retry)
+    }
+
     private func authorizedRequest(_ url: URL, method: String) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -667,7 +698,7 @@ struct TypeTypeAPI {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        let (_, result) = try await session.data(for: request)
+        let (_, result) = try await authenticatedData(for: request)
         guard let response = result as? HTTPURLResponse else {
             throw TypeTypeError.unexpectedResponse
         }
@@ -711,7 +742,7 @@ struct TypeTypeAPI {
         if let bearer = accountToken {
             request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         }
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await authenticatedData(for: request)
         guard let response = response as? HTTPURLResponse else { throw TypeTypeError.unexpectedResponse }
         guard (200..<300).contains(response.statusCode) else {
             if [404, 410, 422].contains(response.statusCode),
