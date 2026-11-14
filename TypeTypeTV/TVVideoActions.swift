@@ -41,7 +41,10 @@ struct TVVideoActionModifier: ViewModifier {
                 }
                 if video.isLive != true, let duration = video.duration, duration > 0 {
                     Button {
-                        perform {
+                        // Local progress observation refreshes all visible cards.
+                        // Do not reload the entire recommendations page and
+                        // discard its cursor/scroll position after a toggle.
+                        perform(refresh: false) {
                             let markWatched = !isMarkedWatched
                             try await api.setWatched(markWatched, video: video)
                             TVLocalProgress.shared.record(
@@ -170,7 +173,8 @@ struct TVVideoActionModifier: ViewModifier {
         }
     }
 
-    private func perform(_ action: @escaping () async throws -> String) {
+    private func perform(refresh: Bool = true,
+                         _ action: @escaping () async throws -> String) {
         guard !working else { return }
         working = true
         feedback = nil
@@ -179,7 +183,7 @@ struct TVVideoActionModifier: ViewModifier {
             do {
                 let text = try await action()
                 feedback = text
-                refreshAfterFeedback()
+                if refresh { refreshAfterFeedback() }
             } catch {
                 errorMessage = error.localizedDescription
             }
