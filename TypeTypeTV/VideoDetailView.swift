@@ -15,6 +15,7 @@ struct VideoDetailView: View {
     @State private var progressSaving = false
     @State private var progressError: String?
     @ObservedObject private var localProgress = TVLocalProgress.shared
+    @FocusState private var focusedDescriptionChunk: Int?
 
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
     private var detailedVideo: VideoItem {
@@ -35,30 +36,17 @@ struct VideoDetailView: View {
 
 
     var body: some View {
-        ScrollView {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
-                                origin: api.origin)
-                        .frame(width: proxy.size.width, height: proxy.size.height)
-                        .clipped()
-
-                    LinearGradient(
-                        stops: [
-                            .init(color: TTTheme.ink, location: 0),
-                            .init(color: TTTheme.ink.opacity(0.94), location: 0.36),
-                            .init(color: TTTheme.ink.opacity(0.22), location: 1)
-                        ], startPoint: .leading, endPoint: .trailing
-                    )
-                    LinearGradient(colors: [.clear, TTTheme.ink],
-                                   startPoint: .center, endPoint: .bottom)
-                    VStack(alignment: .leading, spacing: 22) {
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                // The hero sizes itself to the complete title and action rows.
+                // A fixed GeometryReader height used to clip buttons on long
+                // titles while the progress section overlapped them.
+                VStack(alignment: .leading, spacing: 22) {
                         Text(TVL10n.value(video.isLive == true ? "video.liveBadge" : "video.badge"))
                             .font(.subheadline.bold()).tracking(2.5)
                             .foregroundStyle(TTTheme.accent)
                         Text(video.title)
                             .font(.system(size: 53, weight: .bold))
-                            .lineLimit(3)
                             .frame(maxWidth: 830, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
                         if let channel = video.uploaderName, !channel.isEmpty {
@@ -164,15 +152,33 @@ struct VideoDetailView: View {
                             }
                         }
                         .focusSection()
-                    }
-                    .padding(.leading, 90)
-                    .padding(.top, 110)
                 }
-            }
-            .frame(height: 690)
-            .clipped()
+                .padding(.horizontal, 90)
+                .padding(.top, 105)
+                .padding(.bottom, 58)
+                .frame(maxWidth: .infinity, minHeight: 690, alignment: .topLeading)
+                .background {
+                    GeometryReader { proxy in
+                        ZStack(alignment: .leading) {
+                            TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
+                                        origin: api.origin)
+                                .frame(width: proxy.size.width, height: proxy.size.height)
+                                .clipped()
+                            LinearGradient(
+                                stops: [
+                                    .init(color: TTTheme.ink, location: 0),
+                                    .init(color: TTTheme.ink.opacity(0.94), location: 0.36),
+                                    .init(color: TTTheme.ink.opacity(0.22), location: 1)
+                                ], startPoint: .leading, endPoint: .trailing
+                            )
+                            LinearGradient(colors: [.clear, TTTheme.ink],
+                                           startPoint: .center, endPoint: .bottom)
+                        }
+                        .clipped()
+                    }
+                }
 
-            VStack(alignment: .leading, spacing: 26) {
+                VStack(alignment: .leading, spacing: 26) {
                 if video.isLive != true, let duration = video.duration, duration > 0 {
                     Text("video.progressHeading")
                         .font(.title2.bold())
@@ -192,24 +198,44 @@ struct VideoDetailView: View {
                 if let description = streamMetadata?.description,
                    !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("video.descriptionHeading").font(.title2.bold())
-                    Text(description)
-                        .font(.body)
-                        .foregroundStyle(TTTheme.muted)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 12)
-                        .contentShape(Rectangle())
-                        .focusable(true)
-                        .focusEffectDisabled(true)
+                    // A single multi-page focusable Text cannot be scrolled
+                    // line-by-line with the Siri Remote. Each readable segment
+                    // has its own focus target and scroll anchor.
+                    ForEach(Array(TVDescriptionChunks.make(description).enumerated()),
+                            id: \.offset) { index, chunk in
+                        Text(chunk)
+                            .font(.body)
+                            .foregroundStyle(focusedDescriptionChunk == index
+                                             ? .white : TTTheme.muted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .background(focusedDescriptionChunk == index
+                                        ? Color.white.opacity(0.10) : .clear,
+                                        in: RoundedRectangle(cornerRadius: 10))
+                            .contentShape(Rectangle())
+                            .focusable(true)
+                            .focusEffectDisabled(true)
+                            .focused($focusedDescriptionChunk, equals: index)
+                            .id("description-\(index)")
+                    }
                 }
             }
             .padding(.horizontal, 90)
             .padding(.bottom, 110)
-        }
-        .background(TTTheme.ink)
-        .task(id: video.url) {
-            async let activity: Void = loadActivity()
-            async let enrichment: Void = loadMetadata()
-            _ = await (activity, enrichment)
+            }
+            .background(TTTheme.ink)
+            .onChange(of: focusedDescriptionChunk) { _, index in
+                guard let index else { return }
+                withAnimation(.easeOut(duration: 0.14)) {
+                    scrollProxy.scrollTo("description-\(index)", anchor: .center)
+                }
+            }
+            .task(id: video.url) {
+                async let activity: Void = loadActivity()
+                async let enrichment: Void = loadMetadata()
+                _ = await (activity, enrichment)
+            }
         }
     }
 
@@ -290,5 +316,27 @@ struct VideoDetailView: View {
             watchLater = old
             activityError = error.localizedDescription
         }
+    }
+}
+
+/// Short, stable focus rows allow a long description to be traversed by
+/// Up/Down without trapping focus on one larger-than-screen text element.
+enum TVDescriptionChunks {
+    static func make(_ description: String, maxLength: Int = 170) -> [String] {
+        var result: [String] = []
+        for paragraph in description.components(separatedBy: .newlines) {
+            var current = ""
+            for word in paragraph.split(whereSeparator: \.isWhitespace) {
+                let item = String(word)
+                if !current.isEmpty && current.count + 1 + item.count > maxLength {
+                    result.append(current)
+                    current = item
+                } else {
+                    current += current.isEmpty ? item : " " + item
+                }
+            }
+            if !current.isEmpty { result.append(current) }
+        }
+        return result
     }
 }

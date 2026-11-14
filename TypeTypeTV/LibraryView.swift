@@ -11,6 +11,8 @@ private enum TVLibraryDestination: Hashable {
 struct LibraryView: View {
     let api: TypeTypeAPI
     var preferPlaylists = false
+    var focusRequest = 0
+    var onRevealMenu: () -> Void = {}
 
     @State private var selected: TVLibraryDestination = .standard(.watchLater)
     @FocusState private var focusedDestination: TVLibraryDestination?
@@ -28,6 +30,7 @@ struct LibraryView: View {
     @State private var statusMessage: String?
     @State private var railError: String?
     @State private var loading = false
+    @State private var focusContentAfterLoad = false
     @State private var libraryRequestID = UUID()
     @State private var title = TVL10n.value("library.watchLater")
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 25), count: 4)
@@ -124,7 +127,7 @@ struct LibraryView: View {
                                     VideoCard(api: api, video: video,
                                               lookupMissingMetadata: selected == .standard(.history))
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(TVRailButtonStyle())
                                 .focusEffectDisabled(true)
                                 .videoActions(
                                     api: api, video: video,
@@ -152,15 +155,20 @@ struct LibraryView: View {
             }
         }
         .background(TTTheme.ink)
-        .task {
-            // Establish the subrail focus BEFORE waiting on the account's
-            // playlist/library HTTP requests. Otherwise tvOS can temporarily
-            // focus the global Home icon while the library loads.
+        .task { await refresh() }
+        .task(id: focusRequest) {
+            // Take focus before the asynchronous library requests complete.
             await Task.yield()
             focusedDestination = selected
-            await refresh()
         }
         .task(id: selected) { await loadSelected() }
+        .onExitCommand {
+            if focusedDestination != nil {
+                onRevealMenu()
+            } else {
+                focusedDestination = selected
+            }
+        }
         .sheet(isPresented: Binding(
             get: { editPlaylistID != nil },
             set: { if !$0 { editPlaylistID = nil } }
@@ -281,7 +289,7 @@ struct LibraryView: View {
     private func railButton(_ destination: TVLibraryDestination,
                             title: String, symbol: String) -> some View {
         Button {
-            selected = destination
+            enterDestination(destination)
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: symbol).frame(width: 25)
@@ -304,16 +312,43 @@ struct LibraryView: View {
         .focused($focusedDestination, equals: destination)
         .onMoveCommand { direction in
             if direction == .right {
-                if let first = videos.first {
-                    focusedVideoURL = first.url
-                } else {
-                    // Empty history/playlists still have a Refresh action.
-                    focusedRefresh = true
-                }
-
+                enterDestination(destination)
+            } else if direction == .left {
+                onRevealMenu()
             }
         }
         .accessibilityAddTraits(selected == destination ? .isSelected : [])
+        .accessibilityIdentifier("library-nav-" + destinationIdentifier(destination))
+    }
+
+    private func destinationIdentifier(_ item: TVLibraryDestination) -> String {
+        switch item {
+        case .standard(let section): return section.rawValue
+        case .playlist(let id): return "playlist-" + id
+        }
+    }
+
+    @MainActor
+    private func enterDestination(_ destination: TVLibraryDestination) {
+        if destination != selected {
+            focusContentAfterLoad = true
+            selected = destination
+        } else {
+            focusFirstContent()
+        }
+    }
+
+    @MainActor
+    private func focusFirstContent() {
+        guard !loading else {
+            focusContentAfterLoad = true
+            return
+        }
+        if let first = videos.first {
+            focusedVideoURL = first.url
+        } else {
+            focusedRefresh = true
+        }
     }
 
     @MainActor
@@ -359,6 +394,17 @@ struct LibraryView: View {
                   libraryRequestID == identifier else { return }
             title = heading
             videos = loaded
+            if focusContentAfterLoad {
+                focusContentAfterLoad = false
+                Task { @MainActor in
+                    await Task.yield()
+                    if let first = loaded.first {
+                        focusedVideoURL = first.url
+                    } else {
+                        focusedRefresh = true
+                    }
+                }
+            }
             let enriched = await api.withProgress(loaded)
             guard !Task.isCancelled, requested == selected,
                   libraryRequestID == identifier else { return }

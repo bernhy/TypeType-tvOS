@@ -7,6 +7,7 @@ struct TVAccountSwitcherView: View {
     let api: TypeTypeAPI
     let onAddAccount: () -> Void
     let onAccountChanged: () -> Void
+    var focusRequest = 0
 
     @State private var accounts: [TVSavedAccount] = []
     @FocusState private var focusedAccountID: String?
@@ -130,7 +131,29 @@ struct TVAccountSwitcherView: View {
             .padding(.bottom, 130)
         }
         .background(TTTheme.ink)
-        .task { await refresh() }
+        .task {
+            accounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
+            focusFirstAccount()
+            await refresh()
+        }
+        .task(id: focusRequest) {
+            await Task.yield()
+            focusFirstAccount()
+        }
+        .onChange(of: accounts.count) { _, _ in
+            if focusedAccountID == nil && !addAccountFocused {
+                focusFirstAccount()
+            }
+        }
+    }
+
+    @MainActor
+    private func focusFirstAccount() {
+        if let first = accounts.first {
+            focusedAccountID = first.id
+        } else {
+            addAccountFocused = true
+        }
     }
 
     @MainActor

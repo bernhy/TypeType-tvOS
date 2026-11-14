@@ -49,6 +49,9 @@ struct BrowseView: View {
     @State private var settingsEntryGroup: TVSettingsGroup
     @State private var settingsFocusRequest = 0
     @State private var homeFocusRequest = 0
+    @State private var libraryFocusRequest = 0
+    @State private var subscriptionFocusRequest = 0
+    @State private var accountFocusRequest = 0
     @State private var accountGeneration = 0
     @State private var returnToSwitcherAfterLogin = false
     @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
@@ -89,11 +92,13 @@ struct BrowseView: View {
                             SearchView(api: api)
                                 .onExitCommand { revealMenu() }
                         case .library:
-                            LibraryView(api: api)
-                                .onExitCommand { revealMenu() }
+                            LibraryView(api: api,
+                                        focusRequest: libraryFocusRequest,
+                                        onRevealMenu: revealMenu)
                         case .subscriptions:
-                            TVSubscriptionsView(api: api)
-                                .onExitCommand { revealMenu() }
+                            TVSubscriptionsView(api: api,
+                                                focusRequest: subscriptionFocusRequest,
+                                                onRevealMenu: revealMenu)
                         case .account:
                             TVAccountSwitcherView(
                                 api: api,
@@ -102,7 +107,8 @@ struct BrowseView: View {
                                     returnToSwitcherAfterLogin = true
                                     open(.settings)
                                 },
-                                onAccountChanged: { accountDidChange(api: api) }
+                                onAccountChanged: { accountDidChange(api: api) },
+                                focusRequest: accountFocusRequest
                             )
                             .onExitCommand { revealMenu() }
                         case .settings:
@@ -301,14 +307,20 @@ struct BrowseView: View {
         // Settings child is mounted and explicitly takes it. Clearing the
         // global focus first causes tvOS 26 to temporarily default to Home,
         // flashing a white overlay there before Settings appears.
-        if destination == .settings {
-            settingsFocusRequest += 1
-            section = destination
-        } else {
-            if destination == .home { homeFocusRequest += 1 }
-            section = destination
-            menuFocus = nil
+        switch destination {
+        case .settings: settingsFocusRequest += 1
+        case .home: homeFocusRequest += 1
+        case .library: libraryFocusRequest += 1
+        case .subscriptions: subscriptionFocusRequest += 1
+        case .account: accountFocusRequest += 1
+        case .search: break
         }
+        section = destination
+        // Do not clear menuFocus while mounting the destination. That
+        // temporarily gives tvOS no focused control and it falls back to
+        // the Home icon. Settings already used this handoff successfully;
+        // extend it to Library, Subscriptions and the account switcher.
+        // The new screen takes focus and SwiftUI clears menuFocus itself.
         expanded = false
     }
 
@@ -494,7 +506,7 @@ struct HomeView: View {
                     VideoCard(api: api, video: video,
                               lookupMissingMetadata: lookupHistoryMetadata)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TVRailButtonStyle())
                 .focusEffectDisabled(true)
                 .videoActions(api: api, video: video, onChanged: {
                     Task { await refresh() }
@@ -657,7 +669,9 @@ struct VideoCard: View {
             ZStack(alignment: .bottomTrailing) {
                 TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl), origin: api.origin)
                     .grayscale(completed ? 1 : 0)
-                    .scaleEffect(isFocused ? 1.06 : 1)
+                    // Never scale thumbnail content: on tvOS the duration
+                    // badge at the bottom-right otherwise appears enlarged
+                    // and can be cropped by its card.
                     .aspectRatio(16.0 / 9.0, contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipped()
@@ -725,12 +739,16 @@ struct VideoCard: View {
         .frame(minHeight: 322, alignment: .top)
         .background(TTTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        // Subtle tvOS-like focus, no red frame or zooming artwork/badges.
         .overlay {
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(isFocused ? TTTheme.accent : .clear, lineWidth: 3)
+                .strokeBorder(isFocused ? Color.white.opacity(0.65) : .clear,
+                              lineWidth: 2)
                 .allowsHitTesting(false)
         }
-        .animation(.easeOut(duration: 0.18), value: isFocused)
+        .shadow(color: isFocused ? Color.white.opacity(0.13) : .clear,
+                radius: 7)
+        .animation(.easeOut(duration: 0.13), value: isFocused)
         .foregroundStyle(.white)
         .task(id: video.url) {
             metadataVideoURL = video.url

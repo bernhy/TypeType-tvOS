@@ -325,4 +325,61 @@ final class TypeTypeTVUITests: XCTestCase {
                       "Opening Settings must focus its selected subnavigation, not the main rail")
     }
 
+    func testLongVideoTitleDoesNotHideSecondActionRowOrProgress() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "detail-long", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let play = app.buttons["Abspielen"]
+        let watched = app.staticTexts["Angesehen"]
+        let marked = app.buttons["Als angesehen markieren"]
+        XCTAssertTrue(play.waitForExistence(timeout: 20))
+        XCTAssertTrue(marked.exists,
+                      "Long titles must not clip the second action row")
+        XCTAssertTrue(watched.exists)
+        XCTAssertLessThan(marked.frame.maxY, watched.frame.minY,
+                          "The progress block must start after the second action row")
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "TypeType-tvOS-Videodetail-Langer-Titel"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
+    func testLibraryOpensDirectlyOnSelectedSubnavigation() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "library", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let first = app.buttons["library-nav-watch-later"]
+        XCTAssertTrue(first.waitForExistence(timeout: 20))
+        XCTAssertTrue(first.hasFocus, "Library must enter its own left rail")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(app.buttons["main-nav-library"].hasFocus,
+                      "Back from Library rail must go to Library icon")
+    }
+
+    func testSubscriptionsFocusChainAndRemoteBack() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "subscriptions", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let first = app.buttons["subscription-https://preview.invalid/channel/a"]
+        let firstVideo = app.buttons["subscription-video-0"]
+        XCTAssertTrue(first.waitForExistence(timeout: 20))
+        XCTAssertTrue(first.hasFocus, "Subscriptions must select the first channel")
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(firstVideo.waitForExistence(timeout: 8))
+        XCTAssertTrue(firstVideo.hasFocus,
+                      "Selecting a subscription must enter its video grid")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(first.hasFocus,
+                      "Back from channel videos must return to channel rail")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(app.buttons["main-nav-subscriptions"].hasFocus,
+                      "A second Back must select the subscriptions main icon")
+    }
+
 }

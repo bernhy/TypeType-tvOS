@@ -4,6 +4,8 @@ import SwiftUI
 /// Playlists. Source: GET /api/subscriptions + GET /api/channel?url=...
 struct TVSubscriptionsView: View {
     let api: TypeTypeAPI
+    var focusRequest = 0
+    var onRevealMenu: () -> Void = {}
 
     @State private var subscriptions: [TVSubscription] = []
     @State private var selectedChannelURL: String?
@@ -16,9 +18,12 @@ struct TVSubscriptionsView: View {
     @State private var channelRequestID = UUID()
     @State private var pageRequestID = UUID()
     @State private var loadingMore = false
+    @State private var enterGridAfterLoad = false
     @State private var error: String?
     @FocusState private var focusedSubscription: String?
     @FocusState private var focusedVideo: String?
+    @FocusState private var loadingRailFocused: Bool
+    @FocusState private var focusedContentRetry: Bool
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 22), count: 3)
 
     var body: some View {
@@ -69,15 +74,16 @@ struct TVSubscriptionsView: View {
                                 } label: {
                                     VideoCard(api: api, video: video)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(TVRailButtonStyle())
                                 .focusEffectDisabled(true)
                                 .videoActions(
                                     api: api, video: video, onChanged: {},
                                     focus: $focusedVideo, focusID: video.url
                                 )
+                                .accessibilityIdentifier("subscription-video-\(index)")
                                 .onMoveCommand { direction in
                                     if direction == .left && index % columns.count == 0 {
-                                        focusedSubscription = selectedChannelURL
+                                        returnToChannelRail()
                                     }
                                 }
                                 .onAppear {
@@ -102,6 +108,21 @@ struct TVSubscriptionsView: View {
         }
         .background(TTTheme.ink)
         .task { await reload() }
+        .task(id: focusRequest) {
+            await Task.yield()
+            if let selectedChannelURL {
+                focusedSubscription = selectedChannelURL
+            } else {
+                loadingRailFocused = true
+            }
+        }
+        .onExitCommand {
+            if focusedSubscription != nil || loadingRailFocused {
+                onRevealMenu()
+            } else {
+                returnToChannelRail()
+            }
+        }
         .task(id: selectedChannelURL) {
             if let selectedChannelURL {
                 await loadChannel(selectedChannelURL)
@@ -116,15 +137,23 @@ struct TVSubscriptionsView: View {
                 .padding(.top, 43)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
-            if loadingSubscriptions {
-                ProgressView()
+            if loadingSubscriptions || subscriptions.isEmpty {
+                Text(loadingSubscriptions
+                     ? TVL10n.value("settings.remoteLoading")
+                     : TVL10n.value("subscriptions.empty"))
+                    .font(.callout)
+                    .foregroundStyle(TTTheme.muted)
                     .padding(16)
+                    .contentShape(Rectangle())
+                    .focusable(true)
+                    .focusEffectDisabled(true)
+                    .focused($loadingRailFocused)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 7) {
                     ForEach(subscriptions) { channel in
                         Button {
-                            selectedChannelURL = channel.channelUrl
+                            enterChannel(channel.channelUrl)
                         } label: {
                             HStack(spacing: 12) {
                                 TVThumbnail(
@@ -154,7 +183,9 @@ struct TVSubscriptionsView: View {
                         .focused($focusedSubscription, equals: channel.channelUrl)
                         .onMoveCommand { direction in
                             if direction == .right {
-                                focusedVideo = videos.first?.url
+                                enterChannel(channel.channelUrl)
+                            } else if direction == .left {
+                                onRevealMenu()
                             }
                         }
                         .accessibilityIdentifier("subscription-\(channel.channelUrl)")
@@ -175,7 +206,48 @@ struct TVSubscriptionsView: View {
     }
 
     @MainActor
+    private func enterChannel(_ url: String) {
+        if selectedChannelURL == url, !loadingVideos {
+            if let first = videos.first {
+                focusedVideo = first.url
+            } else {
+                enterGridAfterLoad = true
+            }
+        } else {
+            enterGridAfterLoad = true
+            selectedChannelURL = url
+        }
+    }
+
+    @MainActor
+    private func returnToChannelRail() {
+        let target = selectedChannelURL
+        focusedSubscription = target
+        // Restore once the directional focus engine has completed its move.
+        Task { @MainActor in
+            await Task.yield()
+            guard selectedChannelURL == target else { return }
+            focusedSubscription = target
+        }
+    }
+
+    @MainActor
     private func reload() async {
+        #if DEBUG
+        if api.origin.host == "preview.invalid" {
+            // Network-free Siri Remote focus regressions in CI.
+            subscriptions = [
+                TVSubscription(channelUrl: "https://preview.invalid/channel/a",
+                               name: "Beispielkanal A", avatarUrl: "", subscribedAt: nil),
+                TVSubscription(channelUrl: "https://preview.invalid/channel/b",
+                               name: "Beispielkanal B", avatarUrl: "", subscribedAt: nil)
+            ]
+            selectedChannelURL = subscriptions.first?.channelUrl
+            await Task.yield()
+            focusedSubscription = selectedChannelURL
+            return
+        }
+        #endif
         loadingSubscriptions = true
         error = nil
         defer { loadingSubscriptions = false }
@@ -199,6 +271,21 @@ struct TVSubscriptionsView: View {
 
     @MainActor
     private func loadChannel(_ channelURL: String) async {
+        #if DEBUG
+        if api.origin.host == "preview.invalid" {
+            channelTitle = subscriptions.first(where: { $0.channelUrl == channelURL })?.name ?? ""
+            channelDescription = ""
+            videos = Array(TVShowcaseFixtures.videos.prefix(9))
+            nextPage = nil
+            loadingVideos = false
+            if enterGridAfterLoad {
+                enterGridAfterLoad = false
+                await Task.yield()
+                if selectedChannelURL == channelURL { focusedVideo = videos.first?.url }
+            }
+            return
+        }
+        #endif
         let identifier = UUID()
         channelRequestID = identifier
         // A cancelled page of the previous channel must not block this one.
@@ -220,6 +307,19 @@ struct TVSubscriptionsView: View {
             channelDescription = response.description ?? ""
             videos = response.videos
             nextPage = response.nextpage
+            if enterGridAfterLoad {
+                enterGridAfterLoad = false
+                await Task.yield()
+                if selectedChannelURL == channelURL {
+                    focusedVideo = videos.first?.url
+                }
+            }
+            // Channel feed has no watch-position metadata. Enrich both
+            // first page and pagination exactly like Home and Library.
+            let enriched = await api.withProgress(response.videos)
+            guard !Task.isCancelled, channelRequestID == identifier,
+                  selectedChannelURL == channelURL else { return }
+            videos = enriched
         } catch is CancellationError {
             return
         } catch {
@@ -244,8 +344,15 @@ struct TVSubscriptionsView: View {
                   self.selectedChannelURL == selectedChannelURL,
                   self.nextPage == nextPage else { return }
             var seen = Set(videos.map(\.url))
-            videos += response.videos.filter { seen.insert($0.url).inserted }
+            let fresh = response.videos.filter { seen.insert($0.url).inserted }
+            videos += fresh
             self.nextPage = response.nextpage == nextPage ? nil : response.nextpage
+            let enriched = await api.withProgress(fresh)
+            guard !Task.isCancelled, pageRequestID == identifier,
+                  self.selectedChannelURL == selectedChannelURL else { return }
+            // Reconcile by URL without replacing the already visible rows.
+            let progressByURL = Dictionary(uniqueKeysWithValues: enriched.map { ($0.url, $0) })
+            videos = videos.map { progressByURL[$0.url] ?? $0 }
         } catch is CancellationError {
             return
         } catch {

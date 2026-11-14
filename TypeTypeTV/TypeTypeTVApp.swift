@@ -20,14 +20,18 @@ struct RootView: View {
            let api = try? TypeTypeAPI(address: "https://preview.invalid") {
             if preview == "player-error" {
                 SabrPlaybackErrorPreview()
-            } else if ["home", "home-expanded", "search", "settings",
-                "settings-content", "settings-performance", "settings-device", "settings-language",
-                "settings-account", "settings-instance", "settings-about"].contains(preview) {
+            } else if ["home", "home-expanded", "search", "library", "subscriptions", "account",
+                "settings", "settings-content", "settings-performance", "settings-device",
+                "settings-language", "settings-account", "settings-instance",
+                "settings-about"].contains(preview) {
                 BrowseView(
                     instanceOrigin: "https://preview.invalid",
                     onDisconnect: {},
                     initialSection: preview == "search" ? .search :
-                        (preview.hasPrefix("settings") ? .settings : .home),
+                        (preview == "library" ? .library :
+                        (preview == "subscriptions" ? .subscriptions :
+                        (preview == "account" ? .account :
+                        (preview.hasPrefix("settings") ? .settings : .home)))),
                     previewVideos: TVShowcaseFixtures.videos,
                     initiallyExpanded: preview == "home-expanded",
                     initialSettingsGroup: {
@@ -44,7 +48,10 @@ struct RootView: View {
                 )
             } else {
                 NavigationStack {
-                    VideoDetailView(api: api, video: TVShowcaseFixtures.videos[0])
+                    VideoDetailView(api: api,
+                                    video: preview == "detail-long"
+                                        ? TVShowcaseFixtures.longTitleVideo
+                                        : TVShowcaseFixtures.videos[0])
                 }
             }
         } else {
@@ -100,6 +107,14 @@ private struct SabrPlaybackErrorPreview: View {
 /// Network-free screenshot fixtures for automated simulator UI reviews.
 /// These are never shown in Release builds or to ordinary users.
 enum TVShowcaseFixtures {
+    static let longTitleVideo = VideoItem(
+        id: "ui-preview-long-title",
+        title: "Eine günstige TESLA Alternative? XPENG L03: Das perfekte E-Auto für Alltag und lange Reisen – ein ausführlicher Vergleich mit vielen Details",
+        url: "https://youtu.be/dQw4w9WgXcQ",
+        thumbnailUrl: nil, uploaderName: "Testkanal",
+        duration: 2196, isLive: false
+    )
+
     static let titles = [
         "Neuigkeiten aus der Welt der Technik",
         "So funktioniert die Videowiedergabe in 4K",
