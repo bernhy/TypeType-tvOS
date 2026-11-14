@@ -4,7 +4,7 @@ options:
   deploymentTarget:
     tvOS: "26.0"
   createIntermediateGroups: true
-  preGenCommand: bash scripts/generate-build-info.sh
+  preGenCommand: bash scripts/generate-build-info.sh && xcrun swift scripts/generate-app-icons.swift
 settings:
   base:
     SWIFT_VERSION: "5.0"
