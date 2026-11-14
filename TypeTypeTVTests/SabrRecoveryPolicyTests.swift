@@ -141,6 +141,58 @@ final class SabrRecoveryPolicyTests: XCTestCase {
             previousFailurePositionMs: nil, alreadyRefreshed: false))
     }
 
+    func testColdResumeSwitchesAtMostOneAutomaticTrackAfterExpiry() {
+        XCTAssertTrue(SabrResumeTrackFallbackPolicy.shouldTryNext(
+            error: SabrFailure.expired, positionMs: 2_821_957,
+            initialized: false, currentIndex: 0, candidateCount: 7,
+            manuallySelected: false
+        ))
+        XCTAssertFalse(SabrResumeTrackFallbackPolicy.shouldTryNext(
+            error: SabrFailure.expired, positionMs: 2_821_957,
+            initialized: false, currentIndex: 1, candidateCount: 7,
+            manuallySelected: false
+        ))
+        XCTAssertFalse(SabrResumeTrackFallbackPolicy.shouldTryNext(
+            error: SabrFailure.expired, positionMs: 0,
+            initialized: false, currentIndex: 0, candidateCount: 7,
+            manuallySelected: false
+        ))
+        XCTAssertFalse(SabrResumeTrackFallbackPolicy.shouldTryNext(
+            error: SabrFailure.expired, positionMs: 2_821_957,
+            initialized: true, currentIndex: 0, candidateCount: 7,
+            manuallySelected: false
+        ))
+        XCTAssertFalse(SabrResumeTrackFallbackPolicy.shouldTryNext(
+            error: SabrFailure.expired, positionMs: 2_821_957,
+            initialized: false, currentIndex: 0, candidateCount: 7,
+            manuallySelected: true
+        ))
+        XCTAssertFalse(SabrResumeTrackFallbackPolicy.shouldTryNext(
+            error: SabrFailure.stalled("queue"), positionMs: 2_821_957,
+            initialized: false, currentIndex: 0, candidateCount: 7,
+            manuallySelected: false
+        ))
+    }
+
+    func testColdResumeEscalatesOnlyAfterFreshAndRefreshedSessions() {
+        XCTAssertFalse(SabrResumeTrackFallbackPolicy.shouldEscalateToAlternateTrack(
+            error: SabrFailure.expired, positionMs: 2_821_957,
+            initialized: false, attempt: 2
+        ))
+        XCTAssertTrue(SabrResumeTrackFallbackPolicy.shouldEscalateToAlternateTrack(
+            error: SabrFailure.expired, positionMs: 2_821_957,
+            initialized: false, attempt: 3
+        ))
+        XCTAssertFalse(SabrResumeTrackFallbackPolicy.shouldEscalateToAlternateTrack(
+            error: SabrFailure.expired, positionMs: 2_821_957,
+            initialized: true, attempt: 3
+        ))
+        XCTAssertFalse(SabrResumeTrackFallbackPolicy.shouldEscalateToAlternateTrack(
+            error: SabrFailure.expired, positionMs: 0,
+            initialized: false, attempt: 3
+        ))
+    }
+
     func testGuestLoginNeverOverwritesAuthenticatedAccount() {
         XCTAssertTrue(SabrGuestAuthPolicy.shouldAttemptGuest(
             responseCode: 401, existingToken: nil

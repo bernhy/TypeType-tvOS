@@ -70,6 +70,37 @@ struct SabrRecoveryPolicy {
     }
 }
 
+/// A cold resume can be rejected on a particular video representation
+/// (for example a high-frame-rate AVC itag) even after a fresh upstream
+/// token. Try exactly one alternative *automatic* track at the same saved
+/// position. Do not silently override an explicitly selected quality or
+/// switch tracks in the middle of a successfully started stream.
+enum SabrResumeTrackFallbackPolicy {
+    static let maximumAlternateAttempts = 1
+
+    static func shouldTryNext(error: Error, positionMs: Int64, initialized: Bool,
+                              currentIndex: Int, candidateCount: Int,
+                              manuallySelected: Bool) -> Bool {
+        guard positionMs > 0, !initialized, !manuallySelected,
+              currentIndex >= 0,
+              currentIndex < maximumAlternateAttempts,
+              currentIndex + 1 < candidateCount else { return false }
+        guard case SabrFailure.expired = error else { return false }
+        return true
+    }
+
+    /// First retry with a fresh session, then with refreshed upstream player
+    /// info. If a *third* cold-start attempt fails with the same terminal
+    /// expiry, changing representation is more useful than repeating an
+    /// identical forward seek for the rest of the 120-second recovery budget.
+    static func shouldEscalateToAlternateTrack(error: Error, positionMs: Int64,
+                                               initialized: Bool, attempt: Int) -> Bool {
+        guard positionMs > 0, !initialized, attempt >= 3 else { return false }
+        guard case SabrFailure.expired = error else { return false }
+        return true
+    }
+}
+
 /// A new playback token alone cannot fix a VOD demand repeatedly stuck at the
 /// same timestamp. Escalate once per incident to a refreshed upstream session.
 /// This is intentionally *not* triggered by a later, unrelated buffering stall.

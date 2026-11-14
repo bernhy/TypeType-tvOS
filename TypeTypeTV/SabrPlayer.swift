@@ -912,7 +912,24 @@ final class SabrPlayerController: ObservableObject {
                         positionMs: playbackStart, buffer: buffer
                     )
                     return
-                } catch SabrFailure.unsupported where index < orderedOptions.count - 1 {
+                } catch {
+                    let codecFallback: Bool
+                    if case SabrFailure.unsupported = error {
+                        codecFallback = index < orderedOptions.count - 1
+                    } else {
+                        codecFallback = SabrResumeTrackFallbackPolicy.shouldTryNext(
+                            error: error, positionMs: playbackStart,
+                            initialized: isInitialized, currentIndex: index,
+                            candidateCount: orderedOptions.count,
+                            manuallySelected: requestedVideoItag != nil
+                        )
+                    }
+                    guard codecFallback else { throw error }
+                    if case SabrFailure.expired = error {
+                        NSLog("TypeType SABR RESUME alternate-track firstItag=%d nextItag=%d positionMs=%lld reason=expired",
+                              choice.video.itag, orderedOptions[index + 1].video.itag,
+                              playbackStart)
+                    }
                     if isInitialized {
                         recordProgress(force: true)
                         let lastSubmitted = max(0, self.positionMs - 1_000)
@@ -1054,6 +1071,14 @@ final class SabrPlayerController: ObservableObject {
                 )
                 let allowed = recovery.allowed
                 let recoveryAttempt = recovery.attempt
+                if SabrResumeTrackFallbackPolicy.shouldEscalateToAlternateTrack(
+                    error: error, positionMs: producerStart,
+                    initialized: isInitialized, attempt: recoveryAttempt
+                ) {
+                    NSLog("TypeType SABR RECOVERY cold-resume sessions-exhausted attempts=%d positionMs=%lld",
+                          recoveryAttempt, producerStart)
+                    throw error
+                }
                 // Never log the sessionId, bearer or media URL.
                 NSLog("TypeType SABR RECOVERY attempt=%d retry=%d playbackMs=%lld contiguousMs=%lld",
                       recoveryAttempt, allowed ? 1 : 0, lastPositionMs, positionMs)
