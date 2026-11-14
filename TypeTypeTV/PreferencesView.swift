@@ -518,7 +518,7 @@ struct PreferencesView: View {
                 )
                 TVSettingsInfoRow(title: "settings.gitRevision", value: TVBuildInfo.gitShortRevision)
                 TVSettingsInfoRow(title: "settings.gitBranch", value: TVBuildInfo.gitBranch)
-                TVSettingsInfoRow(title: "settings.platform", value: "Apple TV 4K · tvOS 17+")
+                TVSettingsInfoRow(title: "settings.platform", value: "Apple TV 4K · tvOS 26+")
                 Text("settings.licenseInfo")
                     .font(.callout).foregroundStyle(TTTheme.muted)
                 Text("settings.playerExperimental")
