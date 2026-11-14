@@ -380,6 +380,35 @@ final class TVAPIWireTests: XCTestCase {
         XCTAssertTrue(logged[4].1.hasPrefix("/api/watch-later/"))
     }
 
+    @MainActor
+    func testWatchLaterThumbnailMembershipSharedAcrossViewsAndAliases() async throws {
+        let lock = NSLock()
+        var requestCount = 0
+        TVAPIWireProtocol.install(host: "thumbnail-membership.example") { request in
+            guard request.url?.path == "/api/watch-later" else {
+                return (404, Data())
+            }
+            lock.withLock { requestCount += 1 }
+            return (200, Data(
+                #"[{"url":"https://www.youtube.com/watch?v=abc123def45","title":"Saved","thumbnail":"","channelName":"Owner","duration":300}]"#.utf8
+            ))
+        }
+        let api = try fixtureAPI(host: "thumbnail-membership.example")
+        let store = TVWatchLaterMembership.shared
+        store.invalidate()
+        await store.ensureLoaded(api: api)
+        await store.ensureLoaded(api: api)
+        XCTAssertEqual(lock.withLock { requestCount }, 1,
+                       "Many cards should share one membership GET")
+        XCTAssertTrue(store.contains("https://youtu.be/abc123def45"))
+        store.mark("https://www.youtube.com/watch?v=abc123def45",
+                   present: false, api: api)
+        XCTAssertFalse(store.contains("https://youtu.be/abc123def45"))
+        store.mark("https://youtu.be/abc123def45", present: true, api: api)
+        XCTAssertTrue(store.contains("https://www.youtube.com/watch?v=abc123def45"))
+        store.invalidate()
+    }
+
     func testWatchLaterDuplicateNeverRepostsAndDoesNotTriggerServer500() async throws {
         let lock = NSLock()
         var requests: [String] = []
