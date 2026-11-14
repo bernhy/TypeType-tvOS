@@ -332,8 +332,8 @@ struct HomeView: View {
                     .buttonStyle(.bordered)
                     // Do not steal the initial Right move from the icon rail.
                     // Once a thumbnail receives focus, Up can reach Refresh.
-                    .focusDisabled(sidebarFocused)
-                    .disabled((loading && loadingRecent) || previewVideos != nil)
+                    .disabled((loading && loadingRecent) || previewVideos != nil ||
+                              sidebarFocused)
                 }
 
                 VStack(alignment: .leading, spacing: 19) {
