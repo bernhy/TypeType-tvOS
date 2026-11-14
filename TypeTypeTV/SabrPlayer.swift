@@ -375,6 +375,7 @@ final class SabrPlayerController: ObservableObject {
     private var requestedVideoItag: Int?
     private var requestedAudioItag: Int?
     private var requestedAudioTrackId: String?
+    private var sponsorLookupTask: Task<Void, Never>?
     private var subtitleTask: Task<Void, Never>?
     private var subtitlePreferenceChanged = false
 
@@ -424,6 +425,8 @@ final class SabrPlayerController: ObservableObject {
         running = nil
         subtitleTask?.cancel()
         subtitleTask = nil
+        sponsorLookupTask?.cancel()
+        sponsorLookupTask = nil
         subtitleCues = []
         sponsorSegments = []
         sponsorSettings = nil
@@ -749,6 +752,16 @@ final class SabrPlayerController: ObservableObject {
             guard playbackEpoch == epoch, !Task.isCancelled else { return }
             sponsorSegments = bootstrap.sponsorBlockSegments ?? []
             sponsorStreamCategory = bootstrap.category
+            if sponsorSegments.isEmpty, settings?.sponsorBlockMode != "disabled" {
+                // The server's SABR fallback intentionally has no segments.
+                // Query SponsorBlock's hash-prefix endpoint asynchronously:
+                // a slow or unavailable third party must not delay playback.
+                sponsorLookupTask = Task { [weak self] in
+                    let segments = await TVSponsorBlockLookup.shared.segments(for: id)
+                    guard !Task.isCancelled, self?.playbackEpoch == epoch else { return }
+                    self?.sponsorSegments = segments
+                }
+            }
             let allowSoftware = UserDefaults.standard.bool(forKey: "typetype.allowSoftwareDecode")
             let maximum = UserDefaults.standard.integer(forKey: "typetype.maxHeight")
 
