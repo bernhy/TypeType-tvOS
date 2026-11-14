@@ -108,8 +108,9 @@ struct TVSubscriptionFeedView: View {
             await Task.yield()
             focusedVideo = videos.first?.url
         }
-        .onChange(of: videos.count) { _, count in
-            guard count > 0, focusRequest > 0, focusedVideo == nil else { return }
+        .onChange(of: videos.map(\.url)) { _, urls in
+            guard !urls.isEmpty, focusRequest > 0,
+                  !urls.contains(focusedVideo ?? "") else { return }
             Task { @MainActor in
                 await Task.yield()
                 focusedVideo = videos.first?.url

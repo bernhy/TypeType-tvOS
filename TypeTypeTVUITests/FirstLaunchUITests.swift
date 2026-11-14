@@ -364,7 +364,8 @@ final class TypeTypeTVUITests: XCTestCase {
         // Return from Home to the global icon rail, then navigate down to
         // Settings. This exercises the same path as the user's Siri Remote.
         XCUIRemote.shared.press(.menu)
-        for _ in 0..<5 { XCUIRemote.shared.press(.down) }
+        // Seven main sections (including both subscription destinations).
+        for _ in 0..<6 { XCUIRemote.shared.press(.down) }
         XCTAssertTrue(settings.hasFocus)
         XCUIRemote.shared.press(.select)
         let playbackGroup = app.buttons["settings-group-playback"]

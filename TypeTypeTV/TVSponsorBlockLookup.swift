@@ -7,7 +7,11 @@ import Foundation
 /// Never contact this third party while SponsorBlock is disabled.
 actor TVSponsorBlockLookup {
     static let shared = TVSponsorBlockLookup()
-    private var cache: [String: [TVSponsorBlockSegment]] = [:]
+    private struct Cached {
+        let segments: [TVSponsorBlockSegment]
+        let until: Date
+    }
+    private var cache: [String: Cached] = [:]
     private var tasks: [String: Task<[TVSponsorBlockSegment], Never>] = [:]
 
     private struct Segment: Decodable {
@@ -28,7 +32,9 @@ actor TVSponsorBlockLookup {
     }
 
     func segments(for videoID: String) async -> [TVSponsorBlockSegment] {
-        if let cached = cache[videoID] { return cached }
+        if let cached = cache[videoID], cached.until > Date() {
+            return cached.segments
+        }
         if let running = tasks[videoID] { return await running.value }
         let running = Task { await fetch(videoID) }
         tasks[videoID] = running
@@ -37,7 +43,12 @@ actor TVSponsorBlockLookup {
         if cache.count >= 64, let first = cache.keys.first {
             cache.removeValue(forKey: first)
         }
-        cache[videoID] = answer
+        // Negative results expire quickly after temporary network failures;
+        // successful segment results are cached longer to limit API traffic.
+        cache[videoID] = Cached(
+            segments: answer,
+            until: Date().addingTimeInterval(answer.isEmpty ? 300 : 14_400)
+        )
         return answer
     }
 
@@ -53,7 +64,7 @@ actor TVSponsorBlockLookup {
               let categoriesJSON = String(data: categoriesData, encoding: .utf8) else { return [] }
         components?.queryItems = [
             URLQueryItem(name: "categories", value: categoriesJSON),
-            URLQueryItem(name: "actionTypes", value: #"["skip","mute","full"]"#)
+            URLQueryItem(name: "actionTypes", value: #"["skip","mute","full","poi","chapter"]"#)
         ]
         guard let url = components?.url else { return [] }
         var request = URLRequest(url: url)

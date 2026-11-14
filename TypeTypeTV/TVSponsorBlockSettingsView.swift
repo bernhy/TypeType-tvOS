@@ -148,15 +148,14 @@ struct TVSponsorBlockSettingsView: View {
         saving = true
         error = nil
         do {
-            // Serialized updates match the web client's global-mode behavior.
+            // Global mode and categories must always change together.
+            // Two separate PUTs could otherwise leave inconsistent rules.
             let actions = Dictionary(uniqueKeysWithValues:
                 TVSponsorBlock.categories.map { ($0, mode) })
-            settings = try await api.setAccountSetting(
-                "sponsorBlockCategoryActions", value: .actions(actions)
-            )
-            settings = try await api.setAccountSetting(
-                "sponsorBlockMode", value: .text(mode)
-            )
+            settings = try await api.setAccountSettings([
+                "sponsorBlockCategoryActions": .actions(actions),
+                "sponsorBlockMode": .text(mode)
+            ])
         } catch {
             self.error = error.localizedDescription
             settings = try? await api.accountSettings()

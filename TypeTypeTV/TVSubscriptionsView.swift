@@ -21,6 +21,7 @@ struct TVSubscriptionsView: View {
     @State private var loadingMore = false
     @State private var enterGridAfterLoad = false
     @State private var error: String?
+    @State private var pageError: String?
     @FocusState private var focusedSubscription: String?
     @FocusState private var focusedVideo: String?
     @FocusState private var loadingRailFocused: Bool
@@ -76,7 +77,15 @@ struct TVSubscriptionsView: View {
                             symbol: "wifi.exclamationmark",
                             title: error,
                             detail: TVL10n.value("subscriptions.loadError"),
-                            action: { Task { await reload() } }
+                            action: {
+                                Task {
+                                    if let selectedChannelURL {
+                                        await loadChannel(selectedChannelURL)
+                                    } else {
+                                        await reload()
+                                    }
+                                }
+                            }
                         )
                     } else if !loadingVideos && videos.isEmpty {
                         TVContentMessage(
@@ -107,7 +116,8 @@ struct TVSubscriptionsView: View {
                                 }
                                 .onAppear {
                                     if index >= videos.count - columns.count - 1,
-                                       nextPage != nil, !loadingMore && !loadingVideos {
+                                       nextPage != nil, !loadingMore && !loadingVideos &&
+                                       pageError == nil {
                                         Task { await loadMore() }
                                     }
                                 }
@@ -116,6 +126,12 @@ struct TVSubscriptionsView: View {
                         .focusSection()
                         if loadingMore {
                             ProgressView("settings.remoteLoading")
+                        } else if let pageError {
+                            HStack(spacing: 18) {
+                                Text(pageError).foregroundStyle(.orange)
+                                Button("common.retry") { Task { await loadMore() } }
+                                    .buttonStyle(.bordered)
+                            }
                         }
                     }
                 }
@@ -330,6 +346,7 @@ struct TVSubscriptionsView: View {
         channelTitle = subscriptions.first(where: { $0.channelUrl == channelURL })?.name ?? ""
         channelDescription = ""
         error = nil
+        pageError = nil
         defer { if channelRequestID == identifier { loadingVideos = false } }
         do {
             let response = try await api.channel(channelURL, shorts: shorts)
@@ -369,6 +386,7 @@ struct TVSubscriptionsView: View {
         let identifier = UUID()
         let shorts = showingShorts
         pageRequestID = identifier
+        pageError = nil
         loadingMore = true
         defer { if pageRequestID == identifier { loadingMore = false } }
         do {
@@ -391,7 +409,7 @@ struct TVSubscriptionsView: View {
         } catch is CancellationError {
             return
         } catch {
-            if pageRequestID == identifier { self.error = error.localizedDescription }
+            if pageRequestID == identifier { pageError = error.localizedDescription }
         }
     }
 }

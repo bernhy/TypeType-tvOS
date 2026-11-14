@@ -391,6 +391,11 @@ struct TypeTypeAPI {
     }
 
     func setAccountSetting(_ field: String, value: TVSettingValue) async throws -> TVServerSettings {
+        try await setAccountSettings([field: value])
+    }
+
+    /// Write related account preferences in one atomic PUT, like the web UI.
+    func setAccountSettings(_ fields: [String: TVSettingValue]) async throws -> TVServerSettings {
         guard let url = URLComponents(url: base.appendingPathComponent("settings"), resolvingAgainstBaseURL: false)?.url else {
             throw TypeTypeError.invalidServerAddress
         }
@@ -403,7 +408,7 @@ struct TypeTypeAPI {
             throw TypeTypeError.http(401, "settings")
         }
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONEncoder().encode([field: value])
+        request.httpBody = try JSONEncoder().encode(fields)
         let (data, response) = try await authenticatedData(for: request)
         guard let response = response as? HTTPURLResponse else {
             throw TypeTypeError.unexpectedResponse

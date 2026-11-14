@@ -752,7 +752,8 @@ final class SabrPlayerController: ObservableObject {
             guard playbackEpoch == epoch, !Task.isCancelled else { return }
             sponsorSegments = bootstrap.sponsorBlockSegments ?? []
             sponsorStreamCategory = bootstrap.category
-            if sponsorSegments.isEmpty, settings?.sponsorBlockMode != "disabled" {
+            if sponsorSegments.isEmpty, let settings,
+               settings.sponsorBlockMode != "disabled" {
                 // The server's SABR fallback intentionally has no segments.
                 // Query SponsorBlock's hash-prefix endpoint asynchronously:
                 // a slow or unavailable third party must not delay playback.

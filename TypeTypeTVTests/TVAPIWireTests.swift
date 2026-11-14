@@ -80,6 +80,33 @@ final class TVAPIWireTests: XCTestCase {
         )
     }
 
+    func testSponsorBlockGlobalModeSavesBothFieldsInOneAtomicPut() async throws {
+        let host = "sponsor-settings-atomic.example"
+        TVAPIWireProtocol.install(host: host) { request in
+            XCTAssertEqual(request.httpMethod, "PUT")
+            XCTAssertEqual(request.url?.path, "/api/settings")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"),
+                           "Bearer fixture-token")
+            let fields = (try? JSONSerialization.jsonObject(
+                with: request.httpBody ?? Data()
+            )) as? [String: Any]
+            XCTAssertEqual(fields?["sponsorBlockMode"] as? String, "disabled")
+            let actions = fields?["sponsorBlockCategoryActions"] as? [String: String]
+            XCTAssertEqual(actions?["sponsor"], "disabled")
+            XCTAssertEqual(actions?["intro"], "disabled")
+            XCTAssertEqual(fields?.count, 2)
+            return (200, Data(#"{"sponsorBlockMode":"disabled","sponsorBlockCategoryActions":{"sponsor":"disabled","intro":"disabled"}}"#.utf8))
+        }
+        let api = try fixtureAPI(host: host)
+        let settings = try await api.setAccountSettings([
+            "sponsorBlockMode": .text("disabled"),
+            "sponsorBlockCategoryActions":
+                .actions(["sponsor": "disabled", "intro": "disabled"])
+        ])
+        XCTAssertEqual(settings.sponsorBlockMode, "disabled")
+        XCTAssertEqual(settings.sponsorBlockCategoryActions?["sponsor"], "disabled")
+    }
+
     func testMissingDeviceCodeRouteExplainsUnsupportedServerVersion() async throws {
         let host = "device-code-unsupported.example"
         TVAPIWireProtocol.install(host: host) { request in
