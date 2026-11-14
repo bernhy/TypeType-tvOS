@@ -192,7 +192,8 @@ final class TypeTypeTVUITests: XCTestCase {
             "-typetype.uiLanguage", "de"
         ]
         app.launch()
-        XCTAssertTrue(app.staticTexts["Konto"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Konten"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Gespeicherte Konten auf diesem Apple TV"].firstMatch.exists)
         XCTAssertTrue(app.staticTexts["Anmeldung"].firstMatch.exists)
         XCTAssertTrue(app.buttons["TypeType-Konto mit Gerätecode koppeln"].exists)
     }
