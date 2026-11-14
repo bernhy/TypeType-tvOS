@@ -120,12 +120,12 @@ struct BrowseView: View {
             .ignoresSafeArea(.container, edges: .leading)
             // The global rail background must cover the whole screen, not only
             // the vertically inset tvOS safe area occupied by its buttons.
-            .background(TTTheme.ink.ignoresSafeArea())
             .background(alignment: .leading) {
                 TTTheme.surface
                     .frame(width: expanded ? 214 : 56)
                     .ignoresSafeArea(.container, edges: [.top, .bottom, .leading])
             }
+            .background(TTTheme.ink.ignoresSafeArea())
             .task { await reloadSidebarIdentity(api: api) }
             .onChange(of: section) { old, _ in
                 if old == .account || old == .settings {
