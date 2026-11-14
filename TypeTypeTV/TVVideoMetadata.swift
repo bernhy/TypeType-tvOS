@@ -52,3 +52,68 @@ enum TVVideoMetadata {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
+
+extension TVVideoMetadata {
+    static func merged(_ video: VideoItem, stream: StreamInfo?) -> VideoItem {
+        guard let stream else { return video }
+        var row = video
+        if row.viewCount == nil || row.viewCount! < 0 { row.viewCount = stream.viewCount }
+        if row.publishedAt == nil || row.publishedAt! <= 0 { row.publishedAt = stream.publishedAt }
+        if row.uploaded == nil || row.uploaded! <= 0 { row.uploaded = stream.uploaded }
+        if row.uploadDate?.isEmpty != false { row.uploadDate = stream.uploadDate }
+        if row.uploaderUrl?.isEmpty != false { row.uploaderUrl = stream.uploaderUrl }
+        return row
+    }
+}
+
+/// Deduplicated and bounded on-demand metadata lookups. /history has no
+/// view-count/publication fields; /streams does. Limit the extraction load.
+actor TVStreamMetadataCache {
+    static let shared = TVStreamMetadataCache()
+    private var completed: [String: StreamInfo] = [:]
+    private var pending: [String: Task<StreamInfo?, Never>] = [:]
+    private var failedUntil: [String: Date] = [:]
+    private var active = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func details(for video: VideoItem, api: TypeTypeAPI) async -> StreamInfo? {
+        let key = api.origin.absoluteString + "|" + video.url
+        if let value = completed[key] { return value }
+        if let until = failedUntil[key], until > Date() { return nil }
+        if let task = pending[key] { return await task.value }
+        let task = Task<StreamInfo?, Never> { await fetch(video: video, api: api) }
+        pending[key] = task
+        let result = await task.value
+        pending[key] = nil
+        if let result {
+            if completed.count >= 128, let first = completed.keys.first {
+                completed.removeValue(forKey: first)
+            }
+            completed[key] = result
+            failedUntil[key] = nil
+        } else {
+            failedUntil[key] = Date().addingTimeInterval(120)
+        }
+        return result
+    }
+
+    private func fetch(video: VideoItem, api: TypeTypeAPI) async -> StreamInfo? {
+        await acquire()
+        defer { release() }
+        guard !Task.isCancelled else { return nil }
+        return try? await api.stream(for: video)
+    }
+
+    private func acquire() async {
+        if active < 3 {
+            active += 1
+            return
+        }
+        await withCheckedContinuation { waiter in waiters.append(waiter) }
+    }
+
+    private func release() {
+        if waiters.isEmpty { active -= 1 }
+        else { waiters.removeFirst().resume() }
+    }
+}

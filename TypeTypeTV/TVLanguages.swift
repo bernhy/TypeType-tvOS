@@ -29,7 +29,7 @@ enum TVLanguages {
     }
 
     static var currentChoice: String {
-        UserDefaults.standard.string(forKey: preferenceKey) ?? defaultCode
+        UserDefaults.standard.string(forKey: preferenceKey) ?? followSystem
     }
 
     static var activeLanguage: String {

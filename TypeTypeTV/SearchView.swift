@@ -99,7 +99,8 @@ struct SearchView: View {
                                 } label: {
                                     VideoCard(api: api, video: video)
                                 }
-                                .buttonStyle(.card)
+                                .buttonStyle(.plain)
+                                .focusEffectDisabled(true)
                                 .videoActions(api: api, video: video, onChanged: {
                                     Task { await execute(searchedTerm) }
                                 })

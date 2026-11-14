@@ -15,7 +15,7 @@ struct PreferencesView: View {
     var onAddAccountDismissed: () -> Void = {}
 
     @ObservedObject private var hardware = TVHardwareDiagnostics.shared
-    @AppStorage("typetype.uiLanguage") private var uiLanguage = TVLanguages.defaultCode
+    @AppStorage("typetype.uiLanguage") private var uiLanguage = TVLanguages.followSystem
     @AppStorage("typetype.allowSoftwareDecode") private var allowSoftware = false
     @AppStorage("typetype.maxHeight") private var maxHeight = 2160
     @AppStorage("typetype.skipSeconds") private var skipSeconds = 10
@@ -213,7 +213,7 @@ struct PreferencesView: View {
 
     private var groupRail: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("TYPE TYPE")
+            Text("nav.settings")
                 .font(.subheadline.bold())
                 .tracking(2.6)
                 .foregroundStyle(TTTheme.accent)
@@ -485,8 +485,6 @@ struct PreferencesView: View {
                         Text(TVLanguages.nativeName(lang)).tag(lang)
                     }
                 }
-                Text("settings.languageNote")
-                    .font(.callout).foregroundStyle(TTTheme.muted)
             }
         }
     }
@@ -606,6 +604,13 @@ struct PreferencesView: View {
         }
     }
 
+    private var compileTimeLabel: String {
+        guard let date = ISO8601DateFormatter().date(from: TVBuildInfo.compiledAtUTC) else {
+            return TVBuildInfo.compiledAtUTC
+        }
+        return DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .medium)
+    }
+
     private var aboutPanel: some View {
         VStack(spacing: 24) {
             TVSettingsCard("settings.aboutControls") {
@@ -617,12 +622,11 @@ struct PreferencesView: View {
                         ?? TVL10n.value("settings.developmentBuild")
                 )
                 TVSettingsInfoRow(title: "settings.gitRevision", value: TVBuildInfo.gitShortRevision)
+                TVSettingsInfoRow(title: "settings.buildTime", value: compileTimeLabel)
                 TVSettingsInfoRow(title: "settings.gitBranch", value: TVBuildInfo.gitBranch)
                 TVSettingsInfoRow(title: "settings.platform", value: "Apple TV 4K · tvOS 26+")
                 Text("settings.licenseInfo")
                     .font(.callout).foregroundStyle(TTTheme.muted)
-                Text("settings.playerExperimental")
-                    .font(.caption).foregroundStyle(.orange)
             }
         }
     }

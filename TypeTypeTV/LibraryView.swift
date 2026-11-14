@@ -115,9 +115,11 @@ struct LibraryView: View {
                                         playbackQueue: playbackQueue
                                     )
                                 } label: {
-                                    VideoCard(api: api, video: video)
+                                    VideoCard(api: api, video: video,
+                                              lookupMissingMetadata: selected == .standard(.history))
                                 }
-                                .buttonStyle(.card)
+                                .buttonStyle(.plain)
+                                .focusEffectDisabled(true)
                                 .videoActions(
                                     api: api, video: video,
                                     onChanged: { Task { await refresh() } },

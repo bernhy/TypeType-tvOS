@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct TypeTypeTVApp: App {
-    @AppStorage("typetype.uiLanguage") private var language = "de"
+    @AppStorage("typetype.uiLanguage") private var language = TVLanguages.followSystem
     var body: some Scene {
         WindowGroup {
             RootView()

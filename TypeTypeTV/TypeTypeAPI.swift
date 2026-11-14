@@ -96,6 +96,15 @@ struct StreamInfo: Decodable {
     let title: String?
     let isLive: Bool?
     let hlsUrl: String?
+    let description: String?
+    let uploaderName: String?
+    let uploaderUrl: String?
+    let viewCount: Int64?
+    let likeCount: Int64?
+    let dislikeCount: Int64?
+    let publishedAt: Int64?
+    let uploaded: Int64?
+    let uploadDate: String?
 }
 
 enum TypeTypeError: LocalizedError {

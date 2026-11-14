@@ -48,6 +48,7 @@ struct BrowseView: View {
     @ObservedObject private var playbackVisibility = TVPlaybackVisibility.shared
     @State private var settingsEntryGroup: TVSettingsGroup
     @State private var settingsFocusRequest = 0
+    @State private var homeFocusRequest = 0
     @State private var accountGeneration = 0
     @State private var returnToSwitcherAfterLogin = false
     @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
@@ -81,7 +82,8 @@ struct BrowseView: View {
                                 api: api, previewVideos: previewVideos,
                                 onRevealMenu: revealMenu,
                                 onOpenAccount: { open(.account) },
-                                sidebarFocused: menuFocus != nil
+                                sidebarFocused: menuFocus != nil,
+                                focusRequest: homeFocusRequest
                             )
                         case .search:
                             SearchView(api: api)
@@ -293,6 +295,7 @@ struct BrowseView: View {
             settingsFocusRequest += 1
             section = destination
         } else {
+            if destination == .home { homeFocusRequest += 1 }
             section = destination
             menuFocus = nil
         }
@@ -310,6 +313,9 @@ struct HomeView: View {
     let onRevealMenu: () -> Void
     let onOpenAccount: () -> Void
     let sidebarFocused: Bool
+    let focusRequest: Int
+    @FocusState private var focusedHomeVideo: String?
+    @State private var needsHomeFocus = false
     private let previewVideos: [VideoItem]?
 
     @State private var videos: [VideoItem]
@@ -329,12 +335,14 @@ struct HomeView: View {
     init(api: TypeTypeAPI, previewVideos: [VideoItem]? = nil,
          onRevealMenu: @escaping () -> Void = {},
          onOpenAccount: @escaping () -> Void = {},
-         sidebarFocused: Bool = false) {
+         sidebarFocused: Bool = false,
+         focusRequest: Int = 0) {
         self.api = api
         self.previewVideos = previewVideos
         self.onRevealMenu = onRevealMenu
         self.onOpenAccount = onOpenAccount
         self.sidebarFocused = sidebarFocused
+        self.focusRequest = focusRequest
         _videos = State(initialValue: previewVideos ?? [])
         _recentVideos = State(initialValue: previewVideos.map {
             Array($0.prefix(4))
@@ -375,7 +383,7 @@ struct HomeView: View {
                         ProgressView("home.loadingHistory")
                             .frame(maxWidth: .infinity, minHeight: 135)
                     } else if !recentVideos.isEmpty {
-                        videoGrid(recentVideos)
+                        videoGrid(recentVideos, lookupHistoryMetadata: true)
                     } else if recentNeedsLogin {
                         VStack(alignment: .leading, spacing: 15) {
                             Text("home.signInForHistory")
@@ -446,21 +454,42 @@ struct HomeView: View {
             if previewVideos == nil { await refresh() }
         }
         .onExitCommand { onRevealMenu() }
+        .task(id: focusRequest) {
+            guard focusRequest > 0 else { return }
+            needsHomeFocus = true
+            await Task.yield()
+            focusFirstHomeVideo()
+        }
+        .onChange(of: recentVideos.count) { _, _ in focusFirstHomeVideo() }
+        .onChange(of: videos.count) { _, _ in focusFirstHomeVideo() }
+    }
+
+    private func focusFirstHomeVideo() {
+        guard needsHomeFocus else { return }
+        let target = !recentVideos.isEmpty ? "recent-0" :
+            (!videos.isEmpty ? "recommendation-0" : nil)
+        guard let target else { return }
+        focusedHomeVideo = target
+        needsHomeFocus = false
     }
 
     @ViewBuilder
-    private func videoGrid(_ items: [VideoItem], paginate: Bool = false) -> some View {
+    private func videoGrid(_ items: [VideoItem], paginate: Bool = false,
+                           lookupHistoryMetadata: Bool = false) -> some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 34) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, video in
                 NavigationLink {
                     VideoDetailView(api: api, video: video)
                 } label: {
-                    VideoCard(api: api, video: video)
+                    VideoCard(api: api, video: video,
+                              lookupMissingMetadata: lookupHistoryMetadata)
                 }
-                .buttonStyle(.card)
+                .buttonStyle(.plain)
+                .focusEffectDisabled(true)
                 .videoActions(api: api, video: video, onChanged: {
                     Task { await refresh() }
-                })
+                }, focus: $focusedHomeVideo,
+                   focusID: (paginate ? "recommendation-" : "recent-") + String(index))
                 .onMoveCommand { direction in
                     if direction == .left && index % columns.count == 0 {
                         onRevealMenu()
@@ -574,6 +603,13 @@ struct VideoCard: View {
     let api: TypeTypeAPI
     let video: VideoItem
     @ObservedObject private var localProgress = TVLocalProgress.shared
+    @Environment(\.isFocused) private var isFocused
+    var lookupMissingMetadata = false
+    @State private var streamMetadata: StreamInfo?
+
+    private var metadataVideo: VideoItem {
+        TVVideoMetadata.merged(video, stream: streamMetadata)
+    }
 
     private var effectivePosition: Int64? {
         localProgress.positions[video.url] ?? video.watchPositionMs
@@ -597,7 +633,7 @@ struct VideoCard: View {
     }
 
     private var videoMetadata: String? {
-        TVVideoMetadata.subtitle(for: video)
+        TVVideoMetadata.subtitle(for: metadataVideo)
     }
 
     var body: some View {
@@ -607,6 +643,7 @@ struct VideoCard: View {
             ZStack(alignment: .bottomTrailing) {
                 TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl), origin: api.origin)
                     .grayscale(completed ? 1 : 0)
+                    .scaleEffect(isFocused ? 1.06 : 1)
                     .aspectRatio(16.0 / 9.0, contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipped()
@@ -674,7 +711,18 @@ struct VideoCard: View {
         .frame(minHeight: 322, alignment: .top)
         .background(TTTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(isFocused ? TTTheme.accent : .clear, lineWidth: 3)
+                .allowsHitTesting(false)
+        }
+        .animation(.easeOut(duration: 0.18), value: isFocused)
         .foregroundStyle(.white)
+        .task(id: video.url) {
+            guard lookupMissingMetadata &&
+                (video.viewCount == nil || TVVideoMetadata.publicationDate(for: video) == nil) else { return }
+            streamMetadata = await TVStreamMetadataCache.shared.details(for: video, api: api)
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(TTTheme.accessibilityText(for: video))
     }

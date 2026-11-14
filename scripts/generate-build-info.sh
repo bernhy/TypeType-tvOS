@@ -13,6 +13,7 @@ else
     branch="unknown"
 fi
 short="${revision:0:12}"
+compiled_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # Quote Git branch names safely inside Swift string literals.
 branch="${branch//\\/\\\\}"
 branch="${branch//\"/\\\"}"
@@ -25,6 +26,7 @@ enum TVBuildInfo {
     static let gitRevision = "$revision"
     static let gitShortRevision = "$short"
     static let gitBranch = "$branch"
+    static let compiledAtUTC = "$compiled_at"
 }
 EOF
 # No needless recompilation when building the same checked-out commit.
