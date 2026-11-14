@@ -17,6 +17,18 @@ struct TVHLSPlaybackView: View {
     var body: some View {
         ZStack {
             SystemVideoPlayer(player: playback.player)
+            if let label = playback.sponsorLabel {
+                Text(label)
+                    .font(.callout.bold())
+                    .padding(12)
+                    .background(.black.opacity(0.8),
+                                in: RoundedRectangle(cornerRadius: 8))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity,
+                           alignment: .bottomTrailing)
+                    .padding(.trailing, 80)
+                    .padding(.bottom, 100)
+                    .allowsHitTesting(false)
+            }
             if let error = playback.errorMessage {
                 VStack(spacing: 18) {
                     Text("player.unavailable").font(.title.bold())
@@ -53,6 +65,7 @@ final class TVHLSPlaybackController: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var playbackFinished = false
     @Published private(set) var playbackUnavailable = false
+    @Published private(set) var sponsorLabel: String?
 
     private var api: TypeTypeAPI?
     private var video: VideoItem?
@@ -92,6 +105,7 @@ final class TVHLSPlaybackController: ObservableObject {
         self.video = video
         self.streamURL = url
         sponsorSegments = streamMetadata?.sponsorBlockSegments ?? []
+        sponsorLabel = nil
         sponsorStreamCategory = streamMetadata?.category
         lastSponsorSeek = .distantPast
         isStopped = false
@@ -236,12 +250,18 @@ final class TVHLSPlaybackController: ObservableObject {
     }
 
     private func checkSponsorBlock() {
-        guard !isStopped, initialSeekFinished,
-              player.timeControlStatus == .playing,
-              Date().timeIntervalSince(lastSponsorSeek) >= 2.5,
-              let settings = sponsorSettings else { return }
+        guard !isStopped, initialSeekFinished, let settings = sponsorSettings else {
+            sponsorLabel = nil
+            return
+        }
         let seconds = player.currentTime().seconds
         let duration = video?.duration.map(Double.init) ?? 0
+        sponsorLabel = TVSponsorBlock.label(
+            segments: sponsorSegments, settings: settings,
+            position: seconds, duration: duration
+        )
+        guard player.timeControlStatus == .playing,
+              Date().timeIntervalSince(lastSponsorSeek) >= 2.5 else { return }
         let end = TVSponsorBlock.target(
             segments: sponsorSegments, settings: settings,
             position: seconds, duration: duration,

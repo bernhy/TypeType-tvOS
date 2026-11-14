@@ -1037,6 +1037,34 @@
         }
       }
     },
+    "sponsor.lookupPrivacy": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei YouTube-SABR wird bei aktivem SponsorBlock ein vierstelliges Hash-Präfix bei SponsorBlock abgefragt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For YouTube SABR, a four-character video hash prefix is sent to SponsorBlock when enabled."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avec YouTube SABR, un préfixe de hachage de quatre caractères est envoyé à SponsorBlock si activé."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para YouTube SABR, se consulta un prefijo hash de cuatro caracteres en SponsorBlock cuando está activado."
+          }
+        }
+      }
+    },
     "nav.home": {
       "localizations": {
         "de": {

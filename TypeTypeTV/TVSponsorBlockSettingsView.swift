@@ -24,6 +24,9 @@ struct TVSponsorBlockSettingsView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         Text("sponsor.mode").font(.title3.bold())
+                        Text("sponsor.lookupPrivacy")
+                            .font(.caption)
+                            .foregroundStyle(TTTheme.muted)
                         choice("sponsor.mode", current: settings.sponsorBlockMode ?? "auto_skip",
                                choices: ["auto_skip", "mark_only", "disabled"]) { mode in
                             Task { await updateGlobalMode(mode) }
@@ -100,7 +103,6 @@ struct TVSponsorBlockSettingsView: View {
             .labelsHidden()
             .pickerStyle(.menu)
             .frame(width: 310)
-            .disabled(saving)
         }
         .frame(minHeight: 46)
     }
@@ -124,7 +126,6 @@ struct TVSponsorBlockSettingsView: View {
                 }
             )
         )
-        .disabled(saving)
     }
 
     @MainActor

@@ -1870,7 +1870,7 @@ struct SabrPlayerView: View {
             }
             .allowsHitTesting(false)
 
-            if let settings = engine.sponsorSettings, controlsVisible {
+            if let settings = engine.sponsorSettings {
                 TimelineView(.periodic(from: .now, by: 0.5)) { _ in
                     if let label = TVSponsorBlock.label(
                         segments: engine.sponsorSegments, settings: settings,
