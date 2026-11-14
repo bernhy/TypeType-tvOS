@@ -478,6 +478,17 @@ struct TypeTypeAPI {
         let url: URL
         let body: Data?
         if enabled {
+            // TypeType Server currently inserts (user_id, url) with a PRIMARY
+            // KEY but does not upsert or translate duplicate-key errors into
+            // 409. A second POST for an already-saved video causes HTTP 500.
+            // Inspect membership at action time, not once per thumbnail.
+            let saved = try await library(.watchLater)
+            let isAlreadySaved = saved.contains {
+                $0.url == video.url ||
+                (VideoAddress.youtubeID($0.url) != nil &&
+                 VideoAddress.youtubeID($0.url) == VideoAddress.youtubeID(video.url))
+            }
+            if isAlreadySaved { return }
             url = base.appendingPathComponent("watch-later")
             body = try JSONEncoder().encode(TVWatchLaterWrite(video: video))
         } else {
@@ -486,7 +497,16 @@ struct TypeTypeAPI {
             )
             body = nil
         }
-        try await writeLibrary(url, method: enabled ? "POST" : "DELETE", body: body)
+        do {
+            try await writeLibrary(url, method: enabled ? "POST" : "DELETE", body: body)
+        } catch TypeTypeError.http(500, _) where enabled {
+            // Another client can add the same video between GET and POST.
+            // Only treat this as success if the row really exists now.
+            if try await library(.watchLater).contains(where: { $0.url == video.url }) {
+                return
+            }
+            throw TypeTypeError.http(500, "watch-later")
+        }
     }
 
 
