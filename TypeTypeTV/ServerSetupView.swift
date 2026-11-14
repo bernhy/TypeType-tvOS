@@ -53,7 +53,7 @@ struct ServerSetupView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .onSubmit { Task { await connect() } }
-                            .onChange(of: host) { value in
+                            .onChange(of: host) { _, value in
                                 normalizePastedURL(value)
                                 message = nil
                             }
