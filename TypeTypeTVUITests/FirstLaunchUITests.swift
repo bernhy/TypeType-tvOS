@@ -68,6 +68,24 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Empfehlungen"].waitForExistence(timeout: 5))
     }
 
+    func testBackFromSettingsUnwindsToHomeAndStaysInApp() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-device", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Einstellungen"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Apple TV"].firstMatch.exists)
+        // Initial focus is on the Apple TV settings group. Back goes to the
+        // global Settings icon, then to Home, and finally becomes a no-op.
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(app.staticTexts["Einstellungen"].firstMatch.exists)
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(app.staticTexts["Empfehlungen"].waitForExistence(timeout: 8))
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(app.staticTexts["Empfehlungen"].waitForExistence(timeout: 5))
+    }
+
     func testSearchScreenLayoutWithoutServer() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-TypeTypeTVPreview", "search", "-typetype.uiLanguage", "de"]
