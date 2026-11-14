@@ -549,6 +549,16 @@ struct PreferencesView: View {
                 .accessibilityIdentifier("accounts-add")
                 .focused($firstControlFocus, equals: .account)
 
+                // Logging out differs from deleting a saved family profile:
+                // it closes the active session, but keeps the account in
+                // the local profile list for later sign-in/switching.
+                if accountIdentity?.isGuest == false {
+                    Button("settings.logout", role: .destructive) {
+                        confirmLogout = true
+                    }
+                    .buttonStyle(.bordered)
+                }
+
                 if let accountError {
                     Text(accountError)
                         .foregroundStyle(.orange)
