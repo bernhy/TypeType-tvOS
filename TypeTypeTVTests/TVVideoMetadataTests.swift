@@ -87,4 +87,22 @@ final class TVVideoMetadataTests: XCTestCase {
         XCTAssertNil(progress.position(for: "https://youtu.be/abc123def45"))
     }
 
+    func testStreamMetadataReplacesUnknownZeroFromLegacyLibraryEntries() throws {
+        var video = VideoItem(
+            id: "abc123def45", title: "Example",
+            url: "https://youtu.be/abc123def45", thumbnailUrl: nil,
+            uploaderName: "Channel", duration: 120, isLive: false
+        )
+        video.viewCount = 0
+        video.publishedAt = -1
+        let stream = try JSONDecoder().decode(StreamInfo.self, from: Data(#"""
+        {"viewCount":31505,"publishedAt":1800000000000,
+         "uploadDate":"2027-01-01","uploaderUrl":"https://www.youtube.com/@creator"}
+        """#.utf8))
+        let merged = TVVideoMetadata.merged(video, stream: stream)
+        XCTAssertEqual(merged.viewCount, 31_505)
+        XCTAssertEqual(merged.publishedAt, 1_800_000_000_000)
+        XCTAssertEqual(merged.uploaderUrl, "https://www.youtube.com/@creator")
+    }
+
 }

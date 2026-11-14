@@ -13,6 +13,8 @@ struct TVSubscriptionsView: View {
     @State private var nextPage: String?
     @State private var loadingSubscriptions = false
     @State private var loadingVideos = false
+    @State private var channelRequestID = UUID()
+    @State private var pageRequestID = UUID()
     @State private var loadingMore = false
     @State private var error: String?
     @FocusState private var focusedSubscription: String?
@@ -197,17 +199,23 @@ struct TVSubscriptionsView: View {
 
     @MainActor
     private func loadChannel(_ channelURL: String) async {
+        let identifier = UUID()
+        channelRequestID = identifier
+        // A cancelled page of the previous channel must not block this one.
+        pageRequestID = UUID()
+        loadingMore = false
         loadingVideos = true
         videos = []
         nextPage = nil
         channelTitle = subscriptions.first(where: { $0.channelUrl == channelURL })?.name ?? ""
         channelDescription = ""
         error = nil
-        defer { loadingVideos = false }
+        defer { if channelRequestID == identifier { loadingVideos = false } }
         do {
             let response = try await api.channel(channelURL)
             try Task.checkCancellation()
-            guard selectedChannelURL == channelURL else { return }
+            guard channelRequestID == identifier,
+                  selectedChannelURL == channelURL else { return }
             channelTitle = response.name
             channelDescription = response.description ?? ""
             videos = response.videos
@@ -215,7 +223,9 @@ struct TVSubscriptionsView: View {
         } catch is CancellationError {
             return
         } catch {
-            if selectedChannelURL == channelURL { self.error = error.localizedDescription }
+            if channelRequestID == identifier && selectedChannelURL == channelURL {
+                self.error = error.localizedDescription
+            }
         }
     }
 
@@ -223,20 +233,23 @@ struct TVSubscriptionsView: View {
     private func loadMore() async {
         guard !loadingMore, !loadingVideos, let nextPage,
               let selectedChannelURL else { return }
+        let identifier = UUID()
+        pageRequestID = identifier
         loadingMore = true
-        defer { loadingMore = false }
+        defer { if pageRequestID == identifier { loadingMore = false } }
         do {
             let response = try await api.channel(selectedChannelURL, nextpage: nextPage)
             try Task.checkCancellation()
-            guard self.selectedChannelURL == selectedChannelURL,
+            guard pageRequestID == identifier,
+                  self.selectedChannelURL == selectedChannelURL,
                   self.nextPage == nextPage else { return }
-            let known = Set(videos.map(\.url))
-            videos += response.videos.filter { !known.contains($0.url) }
+            var seen = Set(videos.map(\.url))
+            videos += response.videos.filter { seen.insert($0.url).inserted }
             self.nextPage = response.nextpage == nextPage ? nil : response.nextpage
         } catch is CancellationError {
             return
         } catch {
-            self.error = error.localizedDescription
+            if pageRequestID == identifier { self.error = error.localizedDescription }
         }
     }
 }

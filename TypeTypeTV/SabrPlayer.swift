@@ -466,6 +466,8 @@ final class SabrPlayerController: ObservableObject {
         bufferingNeedsAudio = queuedAudioEndMs <= now + 450
         bufferingNeedsVideo = queuedVideoEndMs <= now + 450
         bufferingClockPaused = true
+        NSLog("TypeType SABR BUFFER paused at %lldms audioQueued=%lldms videoQueued=%lldms",
+              now, queuedAudioEndMs, queuedVideoEndMs)
         synchronizer.setRate(0, time: synchronizer.currentTime())
         isPlaying = false
         state = TVL10n.value("player.buffering")
@@ -499,6 +501,8 @@ final class SabrPlayerController: ObservableObject {
         }
         guard !bufferingNeedsAudio && !bufferingNeedsVideo else { return }
         bufferingClockPaused = false
+        NSLog("TypeType SABR BUFFER resumed audioQueued=%lldms videoQueued=%lldms",
+              queuedAudioEndMs, queuedVideoEndMs)
         if !prefersPause {
             synchronizer.setRate(1, time: synchronizer.currentTime())
             isPlaying = true

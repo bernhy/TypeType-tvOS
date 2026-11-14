@@ -11,6 +11,9 @@ final class TVWatchLaterMembership: ObservableObject {
     private var loaded = false
     private var fetch: Task<Void, Never>?
     private var lastFailure: Date?
+    // The initial GET may still be in flight when an action saves/removes a
+    // video. Never let that older snapshot overwrite a successful mutation.
+    private var pendingMutations: [String: (url: String, present: Bool)] = [:]
 
     private init() {}
 
@@ -34,6 +37,7 @@ final class TVWatchLaterMembership: ObservableObject {
             urls = []
             loaded = false
             lastFailure = nil
+            pendingMutations.removeAll()
         }
         guard !loaded else { return }
         if let lastFailure, Date().timeIntervalSince(lastFailure) < 12 { return }
@@ -45,26 +49,39 @@ final class TVWatchLaterMembership: ObservableObject {
             do {
                 let rows = try await api.library(.watchLater)
                 guard !Task.isCancelled, key == scope else { return }
-                urls = Set(rows.map(\.url))
+                var snapshot = Set(rows.map(\.url))
+                for mutation in pendingMutations.values {
+                    snapshot = Set(snapshot.filter {
+                        !TVVideoIdentity.equivalent($0, mutation.url)
+                    })
+                    if mutation.present { snapshot.insert(mutation.url) }
+                }
+                urls = snapshot
                 loaded = true
                 lastFailure = nil
+                pendingMutations.removeAll()
             } catch {
                 if key == scope { lastFailure = Date() }
             }
         }
         fetch = task
         await task.value
-        if key == scope { fetch = nil }
+        if key == scope {
+            fetch = nil
+            if loaded { pendingMutations.removeAll() }
+        }
     }
 
     func mark(_ url: String, present: Bool, api: TypeTypeAPI) {
         guard scopeKey(for: api) == scope else { return }
-        if present {
-            urls.insert(url)
-        } else {
-            urls = Set(urls.filter { !TVVideoIdentity.equivalent($0, url) })
+        let identity = VideoAddress.youtubeID(url).map { "yt:" + $0 } ?? "url:" + url
+        if !loaded || fetch != nil {
+            pendingMutations[identity] = (url: url, present: present)
         }
-        loaded = true
+        urls = Set(urls.filter { !TVVideoIdentity.equivalent($0, url) })
+        if present { urls.insert(url) }
+        // Do not claim an incomplete membership snapshot is fully loaded:
+        // other saved videos must remain discoverable by the next GET.
     }
 
     func invalidate() {
@@ -74,5 +91,6 @@ final class TVWatchLaterMembership: ObservableObject {
         urls = []
         loaded = false
         lastFailure = nil
+        pendingMutations.removeAll()
     }
 }

@@ -27,6 +27,7 @@ struct LibraryView: View {
     @State private var statusMessage: String?
     @State private var railError: String?
     @State private var loading = false
+    @State private var libraryRequestID = UUID()
     @State private var title = TVL10n.value("library.watchLater")
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 25), count: 4)
 
@@ -317,9 +318,13 @@ struct LibraryView: View {
     @MainActor
     private func loadSelected() async {
         let requested = selected
+        let identifier = UUID()
+        libraryRequestID = identifier
         loading = true
         statusMessage = nil
-        defer { if selected == requested { loading = false } }
+        defer {
+            if libraryRequestID == identifier { loading = false }
+        }
         do {
             let loaded: [VideoItem]
             let heading: String
@@ -332,16 +337,18 @@ struct LibraryView: View {
                 loaded = playlist.items
                 heading = playlist.name
             }
-            guard !Task.isCancelled, requested == selected else { return }
+            guard !Task.isCancelled, requested == selected,
+                  libraryRequestID == identifier else { return }
             title = heading
             videos = loaded
             let enriched = await api.withProgress(loaded)
-            guard !Task.isCancelled, requested == selected else { return }
+            guard !Task.isCancelled, requested == selected,
+                  libraryRequestID == identifier else { return }
             videos = enriched
         } catch is CancellationError {
             return
         } catch {
-            guard requested == selected else { return }
+            guard requested == selected, libraryRequestID == identifier else { return }
             videos = []
             statusMessage = error.localizedDescription
         }
