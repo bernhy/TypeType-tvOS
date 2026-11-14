@@ -5,6 +5,7 @@ struct PlaybackView: View {
     let api: TypeTypeAPI
     let video: VideoItem
     var onPlaybackEvent: ((TVPlaybackEvent) -> Void)? = nil
+    @Environment(\.dismiss) private var dismiss
     @State private var hlsURL: URL?
     @State private var errorMessage: String?
 
@@ -28,6 +29,9 @@ struct PlaybackView: View {
                 ProgressView("player.preparing")
             }
         }
+        .onAppear { TVPlaybackVisibility.shared.enter() }
+        .onDisappear { TVPlaybackVisibility.shared.leave() }
+        .onExitCommand { dismiss() }
         .task {
             if VideoAddress.youtubeID(video.url) == nil || video.isLive == true {
                 await prepare()
