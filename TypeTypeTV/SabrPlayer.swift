@@ -302,6 +302,15 @@ enum FragmentedMP4Reader {
     }
 }
 
+/// An existing SABR session and its original selected formats. Reusing a
+/// healthy session for user seeks avoids a new YouTube player identity,
+/// attestation handshake and unnecessary TypeType session bootstrap.
+private struct SabrSeekReuse {
+    let service: SabrService
+    let sessionId: String
+    let selection: SabrSelection
+}
+
 // A native sample-buffer synchronizer instead of a fake HLS playlist or server-side bridge.
 // Samples still require real-device validation: AVAssetReader can reject some fMP4 fragments.
 @MainActor
@@ -396,7 +405,12 @@ final class SabrPlayerController: ObservableObject {
     /// nil means resume from the account's recorded position; explicit values
     /// (including zero) are used for seeking and quality/audio changes.
     func start(api: TypeTypeAPI, video: VideoItem, positionMs: Int64? = nil) {
-        stop()
+        prepareStart(api: api, video: video, positionMs: positionMs, reusing: nil)
+    }
+
+    private func prepareStart(api: TypeTypeAPI, video: VideoItem,
+                              positionMs: Int64?, reusing: SabrSeekReuse?) {
+        stop(preservingSessionId: reusing?.sessionId)
         currentAPI = api
         currentVideo = video
         historyEnabled = false
@@ -411,11 +425,11 @@ final class SabrPlayerController: ObservableObject {
         let epoch = playbackEpoch
         running = Task {
             await run(api: api, video: video, explicitPositionMs: positionMs,
-                      buffer: settings, epoch: epoch)
+                      buffer: settings, epoch: epoch, reusing: reusing)
         }
     }
 
-    func stop() {
+    func stop(preservingSessionId: String? = nil) {
         playbackEpoch &+= 1
         if isInitialized { recordProgress(force: true) }
         TVPlaybackPresenceReporter.shared.stop(owner: presenceOwner)
@@ -437,7 +451,8 @@ final class SabrPlayerController: ObservableObject {
         let previousService = playbackService
         playbackService = nil
         let previousSession = sessionId
-        if let previousService, !previousSession.isEmpty {
+        if let previousService, !previousSession.isEmpty,
+           previousSession != preservingSessionId {
             Task { try? await previousService.release(sessionId: previousSession) }
         }
         windowProducerTask?.cancel()
@@ -515,7 +530,20 @@ final class SabrPlayerController: ObservableObject {
         let anchor = isInitialized && seconds.isFinite ? Int64(seconds * 1000) : playbackPositionMs
         let upper = durationMs > 0 ? max(0, durationMs - 1_000) : Int64.max
         let wasPaused = prefersPause
-        start(api: api, video: video, positionMs: min(upper, max(0, anchor + offsetMs)))
+        let target = min(upper, max(0, anchor + offsetMs))
+        let reuse: SabrSeekReuse?
+        if isInitialized && !bufferingClockPaused,
+           !sessionId.isEmpty, let service = playbackService,
+           let selection {
+            reuse = SabrSeekReuse(
+                service: service, sessionId: sessionId, selection: selection
+            )
+        } else {
+            reuse = nil
+        }
+        NSLog("TypeType SABR SEEK fromMs=%lld toMs=%lld reuse=%d",
+              anchor, target, reuse == nil ? 0 : 1)
+        prepareStart(api: api, video: video, positionMs: target, reusing: reuse)
         prefersPause = wasPaused
     }
 
@@ -723,10 +751,13 @@ final class SabrPlayerController: ObservableObject {
 
     private func run(api: TypeTypeAPI, video: VideoItem,
                      explicitPositionMs: Int64?, buffer: SabrBufferSettings,
-                     epoch: UInt64) async {
+                     epoch: UInt64, reusing: SabrSeekReuse?) async {
         guard playbackEpoch == epoch, !Task.isCancelled else { return }
-        let service = SabrService(api: api)
+        let service = reusing?.service ?? SabrService(api: api)
         playbackService = service
+        // Retain ownership while the bootstrap resolves; stop() must still
+        // be able to release the reused session if the user leaves meanwhile.
+        if let reusing { sessionId = reusing.sessionId }
         do {
             // Respect the server's privacy flag before reading/writing history.
             // If settings cannot be loaded, do not silently record history.
@@ -841,6 +872,16 @@ final class SabrPlayerController: ObservableObject {
                let selected = options.first(where: { $0.video.itag == requested }) {
                 orderedOptions = [selected] +
                     automaticOrder.filter { $0.video.itag != requested }
+            } else if let reusing,
+                      let selected = automaticOrder.first(where: {
+                          $0.video.itag == reusing.selection.video.itag
+                      }) {
+                orderedOptions = [selected] +
+                    automaticOrder.filter {
+                        $0.video.itag != reusing.selection.video.itag
+                    }
+                requestedVideoItag = nil
+                fixedVideoItag = nil
             } else {
                 orderedOptions = automaticOrder
                 requestedVideoItag = nil
@@ -855,6 +896,9 @@ final class SabrPlayerController: ObservableObject {
                 let audio = availableAudios.first {
                     $0.itag == requestedAudioItag &&
                     $0.audioTrackId == requestedAudioTrackId
+                } ?? availableAudios.first {
+                    $0.itag == reusing?.selection.audio.itag &&
+                    $0.audioTrackId == reusing?.selection.audio.audioTrackId
                 } ?? SabrPlaybackPreferences.preferredAudio(
                     availableAudios,
                     language: settings?.defaultAudioLanguage,
@@ -887,10 +931,35 @@ final class SabrPlayerController: ObservableObject {
                 hardwareDecoder?.playbackPaused = prefersPause
                 state = TVL10n.value("player.session")
                 do {
+                    let reuseSession = reusing.flatMap { prior in
+                        SabrSessionReusePolicy.matches(
+                            priorVideoItag: prior.selection.video.itag,
+                            priorAudioItag: prior.selection.audio.itag,
+                            priorAudioTrackId: prior.selection.audio.audioTrackId,
+                            selectedVideoItag: choice.video.itag,
+                            selectedAudioItag: choice.audio.itag,
+                            selectedAudioTrackId: choice.audio.audioTrackId
+                        ) ? prior : nil
+                    }
                     let session = try await retryTransient {
-                        try await service.start(
+                        if let reuseSession {
+                            return try await service.seek(
+                                sessionId: reuseSession.sessionId,
+                                selection: choice, positionMs: playbackStart
+                            )
+                        }
+                        return try await service.start(
                             videoId: id, selection: choice, positionMs: playbackStart
                         )
+                    }
+                    if let reusing,
+                       reusing.sessionId != session.sessionId {
+                        Task { try? await service.release(sessionId: reusing.sessionId) }
+                    }
+                    if reuseSession != nil {
+                        NSLog("TypeType SABR SEEK session-reused=%d generation=%lld",
+                              session.sessionId == reusing?.sessionId ? 1 : 0,
+                              session.generation)
                     }
                     guard !session.sessionId.isEmpty else {
                         throw SabrFailure.invalidResponse("sessionId")

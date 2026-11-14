@@ -141,6 +141,24 @@ final class SabrRecoveryPolicyTests: XCTestCase {
             previousFailurePositionMs: nil, alreadyRefreshed: false))
     }
 
+    func testSeekSessionReuseRequiresTheSameAudioAndVideoRepresentation() {
+        XCTAssertTrue(SabrSessionReusePolicy.matches(
+            priorVideoItag: 137, priorAudioItag: 140, priorAudioTrackId: nil,
+            selectedVideoItag: 137, selectedAudioItag: 140,
+            selectedAudioTrackId: nil
+        ))
+        XCTAssertFalse(SabrSessionReusePolicy.matches(
+            priorVideoItag: 137, priorAudioItag: 140, priorAudioTrackId: nil,
+            selectedVideoItag: 136, selectedAudioItag: 140,
+            selectedAudioTrackId: nil
+        ))
+        XCTAssertFalse(SabrSessionReusePolicy.matches(
+            priorVideoItag: 137, priorAudioItag: 140, priorAudioTrackId: "de",
+            selectedVideoItag: 137, selectedAudioItag: 140,
+            selectedAudioTrackId: "en"
+        ))
+    }
+
     func testColdResumeSwitchesAtMostOneAutomaticTrackAfterExpiry() {
         XCTAssertTrue(SabrResumeTrackFallbackPolicy.shouldTryNext(
             error: SabrFailure.expired, positionMs: 2_821_957,

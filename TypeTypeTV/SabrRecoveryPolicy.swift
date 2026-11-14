@@ -70,6 +70,20 @@ struct SabrRecoveryPolicy {
     }
 }
 
+/// A SABR seek may reuse a server session only while preserving the exact
+/// video/audio representation and language track. A changed representation
+/// must use a new playback session and its fresh initialization metadata.
+enum SabrSessionReusePolicy {
+    static func matches(priorVideoItag: Int, priorAudioItag: Int,
+                        priorAudioTrackId: String?,
+                        selectedVideoItag: Int, selectedAudioItag: Int,
+                        selectedAudioTrackId: String?) -> Bool {
+        priorVideoItag == selectedVideoItag &&
+            priorAudioItag == selectedAudioItag &&
+            priorAudioTrackId == selectedAudioTrackId
+    }
+}
+
 /// A cold resume can be rejected on a particular video representation
 /// (for example a high-frame-rate AVC itag) even after a fresh upstream
 /// token. Try exactly one alternative *automatic* track at the same saved
