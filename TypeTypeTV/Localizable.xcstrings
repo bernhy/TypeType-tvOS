@@ -8736,6 +8736,202 @@
           }
         }
       }
+    },
+    "accounts.addTitle": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add account"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter un compte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir cuenta"
+          }
+        }
+      }
+    },
+    "accounts.addChooseHelp": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie möchtest du dein TypeType-Konto anmelden?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How would you like to sign in to your TypeType account?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment souhaitez-vous vous connecter à votre compte TypeType ?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Cómo quieres iniciar sesión en tu cuenta TypeType?"
+          }
+        }
+      }
+    },
+    "accounts.methodPassword": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benutzername und Passwort"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Username and password"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identifiant et mot de passe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuario y contraseña"
+          }
+        }
+      }
+    },
+    "accounts.methodDevice": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Gerätecode anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in with device code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion par code d’appareil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión con código de dispositivo"
+          }
+        }
+      }
+    },
+    "accounts.passwordHelp": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib deine TypeType-Zugangsdaten ein. Das Passwort wird nicht gespeichert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter your TypeType credentials. Your password will not be saved."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez vos identifiants TypeType. Le mot de passe n’est pas enregistré."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce tus credenciales TypeType. La contraseña no se guardará."
+          }
+        }
+      }
+    },
+    "accounts.deviceHelp": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffne die angezeigte Adresse auf einem anderen Gerät und bestätige den Code. Diese Anmeldung benötigt die Gerätecode-API des Servers."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the displayed address on another device and confirm the code. This method requires the server's device-code API."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrez l’adresse affichée sur un autre appareil et confirmez le code. Cette méthode nécessite l’API de code d’appareil du serveur."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre la dirección mostrada en otro dispositivo y confirma el código. Este método requiere la API de código de dispositivo del servidor."
+          }
+        }
+      }
+    },
+    "accounts.chooseAnotherMethod": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andere Anmeldemethode wählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose another sign-in method"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir une autre méthode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elegir otro método de acceso"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
