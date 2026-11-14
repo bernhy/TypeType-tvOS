@@ -108,6 +108,71 @@ final class SabrTransportTests: XCTestCase {
         XCTAssertTrue(requests[2].hasSuffix("/segments"))
     }
 
+    func testWindowReissuesTargetedPrefetchWhenLaterTrackRemainsPending() async throws {
+        // Server 1.17.1: /prefetch registers missing segment demands;
+        // /segments only polls the cache. The next missing track can appear
+        // after the first /prefetch completes its forward seek.
+        let lock = NSLock()
+        var paths: [String] = []
+        var prefetched = 0
+        MockSabrProtocol.use { request in
+            let path = request.url?.path ?? ""
+            lock.lock()
+            paths.append(path)
+            if path.hasSuffix("/prefetch") { prefetched += 1 }
+            let count = prefetched
+            lock.unlock()
+            if path.hasSuffix("/position") { return (204, Data()) }
+            if path.hasSuffix("/prefetch") { return (202, Data()) }
+            if path.hasSuffix("/segments") {
+                if count < 2 {
+                    return (202, Data(
+                        #"{"ready":false,"generation":4,"status":"repositioning","retryAfterMs":150}"#.utf8))
+                }
+                return (200, Data("""
+                {
+                  "sessionId":"example","generation":4,"ready":true,
+                  "audio":{"initUrl":"sabr/playback/example/140/init?generation=4","segments":[]},
+                  "video":{"initUrl":"sabr/playback/example/137/init?generation=4","segments":[]}
+                }
+                """.utf8))
+            }
+            return (404, Data())
+        }
+        let api = try TypeTypeAPI(address: "https://mock.local")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockSabrProtocol.self]
+        let service = SabrService(
+            api: api, session: URLSession(configuration: configuration),
+            prefetchInterval: 0.05
+        )
+        let received = try await service.window(
+            sessionId: "example", selection: fixtureSelection(), generation: 4,
+            positionMs: 58_907
+        )
+        XCTAssertTrue(received.ready)
+        let actual = lock.withLock { paths }
+        XCTAssertEqual(actual.count, 5)
+        XCTAssertTrue(actual[0].hasSuffix("/position"))
+        XCTAssertTrue(actual[1].hasSuffix("/prefetch"))
+        XCTAssertTrue(actual[2].hasSuffix("/segments"))
+        XCTAssertTrue(actual[3].hasSuffix("/prefetch"))
+        XCTAssertTrue(actual[4].hasSuffix("/segments"))
+    }
+
+    func testPrefetchIntervalIsBoundedAndDoesNotFloodServer() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        XCTAssertTrue(SabrWindowPrefetchPolicy.shouldRefresh(last: nil, now: now))
+        XCTAssertFalse(SabrWindowPrefetchPolicy.shouldRefresh(
+            last: now, now: now.addingTimeInterval(4.99)))
+        XCTAssertTrue(SabrWindowPrefetchPolicy.shouldRefresh(
+            last: now, now: now.addingTimeInterval(5.0)))
+        XCTAssertFalse(SabrWindowPrefetchPolicy.shouldRefresh(
+            last: now, now: now.addingTimeInterval(0.04), interval: 0.01))
+        XCTAssertTrue(SabrWindowPrefetchPolicy.shouldRefresh(
+            last: now, now: now.addingTimeInterval(0.05), interval: 0.01))
+    }
+
     func testPreloadedSegmentsReusedFromDiskAndBounded() async throws {
         let lock = NSLock()
         var calls = 0

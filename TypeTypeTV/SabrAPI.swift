@@ -371,17 +371,33 @@ private final class SabrNoRedirectDelegate: NSObject, URLSessionTaskDelegate {
     }
 }
 
+/// Unlike /segments, the server's /prefetch handler rebuilds the window
+/// and registers new missing audio/video segment demands. One prefetch only
+/// cannot unblock the *next* missing track after a forward seek completes.
+enum SabrWindowPrefetchPolicy {
+    static let minimumInterval: TimeInterval = 5
+
+    static func shouldRefresh(last: Date?, now: Date,
+                              interval: TimeInterval = minimumInterval) -> Bool {
+        guard let last else { return true }
+        return now.timeIntervalSince(last) >= max(0.05, interval)
+    }
+}
+
 final class SabrService: @unchecked Sendable {
     private let origin: URL
     private let base: URL
     private let session: URLSession
+    private let prefetchInterval: TimeInterval
     private let json = JSONDecoder()
     private let encoder = JSONEncoder()
 
-    init(api: TypeTypeAPI, session injectedSession: URLSession? = nil) {
+    init(api: TypeTypeAPI, session injectedSession: URLSession? = nil,
+         prefetchInterval: TimeInterval = SabrWindowPrefetchPolicy.minimumInterval) {
         origin = api.origin
         base = api.origin.appendingPathComponent("api", isDirectory: true)
         session = injectedSession ?? TVNetwork.session(for: origin)
+        self.prefetchInterval = max(0.05, prefetchInterval)
     }
 
     func bootstrap(videoURL: String) async throws -> SabrBootstrap {
@@ -460,17 +476,31 @@ final class SabrService: @unchecked Sendable {
         ))
         let path = "sabr/playback/\(sessionId)"
         let _: EmptyReply = try await request(path + "/position", method: "POST", body: body, allowedStatuses: [200, 202, 204], allowEmpty: true)
-        var prefetched = false
-        let deadline = Date().addingTimeInterval(25)
+        var lastPrefetch: Date?
+        var prefetchAttempts = 0
+        let startedAt = Date()
+        let deadline = startedAt.addingTimeInterval(25)
         for _ in 0..<60 {
             try Task.checkCancellation()
-            if Date() > deadline {
+            let now = Date()
+            if now > deadline {
                 throw SabrFailure.invalidResponse("segment window timed out")
             }
-            if !prefetched {
+            if SabrWindowPrefetchPolicy.shouldRefresh(
+                last: lastPrefetch, now: now, interval: prefetchInterval
+            ) {
+                // Re-register newly blocked tracks after previous demands
+                // finish. The server deduplicates identical demands. This is
+                // strictly serial and rate-limited: never hammer /prefetch.
+                if prefetchAttempts > 0 {
+                    NSLog("TypeType SABR WINDOW re-prefetch attempt=%d elapsedMs=%d",
+                          prefetchAttempts + 1,
+                          Int(now.timeIntervalSince(startedAt) * 1_000))
+                }
+                lastPrefetch = now
+                prefetchAttempts += 1
                 let _: EmptyReply = try await request(path + "/prefetch", method: "POST",
                                                        body: body, allowedStatuses: [200, 202, 204], allowEmpty: true)
-                prefetched = true
             }
             let answer: SabrWindow = try await request(path + "/segments", method: "POST",
                                                        body: body, allowedStatuses: [200, 202])
@@ -497,7 +527,6 @@ final class SabrService: @unchecked Sendable {
                       SabrServerRecoveryDiagnostics.category(terminal))
                 throw SabrFailure.invalidResponse(terminal)
             }
-            if answer.status == "idle" { prefetched = false }
             try await Task.sleep(nanoseconds: UInt64(min(2000, max(150, answer.retryAfterMs ?? 300))) * 1_000_000)
         }
         throw SabrFailure.invalidResponse("segment window timed out")
