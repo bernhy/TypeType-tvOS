@@ -136,6 +136,44 @@ final class TVAPIWireTests: XCTestCase {
         XCTAssertTrue(recorded.allSatisfy { $0.1?.contains("url=") == true })
     }
 
+    func testSubscriptionsAndChannelPagesUseCanonicalServerRoutes() async throws {
+        let lock = NSLock()
+        var requests: [(String, String, String?)] = []
+        let channelURL = "https://www.youtube.com/channel/UCE_M8A5yxnLfW0KghEeajjw"
+        TVAPIWireProtocol.install(host: "channels-list.example") { request in
+            let path = request.url?.path ?? ""
+            let params = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                .queryItems ?? []
+            let channel = params.first(where: { $0.name == "url" })?.value
+            lock.withLock { requests.append((request.httpMethod ?? "", path, channel)) }
+            if path == "/api/subscriptions" {
+                return (200, Data(
+                    #"[{"channelUrl":"https://www.youtube.com/channel/UCE_M8A5yxnLfW0KghEeajjw","name":"Apple","avatarUrl":"","subscribedAt":100}]"#.utf8
+                ))
+            }
+            if path == "/api/channel" {
+                return (200, Data(
+                    #"{"name":"Apple","description":"Tech","avatarUrl":"","bannerUrl":"","videos":[{"id":"v1","url":"https://youtu.be/abc123def45","title":"News","viewCount":135000,"publishedAt":1800000000000,"requiresMembership":true}],"nextpage":"page2"}"#.utf8
+                ))
+            }
+            return (404, Data())
+        }
+        let api = try fixtureAPI(host: "channels-list.example")
+        let subscriptions = try await api.subscriptions()
+        XCTAssertEqual(subscriptions.count, 1)
+        XCTAssertEqual(subscriptions[0].channelUrl, channelURL)
+        let channel = try await api.channel(channelURL)
+        XCTAssertEqual(channel.name, "Apple")
+        XCTAssertEqual(channel.videos.first?.requiresMembership, true)
+        XCTAssertEqual(channel.nextpage, "page2")
+        _ = try await api.channel(channelURL, nextpage: "page2")
+        let recorded = lock.withLock { requests }
+        XCTAssertEqual(recorded.map { $0.1 },
+                       ["/api/subscriptions", "/api/channel", "/api/channel"])
+        XCTAssertEqual(recorded[1].2, channelURL)
+        XCTAssertEqual(recorded[2].2, channelURL)
+    }
+
     func testRecommendationsForwardServerCursor() async throws {
         let lock = NSLock()
         var queries: [String] = []
