@@ -95,7 +95,7 @@ not an Android-TV release tag currently visible there.
 | Bilibili/NicoNico renewed HLS URLs (1.16.0) | AVPlayer stall refresh, bounded retries and position resume | Test discontinuities, expired URLs and pause/seek |
 | End screens (Android 0.6.0-beta.1, server 1.17.0) | Not implemented | Read endScreenElements API, add focusable overlay |
 | Custom seekbar icon (Android 0.5.0) | Not implemented | Account settings and tvOS overlay |
-| Subscriptions/feed channel avatar filters (Android 0.4.x) | Not implemented | New browse screen and paging |
+| Subscriptions/feed channel avatar filters (Android 0.4.x) | Initial channel browser implemented; device validation pending | `GET /subscriptions` channel rail, `GET /channel` videos with cursor paging; group/avatar filters and subscription feed still pending |
 | Search filters videos/playlists/channels/music (Android 0.4.1) | Not implemented | Adapt search UI/API |
 | Skip unavailable videos in playlist (1.17.1) | Sequential Watch Later/playlist player implemented; skips permanent errors with countdown | Verify navigation and playback completion on device |
 | Playback queue, repeat/shuffle, playlist next (web 1.15–1.17) | Not implemented | Separate queue state machine |
