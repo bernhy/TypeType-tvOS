@@ -118,9 +118,14 @@ struct BrowseView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea(.container, edges: .leading)
-            // The exit command belongs to each root content screen. Placing it
-            // here intercepted tvOS Back during nested full-screen playback.
+            // The global rail background must cover the whole screen, not only
+            // the vertically inset tvOS safe area occupied by its buttons.
             .background(TTTheme.ink.ignoresSafeArea())
+            .background(alignment: .leading) {
+                TTTheme.surface
+                    .frame(width: expanded ? 214 : 56)
+                    .ignoresSafeArea(.container, edges: [.top, .bottom, .leading])
+            }
             .task { await reloadSidebarIdentity(api: api) }
             .onChange(of: section) { old, _ in
                 if old == .account || old == .settings {
@@ -164,7 +169,8 @@ struct BrowseView: View {
         .padding(.bottom, 20)
         .frame(width: expanded ? 214 : 56)
         .frame(maxHeight: .infinity)
-        .background(TTTheme.surface.ignoresSafeArea())
+        .background(TTTheme.surface)
+        .ignoresSafeArea(.container, edges: [.top, .bottom])
         // Disable inherited tvOS lift/glow on the whole rail, not only on
         // each button. Otherwise the focus overlay can exceed its bounds.
         .focusEffectDisabled(true)
@@ -217,11 +223,13 @@ struct BrowseView: View {
             .frame(height: 52)
             .frame(maxWidth: .infinity, alignment: .leading)
             // Never change size or draw the native tvOS focus overlay.
-            .foregroundStyle(menuFocus == item ? .white :
-                             (section == item ? TTTheme.accent : TTTheme.muted))
+            .foregroundStyle(menuFocus == item
+                             ? (section == item ? TTTheme.accent : TTTheme.ink)
+                             : (section == item ? TTTheme.accent : TTTheme.muted))
             .background {
+                // YouTube-style rounded, high-contrast focus pill.
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(menuFocus == item ? Color.white.opacity(0.16) : .clear)
+                    .fill(menuFocus == item ? Color.white : .clear)
             }
             .contentShape(RoundedRectangle(cornerRadius: 12))
             .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -275,9 +283,11 @@ struct BrowseView: View {
             settingsEntryGroup = initialSettingsGroup
         }
         section = destination
-        // Focus stays on the selected rail item until the user moves right.
-        // onChange(of: menuFocus) collapses the rail when focus leaves.
-        menuFocus = destination
+        // Selecting a destination transfers focus INTO its content. Keeping
+        // menuFocus = destination stranded the remote in the global rail,
+        // even after opening Settings -> Apple TV.
+        menuFocus = nil
+        expanded = false
     }
 
     private func revealMenu() {
