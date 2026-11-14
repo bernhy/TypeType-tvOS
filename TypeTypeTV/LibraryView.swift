@@ -113,7 +113,8 @@ struct LibraryView: View {
                                 .videoActions(
                                     api: api, video: video,
                                     onChanged: { Task { await refresh() } },
-                                    onRemoveFromPlaylist: removalAction(for: video)
+                                    onRemoveFromPlaylist: removalAction(for: video),
+                                    isWatchLaterEntry: selected == .standard(.watchLater)
                                 )
                                 .accessibilityLabel(TTTheme.accessibilityText(for: video))
                             }
