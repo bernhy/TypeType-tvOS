@@ -80,6 +80,47 @@ final class TVAPIWireTests: XCTestCase {
         )
     }
 
+    func testPasswordLoginUsesIdentifierWithoutGuestBearer() async throws {
+        let lock = NSLock()
+        var captured: (String, String, String?, Data?)?
+        TVAPIWireProtocol.install(host: "password-login.example") { request in
+            lock.lock()
+            captured = (request.httpMethod ?? "", request.url?.path ?? "",
+                        request.value(forHTTPHeaderField: "Authorization"), request.httpBody)
+            lock.unlock()
+            return (200, Data(#"{"accessToken":"account-access-token"}"#.utf8))
+        }
+        let api = try fixtureAPI(host: "password-login.example")
+        let token = try await api.passwordLogin(
+            identifier: "  member@example.com  ", password: "sample-password"
+        )
+        XCTAssertEqual(token, "account-access-token")
+        lock.lock()
+        let recorded = captured
+        lock.unlock()
+        XCTAssertEqual(recorded?.0, "POST")
+        XCTAssertEqual(recorded?.1, "/api/auth/login")
+        XCTAssertNil(recorded?.2, "Existing guest bearer must not accompany password login")
+        let json = try JSONSerialization.jsonObject(
+            with: try XCTUnwrap(recorded?.3)
+        ) as? [String: String]
+        XCTAssertEqual(json?["identifier"], "member@example.com")
+        XCTAssertEqual(json?["password"], "sample-password")
+    }
+
+    func testPasswordLoginRejectsIncorrectCredentials() async throws {
+        TVAPIWireProtocol.install(host: "password-reject.example") { _ in
+            (401, Data(#"{"error":"Invalid credentials"}"#.utf8))
+        }
+        let api = try fixtureAPI(host: "password-reject.example")
+        do {
+            _ = try await api.passwordLogin(identifier: "member", password: "wrong")
+            XCTFail("Unauthorized login should fail")
+        } catch TypeTypeError.loginInvalidCredentials {
+            // Expected.
+        }
+    }
+
     func testSettingsAndProgressUseRealServerMethods() async throws {
         let lock = NSLock()
         var records: [(String, String, String, String?, Data?)] = []
