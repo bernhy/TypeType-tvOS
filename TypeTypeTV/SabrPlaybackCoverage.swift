@@ -62,6 +62,9 @@ struct SabrPlaybackCoverage {
         // continuous buffered media across a real gap. Session recovery handles gaps.
         let toleratedEnd = end > Int64.max - 250 ? Int64.max : end + 250
         guard segment.startMs <= toleratedEnd else {
+            #if DEBUG
+            print("TypeType SABR gap: wanted start <= \(toleratedEnd) ms; next segment starts \(segment.startMs) ms (gap \(segment.startMs - end) ms), URL path \(URL(string: segment.url)?.path ?? "unknown")")
+            #endif
             throw SabrFailure.invalidResponse("SABR segment gap before next media sample")
         }
         end = max(end, segment.startMs + segment.durationMs)
