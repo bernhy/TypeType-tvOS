@@ -123,6 +123,68 @@ final class SabrCacheCoverageTests: XCTestCase {
             joined, audioItag: 140, videoItag: 137, positionMs: 0), 57_091)
     }
 
+    func testRealVodSequentialTimestampJumpsAreAcceptedByPlayerAndCache() throws {
+        // 2026-11-14 device trace: itag=137, seq 118->119 at ~10:20.
+        // Both media fragments are present, but the second one starts 4.370s
+        // after the first fragment's *declared* end. Reopening the SABR
+        // session returned identical metadata and could never fix this.
+        func video(_ seq: Int, _ start: Int64, _ duration: Int64) -> SabrFragment {
+            SabrFragment(
+                url: "https://example.org/sabr/playback/session/137/segment/\\(seq)",
+                startMs: start, durationMs: duration
+            )
+        }
+        let first = video(118, 620_486, 19_820)
+        let second = video(119, 644_676, 4_438)
+        var coverage = SabrPlaybackCoverage(audioItag: 140, videoItag: 137,
+                                            positionMs: 620_486, stage: "test")
+        try coverage.acceptVideo(first)
+        try coverage.acceptVideo(second)
+        XCTAssertEqual(coverage.videoEndMs, 649_114)
+
+        let pieces = [
+            fragment(137, first.startMs, first.durationMs, first.url),
+            fragment(137, second.startMs, second.durationMs, second.url),
+            fragment(140, 620_486, 30_000,
+                     "https://example.org/sabr/playback/session/140/segment/63")
+        ]
+        let playable = SabrCachedRangePlanner.playableRanges(
+            from: pieces, retainFromMs: 620_486
+        )
+        XCTAssertEqual(SabrCachedRangePlanner.cachedThrough(
+            playable, audioItag: 140, videoItag: 137, positionMs: 620_486
+        ), 649_114)
+
+        // A previous incident at ~2:42 had 7.040s between seq 31->32.
+        var earlier = SabrPlaybackCoverage(audioItag: 140, videoItag: 137,
+                                            positionMs: 170_000, stage: "test")
+        try earlier.acceptVideo(video(31, 170_000, 6_643))
+        try earlier.acceptVideo(video(32, 183_683, 3_003))
+        XCTAssertEqual(earlier.videoEndMs, 186_686)
+    }
+
+    func testLargeOrMissingSequenceVODGapStillFails() throws {
+        func video(_ seq: Int, _ start: Int64, _ duration: Int64) -> SabrFragment {
+            SabrFragment(
+                url: "https://example.org/sabr/playback/session/137/segment/\\(seq)",
+                startMs: start, durationMs: duration
+            )
+        }
+        var missing = SabrPlaybackCoverage(audioItag: 140, videoItag: 137,
+                                            positionMs: 620_486)
+        try missing.acceptVideo(video(118, 620_486, 19_820))
+        XCTAssertThrowsError(
+            try missing.acceptVideo(video(120, 644_676, 4_438))
+        )
+
+        var excessive = SabrPlaybackCoverage(audioItag: 140, videoItag: 137,
+                                              positionMs: 620_486)
+        try excessive.acceptVideo(video(118, 620_486, 19_820))
+        XCTAssertThrowsError(
+            try excessive.acceptVideo(video(119, 648_307, 4_438))
+        )
+    }
+
     func testUnidentifiedOrMissingSequenceCannotBridgeFourSecondGap() {
         let a = fragment(140, 0, 60_000, "https://example.org/140/segment/1")
         for next in [13, 16] {
