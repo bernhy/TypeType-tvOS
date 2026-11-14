@@ -42,6 +42,12 @@ struct VideoItem: Decodable, Hashable, Identifiable {
     var uploaderUrl: String? = nil
     var watchPositionMs: Int64? = nil
     var watched: Bool? = nil
+    // TypeType's video responses already expose these fields. Preserve them
+    // for the recommendation cards instead of discarding view/time metadata.
+    var viewCount: Int64? = nil
+    var publishedAt: Int64? = nil // Unix epoch milliseconds
+    var uploaded: Int64? = nil
+    var uploadDate: String? = nil
 
     func withProgress(_ position: Int64) -> VideoItem {
         var result = self
