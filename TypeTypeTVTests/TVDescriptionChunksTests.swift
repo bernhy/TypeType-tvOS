@@ -22,10 +22,10 @@ final class TVSponsorBlockPolicyTests: XCTestCase {
 
     func testDisabledModeAndLongSegmentGuard() throws {
         XCTAssertNil(TVSponsorBlock.target(segments: [segment(10, 25)],
-            settings: settings(#"{"sponsorBlockMode":"disabled"}"#),
+            settings: try settings(#"{"sponsorBlockMode":"disabled"}"#),
             position: 11, duration: 300, streamCategory: nil))
         XCTAssertNil(TVSponsorBlock.target(segments: [segment(0, 190)],
-            settings: settings(), position: 11, duration: 300, streamCategory: nil))
+            settings: try settings(), position: 11, duration: 300, streamCategory: nil))
     }
 
     func testMillisecondsNormalizationAndMinimumDuration() throws {
@@ -38,6 +38,6 @@ final class TVSponsorBlockPolicyTests: XCTestCase {
 
     func testInvalidNumbersCannotTriggerSeek() throws {
         XCTAssertNil(TVSponsorBlock.target(segments: [segment(.nan, .infinity)],
-            settings: settings(), position: 20, duration: 300, streamCategory: nil))
+            settings: try settings(), position: 20, duration: 300, streamCategory: nil))
     }
 }
