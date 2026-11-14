@@ -477,8 +477,13 @@ final class SabrPlayerController: ObservableObject {
     private func noteQueuedMedia(_ track: SabrMediaInterleave.Track,
                                  sample: CMSampleBuffer) {
         let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
-        guard pts.isFinite && pts >= 0 else { return }
         let duration = CMTimeGetSeconds(CMSampleBufferGetDuration(sample))
+        noteQueuedTime(track, seconds: pts, duration: duration)
+    }
+
+    private func noteQueuedTime(_ track: SabrMediaInterleave.Track,
+                                seconds pts: Double, duration: Double = 0) {
+        guard pts.isFinite && pts >= 0 else { return }
         let endMs = Int64((pts + (duration.isFinite && duration > 0 ? duration : 0)) * 1_000)
         switch track {
         case .audio: queuedAudioEndMs = max(queuedAudioEndMs, endMs)
@@ -1211,10 +1216,15 @@ final class SabrPlayerController: ObservableObject {
                 guard let hardwareDecoder else {
                     throw SabrFailure.invalidResponse("decoder missing")
                 }
-                try await hardwareDecoder.decode(video[vi])
-                noteQueuedMedia(.video, sample: video[vi])
+                let lastDecodedPTS = try await hardwareDecoder.decode(video[vi])
+                // Use actual frames submitted to AVSampleBufferDisplayLayer,
+                // not compressed input PTS, when measuring renderer headroom.
+                if let lastDecodedPTS {
+                    noteQueuedTime(.video,
+                                   seconds: CMTimeGetSeconds(lastDecodedPTS))
+                    hasQueuedFirstVideo = true
+                }
                 vi += 1
-                hasQueuedFirstVideo = true
             }
 
             if !isInitialized && hasQueuedFirstAudio && hasQueuedFirstVideo {
