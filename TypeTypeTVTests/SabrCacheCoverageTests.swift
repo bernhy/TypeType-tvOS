@@ -6,6 +6,37 @@ final class SabrCacheCoverageTests: XCTestCase {
         SabrMediaReference(url: url, itag: itag, startMs: start, durationMs: duration)
     }
 
+    func testServerWindowDiscoveryDoesNotSkipAheadToCached121Seconds() {
+        // The server uses bufferedEndFor to jump to the end of a reported
+        // range. With [0,121_000] the old client skipped media descriptors
+        // even though the renderer had only reached ~23 seconds.
+        let downloaded: [SabrBufferedRange] = [
+            SabrBufferedRange(itag: 137, startMs: 0, endMs: 121_000),
+            SabrBufferedRange(itag: 140, startMs: 0, endMs: 121_000)
+        ]
+        XCTAssertEqual(downloaded.count, 2)
+        XCTAssertTrue(SabrSequentialWindowPolicy.advertisedRanges.isEmpty)
+        XCTAssertEqual(SabrSequentialWindowPolicy.requestPosition(
+            first: true, startMs: 0, continuousEndMs: 0
+        ), 0)
+        XCTAssertEqual(SabrSequentialWindowPolicy.requestPosition(
+            first: false, startMs: 0, continuousEndMs: 23_000
+        ), 23_000)
+        XCTAssertEqual(SabrSequentialWindowPolicy.requestPosition(
+            first: false, startMs: 0, continuousEndMs: 48_000
+        ), 48_000)
+    }
+
+    func testWindowDiscoveryUsesCommonMediaFrontierNotPlayhead() {
+        let coverage = SabrPlaybackCoverage(
+            audioItag: 140, videoItag: 137, positionMs: 0
+        )
+        // No track can be skipped before its first completed segment.
+        XCTAssertEqual(SabrSequentialWindowPolicy.requestPosition(
+            first: false, startMs: 0, continuousEndMs: coverage.safeEndMs
+        ), 0)
+    }
+
     func testNeverAdvertiseEvictedAudioAsFullyBufferedVideo() {
         // The audio fragment between 4 and 8 seconds was evicted; its
         // absence must not be hidden behind the video high-water mark.
