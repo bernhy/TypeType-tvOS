@@ -14,3 +14,6 @@ build/
 *.p12
 *.mobileprovision
 *.provisionprofile
+
+# Generated at xcodegen and compile time from the current Git checkout
+TypeTypeTV/TVBuildInfo.generated.swift
