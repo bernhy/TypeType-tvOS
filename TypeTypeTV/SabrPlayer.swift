@@ -213,8 +213,11 @@ enum SabrSampleTimingProbe {
     /// extending it beyond a bounded duration or inventing compressed frames.
     static func measuredFragment(_ segment: SabrFragment, startMs: Int64,
                                  actualEndMs: Int64?) -> SabrFragment {
+        guard startMs >= 0, segment.durationMs > 0,
+              startMs <= Int64.max - segment.durationMs else { return segment }
         let nominalEnd = startMs + segment.durationMs
-        let cap = startMs + max(30_000, min(120_000, segment.durationMs * 2))
+        let extra = max(30_000, min(120_000, min(segment.durationMs, 60_000) * 2))
+        let cap = startMs <= Int64.max - extra ? startMs + extra : Int64.max
         let measuredEnd = actualEndMs.flatMap { $0 >= startMs && $0 <= cap ? $0 : nil }
         let end = max(nominalEnd, measuredEnd ?? nominalEnd)
         return SabrFragment(url: segment.url, startMs: startMs,
@@ -226,6 +229,8 @@ enum SabrSampleTimingProbe {
                             nativeStartMs: Int64?, resolvedStartMs: Int64,
                             priorSampleEndMs: Int64?, actualEndMs: Int64?,
                             corrected: Bool) {
+        guard metadataStartMs >= 0, metadataDurationMs > 0,
+              metadataStartMs <= Int64.max - metadataDurationMs else { return }
         let metadataEnd = metadataStartMs + metadataDurationMs
         let durationDifference = actualEndMs.map { $0 - metadataEnd } ?? 0
         let sampleGap = priorSampleEndMs.map { resolvedStartMs - $0 } ?? 0

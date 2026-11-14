@@ -105,7 +105,8 @@ struct SabrNativeTimelineResolver {
     mutating func resolve(sequence: Int?, metadataStartMs: Int64,
                           decodeStartMs: Int64?) -> Decision {
         guard let sequence, sequence > 0,
-              metadataStartMs >= 0, let decodeStartMs, decodeStartMs >= 0 else {
+              metadataStartMs >= 0, metadataStartMs <= 7 * 24 * 60 * 60 * 1_000,
+              let decodeStartMs, decodeStartMs >= 0 else {
             previous = nil
             matchedDeltas = 0
             return Decision(startMs: metadataStartMs, corrected: false, predictedMs: nil)
