@@ -99,6 +99,15 @@ struct BrowseView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .focusSection()
             }
+            .ignoresSafeArea(.container, edges: .leading)
+            .onExitCommand {
+                // The root screen owns Menu/Back. Never fall through to the
+                // system's default app exit while already at the left rail.
+                if menuFocus == nil {
+                    menuFocus = section
+                    expanded = true
+                }
+            }
             .background(TTTheme.ink)
             .task { await reloadSidebarIdentity(api: api) }
             .onChange(of: section) { old, _ in
@@ -117,11 +126,11 @@ struct BrowseView: View {
 
     private var sidebar: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 11) {
+            HStack(spacing: 8) {
                 Image(systemName: "play.rectangle.fill")
                     .font(.system(size: 27))
                     .foregroundStyle(TTTheme.accent)
-                    .frame(width: 38)
+                    .frame(width: 36)
                 if expanded {
                     Text("TypeType")
                         .font(.system(size: 23, weight: .bold))
@@ -138,15 +147,17 @@ struct BrowseView: View {
             Spacer(minLength: 10)
             sidebarButton(.settings)
         }
-        .padding(.horizontal, 11)
-        .padding(.top, 24)
-        .padding(.bottom, 25)
-        .frame(width: expanded ? 244 : 74)
+        .padding(.horizontal, 4)
+        .padding(.top, 20)
+        .padding(.bottom, 20)
+        .frame(width: expanded ? 214 : 56)
         .frame(maxHeight: .infinity)
         .background(TTTheme.surface)
+        // Disable inherited tvOS lift/glow on the whole rail, not only on
+        // each button. Otherwise the focus overlay can exceed its bounds.
+        .focusEffectDisabled(true)
+        .clipped()
         .animation(navigationAnimations ? .easeInOut(duration: 0.16) : nil, value: expanded)
-        // The full-height focus section makes the remote cross to the nearest
-        // content control even when no item is at exactly the same Y position.
         .focusSection()
         .onChange(of: menuFocus) { _, focused in
             expanded = focused != nil
@@ -157,11 +168,11 @@ struct BrowseView: View {
         Button {
             open(item)
         } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 Image(systemName: item == .account && sidebarIdentity?.isGuest == false
                       ? "person.crop.circle.fill" : item.icon)
                     .font(.system(size: 24, weight: .medium))
-                    .frame(width: 38, height: 54)
+                    .frame(width: 36, height: 52)
                 if expanded {
                     if item == .account {
                         VStack(alignment: .leading, spacing: 2) {
@@ -180,16 +191,17 @@ struct BrowseView: View {
                     Spacer(minLength: 0)
                 }
             }
-            .padding(.horizontal, 7)
-            .frame(height: 54)
+            .padding(.horizontal, 2)
+            .frame(height: 52)
             .frame(maxWidth: .infinity, alignment: .leading)
             // Never change size or draw the native tvOS focus overlay.
             .foregroundStyle(menuFocus == item ? .white :
                              (section == item ? TTTheme.accent : TTTheme.muted))
             .contentShape(Rectangle())
+            .clipped()
         }
         .buttonStyle(.plain)
-        .focusEffectDisabled()
+        .focusEffectDisabled(true)
         .focused($menuFocus, equals: item)
         .accessibilityLabel(item.label)
         .accessibilityAddTraits(item == section ? .isSelected : [])
