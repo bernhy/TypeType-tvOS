@@ -184,11 +184,12 @@ struct BrowseView: View {
             // Back while the global rail is focused goes to Home. The final
             // Back on the Home icon is consumed here, never exits TypeType.
             if section != .home {
-                open(.home)
-            } else {
-                menuFocus = .home
-                expanded = true
+                section = .home
             }
+            // Back stops at the HOME ICON itself, not the Home content grid.
+            // A further Back is consumed here and cannot exit the app.
+            menuFocus = .home
+            expanded = true
         }
         .onChange(of: menuFocus) { _, focused in
             expanded = focused != nil
