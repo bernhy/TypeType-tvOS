@@ -68,9 +68,11 @@ struct SabrPlaybackCoverage {
         // continuous buffered media across a real gap. Session recovery handles gaps.
         let toleratedEnd = end > Int64.max - 250 ? Int64.max : end + 250
         guard segment.startMs <= toleratedEnd else {
-            #if DEBUG
-            print("TypeType SABR GAP stage=\(stage) track=\(track) itag=\(itag) lastEnd=\(end) nextStart=\(segment.startMs) nextDuration=\(segment.durationMs) gapMs=\(segment.startMs - end)")
-            #endif
+            // NSLog is retained in the device's unified log. Swift print()
+            // alone was absent from the Console export of the previous failure.
+            NSLog("TypeType SABR GAP stage=%@ track=%@ itag=%d lastEndMs=%lld nextStartMs=%lld nextDurationMs=%lld gapMs=%lld",
+                  stage, track, itag, end, segment.startMs,
+                  segment.durationMs, segment.startMs - end)
             throw SabrFailure.invalidResponse("SABR segment gap before next media sample")
         }
         end = max(end, segment.startMs + segment.durationMs)
