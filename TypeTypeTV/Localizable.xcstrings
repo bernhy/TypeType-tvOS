@@ -790,25 +790,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbinde dein TypeType-Konto mit einem Gerätecode oder wechsle die Instanz."
+            "value": "Melde dich mit Benutzername und Passwort oder einem Gerätecode bei TypeType an."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Link your TypeType account with a device code or change servers."
+            "value": "Sign in to TypeType with a username and password or device code."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Associez votre compte TypeType avec un code d'appareil ou changez de serveur."
+            "value": "Connectez-vous à TypeType avec vos identifiants ou un code d’appareil."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vincula tu cuenta TypeType con un código de dispositivo o cambia de servidor."
+            "value": "Inicia sesión en TypeType con tus credenciales o un código de dispositivo."
           }
         }
       }
@@ -7557,6 +7557,202 @@
           "stringUnit": {
             "state": "translated",
             "value": "Almacenando audio y vídeo en búfer…"
+          }
+        }
+      }
+    },
+    "login.identifier": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benutzername oder E-Mail"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Username or email"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom d’utilisateur ou e-mail"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuario o correo electrónico"
+          }
+        }
+      }
+    },
+    "login.password": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passwort"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Password"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mot de passe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contraseña"
+          }
+        }
+      }
+    },
+    "login.passwordButton": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Passwort anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in with password"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter avec un mot de passe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión con contraseña"
+          }
+        }
+      }
+    },
+    "login.passwordStarting": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde Konto an …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signing in…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion en cours…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciando sesión…"
+          }
+        }
+      }
+    },
+    "login.missingFields": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bitte Benutzername und Passwort eingeben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter your username and password."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez votre nom d’utilisateur et votre mot de passe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce tu usuario y contraseña."
+          }
+        }
+      }
+    },
+    "login.invalidCredentials": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benutzername oder Passwort ist falsch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incorrect username or password."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom d’utilisateur ou mot de passe incorrect."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuario o contraseña incorrectos."
+          }
+        }
+      }
+    },
+    "login.disabled": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passwortanmeldung ist auf dem Server deaktiviert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Password sign-in is disabled on the server."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion par mot de passe est désactivée sur le serveur."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El inicio de sesión con contraseña está desactivado en el servidor."
           }
         }
       }
