@@ -143,6 +143,32 @@ final class SabrTransportTests: XCTestCase {
         await cache.clear()
     }
 
+    func test202PreparingSegmentRetriesAndReturnsOnlyMedia() async throws {
+        let lock = NSLock()
+        var requests = 0
+        let expected = Data([0, 0, 0, 8, 0x6d, 0x64, 0x61, 0x74])
+        MockSabrProtocol.use { request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.url?.path,
+                           "/api/sabr/playback/example/137/segment/1")
+            lock.lock()
+            requests += 1
+            let index = requests
+            lock.unlock()
+            if index <= 2 {
+                return (202, Data(#"{"status":"preparing","retryAfterMs":150}"#.utf8))
+            }
+            return (200, expected)
+        }
+        let result = try await fixtureService().fragmentData(
+            "sabr/playback/example/137/segment/1?generation=7",
+            sessionId: "example", itag: 137, generation: 7
+        )
+        XCTAssertEqual(result, expected, "202 JSON must never reach MP4 decoding")
+        let hits = lock.withLock { requests }
+        XCTAssertEqual(hits, 3)
+    }
+
     func testDownloadFailureDoesNotPopulateCache() async throws {
         MockSabrProtocol.use { _ in (503, Data(#"{"error":"unavailable"}"#.utf8)) }
         let cache = SabrFragmentCache(maxMiB: 64)
