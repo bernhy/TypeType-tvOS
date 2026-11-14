@@ -166,11 +166,13 @@ final class SabrTransportTests: XCTestCase {
         XCTAssertFalse(SabrWindowPrefetchPolicy.shouldRefresh(
             last: now, now: now.addingTimeInterval(4.99)))
         XCTAssertTrue(SabrWindowPrefetchPolicy.shouldRefresh(
-            last: now, now: now.addingTimeInterval(5.0)))
+            last: now, now: now.addingTimeInterval(5.01)))
         XCTAssertFalse(SabrWindowPrefetchPolicy.shouldRefresh(
             last: now, now: now.addingTimeInterval(0.04), interval: 0.01))
+        // Foundation Date stores floating-point seconds; avoid asserting at
+        // an exact 50-ms boundary that can round to 49.999... ms.
         XCTAssertTrue(SabrWindowPrefetchPolicy.shouldRefresh(
-            last: now, now: now.addingTimeInterval(0.05), interval: 0.01))
+            last: now, now: now.addingTimeInterval(0.06), interval: 0.01))
     }
 
     func testProgressiveFragmentHeartbeatUsesPrefetchWithoutNewPositionOrSession() async throws {
