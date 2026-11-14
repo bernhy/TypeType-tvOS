@@ -88,22 +88,16 @@ struct TVAccountSwitcherView: View {
                         .foregroundStyle(TTTheme.muted)
                 }
 
-                HStack(spacing: 22) {
-                    Button {
-                        onAddAccount()
-                    } label: {
-                        Label("profiles.add", systemImage: "person.crop.circle.badge.plus")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(TTTheme.accent)
-                    Button {
-                        Task { await useGuest() }
-                    } label: {
-                        Label("profiles.guest", systemImage: "person.crop.circle")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(changing || loading || identity?.isGuest == true)
+                // Switching between saved accounts is safe here. Logging
+                // out or changing to a guest session belongs only in
+                // Settings -> Account, never in the quick profile chooser.
+                Button {
+                    onAddAccount()
+                } label: {
+                    Label("profiles.add", systemImage: "person.crop.circle.badge.plus")
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(TTTheme.accent)
                 .focusSection()
             }
             .padding(.horizontal, 60)
@@ -154,31 +148,6 @@ struct TVAccountSwitcherView: View {
         do {
             let verified = try await api.currentAccount()
             guard verified?.id == account.id else {
-                throw TypeTypeError.unexpectedResponse
-            }
-            identity = verified
-            TVLocalProgress.shared.clear()
-            onAccountChanged()
-        } catch {
-            restore(token: oldToken, label: oldLabel)
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    @MainActor
-    private func useGuest() async {
-        guard !changing, identity?.isGuest != true else { return }
-        changing = true
-        errorMessage = nil
-        defer { changing = false }
-        let credentials = TypeTypeCredentials.shared
-        let oldToken = credentials.token(for: api.origin)
-        let oldLabel = credentials.displayIdentifier(for: api.origin)
-        credentials.clear(for: api.origin)
-        do {
-            try await SabrService(api: api).guestLogin()
-            let verified = try await api.currentAccount()
-            guard verified?.isGuest == true else {
                 throw TypeTypeError.unexpectedResponse
             }
             identity = verified
