@@ -1071,10 +1071,11 @@ final class SabrPlayerController: ObservableObject {
                 )
                 let allowed = recovery.allowed
                 let recoveryAttempt = recovery.attempt
-                if SabrResumeTrackFallbackPolicy.shouldEscalateToAlternateTrack(
-                    error: error, positionMs: producerStart,
-                    initialized: isInitialized, attempt: recoveryAttempt
-                ) {
+                if requestedVideoItag == nil &&
+                    SabrResumeTrackFallbackPolicy.shouldEscalateToAlternateTrack(
+                        error: error, positionMs: producerStart,
+                        initialized: isInitialized, attempt: recoveryAttempt
+                    ) {
                     NSLog("TypeType SABR RECOVERY cold-resume sessions-exhausted attempts=%d positionMs=%lld",
                           recoveryAttempt, producerStart)
                     throw error
