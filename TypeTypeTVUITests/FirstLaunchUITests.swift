@@ -218,12 +218,17 @@ final class TypeTypeTVUITests: XCTestCase {
                        "Passwords must not appear inline on saved accounts list")
         let add = app.buttons["accounts-add"]
         XCTAssertTrue(add.waitForExistence(timeout: 5))
-        add.tap()
+        // tvOS has no XCUIElement.tap(): navigate with the actual Siri Remote.
+        // Focus starts on the selected "Konten" settings group.
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(add.hasFocus, "Right from Konten must reach Add Account")
+        XCUIRemote.shared.press(.select)
         XCTAssertTrue(app.staticTexts["Konto hinzufügen"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["Benutzername und Passwort"].exists)
         XCTAssertTrue(app.buttons["Mit Gerätecode anmelden"].exists)
 
-        app.buttons["Benutzername und Passwort"].tap()
+        // The method chooser defaults focus to username/password.
+        XCUIRemote.shared.press(.select)
         XCTAssertTrue(app.secureTextFields.firstMatch.waitForExistence(timeout: 5))
         XCTAssertTrue(app.textFields.firstMatch.exists)
         XCTAssertTrue(app.buttons["Anmelden"].exists ||
@@ -238,7 +243,12 @@ final class TypeTypeTVUITests: XCTestCase {
         app.launch()
         let settings = app.buttons["main-nav-settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 20))
-        settings.tap()
+        // Return from Home to the global icon rail, then navigate down to
+        // Settings. This exercises the same path as the user's Siri Remote.
+        XCUIRemote.shared.press(.menu)
+        for _ in 0..<5 { XCUIRemote.shared.press(.down) }
+        XCTAssertTrue(settings.hasFocus)
+        XCUIRemote.shared.press(.select)
         let playbackGroup = app.buttons["settings-group-playback"]
         XCTAssertTrue(playbackGroup.waitForExistence(timeout: 10))
         XCTAssertTrue(playbackGroup.hasFocus,
