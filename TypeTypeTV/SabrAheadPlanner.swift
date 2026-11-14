@@ -8,14 +8,20 @@ enum SabrLookaheadPolicy {
     static func targetMilliseconds(_ settings: SabrBufferSettings,
                                    videoBitrate: Int?) -> Int64 {
         let goal = Int64(settings.forwardMilliseconds)
-        // Cache is shared between audio and video. Keep a sizeable safety
-        // margin for bitrate spikes, cached back-buffer and MP4 overhead.
+        // The local disk cache may be 512 MiB, but the TypeType v1.17.1
+        // *server* throttles its pump above 24 MiB of unconsumed media.
+        // A 180s producer lookahead can therefore deadlock on a segment
+        // still pending upstream (observed on video itag 137, seq 13).
+        // Budget both audio and video within 65% of the smaller cache,
+        // leaving space for server back-buffer, bursts and MP4 overhead.
+        let serverBudgetBytes: Int64 = 24 * 1_048_576
+        let localBudgetBytes = Int64(settings.cacheMiB) * 1_048_576
+        let budgetBits = min(localBudgetBytes, serverBudgetBytes) * 8 * 65 / 100
         guard let videoBitrate, videoBitrate > 0 else {
-            return min(goal, 60_000) // unknown bitrate: conservative first pass
+            return min(goal, 12_000) // unknown bitrate: don't assume a low rate
         }
-        let rate = Int64(videoBitrate) + 256_000 // audio + transport margin
-        let capacityBits = Int64(settings.cacheMiB) * 1_048_576 * 8
-        let safeMilliseconds = (capacityBits / rate) * 1_000 * 65 / 100
+        let rate = Int64(videoBitrate) + 256_000
+        let safeMilliseconds = budgetBits / rate * 1_000
         return min(goal, max(10_000, safeMilliseconds))
     }
 
@@ -57,6 +63,60 @@ enum SabrSequentialWindowPolicy {
 /// Rebuild advertised SABR ranges only from fragments *currently on disk*.
 /// A historic high-water mark is not proof that an evicted fragment is buffered.
 enum SabrCachedRangePlanner {
+    /// The local *lookahead* needs a playable frontier, not a byte-exact
+    /// one. A stream may use adjacent SABR sequence numbers with a PTS gap
+    /// of up to 4s (observed at 24.391 -> 24.758 and 31.566 -> 35.168).
+    /// Without this, the lookahead is stuck at 24.391 forever and repeatedly
+    /// fetches windows until the server hits its own 24 MiB throttle.
+    ///
+    /// Do not use these softened ranges in server bufferedRanges requests:
+    /// those must still represent actually cached bytes. Do not bridge
+    /// missing or unparseable sequence numbers.
+    static func playableRanges(from fragments: [SabrMediaReference],
+                               retainFromMs: Int64) -> [SabrBufferedRange] {
+        struct Piece {
+            var range: SabrBufferedRange
+            var lastSequence: Int?
+        }
+        let earliest = max(0, retainFromMs)
+        let ordered = fragments.compactMap { item -> (SabrBufferedRange, Int?)? in
+            guard item.startMs >= 0, item.durationMs > 0,
+                  item.startMs <= Int64.max - item.durationMs else { return nil }
+            let end = item.startMs + item.durationMs
+            let start = max(earliest, item.startMs)
+            guard end > start else { return nil }
+            let last = URL(string: item.url)?.lastPathComponent ?? ""
+            let sequence = Int(last).flatMap { $0 > 0 ? $0 : nil }
+            return (SabrBufferedRange(itag: item.itag, startMs: start, endMs: end),
+                    sequence)
+        }.sorted {
+            if $0.0.itag != $1.0.itag { return $0.0.itag < $1.0.itag }
+            if $0.0.startMs != $1.0.startMs { return $0.0.startMs < $1.0.startMs }
+            return $0.0.endMs < $1.0.endMs
+        }
+        var merged: [Piece] = []
+        for (part, sequence) in ordered {
+            if var previous = merged.last, previous.range.itag == part.itag {
+                let touches = part.startMs <= previous.range.endMs
+                let nextSequence = previous.lastSequence.flatMap { last in
+                    last < Int.max && sequence == last + 1 ? true : nil
+                } ?? false
+                let allowedGap = nextSequence && part.startMs > previous.range.endMs &&
+                    part.startMs - previous.range.endMs <= 4_000
+                if touches || allowedGap {
+                    previous.range = SabrBufferedRange(
+                        itag: part.itag, startMs: previous.range.startMs,
+                        endMs: max(previous.range.endMs, part.endMs))
+                    previous.lastSequence = sequence
+                    merged[merged.count - 1] = previous
+                    continue
+                }
+            }
+            merged.append(Piece(range: part, lastSequence: sequence))
+        }
+        return merged.map(\.range)
+    }
+
     static func ranges(from fragments: [SabrMediaReference], retainFromMs: Int64) -> [SabrBufferedRange] {
         let earliest = max(0, retainFromMs)
         let ordered = fragments.compactMap { item -> SabrBufferedRange? in

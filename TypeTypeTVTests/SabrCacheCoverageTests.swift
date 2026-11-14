@@ -79,6 +79,65 @@ final class SabrCacheCoverageTests: XCTestCase {
         XCTAssertTrue(SabrCachedRangePlanner.ranges(from: pieces, retainFromMs: 13_000).isEmpty)
     }
 
+    func testPlayableCacheLookaheadBridgesOnlyConsecutiveSabrSequenceGaps() {
+        // Exact intervals must remain separate for server bufferedRanges,
+        // but local lookahead needs to follow the same confirmed sequence
+        // continuity that the SABR decoder accepts.
+        func v(_ sequence: Int, _ start: Int64, _ duration: Int64) -> SabrMediaReference {
+            fragment(137, start, duration,
+                     "https://example.org/sabr/playback/test/137/segment/\(sequence)?generation=0")
+        }
+        func a(_ sequence: Int, _ start: Int64, _ duration: Int64) -> SabrMediaReference {
+            fragment(140, start, duration,
+                     "https://example.org/sabr/playback/test/140/segment/\(sequence)?generation=0")
+        }
+        let pieces = [
+            v(4, 0, 24_391),
+            v(5, 24_758, 3_404),
+            v(6, 28_162, 3_404),
+            v(7, 35_168, 4_638),
+            v(8, 39_806, 7_476),
+            v(10, 50_317, 6_774),
+            a(1, 0, 20_000),
+            a(2, 20_000, 20_000),
+            a(3, 40_000, 20_000)
+        ]
+        let exact = SabrCachedRangePlanner.ranges(from: pieces, retainFromMs: 0)
+        XCTAssertGreaterThan(exact.filter { $0.itag == 137 }.count, 1)
+        let playable = SabrCachedRangePlanner.playableRanges(from: pieces, retainFromMs: 0)
+        XCTAssertEqual(SabrCachedRangePlanner.cachedThrough(
+            playable, audioItag: 140, videoItag: 137, positionMs: 0), 47_282)
+        // Confirmed *missing* sequence 9 must not be bridged, even though
+        // there are cached video bytes after it.
+        XCTAssertEqual(SabrCachedRangePlanner.cachedThrough(
+            playable, audioItag: 140, videoItag: 137, positionMs: 30_000), 47_282)
+        // Separate example with strictly ordered sequence 9->10, including
+        // the observed 3,035-ms metadata gap.
+        let chain = [
+            v(9, 0, 47_282),
+            v(10, 50_317, 6_774),
+            a(1, 0, 60_000)
+        ]
+        let joined = SabrCachedRangePlanner.playableRanges(from: chain, retainFromMs: 0)
+        XCTAssertEqual(SabrCachedRangePlanner.cachedThrough(
+            joined, audioItag: 140, videoItag: 137, positionMs: 0), 57_091)
+    }
+
+    func testUnidentifiedOrMissingSequenceCannotBridgeFourSecondGap() {
+        let a = fragment(140, 0, 60_000, "https://example.org/140/segment/1")
+        for next in [13, 16] {
+            let parts = [
+                fragment(137, 0, 24_391, "https://example.org/137/segment/11"),
+                fragment(137, 24_758, 3_404, "https://example.org/137/segment/\(next)"),
+                a
+            ]
+            let playable = SabrCachedRangePlanner.playableRanges(
+                from: parts, retainFromMs: 0)
+            XCTAssertEqual(SabrCachedRangePlanner.cachedThrough(
+                playable, audioItag: 140, videoItag: 137, positionMs: 0), 24_391)
+        }
+    }
+
     func testInvalidTimestampCannotOverflowBufferedRanges() {
         let ranges = SabrCachedRangePlanner.ranges(from: [
             fragment(140, Int64.max - 2, 10, "overflow"),

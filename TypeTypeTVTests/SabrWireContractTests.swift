@@ -364,15 +364,19 @@ final class SabrWireContractTests: XCTestCase {
         let defaultSettings = SabrBufferSettings()
         XCTAssertEqual(SabrLookaheadPolicy.targetMilliseconds(
             defaultSettings, videoBitrate: 6_000_000
-        ), 180_000)
+        ), 20_000, "Client must respect the 24 MiB server-side throttle")
         XCTAssertEqual(SabrLookaheadPolicy.targetMilliseconds(
             defaultSettings, videoBitrate: nil
-        ), 60_000, "Unknown bitrate should not fill the entire cache blindly")
+        ), 12_000, "Unknown bitrate must not fill the server cache blindly")
         let veryHighRate = SabrLookaheadPolicy.targetMilliseconds(
             defaultSettings, videoBitrate: 100_000_000
         )
         XCTAssertGreaterThanOrEqual(veryHighRate, 10_000)
         XCTAssertLessThan(veryHighRate, 180_000)
+        XCTAssertLessThanOrEqual(SabrLookaheadPolicy.targetMilliseconds(
+            SabrBufferSettings(forwardSeconds: 600, backSeconds: 300, cacheMiB: 1024),
+            videoBitrate: 6_000_000
+        ), 20_000, "More local disk must not raise the server's memory limit")
         XCTAssertTrue(SabrLookaheadPolicy.shouldRequestMore(
             cachedThroughMs: 42_000, playheadMs: 8_000, targetMs: 180_000
         ))

@@ -77,8 +77,12 @@ actor SabrFragmentCache {
 
     func cachedThroughMs(audioItag: Int, videoItag: Int,
                          positionMs: Int64) -> Int64 {
+        // Keep strict byte-exact cachedRanges for server protocols; the
+        // local lookahead may bridge bounded gaps only when the two cached
+        // fragments carry consecutive SABR sequence numbers.
         SabrCachedRangePlanner.cachedThrough(
-            cachedRanges(retainFromMs: positionMs),
+            SabrCachedRangePlanner.playableRanges(
+                from: entries.values.compactMap { $0.media }, retainFromMs: 0),
             audioItag: audioItag, videoItag: videoItag,
             positionMs: positionMs
         )
