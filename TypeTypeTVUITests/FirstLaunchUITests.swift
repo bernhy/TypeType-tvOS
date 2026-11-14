@@ -44,7 +44,7 @@ final class TypeTypeTVUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-TypeTypeTVPreview", "home-expanded", "-typetype.uiLanguage", "de"]
         app.launch()
-        XCTAssertTrue(app.buttons["Startseite"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["Start"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.buttons["Menü einklappen"].exists,
                        "Sidebar now expands on focus, without a toggle button")
         XCTAssertTrue(app.staticTexts["Empfehlungen"].exists)
