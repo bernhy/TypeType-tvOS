@@ -350,6 +350,10 @@ final class SabrPlayerController: ObservableObject {
     private var queuedAudioEndMs: Int64 = 0
     private var queuedVideoEndMs: Int64 = 0
     private var hardwareDecoder: HardwareVideoDecoder?
+    private var rendererProbeTask: Task<Void, Never>?
+    private var maxVideoDeliveryMs = 0
+    private var lateVideoSamples = 0
+    private var videoSamplesDelivered = 0
     private var playbackService: SabrService?
     private var segmentCache: SabrFragmentCache?
     private var windowProducerTask: Task<Void, Never>?
@@ -435,6 +439,8 @@ final class SabrPlayerController: ObservableObject {
         diskCacheBytes = 0
         hardwareDecoder?.invalidate()
         hardwareDecoder = nil
+        rendererProbeTask?.cancel()
+        rendererProbeTask = nil
         synchronizer.setRate(0, time: synchronizer.currentTime())
         videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
         audioRenderer.flush()
@@ -544,6 +550,36 @@ final class SabrPlayerController: ObservableObject {
         queuedAudioEndMs = 0
         queuedVideoEndMs = 0
         rendererReadyThroughMs = 0
+        maxVideoDeliveryMs = 0
+        lateVideoSamples = 0
+        videoSamplesDelivered = 0
+    }
+
+    /// Print measured renderer queue headroom *during* playback. Previous
+    /// logs identified missing segment numbers but could not detect 100-500ms
+    /// frame starvation with perfectly continuous fMP4 timestamps.
+    private func startRendererProbe() {
+        rendererProbeTask?.cancel()
+        rendererProbeTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(nanoseconds: 2_000_000_000) }
+                catch { return }
+                guard let self, !Task.isCancelled else { return }
+                guard self.isInitialized, !self.prefersPause else { continue }
+                let clockMs = Int64(max(0, self.playbackSeconds() * 1_000))
+                let audioAhead = self.queuedAudioEndMs - clockMs
+                let videoAhead = self.queuedVideoEndMs - clockMs
+                NSLog("TypeType SABR RENDER clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld audioQueuedMs=%lld videoQueuedMs=%lld deliveryMaxMs=%d delivered=%d lateVideo=%d buffering=%d rate=%.2f",
+                      clockMs, audioAhead, videoAhead, self.queuedAudioEndMs,
+                      self.queuedVideoEndMs, self.maxVideoDeliveryMs,
+                      self.videoSamplesDelivered, self.lateVideoSamples,
+                      self.bufferingClockPaused ? 1 : 0,
+                      Double(self.synchronizer.rate))
+                self.maxVideoDeliveryMs = 0
+                self.lateVideoSamples = 0
+                self.videoSamplesDelivered = 0
+            }
+        }
     }
 
     /// Called while the decoder waits for a new, already downloaded media
@@ -1445,31 +1481,21 @@ final class SabrPlayerController: ObservableObject {
                     segment, startMs: resolved.startMs, actualEndMs: actualEnd
                 ))
                 seen.insert(key)
+                // Feed the A/V common prefix immediately after this video
+                // fragment, rather than extracting the entire ~28-second
+                // window while both hardware renderer queues drain.
+                try await enqueueReadyPrefix(
+                    audio: &pendingAudio, video: &pendingVideo,
+                    commonEndMs: coverage.safeEndMs, startMs: start
+                )
             }
 
-            // A video segment can be ready long before the matching audio
-            // segment (and vice versa). Keep that excess in the pending queue
-            // until the complementary track has advanced. Do not race ahead
-            // with one renderer; that creates visible freeze/catch-up bursts.
-            let commonEndMs = coverage.safeEndMs
-            let audioReadyCount = SabrSampleWindow.prefixCount(
-                pendingAudio, endingBeforeMs: commonEndMs
+            // Also drain audio-only advancement if video samples were
+            // already pending from an earlier window.
+            try await enqueueReadyPrefix(
+                audio: &pendingAudio, video: &pendingVideo,
+                commonEndMs: coverage.safeEndMs, startMs: start
             )
-            let videoReadyCount = SabrSampleWindow.prefixCount(
-                pendingVideo, endingBeforeMs: commonEndMs
-            )
-            if audioReadyCount > 0 || videoReadyCount > 0 {
-                let audioReady = Array(pendingAudio.prefix(audioReadyCount))
-                let videoReady = Array(pendingVideo.prefix(videoReadyCount))
-                // Require both tracks before starting the shared clock.
-                if isInitialized || (!audioReady.isEmpty && !videoReady.isEmpty) {
-                    try await enqueueInterleaved(
-                        audio: audioReady, video: videoReady, startMs: start
-                    )
-                    pendingAudio.removeFirst(audioReadyCount)
-                    pendingVideo.removeFirst(videoReadyCount)
-                }
-            }
 
             positionMs = coverage.safeEndMs
             if response.endOfStream == true {
@@ -1517,6 +1543,30 @@ final class SabrPlayerController: ObservableObject {
                     (prefersPause ? "player.paused" : "player.playing")
             )
         }
+    }
+
+    /// Submit the maximum verified common A/V prefix as soon as it exists.
+    /// Preserve excess samples until their matching other track arrives;
+    /// only the renderer owns the advancing presentation clock.
+    private func enqueueReadyPrefix(audio pendingAudio: inout [CMSampleBuffer],
+                                    video pendingVideo: inout [CMSampleBuffer],
+                                    commonEndMs: Int64, startMs: Int64) async throws {
+        let audioCount = SabrSampleWindow.prefixCount(
+            pendingAudio, endingBeforeMs: commonEndMs
+        )
+        let videoCount = SabrSampleWindow.prefixCount(
+            pendingVideo, endingBeforeMs: commonEndMs
+        )
+        guard audioCount > 0 || videoCount > 0 else { return }
+        let audioReady = Array(pendingAudio.prefix(audioCount))
+        let videoReady = Array(pendingVideo.prefix(videoCount))
+        // Never start the shared clock with only one track.
+        guard isInitialized || (!audioReady.isEmpty && !videoReady.isEmpty) else { return }
+        try await enqueueInterleaved(
+            audio: audioReady, video: videoReady, startMs: startMs
+        )
+        pendingAudio.removeFirst(audioCount)
+        pendingVideo.removeFirst(videoCount)
     }
 
     /// Feed one compressed sample at a time, preserving the original decode
@@ -1581,7 +1631,18 @@ final class SabrPlayerController: ObservableObject {
                 guard let hardwareDecoder else {
                     throw SabrFailure.invalidResponse("decoder missing")
                 }
+                let deliveryStarted = ProcessInfo.processInfo.systemUptime
                 let lastDecodedPTS = try await hardwareDecoder.decode(video[vi])
+                let deliveryMs = Int((ProcessInfo.processInfo.systemUptime -
+                                      deliveryStarted) * 1_000)
+                maxVideoDeliveryMs = max(maxVideoDeliveryMs, deliveryMs)
+                videoSamplesDelivered += 1
+                if let lastDecodedPTS, isInitialized, !prefersPause,
+                   !bufferingClockPaused {
+                    let ptsMs = Int64(CMTimeGetSeconds(lastDecodedPTS) * 1_000)
+                    let clockMs = Int64(max(0, playbackSeconds() * 1_000))
+                    if ptsMs + 75 < clockMs { lateVideoSamples += 1 }
+                }
                 // Use actual frames submitted to AVSampleBufferDisplayLayer,
                 // not compressed input PTS, when measuring renderer headroom.
                 if let lastDecodedPTS {
@@ -1599,6 +1660,7 @@ final class SabrPlayerController: ObservableObject {
                 )
                 isInitialized = true
                 isPlaying = !prefersPause
+                startRendererProbe()
                 state = TVL10n.value(
                     prefersPause ? "player.paused" : "player.playing"
                 )
