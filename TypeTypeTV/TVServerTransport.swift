@@ -169,7 +169,8 @@ private final class TypeTypeNetworkDelegate: NSObject, URLSessionDelegate, URLSe
         guard challenge.protectionSpace.host.lowercased() == origin.host?.lowercased(),
               challenge.protectionSpace.port == expectedPort,
               let trust = challenge.protectionSpace.serverTrust,
-              let leaf = SecTrustGetCertificateAtIndex(trust, 0)
+              let certificates = SecTrustCopyCertificateChain(trust) as? [SecCertificate],
+              let leaf = certificates.first
         else {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
@@ -190,9 +191,8 @@ private final class TypeTypeNetworkDelegate: NSObject, URLSessionDelegate, URLSe
             return
         }
 
-        let names: [String] = (0..<SecTrustGetCertificateCount(trust)).compactMap { index in
-            guard let cert = SecTrustGetCertificateAtIndex(trust, index) else { return nil }
-            return SecCertificateCopySubjectSummary(cert) as String?
+        let names: [String] = certificates.compactMap { cert in
+            SecCertificateCopySubjectSummary(cert) as String?
         }
         let report = TVCertificateReport(
             origin: origin, fingerprint: fingerprint,
