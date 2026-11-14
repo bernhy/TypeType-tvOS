@@ -351,7 +351,13 @@ final class SabrPlayerController: ObservableObject {
             let bootstrap: SabrBootstrap = try await retryTransient {
                 do {
                     return try await service.bootstrap(videoURL: video.url)
-                } catch SabrFailure.server(let code, _) where code == 401 || code == 403 {
+                } catch SabrFailure.server(let code, _) where
+                    SabrGuestAuthPolicy.shouldAttemptGuest(
+                        responseCode: code,
+                        existingToken: TypeTypeCredentials.shared.token(for: api.origin)
+                    ) {
+                    // Never replace an authenticated user's Keychain token
+                    // with a guest token after a permission/expiry failure.
                     try await service.guestLogin()
                     return try await service.bootstrap(videoURL: video.url)
                 }
@@ -733,6 +739,7 @@ final class SabrPlayerController: ObservableObject {
         var audioInitLocation = ""
         var videoInitLocation = ""
         var seen = Set<String>()
+        var startupSamples = SabrStartupAccumulator<CMSampleBuffer>()
         var coverage = SabrPlaybackCoverage(audioItag: choice.audio.itag,
                                             videoItag: choice.video.itag, positionMs: start)
         while let response = try await mailbox.next() {
@@ -756,13 +763,10 @@ final class SabrPlayerController: ObservableObject {
                 videoInitLocation = video.initUrl
             }
 
-            // Both tracks must have a first segment before the playback clock
-            // starts. An advancing clock without decoded samples makes the
-            // first video frame late, especially over a slower LAN connection.
-            if !isInitialized && (audio.segments.isEmpty || video.segments.isEmpty) {
-                throw SabrFailure.invalidResponse("first SABR window lacks an audio/video segment pair")
-            }
-
+            // The first audio and video fragments may live at different
+            // segment indices or even in separate windows. Pre-roll until
+            // both tracks have compressed samples; never start a one-track
+            // renderer clock at rate zero.
             let count = max(audio.segments.count, video.segments.count)
             for index in 0..<count {
                 try Task.checkCancellation()
@@ -805,12 +809,22 @@ final class SabrPlayerController: ObservableObject {
                         videoPart = segment
                     }
                 }
-                if !isInitialized && (audioSamples.isEmpty || videoSamples.isEmpty) {
-                    throw SabrFailure.invalidResponse("initial SABR segment pair is incomplete")
+                if !isInitialized {
+                    if let ready = try startupSamples.append(
+                        audio: audioSamples, video: videoSamples
+                    ) {
+                        // Interleave all accumulated samples from both tracks.
+                        // Otherwise different segment boundaries drop or
+                        // reject perfectly valid media at startup.
+                        try await enqueueInterleaved(
+                            audio: ready.audio, video: ready.video, startMs: start
+                        )
+                    }
+                } else {
+                    try await enqueueInterleaved(
+                        audio: audioSamples, video: videoSamples, startMs: start
+                    )
                 }
-                // Alternating media-time-ordered samples prevents several
-                // seconds of audio from entering the renderer before video.
-                try await enqueueInterleaved(audio: audioSamples, video: videoSamples, startMs: start)
                 if let part = audioPart {
                     try coverage.acceptAudio(part)
                     seen.insert("a:\(part.url)")
@@ -823,6 +837,11 @@ final class SabrPlayerController: ObservableObject {
 
             positionMs = coverage.safeEndMs
             if response.endOfStream == true {
+                guard isInitialized else {
+                    throw SabrFailure.invalidResponse(
+                        "SABR stream ended without playable audio/video startup"
+                    )
+                }
                 // A complete *network* window is not the same as fully
                 // presented media. Keep renderers running to the common A/V
                 // end before displaying the finished state.

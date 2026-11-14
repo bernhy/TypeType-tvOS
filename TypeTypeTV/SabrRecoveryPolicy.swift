@@ -68,3 +68,13 @@ struct SabrRecoveryPolicy {
         return false
     }
 }
+
+/// A bootstrap 401/403 may request a guest session only when the client has
+/// no existing user credentials. Replacing an account token with a guest
+/// token would silently sign the user out and hide account history/playlists.
+enum SabrGuestAuthPolicy {
+    static func shouldAttemptGuest(responseCode: Int, existingToken: String?) -> Bool {
+        (responseCode == 401 || responseCode == 403) &&
+            (existingToken == nil || existingToken?.isEmpty == true)
+    }
+}

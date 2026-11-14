@@ -47,6 +47,24 @@ final class SabrRecoveryPolicyTests: XCTestCase {
             completedAttempts: 1, elapsedSeconds: 1))
     }
 
+    func testGuestLoginNeverOverwritesAuthenticatedAccount() {
+        XCTAssertTrue(SabrGuestAuthPolicy.shouldAttemptGuest(
+            responseCode: 401, existingToken: nil
+        ))
+        XCTAssertTrue(SabrGuestAuthPolicy.shouldAttemptGuest(
+            responseCode: 403, existingToken: ""
+        ))
+        XCTAssertFalse(SabrGuestAuthPolicy.shouldAttemptGuest(
+            responseCode: 401, existingToken: "account-token"
+        ))
+        XCTAssertFalse(SabrGuestAuthPolicy.shouldAttemptGuest(
+            responseCode: 403, existingToken: "account-token"
+        ))
+        XCTAssertFalse(SabrGuestAuthPolicy.shouldAttemptGuest(
+            responseCode: 429, existingToken: nil
+        ))
+    }
+
     func testRetryAfterHTTPDate() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let formatter = DateFormatter()
