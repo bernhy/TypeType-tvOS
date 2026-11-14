@@ -7,6 +7,7 @@ import SwiftUI
 struct PreferencesView: View {
     let api: TypeTypeAPI
     let onDisconnect: () -> Void
+    let focusRequest: Int
     var onAccountChanged: () -> Void = {}
     var onBackToMenu: () -> Void = {}
 
@@ -48,10 +49,12 @@ struct PreferencesView: View {
 
     init(api: TypeTypeAPI, onDisconnect: @escaping () -> Void,
          initialGroup: TVSettingsGroup = .playback,
+         focusRequest: Int = 0,
          onAccountChanged: @escaping () -> Void = {},
          onBackToMenu: @escaping () -> Void = {}) {
         self.api = api
         self.onDisconnect = onDisconnect
+        self.focusRequest = focusRequest
         self.onAccountChanged = onAccountChanged
         self.onBackToMenu = onBackToMenu
         _group = State(initialValue: initialGroup)
@@ -61,6 +64,8 @@ struct PreferencesView: View {
         HStack(alignment: .top, spacing: 23) {
             groupRail
                 .frame(width: 234)
+                .defaultFocus($focusedGroup, group)
+                .environment(\.isFocusEffectEnabled, false)
                 .focusEffectDisabled(true)
                 .clipped()
                 .focusSection()
@@ -95,9 +100,11 @@ struct PreferencesView: View {
         .padding(.top, 38)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TTTheme.ink)
-        // Initial focus belongs to the selected settings category, not Home.
-        .onAppear {
-            if focusedGroup == nil { focusedGroup = group }
+        // The global navigation and Settings have independent focus
+        // states. Transfer focus explicitly once Settings joins the tree.
+        .task(id: focusRequest) {
+            await Task.yield()
+            focusedGroup = group
         }
         .task(id: group) {
             if group == .content && remote == nil { await refreshRemote() }
@@ -186,13 +193,14 @@ struct PreferencesView: View {
                     }
                     .padding(.horizontal, 6)
                     .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                    .foregroundStyle(item == focusedGroup ? .white :
-                                     (item == group ? TTTheme.accent : TTTheme.muted))
-                    .contentShape(Rectangle())
+                    .modifier(TVRailRowHighlight(
+                        focused: focusedGroup == item, selected: group == item
+                    ))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TVRailButtonStyle())
                 .focusEffectDisabled(true)
                 .focused($focusedGroup, equals: item)
+                .accessibilityIdentifier("settings-group-\(item.rawValue)")
                 .accessibilityLabel(TVL10n.value(item.titleKey))
                 .accessibilityAddTraits(item == group ? .isSelected : [])
             }
