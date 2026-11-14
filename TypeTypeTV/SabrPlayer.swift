@@ -771,8 +771,7 @@ final class SabrPlayerController: ObservableObject {
                     generation = session.generation
                     try await consume(
                         service: service, videoId: id, choice: choice,
-                        positionMs: playbackStart, buffer: buffer,
-                        videoURL: video.url
+                        positionMs: playbackStart, buffer: buffer
                     )
                     return
                 } catch SabrFailure.unsupported where index < orderedOptions.count - 1 {
@@ -840,7 +839,7 @@ final class SabrPlayerController: ObservableObject {
     /// downloads the compressed bytes to the disk cache before advancing.
     private func consume(service: SabrService, videoId: String,
                          choice: SabrSelection, positionMs start: Int64,
-                         buffer: SabrBufferSettings, videoURL: String) async throws {
+                         buffer: SabrBufferSettings) async throws {
         var restartPosition = max(0, start)
         let policy = SabrRecoveryPolicy()
         var recoveryBudget = SabrRecoveryBudget()
@@ -948,30 +947,18 @@ final class SabrPlayerController: ObservableObject {
                 )
                 try Task.checkCancellation()
                 if refreshUpstream {
-                    // Manual Retry enters through run() and bootstraps before
-                    // creating a playback session. Mirror that path once when
-                    // fresh playback tokens repeatedly stall at the same spot.
-                    // This endpoint may still serve a server-side metadata cache;
-                    // it is not proof of a new YouTube visitor/token context.
+                    // Request the local server's isolated metadata refresh
+                    // instead of GET /bootstrap (which can reuse a 10m cache).
+                    // This is advisory until the local server patch is applied.
                     refreshedForIncident = true
-                    NSLog("TypeType SABR RECOVERY upstream-bootstrap attempt=%d positionMs=%lld",
+                    NSLog("TypeType SABR RECOVERY upstream-refresh requested attempt=%d positionMs=%lld",
                           recoveryAttempt, restartPosition)
-                    do {
-                        _ = try await service.bootstrap(videoURL: videoURL)
-                        NSLog("TypeType SABR RECOVERY upstream-bootstrap result=ok")
-                    } catch is CancellationError {
-                        throw CancellationError()
-                    } catch {
-                        // A transient bootstrap failure must not prevent the
-                        // already-bounded playback-session retry from running.
-                        NSLog("TypeType SABR RECOVERY upstream-bootstrap result=failed")
-                    }
                 }
                 let oldSession = sessionId
                 let renewed = try await retryTransient {
                     try await service.start(
                         videoId: videoId, selection: choice,
-                        positionMs: restartPosition
+                        positionMs: restartPosition, refreshUpstream: refreshUpstream
                     )
                 }
                 if Task.isCancelled {
