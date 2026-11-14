@@ -131,8 +131,8 @@ final class TVAPIWireTests: XCTestCase {
         try await api.setWatched(false, video: video)
         let recorded = lock.withLock { writes }
         XCTAssertEqual(recorded.count, 2)
-        XCTAssertEqual(recorded.map(\.0), ["PUT", "PUT"])
-        XCTAssertEqual(recorded.map(\.2), [87_000, 0])
+        XCTAssertEqual(recorded.map { $0.0 }, ["PUT", "PUT"])
+        XCTAssertEqual(recorded.map { $0.2 }, [87_000, 0])
         XCTAssertTrue(recorded.allSatisfy { $0.1?.contains("url=") == true })
     }
 
