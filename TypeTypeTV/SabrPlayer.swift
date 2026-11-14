@@ -104,6 +104,10 @@ enum FragmentedMP4Reader {
         var samples: [CMSampleBuffer] = []
         while reader.status == .reading {
             guard let sample = output.copyNextSampleBuffer() else { break }
+            // AVAssetReaderTrackOutput with nil outputSettings can emit
+            // marker-only buffers (discontinuities / timing metadata) without
+            // media samples or a CMBlockBuffer. Do not send them to VideoToolbox.
+            if CMSampleBufferGetNumSamples(sample) == 0 { continue }
             samples.append(try SabrSampleFormatRepair.repair(
                 sample, fallback: trackFormat
             ))
