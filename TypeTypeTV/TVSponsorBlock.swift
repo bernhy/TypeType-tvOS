@@ -23,6 +23,12 @@ enum TVSponsorBlock {
         "music_offtopic": "auto_skip"
     ]
 
+    static func titleKey(_ category: String) -> String {
+        let components = category.split(separator: "_").map(String.init)
+        return "sponsor." + (components.first ?? category) +
+            components.dropFirst().map { $0.capitalized }.joined()
+    }
+
     static func action(_ category: String, settings: TVServerSettings) -> String {
         settings.sponsorBlockCategoryActions?[category] ?? defaults[category] ?? "mark_only"
     }
@@ -92,6 +98,6 @@ enum TVSponsorBlock {
             guard visible(segment, settings: settings, duration: duration),
                   let range = bounds(segment, duration: duration) else { return false }
             return position >= range.lowerBound && position < range.upperBound
-        }).map { TVL10n.value("sponsor." + $0.category) }
+        }).map { TVL10n.value(titleKey($0.category)) }
     }
 }

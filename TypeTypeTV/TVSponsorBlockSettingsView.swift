@@ -31,7 +31,7 @@ struct TVSponsorBlockSettingsView: View {
                         Divider()
                         Text("sponsor.categories").font(.title3.bold())
                         ForEach(TVSponsorBlock.categories, id: \.self) { category in
-                            choice("sponsor." + category,
+                            choice(TVSponsorBlock.titleKey(category),
                                    current: TVSponsorBlock.action(category, settings: settings),
                                    choices: ["auto_skip", "mark_only", "disabled"]) { next in
                                 var actions = settings.sponsorBlockCategoryActions ??

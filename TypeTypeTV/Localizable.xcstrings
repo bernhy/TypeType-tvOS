@@ -785,7 +785,7 @@
         }
       }
     },
-    "sponsor.exclusive_access": {
+    "sponsor.exclusiveAccess": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -841,7 +841,7 @@
         }
       }
     },
-    "sponsor.poi_highlight": {
+    "sponsor.poiHighlight": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -1009,7 +1009,7 @@
         }
       }
     },
-    "sponsor.music_offtopic": {
+    "sponsor.musicOfftopic": {
       "localizations": {
         "de": {
           "stringUnit": {
