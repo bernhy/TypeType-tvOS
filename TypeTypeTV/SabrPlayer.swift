@@ -847,8 +847,23 @@ final class SabrPlayerController: ObservableObject {
                 // end before displaying the finished state.
                 let endMs = durationMs > 0 ? min(durationMs, coverage.safeEndMs) : coverage.safeEndMs
                 if isInitialized && endMs > start {
-                    while playbackSeconds() * 1_000 < Double(endMs) {
+                    // Data downloaded to disk does not prove that the audio
+                    // and video render clock is advancing. A renderer that
+                    // stops draining at EOS must recover, not wait forever.
+                    var drain = SabrEndDrainMonitor()
+                    while true {
                         try Task.checkCancellation()
+                        let time = playbackSeconds()
+                        guard time.isFinite, time >= 0 else {
+                            throw SabrFailure.stalled("invalid media clock at end of stream")
+                        }
+                        if time * 1_000 >= Double(endMs) { break }
+                        if drain.isStalled(
+                            positionMs: Int64(min(time * 1_000, Double(Int64.max / 2))),
+                            paused: prefersPause
+                        ) {
+                            throw SabrFailure.stalled("media clock stalled before end of stream")
+                        }
                         try await Task.sleep(nanoseconds: 100_000_000)
                     }
                     synchronizer.setRate(0, time: synchronizer.currentTime())

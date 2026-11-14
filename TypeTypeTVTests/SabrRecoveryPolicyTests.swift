@@ -63,6 +63,8 @@ final class SabrRecoveryPolicyTests: XCTestCase {
         XCTAssertFalse(SabrGuestAuthPolicy.shouldAttemptGuest(
             responseCode: 429, existingToken: nil
         ))
+        XCTAssertTrue(SabrGuestAuthPolicy.mayStoreGuestToken(existingToken: nil))
+        XCTAssertFalse(SabrGuestAuthPolicy.mayStoreGuestToken(existingToken: "new-device-login"))
     }
 
     func testRetryAfterHTTPDate() {

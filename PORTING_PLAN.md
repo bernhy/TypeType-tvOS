@@ -91,13 +91,13 @@ not an Android-TV release tag currently visible there.
 | /api/sessions/playback/{start,progress,stop} | Implemented in SABR and HLS | Verify active-session UI on server |
 | YouTube live HLS fallback (1.17.1) | Routed to streams/youtube/live | Confirm live manifest on Apple TV |
 | Typed video-unavailable (1.17.1) | Map no_playable_streams/sabr_content_unavailable to permanent error | Verify additional upstream failure codes |
-| Upstream Retry-After (1.17.0 and earlier) | SABR bounded recovery now honors header | Extend similar handling to initial HLS stream discovery |
-| Bilibili/NicoNico renewed HLS URLs (1.16.0) | AVPlayer stall refresh and position resume | Test discontinuities, expired URLs and pause/seek |
+| Upstream Retry-After (1.17.0 and earlier) | Implemented in SABR and HLS lookups/renewal | Check real outage durations on hardware |
+| Bilibili/NicoNico renewed HLS URLs (1.16.0) | AVPlayer stall refresh, bounded retries and position resume | Test discontinuities, expired URLs and pause/seek |
 | End screens (Android 0.6.0-beta.1, server 1.17.0) | Not implemented | Read endScreenElements API, add focusable overlay |
 | Custom seekbar icon (Android 0.5.0) | Not implemented | Account settings and tvOS overlay |
 | Subscriptions/feed channel avatar filters (Android 0.4.x) | Not implemented | New browse screen and paging |
 | Search filters videos/playlists/channels/music (Android 0.4.1) | Not implemented | Adapt search UI/API |
-| Skip unavailable videos in playlist (1.17.1) | Not implemented | Needs playlist autoplay/next controller |
+| Skip unavailable videos in playlist (1.17.1) | Sequential Watch Later/playlist player implemented; skips permanent errors with countdown | Verify navigation and playback completion on device |
 | Playback queue, repeat/shuffle, playlist next (web 1.15–1.17) | Not implemented | Separate queue state machine |
 | SponsorBlock, chapters, richer subtitle formats | Partial or absent | After first real decoder test |
 | Stream health and recovery | SABR bounded retries, HLS reconnect, explicit decoder diagnostics | Hardware test with H.264/AAC 1080p, then 4K/HDR |
@@ -105,3 +105,11 @@ not an Android-TV release tag currently visible there.
 **Release gate:** A successful simulator build and tests are necessary, but
 actual AV sync, codec profiles, bitstreams, long seeks, and Safari/YouTube
 upstream behavior still need physical Apple TV and the user's TypeType server.
+
+## Pre-hardware reliability audit (2026-11-14)
+
+- Existing account credentials must **never** be replaced by an automatic SABR guest-login fallback (including a response arriving after device-code pairing).
+- SABR startup now accumulates a bounded amount of first audio/video compressed samples across independent track-segment indices and windows; no identical index pairing is required. A stream that never offers both tracks is a proper failure, not a false completion.
+- An end-of-stream renderer clock that stops progressing while *playing* is classified as stalled after a bounded deadline. Explicit pause resets the clock watchdog.
+- The last prior green CI baseline was `7e2357dc`; rerun the full tvOS simulator **and** unsigned Apple TV arm64 device build after all subsequent changes.
+- **Still not hardware-proven:** real SABR sample extraction, first-frame VideoToolbox output, audio sync, 4K/HDR, AirPlay/TV focus behavior, multi-minute buffering, subtitles and full remote interaction.

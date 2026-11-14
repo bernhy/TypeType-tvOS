@@ -34,8 +34,8 @@ TypeType Server SABR session and segments → Swift SABR transport → fMP4 init
 
 - Real Apple TV 4K (2017+) testing of VOD, Siri Remote touch and directional press handling, seek, audio/video synchronization, *actual filled* buffer depth, offline resilience and error recovery.
 - VP9/AV1, HEVC/HDR, 4K/60 and decoder profile/frame-rate validation on the appropriate real hardware.
-- Subtitle display, SponsorBlock, chapters, live chat, audio-language/quality changes, writing to playlists, polished focus/accessibility and broader Android feature parity.
-- Robust session refresh/resume, **multi-window forward prefetch and cache-aware seeking** to achieve the larger configured target when the existing SABR API allows it, long-run resource measurements, release assets, signing and distribution.
+- SponsorBlock, interactive chapters/endscreens, live chat, expanded queue/shuffle/repeat controls, polished focus/accessibility and broader Android feature parity. Subtitles and audio/quality controls are implemented experimentally and require live device validation; writing to playlists and Watch Later is already implemented.
+- Validate the implemented session refresh/resume, multi-window forward prefetch and cache-aware seeking against real SABR windows to achieve the larger configured buffer target when the server allows it; collect long-run resource measurements, then add signing/distribution.
 
 See [TESTING.md](TESTING.md) for the device and live-stream test checklist.
 

@@ -306,6 +306,14 @@ final class SabrService: @unchecked Sendable {
     func guestLogin() async throws {
         struct Guest: Decodable { let token: String }
         let reply: Guest = try await request("auth/guest", method: "POST", body: Data())
+        guard !reply.token.isEmpty else {
+            throw SabrFailure.invalidResponse("guest token is empty")
+        }
+        // A device-code account sign-in might complete while this request is
+        // in flight. Never overwrite that user's freshly stored credentials.
+        guard SabrGuestAuthPolicy.mayStoreGuestToken(
+            existingToken: TypeTypeCredentials.shared.token(for: origin)
+        ) else { return }
         TypeTypeCredentials.shared.save(reply.token, for: origin)
     }
 
