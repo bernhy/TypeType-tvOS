@@ -592,12 +592,20 @@ struct VideoCard: View {
         return TTTheme.time(Int(progress / 1_000))
     }
 
+    private var videoMetadata: String? {
+        TVVideoMetadata.subtitle(for: video)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        // One card surface, no transparent 10-point gap between artwork
+        // and the info panel. That gap used to reveal the black grid behind.
+        VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomTrailing) {
                 TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl), origin: api.origin)
                     .grayscale(completed ? 1 : 0)
-                    .frame(height: 198).frame(maxWidth: .infinity).clipped()
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .clipped()
                 if let position = watchedTime, video.isLive != true {
                     Label(position, systemImage: completed ? "checkmark.circle.fill" : "play.circle")
                         .font(.caption.monospacedDigit())
@@ -637,13 +645,19 @@ struct VideoCard: View {
                     .foregroundStyle(TTTheme.muted)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, minHeight: 23, alignment: .topLeading)
+                Text(videoMetadata ?? " ")
+                    .font(.system(size: 15))
+                    .foregroundStyle(TTTheme.muted)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, minHeight: 21, alignment: .topLeading)
             }
             .padding(.horizontal, 14)
             .padding(.top, 11)
             .padding(.bottom, 13)
             .background(TTTheme.surface)
         }
-        .frame(minHeight: 305, alignment: .top)
+        .frame(minHeight: 322, alignment: .top)
+        .background(TTTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .foregroundStyle(.white)
         .accessibilityElement(children: .ignore)
