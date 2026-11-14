@@ -136,6 +136,21 @@ final class HardwareCodecFallbackTests: XCTestCase {
                        "A manually permitted software-only set remains playable")
     }
 
+    func testMissingFrameRateIsNotDisplayedAsZeroFps() {
+        let audio = SabrBootstrap.Audio(
+            itag: 140, codec: "mp4a.40.2", mimeType: "audio/mp4",
+            audioTrackId: nil, audioTrackName: nil, audioLocale: nil,
+            isOriginal: true, deliveryMethod: "sabr"
+        )
+        let selection = SabrSelection(
+            video: video(137, codec: "avc1.640028", height: 1080, fps: 0),
+            audio: audio
+        )
+        XCTAssertTrue(selection.description.contains("avc1.640028 1080p"))
+        XCTAssertFalse(selection.description.contains("0fps"))
+        XCTAssertTrue(selection.description.contains("itag 137"))
+    }
+
     func testMissingCompatibleAudioDisablesPlaybackSelection() {
         let bootstrap = SabrBootstrap(id: nil, hlsUrl: nil, isLive: nil,
             videoOnlyStreams: [video(137, codec: "avc1.640028", height: 1080, fps: 30)],

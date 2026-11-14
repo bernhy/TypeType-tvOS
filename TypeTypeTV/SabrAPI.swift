@@ -145,7 +145,15 @@ struct SabrSelection {
     let video: SabrBootstrap.Video
     let audio: SabrBootstrap.Audio
     var description: String {
-        "\(video.codec) \(video.height ?? 0)p @ \(video.fps ?? 0)fps (itag \(video.itag))"
+        let height = video.height.map { "\($0)p" } ?? "Video"
+        // A missing frame-rate in the server bootstrap is *unknown*, not 0.
+        let frameRate: String
+        if let fps = video.fps, fps > 0 {
+            frameRate = " @ \(fps)fps"
+        } else {
+            frameRate = ""
+        }
+        return "\(video.codec) \(height)\(frameRate) (itag \(video.itag))"
     }
 }
 

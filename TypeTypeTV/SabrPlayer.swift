@@ -951,7 +951,12 @@ final class SabrPlayerController: ObservableObject {
                 if oldSession != renewed.sessionId {
                     Task { try? await service.release(sessionId: oldSession) }
                 }
-                await videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: true)
+                // Keep the last decoded picture visible while a stalled
+                // upstream SABR session is renewed. Clearing it here produced
+                // an entirely black screen at ~00:50 even though the UI was
+                // still retrying. The old samples are discarded; only the
+                // displayed still frame is retained until fresh video arrives.
+                await videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: false)
                 audioRenderer.flush()
                 hardwareDecoder?.invalidate()
                 let allowSoftware = UserDefaults.standard.bool(

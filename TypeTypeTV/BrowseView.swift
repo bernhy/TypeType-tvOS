@@ -74,16 +74,6 @@ struct BrowseView: View {
         if let api = try? TypeTypeAPI(address: instanceOrigin) {
             ZStack(alignment: .leading) {
                 TTTheme.ink.ignoresSafeArea()
-                // This stripe is a sibling of the navigation layout, not a
-                // background on its clipped safe-area-constrained VStack.
-                // As a full-bleed Color it reaches the physical screen edges.
-                if !playbackVisibility.isVisible {
-                    TTTheme.surface
-                        .frame(width: expanded ? 214 : 56)
-                        .frame(maxHeight: .infinity)
-                        .ignoresSafeArea(.container, edges: [.top, .bottom, .leading])
-                        .allowsHitTesting(false)
-                }
                 HStack(spacing: 0) {
                     if !playbackVisibility.isVisible {
                         sidebar
@@ -192,9 +182,14 @@ struct BrowseView: View {
         .padding(.bottom, 72)
         .frame(width: expanded ? 214 : 56)
         .frame(maxHeight: .infinity)
-        // The full-height stripe is painted by the outer ZStack.
-        // Do not clip/paint a second background inside the safe area.
-        .ignoresSafeArea(.container, edges: [.top, .bottom])
+        // Paint behind the actual sidebar, not behind the entire HStack.
+        // Color.ignoresSafeArea expands the background's paint region above
+        // and below the safe-area-limited rail content. This is deliberately
+        // the same surface for BOTH expanded and collapsed presentations.
+        .background {
+            TTTheme.surface
+                .ignoresSafeArea(.container, edges: [.top, .bottom, .leading])
+        }
         // PlainButtonStyle still permits native focus decoration on tvOS 26.
         // Disable it for the entire rail; only our pill is allowed to render.
         .environment(\.isFocusEffectEnabled, false)
