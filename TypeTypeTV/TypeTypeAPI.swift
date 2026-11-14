@@ -261,11 +261,17 @@ struct TypeTypeAPI {
         return try JSONDecoder().decode(TVAccountIdentity.self, from: data)
     }
 
-    func home() async throws -> HomeRecommendations {
-        try await get("recommendations/home", query: [
+    /// Cursor based TypeType recommendations. The first page is delivered
+    /// without a cursor; subsequent pages use the exact server cursor.
+    func home(cursor: String? = nil, limit: Int = 30) async throws -> HomeRecommendations {
+        var query = [
             URLQueryItem(name: "service", value: "0"),
-            URLQueryItem(name: "limit", value: "30")
-        ])
+            URLQueryItem(name: "limit", value: String(min(60, max(1, limit))))
+        ]
+        if let cursor, !cursor.isEmpty {
+            query.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        return try await get("recommendations/home", query: query)
     }
 
     /// These are account-level preferences shared with the Android and web clients.
@@ -517,6 +523,24 @@ struct TypeTypeAPI {
             position: max(0, milliseconds)
         ))
         try await writeLibrary(url, method: "PUT", body: body)
+    }
+
+    /// TypeType's canonical watched state is saved progress, not a local flag.
+    /// The web client sets duration*1000 to mark watched and zero to mark new.
+    /// This endpoint is authenticated and syncs the same grayscale status to
+    /// other TypeType clients. A guest without a token must not report success.
+    func setWatched(_ watched: Bool, video: VideoItem) async throws {
+        guard accountToken?.isEmpty == false else {
+            throw TypeTypeError.http(401, "progress")
+        }
+        guard video.isLive != true, let duration = video.duration,
+              duration > 0, duration <= Int64.max / 1_000 else {
+            throw TypeTypeError.unavailableFormat
+        }
+        try await savePosition(
+            videoURL: video.url,
+            milliseconds: watched ? Int64(duration) * 1_000 : 0
+        )
     }
 
     func addHistory(video: VideoItem, milliseconds: Int64) async throws {
