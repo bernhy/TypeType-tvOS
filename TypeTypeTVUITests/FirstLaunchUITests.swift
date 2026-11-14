@@ -205,7 +205,7 @@ final class TypeTypeTVUITests: XCTestCase {
     }
 
 
-    func testDirectAccountMenuShowsDevicePairingWithoutServer() throws {
+    func testAccountManagementOpensMethodChoiceInsteadOfInlineLogin() throws {
         let app = XCUIApplication()
         app.launchArguments = [
             "-TypeTypeTVPreview", "settings-account",
@@ -214,8 +214,35 @@ final class TypeTypeTVUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["Konten"].firstMatch.waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["Gespeicherte Konten auf diesem Apple TV"].firstMatch.exists)
-        XCTAssertTrue(app.staticTexts["Anmeldung"].firstMatch.exists)
-        XCTAssertTrue(app.buttons["TypeType-Konto mit Gerätecode koppeln"].exists)
+        XCTAssertFalse(app.secureTextFields.firstMatch.exists,
+                       "Passwords must not appear inline on saved accounts list")
+        let add = app.buttons["accounts-add"]
+        XCTAssertTrue(add.waitForExistence(timeout: 5))
+        add.tap()
+        XCTAssertTrue(app.staticTexts["Konto hinzufügen"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Benutzername und Passwort"].exists)
+        XCTAssertTrue(app.buttons["Mit Gerätecode anmelden"].exists)
+
+        app.buttons["Benutzername und Passwort"].tap()
+        XCTAssertTrue(app.secureTextFields.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields.firstMatch.exists)
+        XCTAssertTrue(app.buttons["Anmelden"].exists ||
+                      app.buttons["Mit Passwort anmelden"].exists)
+    }
+
+    func testOpeningSettingsFromMainMenuTransfersFocusToSubnavigation() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let settings = app.buttons["main-nav-settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 20))
+        settings.tap()
+        let playbackGroup = app.buttons["settings-group-playback"]
+        XCTAssertTrue(playbackGroup.waitForExistence(timeout: 10))
+        XCTAssertTrue(playbackGroup.hasFocus,
+                      "Opening Settings must focus its selected subnavigation, not the main rail")
     }
 
 }
