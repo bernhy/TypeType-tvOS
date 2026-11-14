@@ -70,6 +70,32 @@ struct SabrRecoveryPolicy {
     }
 }
 
+/// An uninterrupted movie is not a recovery incident. Count failures
+/// from the first error, not from the time playback started. A stream that
+/// played at least 30 seconds after the last restart re-arms the bounded
+/// recovery budget for a later, unrelated interruption.
+struct SabrRecoveryBudget {
+    static let stablePlaybackMs: Int64 = 30_000
+    private(set) var incidentStartedAt: Date?
+    private(set) var failures = 0
+
+    mutating func evaluate(_ error: Error, playbackAdvancedMs: Int64,
+                           now: Date = Date(),
+                           policy: SabrRecoveryPolicy = SabrRecoveryPolicy())
+    -> (attempt: Int, allowed: Bool) {
+        if playbackAdvancedMs >= Self.stablePlaybackMs {
+            incidentStartedAt = nil
+            failures = 0
+        }
+        if incidentStartedAt == nil { incidentStartedAt = now }
+        failures += 1
+        let elapsed = max(0, now.timeIntervalSince(incidentStartedAt!))
+        return (failures, policy.canRetry(error,
+                                          completedAttempts: failures,
+                                          elapsedSeconds: elapsed))
+    }
+}
+
 /// A bootstrap 401/403 may request a guest session only when the client has
 /// no existing user credentials. Replacing an account token with a guest
 /// token would silently sign the user out and hide account history/playlists.

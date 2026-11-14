@@ -47,6 +47,55 @@ final class SabrRecoveryPolicyTests: XCTestCase {
             completedAttempts: 1, elapsedSeconds: 1))
     }
 
+    func testFirstErrorAfterTenMinuteMovieStillAllowsRecovery() {
+        var budget = SabrRecoveryBudget()
+        let afterTenMinutes = Date(timeIntervalSince1970: 1_700_000_600)
+        let decision = budget.evaluate(
+            SabrFailure.stalled("media queue exhausted"),
+            playbackAdvancedMs: 610_374,
+            now: afterTenMinutes
+        )
+        XCTAssertEqual(decision.attempt, 1)
+        XCTAssertTrue(decision.allowed,
+                      "The 120-second budget must start at failure, not at movie start")
+        XCTAssertEqual(budget.incidentStartedAt, afterTenMinutes)
+    }
+
+    func testRecoveryRemainsBoundedDuringOneStallAndResetsAfterStablePlayback() {
+        var budget = SabrRecoveryBudget()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let first = budget.evaluate(SabrFailure.expired,
+                                    playbackAdvancedMs: 40_000, now: start)
+        XCTAssertEqual(first.attempt, 1)
+        XCTAssertTrue(first.allowed)
+        let second = budget.evaluate(SabrFailure.expired,
+                                     playbackAdvancedMs: 0, now: start.addingTimeInterval(10))
+        XCTAssertEqual(second.attempt, 2)
+        XCTAssertTrue(second.allowed)
+        let deadline = budget.evaluate(SabrFailure.expired,
+                                       playbackAdvancedMs: 5_000, now: start.addingTimeInterval(125))
+        XCTAssertFalse(deadline.allowed)
+        // A later 31-second run is a new successful playback interval; a
+        // fresh, unrelated failure gets a fresh but bounded recovery budget.
+        let later = budget.evaluate(SabrFailure.expired,
+                                    playbackAdvancedMs: 31_000, now: start.addingTimeInterval(500))
+        XCTAssertEqual(later.attempt, 1)
+        XCTAssertTrue(later.allowed)
+    }
+
+    func testRepeatedImmediateStallsExhaustRecoveryAttempts() {
+        var budget = SabrRecoveryBudget()
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var last: (attempt: Int, allowed: Bool) = (0, false)
+        for attempt in 1...SabrRecoveryPolicy().maxAttempts {
+            last = budget.evaluate(SabrFailure.expired,
+                                   playbackAdvancedMs: 0,
+                                   now: start.addingTimeInterval(Double(attempt)))
+        }
+        XCTAssertEqual(last.attempt, SabrRecoveryPolicy().maxAttempts)
+        XCTAssertFalse(last.allowed)
+    }
+
     func testGuestLoginNeverOverwritesAuthenticatedAccount() {
         XCTAssertTrue(SabrGuestAuthPolicy.shouldAttemptGuest(
             responseCode: 401, existingToken: nil

@@ -808,9 +808,9 @@ final class SabrPlayerController: ObservableObject {
                          choice: SabrSelection, positionMs start: Int64,
                          buffer: SabrBufferSettings) async throws {
         var restartPosition = max(0, start)
-        let recoveryStarted = Date()
         let policy = SabrRecoveryPolicy()
-        for recoveryAttempt in 0..<policy.maxAttempts {
+        var recoveryBudget = SabrRecoveryBudget()
+        while true {
             try Task.checkCancellation()
             let mailbox = SabrWindowMailbox()
             activeMailbox = mailbox
@@ -869,14 +869,16 @@ final class SabrPlayerController: ObservableObject {
                 await mailbox.finish(error: CancellationError())
                 windowProducerTask = nil
                 activeMailbox = nil
-                let allowed = policy.canRetry(
-                    error, completedAttempts: recoveryAttempt + 1,
-                    elapsedSeconds: Date().timeIntervalSince(recoveryStarted)
-                )
                 let lastPositionMs = max(0, Int64(playbackSeconds() * 1_000))
+                let recovery = recoveryBudget.evaluate(
+                    error, playbackAdvancedMs: max(0, lastPositionMs - producerStart),
+                    policy: policy
+                )
+                let allowed = recovery.allowed
+                let recoveryAttempt = recovery.attempt
                 // Never log the sessionId, bearer or media URL.
                 NSLog("TypeType SABR RECOVERY attempt=%d retry=%d playbackMs=%lld contiguousMs=%lld",
-                      recoveryAttempt + 1, allowed ? 1 : 0, lastPositionMs, positionMs)
+                      recoveryAttempt, allowed ? 1 : 0, lastPositionMs, positionMs)
                 guard allowed else { throw error }
                 // The clock may have advanced past the last actual rendered
                 // segment during a network stall. Rewind a little and clamp
@@ -890,10 +892,10 @@ final class SabrPlayerController: ObservableObject {
                 )
                 isPlaying = false
                 state = TVL10n.value("player.connecting") +
-                    " (\(recoveryAttempt + 1))"
+                    " (\(recoveryAttempt))"
                 try await Task.sleep(
                     nanoseconds: policy.delayNanoseconds(
-                        for: error, attempt: recoveryAttempt + 1
+                        for: error, attempt: recoveryAttempt
                     )
                 )
                 try Task.checkCancellation()
