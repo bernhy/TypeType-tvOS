@@ -155,9 +155,9 @@ final class HardwareVideoDecoder {
             throw SabrFailure.unsupported("Cannot enqueue decoded pixel buffer")
         }
         var budget = SabrRendererWaitBudget()
-        while active && !display.isReadyForMoreMediaData {
+        while active && !display.sampleBufferRenderer.isReadyForMoreMediaData {
             try Task.checkCancellation()
-            guard display.status != .failed,
+            guard display.sampleBufferRenderer.status != .failed,
                   budget.shouldContinue(paused: playbackPaused, stepMilliseconds: 15)
             else {
                 throw SabrFailure.stalled("video display stopped accepting decoded frames")
@@ -165,9 +165,9 @@ final class HardwareVideoDecoder {
             try await Task.sleep(nanoseconds: 15_000_000)
         }
         guard active else { throw SabrFailure.stopped }
-        guard display.status != .failed else {
+        guard display.sampleBufferRenderer.status != .failed else {
             throw SabrFailure.stalled("video display layer failed")
         }
-        display.enqueue(sample)
+        display.sampleBufferRenderer.enqueue(sample)
     }
 }
