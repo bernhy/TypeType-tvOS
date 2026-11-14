@@ -110,7 +110,8 @@ struct BrowseView: View {
                                 focusRequest: settingsFocusRequest,
                                 autoPresentAddAccount: returnToSwitcherAfterLogin,
                                 onAccountChanged: { accountDidChange(api: api) },
-                                onBackToMenu: revealMenu
+                                onBackToMenu: revealMenu,
+                                onAddAccountDismissed: { returnToSwitcherAfterLogin = false }
                             )
                         }
                     }
