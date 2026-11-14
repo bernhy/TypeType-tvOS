@@ -84,10 +84,10 @@ final class TVAPIWireTests: XCTestCase {
         let lock = NSLock()
         var captured: (String, String, String?, Data?)?
         TVAPIWireProtocol.install(host: "password-login.example") { request in
-            lock.lock()
-            captured = (request.httpMethod ?? "", request.url?.path ?? "",
-                        request.value(forHTTPHeaderField: "Authorization"), request.httpBody)
-            lock.unlock()
+            lock.withLock {
+                captured = (request.httpMethod ?? "", request.url?.path ?? "",
+                            request.value(forHTTPHeaderField: "Authorization"), request.httpBody)
+            }
             return (200, Data(#"{"accessToken":"account-access-token"}"#.utf8))
         }
         let api = try fixtureAPI(host: "password-login.example")
@@ -95,9 +95,7 @@ final class TVAPIWireTests: XCTestCase {
             identifier: "  member@example.com  ", password: "sample-password"
         )
         XCTAssertEqual(token, "account-access-token")
-        lock.lock()
-        let recorded = captured
-        lock.unlock()
+        let recorded = lock.withLock { captured }
         XCTAssertEqual(recorded?.0, "POST")
         XCTAssertEqual(recorded?.1, "/api/auth/login")
         XCTAssertNil(recorded?.2, "Existing guest bearer must not accompany password login")
