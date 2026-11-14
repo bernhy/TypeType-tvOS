@@ -55,7 +55,7 @@ enum SabrSampleFormatRepair {
             }
         }
         guard status == noErr, let repaired else {
-            throw SabrFailure.invalidResponse("SABR codec format repair failed (CM \\(status))")
+            throw SabrFailure.invalidResponse("SABR codec format repair failed (CM \(status))")
         }
         return repaired
     }
