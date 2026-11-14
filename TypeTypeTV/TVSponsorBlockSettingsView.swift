@@ -122,11 +122,23 @@ struct TVSponsorBlockSettingsView: View {
             LocalizedStringKey(title),
             selection: Binding(
                 get: { current },
-                set: { change($0) }
+                set: { selected in
+                    change(selected)
+                    // Only a genuine user selection may restore this Picker.
+                    // Bulk mode updates only update the Binding's getter.
+                    Task { @MainActor in
+                        await Task.yield()
+                        if focus.wrappedValue == focusID ||
+                           focus.wrappedValue == nil {
+                            focus.wrappedValue = focusID
+                        }
+                    }
+                }
             ),
             focus: focus,
             focusTarget: focusID,
-            onMoveLeft: onMoveLeft
+            onMoveLeft: onMoveLeft,
+            restoreFocusOnSelectionChange: false
         ) {
             ForEach(choices, id: \.self) { option in
                 Text(optionLabel(option)).tag(option)

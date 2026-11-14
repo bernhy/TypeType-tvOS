@@ -131,6 +131,7 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
     let focus: FocusState<String?>.Binding?
     let focusTarget: String?
     let onMoveLeft: (() -> Void)?
+    let restoreFocusOnSelectionChange: Bool
     @FocusState private var pickerFocus: Bool
     @ViewBuilder let options: Options
 
@@ -138,12 +139,14 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
          focus: FocusState<String?>.Binding? = nil,
          focusTarget: String? = nil,
          onMoveLeft: (() -> Void)? = nil,
+         restoreFocusOnSelectionChange: Bool = true,
          @ViewBuilder options: () -> Options) {
         self.title = title
         self._selection = selection
         self.focus = focus
         self.focusTarget = focusTarget
         self.onMoveLeft = onMoveLeft
+        self.restoreFocusOnSelectionChange = restoreFocusOnSelectionChange
         self.options = options()
     }
 
@@ -171,6 +174,10 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
         .padding(.vertical, 6)
         .accessibilityElement(children: .contain)
         .onChange(of: selection) { _, _ in
+            // On SponsorBlock a global mode change updates every category
+            // at once. Those programmatic Picker changes must not steal
+            // focus from the global mode by restoring all category Pickers.
+            guard restoreFocusOnSelectionChange else { return }
             // Returning from a tvOS Picker menu should restore the very
             // Picker that opened it, not the Settings group to its left.
             Task { @MainActor in
