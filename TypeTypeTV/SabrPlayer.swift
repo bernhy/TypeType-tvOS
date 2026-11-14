@@ -620,7 +620,7 @@ final class SabrPlayerController: ObservableObject {
                     activeMailbox = nil
                     hardwareDecoder?.invalidate()
                     hardwareDecoder = nil
-                    videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+                    await videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: true)
                     audioRenderer.flush()
                     synchronizer.setRate(
                         0, time: CMTime(value: playbackStart, timescale: 1_000)
@@ -742,7 +742,7 @@ final class SabrPlayerController: ObservableObject {
                 if oldSession != renewed.sessionId {
                     Task { try? await service.release(sessionId: oldSession) }
                 }
-                videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+                await videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: true)
                 audioRenderer.flush()
                 hardwareDecoder?.invalidate()
                 let allowSoftware = UserDefaults.standard.bool(
