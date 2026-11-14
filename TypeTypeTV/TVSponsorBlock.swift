@@ -62,7 +62,10 @@ enum TVSponsorBlock {
 
     static func shouldAutoSkip(_ segment: TVSponsorBlockSegment, settings: TVServerSettings,
                                duration: Double, streamCategory: String?) -> Bool {
-        guard (settings.sponsorBlockMode ?? "auto_skip") == "auto_skip",
+        // SponsorBlock's 'mute', 'poi', 'chapter' and 'full' actions
+        // are markers/other behaviors, never automatic seek requests.
+        guard segment.action == "skip",
+              (settings.sponsorBlockMode ?? "auto_skip") == "auto_skip",
               action(segment.category, settings: settings) == "auto_skip",
               visible(segment, settings: settings, duration: duration),
               let range = bounds(segment, duration: duration) else { return false }

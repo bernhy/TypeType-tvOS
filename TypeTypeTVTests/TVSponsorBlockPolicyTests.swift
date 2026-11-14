@@ -35,6 +35,19 @@ final class TVSponsorBlockPolicyTests: XCTestCase {
         XCTAssertNil(TVSponsorBlock.target(segments: [segment(10, 13)],
             settings: config, position: 11, duration: 300, streamCategory: nil))
     }
+ 
+    func testNonSkipActionTypesNeverTriggerAutomaticSeek() throws {
+        let config = try settings()
+        for action in ["mute", "poi", "chapter", "full"] {
+            let marker = TVSponsorBlockSegment(
+                startTime: 10, endTime: 20, category: "sponsor", action: action
+            )
+            XCTAssertNil(TVSponsorBlock.target(
+                segments: [marker], settings: config, position: 12,
+                duration: 300, streamCategory: nil
+            ), "Action type \(action) must never trigger a seek")
+        }
+    }
 
     func testInvalidNumbersCannotTriggerSeek() throws {
         XCTAssertNil(TVSponsorBlock.target(segments: [segment(.nan, .infinity)],
