@@ -291,6 +291,10 @@ struct HomeView: View {
     @State private var recentNeedsLogin = false
     @State private var loading: Bool
     @State private var loadingRecent: Bool
+    @State private var nextCursor: String?
+    @State private var hasMoreRecommendations = false
+    @State private var loadingMore = false
+    @State private var loadMoreError: String?
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 4)
 
@@ -386,7 +390,22 @@ struct HomeView: View {
                             action: { Task { await loadRecommendations() } }
                         )
                     } else {
-                        videoGrid(videos)
+                        videoGrid(videos, paginate: true)
+                        if loadingMore {
+                            ProgressView("home.loadingMore")
+                                .frame(maxWidth: .infinity)
+                        } else if hasMoreRecommendations || loadMoreError != nil {
+                            Button("home.loadMore") {
+                                Task { await loadMoreRecommendations() }
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity)
+                        }
+                        if let loadMoreError {
+                            Text(loadMoreError)
+                                .font(.callout)
+                                .foregroundStyle(.orange)
+                        }
                     }
                 }
             }
@@ -402,7 +421,7 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private func videoGrid(_ items: [VideoItem]) -> some View {
+    private func videoGrid(_ items: [VideoItem], paginate: Bool = false) -> some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 34) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, video in
                 NavigationLink {
@@ -420,6 +439,15 @@ struct HomeView: View {
                     }
                 }
                 .accessibilityLabel(TTTheme.accessibilityText(for: video))
+                .onAppear {
+                    // LazyVGrid renders only the rows approaching the viewport.
+                    // Prefetch the following page when nearing the last row,
+                    // never during initial Home appearance.
+                    if paginate, index >= items.count - columns.count - 1,
+                       hasMoreRecommendations, !loading, !loadingMore {
+                        Task { await loadMoreRecommendations() }
+                    }
+                }
             }
         }
         .focusSection()
@@ -438,17 +466,51 @@ struct HomeView: View {
         loading = true
         defer { loading = false }
         do {
-            let result = try await api.home().items
+            let page = try await api.home()
             guard !Task.isCancelled else { return }
-            videos = result
+            nextCursor = page.nextCursor?.isEmpty == false ? page.nextCursor : nil
+            hasMoreRecommendations = (page.hasMore ?? nextCursor != nil) &&
+                nextCursor != nil
+            loadMoreError = nil
+            videos = page.items
             message = nil
-            let enriched = await api.withProgress(result)
+            let enriched = await api.withProgress(page.items)
             guard !Task.isCancelled else { return }
             videos = enriched
         } catch is CancellationError {
             return
         } catch {
             message = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func loadMoreRecommendations() async {
+        guard previewVideos == nil, !loading, !loadingMore,
+              hasMoreRecommendations, let cursor = nextCursor else { return }
+        loadingMore = true
+        loadMoreError = nil
+        defer { loadingMore = false }
+        do {
+            let page = try await api.home(cursor: cursor)
+            guard !Task.isCancelled else { return }
+            let existing = Set(videos.map(\.url))
+            var seen = existing
+            let additional = page.items.filter { seen.insert($0.url).inserted }
+            // Preserve existing cards and the user's scroll position. Only
+            // fetch progress decoration for the newly appended page.
+            let enriched = await api.withProgress(additional)
+            guard !Task.isCancelled else { return }
+            videos.append(contentsOf: enriched)
+            let candidate = page.nextCursor?.isEmpty == false ? page.nextCursor : nil
+            // Protect against servers returning the same cursor forever.
+            nextCursor = candidate != cursor ? candidate : nil
+            hasMoreRecommendations = (page.hasMore ?? nextCursor != nil) &&
+                nextCursor != nil
+        } catch is CancellationError {
+            return
+        } catch {
+            loadMoreError = error.localizedDescription
         }
     }
 
