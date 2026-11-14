@@ -20,8 +20,8 @@ enum TVVideoMetadata {
     }
 
     static func publicationDate(for video: VideoItem) -> Date? {
-        if let timestamp = video.publishedAt ?? video.uploaded,
-           timestamp > 0 {
+        if let timestamp = [video.publishedAt, video.uploaded]
+            .compactMap({ $0 }).first(where: { $0 > 0 }) {
             // The TypeType frontend passes publishedAt directly to Date(),
             // so the server field is epoch milliseconds, NOT Unix seconds.
             return Date(timeIntervalSince1970: Double(timestamp) / 1_000)
