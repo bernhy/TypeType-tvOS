@@ -47,6 +47,7 @@ struct BrowseView: View {
     @State private var sidebarIdentity: TVAccountIdentity?
     @ObservedObject private var playbackVisibility = TVPlaybackVisibility.shared
     @State private var settingsEntryGroup: TVSettingsGroup
+    @State private var settingsFocusRequest = 0
     @State private var accountGeneration = 0
     @State private var returnToSwitcherAfterLogin = false
     @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
@@ -106,6 +107,7 @@ struct BrowseView: View {
                             PreferencesView(
                                 api: api, onDisconnect: onDisconnect,
                                 initialGroup: settingsEntryGroup,
+                                focusRequest: settingsFocusRequest,
                                 onAccountChanged: { accountDidChange(api: api) },
                                 onBackToMenu: revealMenu
                             )
@@ -174,8 +176,9 @@ struct BrowseView: View {
         .frame(maxHeight: .infinity)
         .background(TTTheme.surface)
         .ignoresSafeArea(.container, edges: [.top, .bottom])
-        // Disable inherited tvOS lift/glow on the whole rail, not only on
-        // each button. Otherwise the focus overlay can exceed its bounds.
+        // PlainButtonStyle still permits native focus decoration on tvOS 26.
+        // Disable it for the entire rail; only our pill is allowed to render.
+        .environment(\.isFocusEffectEnabled, false)
         .focusEffectDisabled(true)
         .clipped()
         .animation(navigationAnimations ? .easeInOut(duration: 0.16) : nil, value: expanded)
@@ -226,22 +229,15 @@ struct BrowseView: View {
             .padding(.horizontal, 2)
             .frame(height: 52)
             .frame(maxWidth: .infinity, alignment: .leading)
-            // Never change size or draw the native tvOS focus overlay.
-            .foregroundStyle(menuFocus == item
-                             ? (section == item ? TTTheme.accent : TTTheme.ink)
-                             : (section == item ? TTTheme.accent : TTTheme.muted))
-            .background {
-                // YouTube-style rounded, high-contrast focus pill.
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(menuFocus == item ? Color.white : .clear)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 12))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .modifier(TVRailRowHighlight(
+                focused: menuFocus == item, selected: section == item
+            ))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TVRailButtonStyle())
         .focusEffectDisabled(true)
         .focused($menuFocus, equals: item)
         .accessibilityLabel(item.label)
+        .accessibilityIdentifier("main-nav-\(item.rawValue)")
         .accessibilityAddTraits(item == section ? .isSelected : [])
     }
 
@@ -286,12 +282,15 @@ struct BrowseView: View {
         if destination == .settings && section != .account {
             settingsEntryGroup = initialSettingsGroup
         }
-        section = destination
-        // Selecting a destination transfers focus INTO its content. Keeping
-        // menuFocus = destination stranded the remote in the global rail,
-        // even after opening Settings -> Apple TV.
+        // Relinquish the global focus before rendering the destination.
+        // Settings receives a new focus request and explicitly places focus
+        // on its selected subnavigation row on the next main actor turn.
         menuFocus = nil
         expanded = false
+        if destination == .settings {
+            settingsFocusRequest += 1
+        }
+        section = destination
     }
 
     private func revealMenu() {
