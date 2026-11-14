@@ -1,6 +1,6 @@
 # Architectural decisions (2026-11-13) — overrides older experiments
 
-- Support **Apple TV 4K (2017) and newer**; not Apple TV HD. Keep minimum deployment tvOS 17.0 for the 2017 model, which is not supported by tvOS 27.
+- Support **Apple TV 4K (2017) and newer**; not Apple TV HD. Target tvOS 26.0 minimum, including hardware verification on the Apple TV 4K (2017).
 - **No server changes:** use TypeType Server API v1 exactly as the Android client does; no tvOS-specific HLS bridge or server-side transcoding.
 - **Direct SABR playback on tvOS for YouTube:** implement native Swift session manager, segment transport, demux/timestamps, buffering, seeking, and audio/video synchronization. Feed compressed samples to public CoreMedia/AVFoundation/VideoToolbox hardware decoders/renderers. Other video services can still use native HLS as appropriate.
 - **Hardware-first:** only hardware-supported codecs/profiles/resolution/frame rates/HDR enabled by default; software decoding strictly optional and OFF by default. Probe real-device capabilities, not merely SDK or simulator support. New A19 Apple TV 4K (2026) has AV1 hardware decode; do not assume AV1 hardware support on prior generations.
@@ -12,7 +12,7 @@
 1. Fix and verify free GitHub Actions Xcode 26 unsigned simulator build.
 2. Implement real-device codec/decoder diagnostic for H.264, HEVC, VP9 and AV1, including profile/4K/HDR constraints.
 3. Port TypeType SABR API contracts from Android (`SabrDto`, `SabrApi`, `SabrWindowLoader`) to Swift Codable and write tests for session/segment parsing.
-4. Validate sample-buffer rendering and synchronization using public tvOS 17-compatible APIs on Apple TV 4K hardware.
+4. Validate sample-buffer rendering and synchronization using public tvOS 26-compatible APIs on Apple TV 4K hardware.
 5. Add seeking, playback recovery, hardware-only codec fallback, and quality/audio track selection, then UI/account features.
 
 **Important:** the older HLS-bridge discussion below is historical research, not the agreed implementation strategy. HLS is retained only for existing non-YouTube services.
