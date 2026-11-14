@@ -70,6 +70,27 @@ struct SabrRecoveryPolicy {
     }
 }
 
+/// A new playback token alone cannot fix a VOD demand repeatedly stuck at the
+/// same timestamp. Escalate once per incident to a refreshed upstream session.
+/// This is intentionally *not* triggered by a later, unrelated buffering stall.
+enum SabrRecoveryRefreshPolicy {
+    static let sameStallToleranceMs: Int64 = 2_000
+
+    static func shouldRefresh(
+        attempt: Int,
+        currentFailurePositionMs: Int64,
+        previousFailurePositionMs: Int64?,
+        alreadyRefreshed: Bool
+    ) -> Bool {
+        guard attempt >= 2, !alreadyRefreshed,
+              let previousFailurePositionMs,
+              currentFailurePositionMs >= 0, previousFailurePositionMs >= 0
+        else { return false }
+        return max(currentFailurePositionMs, previousFailurePositionMs) -
+            min(currentFailurePositionMs, previousFailurePositionMs) <= sameStallToleranceMs
+    }
+}
+
 /// An uninterrupted movie is not a recovery incident. Count failures
 /// from the first error, not from the time playback started. A stream that
 /// played at least 30 seconds after the last restart re-arms the bounded
