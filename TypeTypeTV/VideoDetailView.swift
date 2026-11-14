@@ -15,7 +15,6 @@ struct VideoDetailView: View {
     @State private var progressSaving = false
     @State private var progressError: String?
     @ObservedObject private var localProgress = TVLocalProgress.shared
-    @FocusState private var focusedDescriptionChunk: Int?
 
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
     private var detailedVideo: VideoItem {
@@ -41,8 +40,7 @@ struct VideoDetailView: View {
 
 
     var body: some View {
-        ScrollViewReader { scrollProxy in
-            ScrollView {
+        ScrollView {
                 // The hero sizes itself to the complete title and action rows.
                 // A fixed GeometryReader height used to clip buttons on long
                 // titles while the progress section overlapped them.
@@ -203,45 +201,33 @@ struct VideoDetailView: View {
                 if let description = streamMetadata?.description,
                    !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("video.descriptionHeading").font(.title2.bold())
-                    // A single multi-page focusable Text cannot be scrolled
-                    // line-by-line with the Siri Remote. Each readable segment
-                    // has its own focus target and scroll anchor.
-                    ForEach(Array(TVDescriptionChunks.make(description).enumerated()),
-                            id: \.offset) { index, chunk in
-                        Text(chunk)
+                    // Text stays a single selectable, independently scrollable
+                    // region. No pseudo-list rows or a separate modal dialog.
+                    ScrollView(.vertical) {
+                        Text(description)
                             .font(.body)
-                            .foregroundStyle(focusedDescriptionChunk == index
-                                             ? .white : TTTheme.muted)
+                            .foregroundStyle(TTTheme.muted)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 9)
-                            .background(focusedDescriptionChunk == index
-                                        ? Color.white.opacity(0.10) : .clear,
-                                        in: RoundedRectangle(cornerRadius: 10))
-                            .contentShape(Rectangle())
-                            .focusable(true)
-                            .focusEffectDisabled(true)
-                            .focused($focusedDescriptionChunk, equals: index)
-                            .id("description-\(index)")
+                            .padding(18)
                     }
+                    .frame(height: 370)
+                    .scrollIndicators(.visible)
+                    .background(TTTheme.surface,
+                                in: RoundedRectangle(cornerRadius: 12))
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
+                    .focusable(true)
+                    .focusSection()
                 }
             }
             .padding(.horizontal, 90)
             .padding(.bottom, 110)
             }
             .background(TTTheme.ink)
-            .onChange(of: focusedDescriptionChunk) { _, index in
-                guard let index else { return }
-                withAnimation(.easeOut(duration: 0.14)) {
-                    scrollProxy.scrollTo("description-\(index)", anchor: .center)
-                }
-            }
             .task(id: video.url) {
                 async let activity: Void = loadActivity()
                 async let enrichment: Void = loadMetadata()
                 _ = await (activity, enrichment)
             }
-        }
     }
 
     @MainActor
@@ -324,24 +310,3 @@ struct VideoDetailView: View {
     }
 }
 
-/// Short, stable focus rows allow a long description to be traversed by
-/// Up/Down without trapping focus on one larger-than-screen text element.
-enum TVDescriptionChunks {
-    static func make(_ description: String, maxLength: Int = 170) -> [String] {
-        var result: [String] = []
-        for paragraph in description.components(separatedBy: .newlines) {
-            var current = ""
-            for word in paragraph.split(whereSeparator: \.isWhitespace) {
-                let item = String(word)
-                if !current.isEmpty && current.count + 1 + item.count > maxLength {
-                    result.append(current)
-                    current = item
-                } else {
-                    current += current.isEmpty ? item : " " + item
-                }
-            }
-            if !current.isEmpty { result.append(current) }
-        }
-        return result
-    }
-}
