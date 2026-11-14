@@ -91,11 +91,12 @@ struct BrowseView: View {
                 }
                 .id(section)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .focusSection()
             }
             .background(TTTheme.ink)
             .onAppear {
-                // Establish a deterministic initial focus on the main rail.
-                if menuFocus == nil { menuFocus = section }
+                // Initial focus is evaluated by tvOS; entering the icon rail
+                // expands it automatically instead of requiring a toggle.
             }
         } else {
             TVContentMessage(symbol: "exclamationmark.triangle",
@@ -107,98 +108,82 @@ struct BrowseView: View {
     }
 
     private var sidebar: some View {
-        VStack(spacing: 20) {
-            HStack(spacing: 14) {
+        VStack(spacing: 8) {
+            HStack(spacing: 11) {
                 Image(systemName: "play.rectangle.fill")
-                    .font(.system(size: 37))
+                    .font(.system(size: 27))
                     .foregroundStyle(TTTheme.accent)
-                    .frame(width: 50)
+                    .frame(width: 38)
                 if expanded {
                     Text("TypeType")
-                        .font(.title2.bold())
+                        .font(.system(size: 23, weight: .bold))
                         .lineLimit(1)
                 }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, minHeight: 90)
-            .padding(.bottom, 20)
+            .frame(height: 64)
+            .padding(.bottom, 12)
 
-            ForEach(TVSection.allCases, id: \.self) { item in
-                Button {
-                    open(item)
-                } label: {
-                    HStack(spacing: 16) {
-                        Image(systemName: item.icon)
-                            .font(.system(size: 27))
-                            .frame(width: 50)
-                        if expanded {
-                            Text(item.localizedLabel)
-                                .font(.system(size: 22, weight: .semibold))
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                        }
-                    }
-                    .padding(.horizontal, 13)
-                    .frame(maxWidth: .infinity, minHeight: 66, alignment: .leading)
-                    .background(
-                        item == section ? TTTheme.accent.opacity(0.2) : .clear,
-                        in: RoundedRectangle(cornerRadius: 14)
-                    )
-                    .foregroundStyle(item == section ? TTTheme.accent : .white)
-                }
-                .buttonStyle(.plain)
-                .focused($menuFocus, equals: item)
-                .onMoveCommand { direction in
-                    moveMenuFocus(from: item, direction: direction)
-                }
-                .accessibilityLabel(item.label)
-                .accessibilityAddTraits(item == section ? .isSelected : [])
+            ForEach(TVSection.allCases.filter { $0 != .settings }, id: \.self) { item in
+                sidebarButton(item)
             }
-            Spacer()
-            Button {
-                expanded.toggle()
-                if expanded { menuFocus = section }
-            } label: {
-                Image(systemName: expanded ? "sidebar.left" : "sidebar.right")
-                    .font(.title2)
-                    .frame(width: 50, height: 56)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(TVL10n.value(expanded ? "nav.collapse" : "nav.expand"))
+            Spacer(minLength: 10)
+            sidebarButton(.settings)
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 34)
-        .padding(.bottom, 42)
-        .frame(width: expanded ? 355 : 98)
+        .padding(.horizontal, 11)
+        .padding(.top, 24)
+        .padding(.bottom, 25)
+        .frame(width: expanded ? 244 : 74)
         .frame(maxHeight: .infinity)
         .background(TTTheme.surface)
-        .animation(navigationAnimations ? .easeInOut(duration: 0.18) : nil, value: expanded)
+        .animation(navigationAnimations ? .easeInOut(duration: 0.16) : nil, value: expanded)
+        // The full-height focus section makes the remote cross to the nearest
+        // content control even when no item is at exactly the same Y position.
         .focusSection()
+        .onChange(of: menuFocus) { _, focused in
+            expanded = focused != nil
+        }
+    }
+
+    private func sidebarButton(_ item: TVSection) -> some View {
+        Button {
+            open(item)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: item.icon)
+                    .font(.system(size: 24, weight: .medium))
+                    .frame(width: 38, height: 54)
+                if expanded {
+                    Text(item.localizedLabel)
+                        .font(.system(size: 20, weight: .medium))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+            }
+            .padding(.horizontal, 7)
+            .frame(maxWidth: .infinity, height: 54, alignment: .leading)
+            // Never change size or draw the native tvOS focus overlay.
+            .foregroundStyle(menuFocus == item ? .white :
+                             (section == item ? TTTheme.accent : TTTheme.muted))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .focused($menuFocus, equals: item)
+        .accessibilityLabel(item.label)
+        .accessibilityAddTraits(item == section ? .isSelected : [])
     }
 
     private func open(_ destination: TVSection) {
         section = destination
-        expanded = false
-        // Do not discard the current focus on Select. The old nil reset
-        // removed the active focus target just as the NavigationStack changed.
+        // Focus stays on the selected rail item until the user moves right.
+        // onChange(of: menuFocus) collapses the rail when focus leaves.
         menuFocus = destination
     }
 
-    private func moveMenuFocus(from item: TVSection,
-                               direction: MoveCommandDirection) {
-        guard let current = TVSection.allCases.firstIndex(of: item) else { return }
-        switch direction {
-        case .up where current > 0:
-            menuFocus = TVSection.allCases[current - 1]
-        case .down where current + 1 < TVSection.allCases.count:
-            menuFocus = TVSection.allCases[current + 1]
-        default:
-            break // right/left remain native focus-engine navigation
-        }
-    }
-
     private func revealMenu() {
-        expanded = true
         menuFocus = section
+        expanded = true
     }
 }
 
