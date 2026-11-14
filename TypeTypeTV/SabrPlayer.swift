@@ -1074,8 +1074,50 @@ final class SabrPlayerController: ObservableObject {
                                    startMs: $0.startMs, durationMs: $0.durationMs)
             }
             let prefetchStarted = Date()
-            try await cache.preloadFully(refs, service: service,
-                                         sessionId: sessionId, generation: generation)
+            // /segments can report a ready window containing progressive
+            // fragments that still return HTTP 202 on GET. The ordinary
+            // window prefetch loop is already finished at this point. Nudge
+            // the server's targeted-demand builder every 5 seconds while
+            // the actual audio/video fragment downloads are outstanding.
+            // Cancellation prevents any heartbeat from outliving a window.
+            let mediaPrefetch = Task { @MainActor in
+                var attempts = 0
+                while !Task.isCancelled {
+                    do {
+                        try await Task.sleep(nanoseconds: 5_000_000_000)
+                    } catch {
+                        return
+                    }
+                    guard !Task.isCancelled else { return }
+                    attempts += 1
+                    NSLog("TypeType SABR MEDIA re-prefetch attempt=%d requestMs=%lld elapsedMs=%d",
+                          attempts, requestPosition,
+                          Int(Date().timeIntervalSince(prefetchStarted) * 1_000))
+                    do {
+                        try await service.refreshMediaPrefetch(
+                            sessionId: sessionId, selection: choice,
+                            generation: generation, positionMs: requestPosition,
+                            buffer: buffer, requestedBufferGoalMs: Int(target)
+                        )
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        // The segment GET loop remains authoritative for
+                        // failures; an optional nudge must not interrupt
+                        // otherwise valid compressed-media downloads.
+                        NSLog("TypeType SABR MEDIA re-prefetch failed attempt=%d kind=%@",
+                              attempts, String(describing: type(of: error)))
+                    }
+                }
+            }
+            do {
+                try await cache.preloadFully(refs, service: service,
+                                             sessionId: sessionId, generation: generation)
+            } catch {
+                mediaPrefetch.cancel()
+                throw error
+            }
+            mediaPrefetch.cancel()
             let prefetchMs = Int(Date().timeIntervalSince(prefetchStarted) * 1_000)
             if prefetchMs > 2_000 {
                 NSLog("TypeType SABR PRODUCER slow-prefetch requestMs=%lld audioSegments=%d videoSegments=%d elapsedMs=%d",

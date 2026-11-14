@@ -532,6 +532,26 @@ final class SabrService: @unchecked Sendable {
         throw SabrFailure.invalidResponse("segment window timed out")
     }
 
+    /// A /segments window may already be ready while one of its listed
+    /// progressive MP4 fragments still returns HTTP 202. Re-register the
+    /// missing track demands during a long fragment download, without
+    /// changing playback position or creating a new session. The caller
+    /// schedules this sparingly and cancels it when all media is cached.
+    func refreshMediaPrefetch(sessionId: String, selection: SabrSelection,
+                              generation: Int64, positionMs: Int64,
+                              buffer: SabrBufferSettings,
+                              requestedBufferGoalMs: Int) async throws {
+        let body = try encoder.encode(SabrWindowRequest(
+            selection, generation: generation, positionMs: positionMs,
+            ranges: SabrSequentialWindowPolicy.advertisedRanges,
+            buffer: buffer, requestedBufferGoalMs: requestedBufferGoalMs
+        ))
+        let _: EmptyReply = try await request(
+            "sabr/playback/\(sessionId)/prefetch", method: "POST",
+            body: body, allowedStatuses: [200, 202, 204], allowEmpty: true
+        )
+    }
+
     func fragmentData(_ reference: String, sessionId: String, itag: Int, generation: Int64) async throws -> Data {
         guard let address = URL(string: reference, relativeTo: base)?.absoluteURL,
               address.scheme == origin.scheme, address.host == origin.host, address.port == origin.port,

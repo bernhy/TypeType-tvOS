@@ -173,6 +173,31 @@ final class SabrTransportTests: XCTestCase {
             last: now, now: now.addingTimeInterval(0.05), interval: 0.01))
     }
 
+    func testProgressiveFragmentHeartbeatUsesPrefetchWithoutNewPositionOrSession() async throws {
+        // A ready /segments window can still describe an as-yet-unreadable
+        // media fragment. Its refresh must not reset the seek position, nor
+        // create a new token or bypass /prefetch's targeted-demand behavior.
+        let lock = NSLock()
+        var requests: [(String, String)] = []
+        MockSabrProtocol.use { request in
+            lock.lock()
+            requests.append((request.httpMethod ?? "", request.url?.path ?? ""))
+            lock.unlock()
+            return (202, Data(#"{"ready":false,"status":"repositioning"}"#.utf8))
+        }
+        let service = try fixtureService()
+        try await service.refreshMediaPrefetch(
+            sessionId: "example", selection: fixtureSelection(),
+            generation: 7, positionMs: 58_907,
+            buffer: SabrBufferSettings(), requestedBufferGoalMs: 20_000
+        )
+        let captured = lock.withLock { requests }
+        XCTAssertEqual(captured.count, 1)
+        XCTAssertEqual(captured.first?.0, "POST")
+        XCTAssertEqual(captured.first?.1,
+                       "/api/sabr/playback/example/prefetch")
+    }
+
     func testPreloadedSegmentsReusedFromDiskAndBounded() async throws {
         let lock = NSLock()
         var calls = 0
