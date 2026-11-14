@@ -272,6 +272,7 @@ struct BrowseView: View {
         // Unmount the previous user's Home/Library/player state immediately.
         // Later requests and progress UI must belong to the newly selected user.
         TVLocalProgress.shared.clear()
+        TVWatchLaterMembership.shared.invalidate()
         accountGeneration += 1
         sidebarIdentity = nil
         Task { await reloadSidebarIdentity(api: api) }
