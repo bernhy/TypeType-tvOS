@@ -11,6 +11,14 @@ struct TVVideoActionModifier: ViewModifier {
     let isWatchLaterEntry: Bool
 
     @ObservedObject private var localProgress = TVLocalProgress.shared
+
+    private var isMarkedWatched: Bool {
+        guard let duration = video.duration, duration > 0 else { return false }
+        if let position = localProgress.positions[video.url] ?? video.watchPositionMs {
+            return position >= Int64(duration) * 900
+        }
+        return video.watched == true
+    }
     @State private var pickerVisible = false
     @State private var toBlock: TVBlockTarget?
     @State private var feedback: String?
@@ -30,6 +38,24 @@ struct TVVideoActionModifier: ViewModifier {
                         )
                     }
                     .disabled(true)
+                }
+                if video.isLive != true, let duration = video.duration, duration > 0 {
+                    Button {
+                        perform {
+                            let markWatched = !isMarkedWatched
+                            try await api.setWatched(markWatched, video: video)
+                            TVLocalProgress.shared.record(
+                                video.url, positionMs: markWatched ? Int64(duration) * 1_000 : 0
+                            )
+                            return TVL10n.value(markWatched
+                                ? "action.markWatchedSuccess" : "action.markUnwatchedSuccess")
+                        }
+                    } label: {
+                        Label(
+                            isMarkedWatched ? "action.markUnwatched" : "action.markWatched",
+                            systemImage: isMarkedWatched ? "arrow.uturn.backward.circle" : "checkmark.circle"
+                        )
+                    }
                 }
                 if isWatchLaterEntry {
                     Button(role: .destructive) {
