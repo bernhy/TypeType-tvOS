@@ -10,8 +10,29 @@ struct VideoDetailView: View {
     @State private var activityLoaded = false
     @State private var activitySaving = false
     @State private var activityError: String?
+    @State private var streamMetadata: StreamInfo?
+    @State private var savedPositionMs: Int64?
+    @State private var progressSaving = false
+    @State private var progressError: String?
+    @ObservedObject private var localProgress = TVLocalProgress.shared
 
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
+    private var detailedVideo: VideoItem {
+        TVVideoMetadata.merged(video, stream: streamMetadata)
+    }
+    private var playbackPosition: Int64 {
+        max(0, localProgress.positions[video.url] ??
+            savedPositionMs ?? video.watchPositionMs ?? 0)
+    }
+    private var watchedFraction: Double {
+        guard let duration = video.duration, duration > 0 else { return 0 }
+        return max(0, min(1, Double(playbackPosition) / (Double(duration) * 1_000)))
+    }
+    private var isMarkedWatched: Bool {
+        if playbackPosition > 0 { return watchedFraction >= 0.90 }
+        return detailedVideo.watched == true
+    }
+
 
     var body: some View {
         ScrollView {
@@ -44,6 +65,11 @@ struct VideoDetailView: View {
                             Label(channel, systemImage: "person.crop.circle")
                                 .font(.title3)
                                 .foregroundStyle(.white.opacity(0.8))
+                        }
+                        if let metadata = TVVideoMetadata.subtitle(for: detailedVideo) {
+                            Text(metadata)
+                                .font(.title3)
+                                .foregroundStyle(.white.opacity(0.84))
                         }
                         HStack(spacing: 22) {
                             if video.isLive == true {
@@ -113,9 +139,22 @@ struct VideoDetailView: View {
                                 .tint(watchLater ? TTTheme.accent : TTTheme.muted)
                                 .disabled(!activityLoaded || activitySaving)
 
+                                if video.isLive != true, (video.duration ?? 0) > 0 {
+                                    Button {
+                                        Task { await changeWatched() }
+                                    } label: {
+                                        Label(isMarkedWatched ? "action.markUnwatched" : "action.markWatched",
+                                              systemImage: isMarkedWatched ? "arrow.uturn.backward.circle" : "checkmark.circle")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(progressSaving)
+                                }
                                 if !activityLoaded {
                                     ProgressView().controlSize(.small)
                                 }
+                            }
+                            if let progressError {
+                                Text(progressError).font(.caption).foregroundStyle(.orange).lineLimit(2)
                             }
                             if let activityError {
                                 Text(activityError)
@@ -133,9 +172,71 @@ struct VideoDetailView: View {
             .frame(height: 690)
             .clipped()
 
+            VStack(alignment: .leading, spacing: 26) {
+                if video.isLive != true, let duration = video.duration, duration > 0 {
+                    Text("video.progressHeading")
+                        .font(.title2.bold())
+                    ProgressView(value: watchedFraction)
+                        .tint(TTTheme.accent)
+                    Text("\(TTTheme.time(Int(playbackPosition / 1_000))) / \(TTTheme.time(duration)) · \(Int(watchedFraction * 100))%")
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(TTTheme.muted)
+                }
+                if let likes = streamMetadata?.likeCount, likes >= 0 {
+                    HStack {
+                        Image(systemName: "hand.thumbsup")
+                        Text("\(likes.formatted()) \(TVL10n.value("video.likes"))")
+                    }
+                    .font(.callout)
+                }
+                if let description = streamMetadata?.description,
+                   !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("video.descriptionHeading").font(.title2.bold())
+                    Text(description)
+                        .font(.body)
+                        .foregroundStyle(TTTheme.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
+                        .focusable(true)
+                        .focusEffectDisabled(true)
+                }
+            }
+            .padding(.horizontal, 90)
+            .padding(.bottom, 110)
         }
         .background(TTTheme.ink)
-        .task(id: video.url) { await loadActivity() }
+        .task(id: video.url) {
+            async let activity: Void = loadActivity()
+            async let enrichment: Void = loadMetadata()
+            _ = await (activity, enrichment)
+        }
+    }
+
+    @MainActor
+    private func loadMetadata() async {
+        async let metadata = TVStreamMetadataCache.shared.details(for: video, api: api)
+        async let progress = api.withProgress([video])
+        streamMetadata = await metadata
+        let rows = await progress
+        if !Task.isCancelled { savedPositionMs = rows.first?.watchPositionMs }
+    }
+
+    @MainActor
+    private func changeWatched() async {
+        guard !progressSaving, let duration = video.duration, duration > 0 else { return }
+        progressSaving = true
+        progressError = nil
+        defer { progressSaving = false }
+        let next = !isMarkedWatched
+        do {
+            try await api.setWatched(next, video: video)
+            let position = next ? Int64(duration) * 1_000 : 0
+            savedPositionMs = position
+            TVLocalProgress.shared.record(video.url, positionMs: position)
+        } catch {
+            progressError = error.localizedDescription
+        }
     }
 
     @MainActor
