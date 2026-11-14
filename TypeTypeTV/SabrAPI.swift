@@ -259,6 +259,8 @@ final class TypeTypeCredentials {
     }
 
     func save(_ token: String, for origin: URL) {
+        // Account changes must not leave the previous user's display identity.
+        saveDisplayIdentifier(nil, for: origin)
         let key: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "org.typetype.tvOS.auth",
             kSecAttrAccount as String: origin.absoluteString]
@@ -269,10 +271,41 @@ final class TypeTypeCredentials {
         SecItemAdd(item as CFDictionary, nil)
     }
 
+    /// Optional display-only login identifier for accounts without a public
+    /// username. Kept in Keychain alongside credentials, never in UserDefaults.
+    func displayIdentifier(for origin: URL) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "org.typetype.tvOS.account-identifier",
+            kSecAttrAccount as String: origin.absoluteString,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var value: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &value) == errSecSuccess,
+              let data = value as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    func saveDisplayIdentifier(_ identifier: String?, for origin: URL) {
+        let key: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "org.typetype.tvOS.account-identifier",
+            kSecAttrAccount as String: origin.absoluteString
+        ]
+        SecItemDelete(key as CFDictionary)
+        guard let identifier, !identifier.isEmpty else { return }
+        var item = key
+        item[kSecValueData as String] = Data(identifier.utf8)
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(item as CFDictionary, nil)
+    }
+
     func clear(for origin: URL) {
         SecItemDelete([kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "org.typetype.tvOS.auth",
             kSecAttrAccount as String: origin.absoluteString] as CFDictionary)
+        saveDisplayIdentifier(nil, for: origin)
     }
 }
 
