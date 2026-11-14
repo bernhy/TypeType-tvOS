@@ -54,6 +54,20 @@ final class TypeTypeTVUITests: XCTestCase {
         add(attachment)
     }
 
+    func testBackFromHomeStaysInsideApp() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Empfehlungen"].waitForExistence(timeout: 20))
+        // Menu/Back at the root must return to the rail, not Apple TV Home.
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(app.staticTexts["Empfehlungen"].waitForExistence(timeout: 5))
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(app.staticTexts["Empfehlungen"].waitForExistence(timeout: 5))
+    }
+
     func testSearchScreenLayoutWithoutServer() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-TypeTypeTVPreview", "search", "-typetype.uiLanguage", "de"]
