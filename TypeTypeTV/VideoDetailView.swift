@@ -161,9 +161,12 @@ struct VideoDetailView: View {
                                     .focused($focusedDetail, equals: .play)
                                     .accessibilityIdentifier("video-play")
                                     .onMoveCommand { direction in
-                                        // Live streams have no second action row.
-                                        if direction == .down, video.isLive == true,
-                                           descriptionText?.isEmpty == false {
+                                        guard direction == .down else { return }
+                                        if video.isLive != true,
+                                           (video.duration ?? 0) > 0 {
+                                            focusedDetail = .markWatched
+                                        } else if descriptionText?.isEmpty == false {
+                                            // Live streams have no watched row.
                                             focusedDetail = .descriptionEntry
                                         }
                                     }
