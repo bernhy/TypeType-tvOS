@@ -144,6 +144,15 @@ struct SabrSelection {
     }
 }
 
+/// Device pairing errors are separate from video playback failures.
+enum DeviceLoginError: LocalizedError {
+    case serverUnsupported
+
+    var errorDescription: String? {
+        TVL10n.value("login.deviceServerUnsupported")
+    }
+}
+
 enum SabrFailure: LocalizedError {
     case unsupported(String)
     case invalidResponse(String)
@@ -377,8 +386,14 @@ final class SabrService: @unchecked Sendable {
     }
 
     func deviceLoginStart() async throws -> DeviceStart {
-        try await request("auth/device/start", method: "POST",
-                          body: try encoder.encode(DeviceStartRequest(deviceName: "TypeType tvOS")))
+        do {
+            return try await request("auth/device/start", method: "POST",
+                                     body: try encoder.encode(DeviceStartRequest(deviceName: "TypeType tvOS")))
+        } catch SabrFailure.server(404, _) {
+            // Released servers before the device-code API return HTTP 404.
+            // Keep other HTTP and transport failures visible as-is.
+            throw DeviceLoginError.serverUnsupported
+        }
     }
 
     func deviceLoginPoll(_ code: String) async throws -> DeviceToken {

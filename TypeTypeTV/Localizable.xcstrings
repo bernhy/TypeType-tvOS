@@ -3025,6 +3025,34 @@
         }
       }
     },
+    "login.deviceServerUnsupported": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Gerätecode-Anmeldung wird von dieser TypeType-Serverversion noch nicht unterstützt. Bitte verwende vorerst die Anmeldung mit Benutzername und Passwort, sofern sie aktiviert ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device-code sign-in is not supported by this TypeType server version yet. For now, use username and password sign-in if it is enabled."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion par code d’appareil n’est pas encore prise en charge par cette version du serveur TypeType. Utilisez pour le moment la connexion par identifiant et mot de passe si elle est activée."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El inicio de sesión con código de dispositivo aún no está disponible en esta versión del servidor TypeType. Por ahora, utiliza el inicio de sesión con usuario y contraseña si está habilitado."
+          }
+        }
+      }
+    },
     "login.starting": {
       "localizations": {
         "de": {

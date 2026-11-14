@@ -80,6 +80,51 @@ final class TVAPIWireTests: XCTestCase {
         )
     }
 
+    func testMissingDeviceCodeRouteExplainsUnsupportedServerVersion() async throws {
+        let host = "device-code-unsupported.example"
+        TVAPIWireProtocol.install(host: host) { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/api/auth/device/start")
+            return (404, Data(#"{"error":"Not Found"}"#.utf8))
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [TVAPIWireProtocol.self]
+        let session = URLSession(configuration: config)
+        let api = try TypeTypeAPI(address: "https://\(host)", session: session)
+        let service = SabrService(api: api, session: session)
+
+        do {
+            _ = try await service.deviceLoginStart()
+            XCTFail("A missing device-code endpoint should have a helpful error")
+        } catch DeviceLoginError.serverUnsupported {
+            XCTAssertEqual(
+                DeviceLoginError.serverUnsupported.localizedDescription,
+                TVL10n.value("login.deviceServerUnsupported")
+            )
+        }
+    }
+
+    func testDeviceCodeForbiddenDoesNotMasqueradeAsMissingServerFeature() async throws {
+        let host = "device-code-disabled.example"
+        TVAPIWireProtocol.install(host: host) { request in
+            XCTAssertEqual(request.url?.path, "/api/auth/device/start")
+            return (403, Data(#"{"code":"device_login_disabled"}"#.utf8))
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [TVAPIWireProtocol.self]
+        let session = URLSession(configuration: config)
+        let api = try TypeTypeAPI(address: "https://\(host)", session: session)
+        let service = SabrService(api: api, session: session)
+
+        do {
+            _ = try await service.deviceLoginStart()
+            XCTFail("A disabled device-code API must preserve its HTTP error")
+        } catch SabrFailure.server(let status, let path) {
+            XCTAssertEqual(status, 403)
+            XCTAssertEqual(path, "auth/device/start")
+        }
+    }
+
     func testExpiredAccountJWTAutomaticallyRefreshesWithSavedCookie() async throws {
         let host = "refresh-token-contract.example"
         let origin = try TypeTypeAPI(address: "https://" + host).origin
