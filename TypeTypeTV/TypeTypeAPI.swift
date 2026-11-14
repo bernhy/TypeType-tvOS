@@ -111,6 +111,8 @@ struct StreamInfo: Decodable {
     let isLive: Bool?
     let hlsUrl: String?
     let description: String?
+    let sponsorBlockSegments: [TVSponsorBlockSegment]?
+    let category: String?
     let uploaderName: String?
     let uploaderUrl: String?
     let viewCount: Int64?

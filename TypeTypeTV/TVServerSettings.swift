@@ -15,6 +15,14 @@ struct TVServerSettings: Decodable {
     var preferOriginalLanguage: Bool?
     var autoplay: Bool?
     var sponsorBlockMode: String?
+    var sponsorBlockCategoryActions: [String: String]?
+    var sponsorBlockMinimumDuration: Int?
+    var sponsorBlockShowCurrentSegment: Bool?
+    var sponsorBlockShowChapters: Bool?
+    var sponsorBlockShowFullVideoLabels: Bool?
+    var sponsorBlockManualSkipOnFullVideo: Bool?
+    var sponsorBlockSkipNonMusicOnlyOnMusicVideos: Bool?
+    var sponsorBlockMuteInsteadOfSkip: Bool?
     var defaultQuality: String?
 
     func enabled(_ field: TVServerToggle) -> Bool {
@@ -67,11 +75,15 @@ enum TVServerToggle: String, CaseIterable, Identifiable {
 enum TVSettingValue: Encodable {
     case boolean(Bool)
     case text(String)
+    case integer(Int)
+    case actions([String: String])
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
         case .boolean(let v): try container.encode(v)
         case .text(let v): try container.encode(v)
+        case .integer(let v): try container.encode(v)
+        case .actions(let v): try container.encode(v)
         }
     }
 }
