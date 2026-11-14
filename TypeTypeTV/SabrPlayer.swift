@@ -1375,10 +1375,18 @@ final class SabrPlayerController: ObservableObject {
                     try await service.fragmentData(segment.url, sessionId: sid,
                                                    itag: choice.audio.itag, generation: gen)
                 }
+                let readStarted = ProcessInfo.processInfo.systemUptime
                 let rawSamples = try await FragmentedMP4Reader.compressedSamples(
                     initialization: audioInit, fragment: bytes, mediaType: .audio
                 )
+                let readMs = Int((ProcessInfo.processInfo.systemUptime - readStarted) * 1_000)
                 let sequence = Int(URL(string: segment.url)?.lastPathComponent ?? "")
+                if readMs >= 200 {
+                    let now = Int64(max(0, playbackSeconds() * 1_000))
+                    NSLog("TypeType SABR DEMUX track=audio seq=%d elapsedMs=%d samples=%d clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld",
+                          sequence ?? -1, readMs, rawSamples.count, now,
+                          queuedAudioEndMs - now, queuedVideoEndMs - now)
+                }
                 let nativeStart = SabrMP4NativeTiming.decodeStartMs(
                     initialization: audioInit, fragment: bytes
                 )
@@ -1433,10 +1441,18 @@ final class SabrPlayerController: ObservableObject {
                     try await service.fragmentData(segment.url, sessionId: sid,
                                                    itag: choice.video.itag, generation: gen)
                 }
+                let readStarted = ProcessInfo.processInfo.systemUptime
                 let rawSamples = try await FragmentedMP4Reader.compressedSamples(
                     initialization: videoInit, fragment: bytes, mediaType: .video
                 )
+                let readMs = Int((ProcessInfo.processInfo.systemUptime - readStarted) * 1_000)
                 let sequence = Int(URL(string: segment.url)?.lastPathComponent ?? "")
+                if readMs >= 200 {
+                    let now = Int64(max(0, playbackSeconds() * 1_000))
+                    NSLog("TypeType SABR DEMUX track=video seq=%d elapsedMs=%d samples=%d clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld",
+                          sequence ?? -1, readMs, rawSamples.count, now,
+                          queuedAudioEndMs - now, queuedVideoEndMs - now)
+                }
                 let nativeStart = SabrMP4NativeTiming.decodeStartMs(
                     initialization: videoInit, fragment: bytes
                 )
