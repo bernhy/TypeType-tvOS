@@ -2303,8 +2303,8 @@ struct SabrPlayerView: View {
                         onDismiss: dismissSponsorNotice
                     )
                     .id(segment.id)
-                    .padding(.top, 18)
-                    .padding(.trailing, 20)
+                    .padding(.top, 4)
+                    .padding(.trailing, 4)
                 }
             }
         }
