@@ -7,6 +7,51 @@ final class TypeTypeTVUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// tvOS focus changes finish after SwiftUI updates and sometimes after
+    /// a lazy grid scroll. Wait for the intended destination, not the transient
+    /// focus reported immediately after a Siri Remote press.
+    private func waitForFocus(_ target: XCUIElement,
+                              timeout: TimeInterval = 5) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if target.exists && target.hasFocus { return true }
+            Thread.sleep(forTimeInterval: 0.15)
+        } while Date() < deadline
+        return target.exists && target.hasFocus
+    }
+
+    /// Home Back moves from content to the first recommended tile and then
+    /// into the global rail. The first press may already reach the rail if
+    /// that tile was initially focused by the simulator.
+    private func focusHomeIcon(_ app: XCUIApplication) {
+        let home = app.buttons["main-nav-home"]
+        let first = app.buttons["home-video-recommendation-0"]
+        if home.hasFocus { return }
+        XCUIRemote.shared.press(.menu)
+        if waitForFocus(home, timeout: 0.8) { return }
+        XCTAssertTrue(waitForFocus(first),
+                      "First Home Back must select the top recommendation")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(waitForFocus(home),
+                      "Second Home Back must select the global Home icon")
+    }
+
+    /// Every icon must receive focus in order. Never mask a skipped icon or
+    /// an unwanted focus transfer into preview content.
+    private func moveDownMainRail(_ app: XCUIApplication, to destination: String) {
+        let order = ["search", "subscriptions", "channels",
+                     "library", "account", "settings"]
+        guard let index = order.firstIndex(of: destination) else {
+            XCTFail("Unsupported main navigation destination: \(destination)")
+            return
+        }
+        for item in order.prefix(through: index) {
+            XCUIRemote.shared.press(.down)
+            XCTAssertTrue(waitForFocus(app.buttons["main-nav-\(item)"]),
+                          "Down in main navigation must focus \(item)")
+        }
+    }
+
     func testFirstLaunchShowsAccessibleServerSetup() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-typetype.instanceOrigin", "", "-typetype.uiLanguage", "de"]
@@ -186,33 +231,35 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(sponsorGroup.waitForExistence(timeout: 20))
         XCTAssertTrue(playbackGroup.exists)
         XCTAssertTrue(refresh.waitForExistence(timeout: 10))
-        XCTAssertTrue(sponsorGroup.hasFocus,
+        XCTAssertTrue(waitForFocus(sponsorGroup),
                       "SponsorBlock must open as a selected settings category")
         XCTAssertTrue(app.staticTexts["Kategorien"].exists)
         XCTAssertTrue(app.staticTexts["Weitere Optionen"].exists)
         XCTAssertFalse(app.buttons["SponsorBlock konfigurieren"].exists,
                        "There must no longer be a modal launcher in Playback")
         XCUIRemote.shared.press(.right)
-        XCTAssertTrue(refresh.hasFocus,
+        XCTAssertTrue(waitForFocus(refresh),
                       "Right from SponsorBlock must enter the content column")
         let mode = app.descendants(matching: .any)["sponsor.mode"]
         let firstCategory = app.descendants(matching: .any)["sponsor.category.sponsor"]
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(mode.hasFocus,
+        XCTAssertTrue(waitForFocus(mode),
                       "Down from Refresh must select SponsorBlock behavior, not Categories")
         XCUIRemote.shared.press(.up)
-        XCTAssertTrue(refresh.hasFocus,
+        XCTAssertTrue(waitForFocus(refresh),
                       "Up from behavior must return to Refresh")
         XCUIRemote.shared.press(.down)
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(firstCategory.hasFocus,
+        XCTAssertTrue(waitForFocus(firstCategory),
                       "Next Down from behavior should enter the first category")
         XCUIRemote.shared.press(.up)
-        XCTAssertTrue(mode.hasFocus,
+        XCTAssertTrue(waitForFocus(mode),
                       "Up from the first category must return to global behavior")
         XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(refresh),
+                      "Up must return to Refresh before leaving the panel")
         XCUIRemote.shared.press(.left)
-        XCTAssertTrue(sponsorGroup.hasFocus,
+        XCTAssertTrue(waitForFocus(sponsorGroup),
                       "Left must return to SponsorBlock in the settings rail")
     }
 
@@ -401,20 +448,19 @@ final class TypeTypeTVUITests: XCTestCase {
             "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
         ]
         app.launch()
-        XCUIRemote.shared.press(.menu) // First recommended video
-        XCUIRemote.shared.press(.menu) // Global Home
-        for _ in 0..<3 { XCUIRemote.shared.press(.down) }
+        focusHomeIcon(app)
+        moveDownMainRail(app, to: "channels")
         let mainChannels = app.buttons["main-nav-channels"]
-        XCTAssertTrue(mainChannels.hasFocus)
+        XCTAssertTrue(waitForFocus(mainChannels))
         let channel = app.buttons["subscription-https://preview.invalid/channel/a"]
         XCTAssertTrue(channel.waitForExistence(timeout: 8))
         Thread.sleep(forTimeInterval: 0.5)
-        XCTAssertTrue(mainChannels.hasFocus,
+        XCTAssertTrue(waitForFocus(mainChannels),
                       "Preview must not focus the channel subnavigation")
         XCTAssertFalse(channel.hasFocus,
                        "Preview should only render the subscribed channels")
         XCUIRemote.shared.press(.right)
-        XCTAssertTrue(channel.hasFocus,
+        XCTAssertTrue(waitForFocus(channel),
                       "Right must enter the channel subnavigation")
     }
 
@@ -424,13 +470,11 @@ final class TypeTypeTVUITests: XCTestCase {
             "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
         ]
         app.launch()
-        XCUIRemote.shared.press(.menu) // Top recommendation
-        XCUIRemote.shared.press(.menu) // Global Home
-        XCTAssertTrue(app.buttons["main-nav-home"].hasFocus)
+        focusHomeIcon(app)
         XCUIRemote.shared.press(.select)
         let recommendation = app.buttons["home-video-recommendation-0"]
         XCTAssertTrue(recommendation.waitForExistence(timeout: 8))
-        XCTAssertTrue(recommendation.hasFocus,
+        XCTAssertTrue(waitForFocus(recommendation),
                       "OK on Home must enter its recommendations, not stay in the rail")
         XCTAssertFalse(app.buttons["main-nav-home"].hasFocus)
     }
@@ -442,6 +486,8 @@ final class TypeTypeTVUITests: XCTestCase {
         ]
         app.launch()
         XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(waitForFocus(app.buttons["home-video-recommendation-0"]),
+                      "First Back should focus the top recommendation")
         for _ in 0..<4 { XCUIRemote.shared.press(.down) }
         let deepButtons = (8..<24).map {
             app.buttons["home-video-recommendation-\($0)"]
@@ -453,12 +499,12 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(app.buttons["video-play"].waitForExistence(timeout: 10))
         XCUIRemote.shared.press(.menu)
         XCTAssertTrue(focusedDeep.waitForExistence(timeout: 10))
-        XCTAssertTrue(focusedDeep.hasFocus,
+        XCTAssertTrue(waitForFocus(focusedDeep, timeout: 8),
                       "Back from a distant detail must restore that specific tile")
         XCUIRemote.shared.press(.menu)
         let top = app.buttons["home-video-recommendation-0"]
         XCTAssertTrue(top.waitForExistence(timeout: 8))
-        XCTAssertTrue(top.hasFocus,
+        XCTAssertTrue(waitForFocus(top, timeout: 8),
                       "Back from a scrolled Home grid must scroll to first recommendation")
     }
 
@@ -489,22 +535,21 @@ final class TypeTypeTVUITests: XCTestCase {
             "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
         ]
         app.launch()
-        XCUIRemote.shared.press(.menu)  // Top recommendation
-        XCUIRemote.shared.press(.menu)  // Global Home icon
+        focusHomeIcon(app)
         let search = app.buttons["main-nav-search"]
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(search.hasFocus,
+        XCTAssertTrue(waitForFocus(search),
                       "Moving Down in the main rail must retain rail focus")
         XCTAssertTrue(app.staticTexts["VIDEOS ENTDECKEN"].waitForExistence(timeout: 8),
                       "Search screen should be previewed before pressing OK")
-        XCTAssertTrue(search.hasFocus,
+        XCTAssertTrue(waitForFocus(search),
                       "Preview must not collapse the main navigation")
         XCUIRemote.shared.press(.select)
         XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 8))
-        XCTAssertTrue(app.textFields.firstMatch.hasFocus,
+        XCTAssertTrue(waitForFocus(app.textFields.firstMatch),
                       "OK must transfer focus to the new screen")
         Thread.sleep(forTimeInterval: 0.6)
-        XCTAssertTrue(app.textFields.firstMatch.hasFocus,
+        XCTAssertTrue(waitForFocus(app.textFields.firstMatch),
                       "OK focus must not jump back to the global navigation")
         XCTAssertFalse(search.hasFocus,
                        "The global navigation must release focus after OK")
@@ -516,16 +561,15 @@ final class TypeTypeTVUITests: XCTestCase {
             "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
         ]
         app.launch()
-        XCUIRemote.shared.press(.menu) // First recommendation
-        XCUIRemote.shared.press(.menu) // Main Home icon
+        focusHomeIcon(app)
         let search = app.buttons["main-nav-search"]
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(search.hasFocus,
+        XCTAssertTrue(waitForFocus(search),
                       "Previewing Search must keep focus on its menu icon")
         XCUIRemote.shared.press(.right)
         let searchInput = app.textFields.firstMatch
         XCTAssertTrue(searchInput.waitForExistence(timeout: 8))
-        XCTAssertTrue(searchInput.hasFocus,
+        XCTAssertTrue(waitForFocus(searchInput),
                       "Right must enter the Search screen, just like OK")
         Thread.sleep(forTimeInterval: 0.6)
         XCTAssertTrue(searchInput.hasFocus,
@@ -539,18 +583,17 @@ final class TypeTypeTVUITests: XCTestCase {
             "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
         ]
         app.launch()
-        XCUIRemote.shared.press(.menu) // Top recommendation
-        XCUIRemote.shared.press(.menu) // Global Home icon
-        for _ in 0..<6 { XCUIRemote.shared.press(.down) }
+        focusHomeIcon(app)
+        moveDownMainRail(app, to: "settings")
         let settings = app.buttons["main-nav-settings"]
-        XCTAssertTrue(settings.hasFocus)
+        XCTAssertTrue(waitForFocus(settings))
         XCUIRemote.shared.press(.right)
         let playbackGroup = app.buttons["settings-group-playback"]
         XCTAssertTrue(playbackGroup.waitForExistence(timeout: 10))
-        XCTAssertTrue(playbackGroup.hasFocus,
+        XCTAssertTrue(waitForFocus(playbackGroup),
                       "Right on main Settings should focus the Settings subnavigation")
         Thread.sleep(forTimeInterval: 0.6)
-        XCTAssertTrue(playbackGroup.hasFocus,
+        XCTAssertTrue(waitForFocus(playbackGroup),
                       "Settings must retain focus after the main rail collapses")
         XCTAssertFalse(settings.hasFocus,
                        "The main rail must not reclaim focus after Right")
@@ -625,7 +668,14 @@ final class TypeTypeTVUITests: XCTestCase {
         XCUIRemote.shared.press(.menu)
         XCTAssertTrue(channel.waitForExistence(timeout: 10),
                       "Back from channel must return to its video detail")
-        XCTAssertTrue(app.staticTexts["Eine günstige TESLA Alternative? XPENG L03: Das perfekte E-Auto für Alltag und lange Reisen – ein ausführlicher Vergleich mit vielen Details"].exists)
+        // XCTest rejects identifier-string queries longer than 128 characters.
+        // Locate by a short prefix, then still validate the complete title.
+        let title = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Eine günstige TESLA Alternative?")
+        ).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 8))
+        XCTAssertEqual(title.label,
+            "Eine günstige TESLA Alternative? XPENG L03: Das perfekte E-Auto für Alltag und lange Reisen – ein ausführlicher Vergleich mit vielen Details")
     }
 
     func testVideoDescriptionIsOneFocusableScrollableTextView() throws {
@@ -634,25 +684,30 @@ final class TypeTypeTVUITests: XCTestCase {
             "-TypeTypeTVPreview", "detail-long", "-typetype.uiLanguage", "de"
         ]
         app.launch()
-        let description = app.textViews["video-description-scroll"]
+        // The native UITextView can be represented by a generic accessibility
+        // element until its containing SwiftUI scroller enters the viewport.
+        let description = app.descendants(matching: .any)
+            .matching(identifier: "video-description-scroll").firstMatch
         let play = app.buttons["video-play"]
         let watched = app.buttons["Als angesehen markieren"]
         let descriptionEntry = app.buttons["video-description-entry"]
-        XCTAssertTrue(description.waitForExistence(timeout: 20),
-                      "The entire description must be a native scrollable text view")
         XCTAssertTrue(play.hasFocus, "Play must be the initial focused control")
         XCUIRemote.shared.press(.down)
         XCTAssertTrue(watched.hasFocus,
                       "Down from Play should reach the secondary action row")
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(descriptionEntry.hasFocus,
+        XCTAssertTrue(waitForFocus(descriptionEntry),
                       "Another Down must reach the description below the hero")
         XCTAssertGreaterThan(descriptionEntry.frame.minY, 0)
         XCTAssertLessThan(descriptionEntry.frame.midY, app.frame.maxY,
                           "The outer page must scroll description into view")
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(description.exists,
-                      "Remote navigation into the description must not hide it")
+        let viewport = app.descendants(matching: .any)
+            .matching(identifier: "video-description-focus").firstMatch
+        XCTAssertTrue(waitForFocus(viewport),
+                      "Remote navigation must focus the scrollable description viewport")
+        XCTAssertTrue(description.waitForExistence(timeout: 8),
+                      "Native description text must remain accessible after entering the viewport")
     }
 
     func testLibraryOpensDirectlyOnSelectedSubnavigation() throws {
