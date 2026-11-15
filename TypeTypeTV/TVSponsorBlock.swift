@@ -7,6 +7,13 @@ struct TVSponsorBlockSegment: Decodable, Hashable {
     let action: String
 }
 
+struct TVSponsorBlockActive: Equatable {
+    // Stable across periodic playback refreshes; Back suppresses one interval.
+    let id: String
+    let category: String
+    let endTime: Double
+}
+
 /// Matches TypeType Server's category rules, for both SABR and HLS.
 enum TVSponsorBlock {
     static let categories = [
@@ -94,14 +101,25 @@ enum TVSponsorBlock {
         }.max()
     }
 
+    static func activeSegment(segments: [TVSponsorBlockSegment], settings: TVServerSettings,
+                              position: Double, duration: Double) -> TVSponsorBlockActive? {
+        guard position.isFinite, position >= 0,
+              settings.sponsorBlockMode != "disabled",
+              settings.sponsorBlockShowCurrentSegment != false else { return nil }
+        for segment in segments {
+            guard visible(segment, settings: settings, duration: duration),
+                  let range = bounds(segment, duration: duration),
+                  position >= range.lowerBound, position < range.upperBound else { continue }
+            let id = "\(segment.category):\(range.lowerBound):\(range.upperBound):\(segment.action)"
+            return TVSponsorBlockActive(id: id, category: segment.category,
+                                        endTime: range.upperBound)
+        }
+        return nil
+    }
+
     static func label(segments: [TVSponsorBlockSegment], settings: TVServerSettings,
                       position: Double, duration: Double) -> String? {
-        guard settings.sponsorBlockMode != "disabled",
-              settings.sponsorBlockShowCurrentSegment != false else { return nil }
-        return segments.first(where: { segment in
-            guard visible(segment, settings: settings, duration: duration),
-                  let range = bounds(segment, duration: duration) else { return false }
-            return position >= range.lowerBound && position < range.upperBound
-        }).map { TVL10n.value(titleKey($0.category)) }
+        activeSegment(segments: segments, settings: settings, position: position,
+                      duration: duration).map { TVL10n.value(titleKey($0.category)) }
     }
 }

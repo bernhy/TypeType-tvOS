@@ -706,19 +706,19 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sponsoring"
+            "value": "Bezahlte Nachricht"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sponsor"
+            "value": "Sponsored message"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sponsor"
+            "value": "Message sponsorisé"
           }
         },
         "es": {
@@ -746,7 +746,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Autopromotion"
+            "value": "Auto-promotion"
           }
         },
         "es": {
@@ -762,7 +762,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exklusive Inhalte"
+            "value": "Exklusiver Zugriff"
           }
         },
         "en": {
@@ -790,19 +790,19 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Interaktionshinweise"
+            "value": "Erinnerung zur Interaktion"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Interaction reminders"
+            "value": "Interaction reminder"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rappels d’interaction"
+            "value": "Rappel d'interaction"
           }
         },
         "es": {
@@ -818,19 +818,19 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Highlights"
+            "value": "Highlight"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Highlights"
+            "value": "Highlight"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Moments clés"
+            "value": "Point fort"
           }
         },
         "es": {
@@ -846,19 +846,19 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intro"
+            "value": "Unterbrechung oder Intro"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intro"
+            "value": "Intermission or intro"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intro"
+            "value": "Interlude ou introduction"
           }
         },
         "es": {
@@ -874,19 +874,19 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abspann"
+            "value": "Endcards oder Credits"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Outro"
+            "value": "Endcards or credits"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Générique"
+            "value": "Cartons de fin ou crédits"
           }
         },
         "es": {
@@ -902,19 +902,19 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vorschau"
+            "value": "Vorschau oder Rückblick"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preview"
+            "value": "Preview or recap"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aperçu"
+            "value": "Aperçu ou récapitulatif"
           }
         },
         "es": {
@@ -930,19 +930,19 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Füllmaterial"
+            "value": "Abschweifungen oder Witze"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Filler"
+            "value": "Tangents or jokes"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remplissage"
+            "value": "Digressions ou blagues"
           }
         },
         "es": {
@@ -964,13 +964,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chapters"
+            "value": "Chapter"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chapitres"
+            "value": "Chapitre"
           }
         },
         "es": {
@@ -986,19 +986,19 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht-Musik"
+            "value": "Musik: keine Musik"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non-music"
+            "value": "Music: non-music"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hors-musique"
+            "value": "Musique : non-musical"
           }
         },
         "es": {
@@ -10469,6 +10469,34 @@
           "stringUnit": {
             "state": "translated",
             "value": "Me gusta"
+          }
+        }
+      }
+    },
+    "sponsor.skip": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überspringen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omitir"
           }
         }
       }

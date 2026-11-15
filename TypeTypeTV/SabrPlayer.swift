@@ -2098,6 +2098,37 @@ struct SabrPlayerView: View {
     @State private var revealIndex = 0
     @State private var optionsVisible = false
     @State private var sponsorSkipCooldown: Date = .distantPast
+    @State private var dismissedSponsorSegmentID: String?
+
+    private func currentSponsorSegment() -> TVSponsorBlockActive? {
+        guard let settings = engine.sponsorSettings else { return nil }
+        return TVSponsorBlock.activeSegment(
+            segments: engine.sponsorSegments, settings: settings,
+            position: engine.playbackSeconds(),
+            duration: Double(engine.durationMs) / 1_000
+        )
+    }
+
+    private func sponsorNoticeVisible(_ segment: TVSponsorBlockActive) -> Bool {
+        !optionsVisible && engine.failure == nil &&
+            dismissedSponsorSegmentID != segment.id
+    }
+
+    private func dismissSponsorNotice() {
+        guard let segment = currentSponsorSegment() else { return }
+        dismissedSponsorSegmentID = segment.id
+    }
+
+    private func skipSponsorNotice() {
+        guard let segment = currentSponsorSegment(),
+              sponsorNoticeVisible(segment) else { return }
+        dismissedSponsorSegmentID = segment.id
+        sponsorSkipCooldown = Date()
+        let remainingMs = max(0, (segment.endTime - engine.playbackSeconds()) * 1_000)
+        guard remainingMs > 0 else { return }
+        engine.seek(api: api, video: video, offsetMs: Int64(remainingMs))
+    }
+
 
     private func reveal() {
         controlsVisible = true
@@ -2135,27 +2166,6 @@ struct SabrPlayerView: View {
             }
             .allowsHitTesting(false)
 
-            if let settings = engine.sponsorSettings {
-                TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-                    if let label = TVSponsorBlock.label(
-                        segments: engine.sponsorSegments, settings: settings,
-                        position: engine.playbackSeconds(),
-                        duration: Double(engine.durationMs) / 1_000
-                    ) {
-                        Text(label)
-                            .font(.callout.bold())
-                            .padding(12)
-                            .background(.black.opacity(0.8),
-                                        in: RoundedRectangle(cornerRadius: 8))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity,
-                                   alignment: .bottomTrailing)
-                            .padding(.bottom, 220)
-                            .padding(.trailing, 80)
-                    }
-                }
-                .allowsHitTesting(false)
-            }
-
             if !optionsVisible && engine.failure == nil {
                 SiriRemotePlayerInput(
                     onTouch: reveal,
@@ -2165,18 +2175,27 @@ struct SabrPlayerView: View {
                         reveal()
                     },
                     onSelect: {
-                        // A Clickpad click always toggles playback; a simple
-                        // touch only reveals the controls.
-                        TVSabrNowPlayingCenter.shared.localToggle(for: engine)
-                        reveal()
+                        // Fallback when the native remote capture retains focus.
+                        if let segment = currentSponsorSegment(),
+                           sponsorNoticeVisible(segment) {
+                            skipSponsorNotice()
+                        } else {
+                            TVSabrNowPlayingCenter.shared.localToggle(for: engine)
+                            reveal()
+                        }
                     },
                     onOptions: {
                         controlsVisible = true
                         optionsVisible = true
                     },
                     onExit: {
-                        engine.stop()
-                        dismiss()
+                        if let segment = currentSponsorSegment(),
+                           sponsorNoticeVisible(segment) {
+                            dismissSponsorNotice()
+                        } else {
+                            engine.stop()
+                            dismiss()
+                        }
                     }
                 )
                 .accessibilityLabel("player.remoteAccessibility")
@@ -2268,6 +2287,21 @@ struct SabrPlayerView: View {
                 .transition(.opacity)
             }
         }
+        .overlay(alignment: .topTrailing) {
+            TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                if let segment = currentSponsorSegment(),
+                   sponsorNoticeVisible(segment) {
+                    TVSponsorBlockNotice(
+                        category: segment.category,
+                        onSkip: skipSponsorNotice,
+                        onDismiss: dismissSponsorNotice
+                    )
+                    .id(segment.id)
+                    .padding(.top, 70)
+                    .padding(.trailing, 80)
+                }
+            }
+        }
         .overlay {
             if optionsVisible {
                 SabrPlayerOptions(
@@ -2320,6 +2354,10 @@ struct SabrPlayerView: View {
                     continue
                 }
                 let current = engine.playbackSeconds()
+                if let hidden = dismissedSponsorSegmentID,
+                   currentSponsorSegment()?.id != hidden {
+                    dismissedSponsorSegmentID = nil
+                }
                 let end = TVSponsorBlock.target(
                     segments: engine.sponsorSegments, settings: settings,
                     position: current, duration: Double(engine.durationMs) / 1_000,
@@ -2374,7 +2412,10 @@ struct SabrPlayerView: View {
             }
         }
         .onExitCommand {
-            if optionsVisible {
+            if let segment = currentSponsorSegment(),
+               sponsorNoticeVisible(segment) {
+                dismissSponsorNotice()
+            } else if optionsVisible {
                 optionsVisible = false
                 reveal()
             } else {

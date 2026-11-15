@@ -49,6 +49,37 @@ final class TVSponsorBlockPolicyTests: XCTestCase {
         }
     }
 
+    func testSponsorNoticeActiveSegmentRespectsDisplayPolicy() throws {
+        let config = try settings()
+        let paid = segment(10, 25)
+        let active = TVSponsorBlock.activeSegment(
+            segments: [paid], settings: config, position: 12, duration: 300
+        )
+        XCTAssertEqual(active?.category, "sponsor")
+        XCTAssertEqual(active?.endTime, 25)
+        XCTAssertNotNil(active?.id)
+        XCTAssertNil(TVSponsorBlock.activeSegment(
+            segments: [paid], settings: config, position: 25, duration: 300
+        ))
+        let chapter = segment(30, 55, category: "chapter")
+        let chapters = try settings(#"{"sponsorBlockShowChapters":true}"#)
+        XCTAssertEqual(TVSponsorBlock.activeSegment(
+            segments: [chapter], settings: chapters, position: 32, duration: 300
+        )?.endTime, 55)
+        XCTAssertNil(TVSponsorBlock.target(
+            segments: [chapter], settings: chapters, position: 32,
+            duration: 300, streamCategory: nil
+        ))
+        XCTAssertNil(TVSponsorBlock.activeSegment(
+            segments: [paid],
+            settings: try settings(#"{"sponsorBlockShowCurrentSegment":false}"#),
+            position: 12, duration: 300
+        ))
+        XCTAssertNil(TVSponsorBlock.activeSegment(
+            segments: [paid], settings: config, position: .nan, duration: 300
+        ))
+    }
+
     func testInvalidNumbersCannotTriggerSeek() throws {
         XCTAssertNil(TVSponsorBlock.target(segments: [segment(.nan, .infinity)],
             settings: try settings(), position: 20, duration: 300, streamCategory: nil))

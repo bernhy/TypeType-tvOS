@@ -13,21 +13,27 @@ struct TVHLSPlaybackView: View {
     var onPlaybackEvent: ((TVPlaybackEvent) -> Void)? = nil
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var playback = TVHLSPlaybackController()
+    @State private var dismissedSponsorSegmentID: String?
 
     var body: some View {
         ZStack {
             SystemVideoPlayer(player: playback.player)
-            if let label = playback.sponsorLabel {
-                Text(label)
-                    .font(.callout.bold())
-                    .padding(12)
-                    .background(.black.opacity(0.8),
-                                in: RoundedRectangle(cornerRadius: 8))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity,
-                           alignment: .bottomTrailing)
-                    .padding(.trailing, 80)
-                    .padding(.bottom, 100)
-                    .allowsHitTesting(false)
+            if let segment = playback.sponsorCurrent,
+               dismissedSponsorSegmentID != segment.id,
+               playback.errorMessage == nil {
+                TVSponsorBlockNotice(
+                    category: segment.category,
+                    onSkip: {
+                        dismissedSponsorSegmentID = segment.id
+                        playback.skipSponsorSegment(segment)
+                    },
+                    onDismiss: { dismissedSponsorSegmentID = segment.id }
+                )
+                .id(segment.id)
+                .frame(maxWidth: .infinity, maxHeight: .infinity,
+                       alignment: .topTrailing)
+                .padding(.top, 70)
+                .padding(.trailing, 80)
             }
             if let error = playback.errorMessage {
                 VStack(spacing: 18) {
@@ -43,8 +49,14 @@ struct TVHLSPlaybackView: View {
             }
         }
         .task(id: url.absoluteString) {
+            dismissedSponsorSegmentID = nil
             await playback.prepare(api: api, video: video, url: url,
                                    streamMetadata: streamMetadata)
+        }
+        .onChange(of: playback.sponsorCurrent?.id) { _, currentID in
+            if dismissedSponsorSegmentID != currentID {
+                dismissedSponsorSegmentID = nil
+            }
         }
         .onChange(of: playback.playbackFinished) { _, finished in
             if finished { onPlaybackEvent?(.finished) }
@@ -65,7 +77,7 @@ final class TVHLSPlaybackController: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var playbackFinished = false
     @Published private(set) var playbackUnavailable = false
-    @Published private(set) var sponsorLabel: String?
+    @Published private(set) var sponsorCurrent: TVSponsorBlockActive?
 
     private var api: TypeTypeAPI?
     private var video: VideoItem?
@@ -105,7 +117,7 @@ final class TVHLSPlaybackController: ObservableObject {
         self.video = video
         self.streamURL = url
         sponsorSegments = streamMetadata?.sponsorBlockSegments ?? []
-        sponsorLabel = nil
+        sponsorCurrent = nil
         sponsorStreamCategory = streamMetadata?.category
         lastSponsorSeek = .distantPast
         isStopped = false
@@ -251,15 +263,16 @@ final class TVHLSPlaybackController: ObservableObject {
 
     private func checkSponsorBlock() {
         guard !isStopped, initialSeekFinished, let settings = sponsorSettings else {
-            sponsorLabel = nil
+            sponsorCurrent = nil
             return
         }
         let seconds = player.currentTime().seconds
         let duration = video?.duration.map(Double.init) ?? 0
-        sponsorLabel = TVSponsorBlock.label(
+        let active = TVSponsorBlock.activeSegment(
             segments: sponsorSegments, settings: settings,
             position: seconds, duration: duration
         )
+        if sponsorCurrent != active { sponsorCurrent = active }
         guard player.timeControlStatus == .playing,
               Date().timeIntervalSince(lastSponsorSeek) >= 2.5 else { return }
         let end = TVSponsorBlock.target(
@@ -275,6 +288,19 @@ final class TVHLSPlaybackController: ObservableObject {
         guard let end, end > seconds + 0.15 else { return }
         lastSponsorSeek = Date()
         player.seek(to: CMTime(seconds: end, preferredTimescale: 600),
+                    toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    func skipSponsorSegment(_ segment: TVSponsorBlockActive) {
+        guard !isStopped, initialSeekFinished, let settings = sponsorSettings,
+              let current = TVSponsorBlock.activeSegment(
+                  segments: sponsorSegments, settings: settings,
+                  position: player.currentTime().seconds,
+                  duration: video?.duration.map(Double.init) ?? 0
+              ), current.id == segment.id else { return }
+        sponsorCurrent = nil
+        lastSponsorSeek = Date()
+        player.seek(to: CMTime(seconds: segment.endTime, preferredTimescale: 600),
                     toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
@@ -348,6 +374,7 @@ final class TVHLSPlaybackController: ObservableObject {
             presenceAnnounced = false
         }
         isStopped = true
+        sponsorCurrent = nil
         stallTask?.cancel()
         stallTask = nil
         itemStatusObservation?.invalidate()
