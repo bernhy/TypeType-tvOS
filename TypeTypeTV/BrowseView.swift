@@ -63,7 +63,10 @@ struct BrowseView: View {
     @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
     @FocusState private var menuFocus: TVSection?
 
-    private var menuPreviewVisible: Bool { expanded && menuFocus != nil }
+    // Previewing and entering a page are different states. Once an explicit
+    // activation starts, content may claim focus even if tvOS has not yet
+    // delivered the menu's focus-loss notification.
+    private var menuPreviewVisible: Bool { expanded && !enteringFromMenu }
 
     init(instanceOrigin: String, onDisconnect: @escaping () -> Void,
          initialSection: TVSection = .home, previewVideos: [VideoItem]? = nil,
@@ -224,33 +227,37 @@ struct BrowseView: View {
             }
         }
         .onChange(of: menuFocus) { previous, focused in
+            if enteringFromMenu {
+                // The explicit OK/Right transition owns focus transfer.
+                // In particular, never re-expand the rail on a transient
+                // focus callback while the destination is mounting.
+                if focused == nil {
+                    enteringFromMenu = false
+                    expanded = false
+                }
+                return
+            }
+
             if let focused {
                 expanded = true
                 if previous == nil, focused != section {
-                    // Left from content anchors to the existing section;
-                    // only subsequent Up/Down previews a different screen.
+                    // Left from content returns to the section we left,
+                    // not to whichever icon is geometrically nearest.
                     let previouslyShown = section
                     Task { @MainActor in
                         await Task.yield()
-                        if menuFocus == focused { menuFocus = previouslyShown }
+                        if menuFocus == focused && expanded {
+                            menuFocus = previouslyShown
+                        }
                     }
                 } else if previous != nil, section != focused {
-                    // Preview the focused page immediately while keeping
-                    // the global navigation expanded and focused.
+                    // Up/Down previews a page but keeps rail focus.
                     section = focused
                 }
-            } else if enteringFromMenu {
-                // OK/Select committed the page. Its first focus target
-                // takes over while the navigation collapses.
-                enteringFromMenu = false
-                expanded = false
             } else if expanded {
-                // Mere Right-navigation must not enter a page. If tvOS
-                // moved focus away, restore the selected rail item.
-                Task { @MainActor in
-                    await Task.yield()
-                    if menuFocus == nil && expanded { menuFocus = section }
-                }
+                // An actual focus move out of the rail (including touchpad
+                // Right) is an entry, not a reason to pull focus back.
+                open(section)
             }
         }
     }
@@ -296,8 +303,9 @@ struct BrowseView: View {
         .accessibilityIdentifier("main-nav-\(item.rawValue)")
         .onMoveCommand { direction in
             if direction == .right {
-                // Focus alone previews; only Select/OK enters the page.
-                menuFocus = item
+                // Right, including a touchpad swipe, is equivalent to OK.
+                // .onChange(of: menuFocus) must not undo this handoff.
+                open(item)
             }
         }
         .accessibilityAddTraits(item == section ? .isSelected : [])
@@ -342,13 +350,21 @@ struct BrowseView: View {
     }
 
     private func open(_ destination: TVSection) {
-        // Preserve the last active Settings category when switching away
-        // and returning from Home, Library or the quick account switcher.
-        // Keep focus anchored on the current Settings icon until the
-        // Settings child is mounted and explicitly takes it. Clearing the
-        // global focus first causes tvOS 26 to temporarily default to Home,
-        // flashing a white overlay there before Settings appears.
-        enteringFromMenu = menuFocus != nil
+        // Explicit activation is the ONLY path which transfers focus from
+        // the main rail to a page. Up/Down continues to preview on focus.
+        let wasInMenu = menuFocus != nil
+        enteringFromMenu = wasInMenu
+        section = destination
+        expanded = false
+
+        // Release the old focus before requesting a new one. Keeping the
+        // menu's @FocusState set caused OK to leave focus on the old icon;
+        // tvOS would also bounce Right straight back to the rail.
+        if wasInMenu { menuFocus = nil }
+
+        // The child gets a new request after the menu has been released.
+        // This works for both a previewed (already mounted) destination
+        // and a new section, and lets a second activation re-enter it.
         switch destination {
         case .settings: settingsFocusRequest += 1
         case .home: homeFocusRequest += 1
@@ -358,13 +374,6 @@ struct BrowseView: View {
         case .account: accountFocusRequest += 1
         case .search: searchFocusRequest += 1
         }
-        section = destination
-        // Do not clear menuFocus while mounting the destination. That
-        // temporarily gives tvOS no focused control and it falls back to
-        // the Home icon. Settings already used this handoff successfully;
-        // extend it to Library, Subscriptions and the account switcher.
-        // The new screen takes focus and SwiftUI clears menuFocus itself.
-        expanded = false
     }
 
     private func revealMenu() {
