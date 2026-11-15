@@ -136,8 +136,21 @@ struct SearchView: View {
         }
         .background(TTTheme.ink)
         .task(id: focusRequest) {
-            guard focusRequest >= 0 else { return }
-            await Task.yield()
+            guard focusRequest >= 0 else {
+                searchFieldFocused = false
+                return
+            }
+            if focusRequest > 0 {
+                // A Right move out of the global rail is resolved by UIKit
+                // after the section has mounted. If we focus the TextField
+                // during that move, the native focus engine overrides us.
+                // Only explicit page entry needs this delayed handoff;
+                // preview mode (negative request) must never take focus.
+                try? await Task.sleep(for: .milliseconds(220))
+            } else {
+                await Task.yield()
+            }
+            guard !Task.isCancelled else { return }
             searchFieldFocused = true
         }
         }
