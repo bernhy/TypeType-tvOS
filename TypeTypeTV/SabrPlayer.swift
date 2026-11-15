@@ -242,11 +242,12 @@ enum SabrSampleTimingProbe {
     }
 }
 
-/// One continuously encoded AAC track is transported as independent fMP4
-/// files. AVAssetReader can attach file-start trim/reset markers to EACH file,
-/// although only the first chunk of a continuous decoder run is a true start.
-/// The experimental path removes those markers only for verified consecutive
-/// fragments; any discontinuity/seek/new init retains the original behavior.
+/// AVAssetReader opens each fMP4 segment as a temporary standalone MP4.
+/// It therefore emits a file-start AAC priming trim on every fragment, even
+/// though the compressed AAC packets are fed into one continuous audio
+/// renderer. That repeated trim caused reproducible ~48ms audio dropouts
+/// at 44.1kHz. Retain the trim for the first/seek/discontinuous segment, but
+/// remove the redundant start trim on strictly contiguous subsequent chunks.
 enum SabrAACPrimingPolicy {
     static func isSeamlessContinuation(
         previousSequence: Int?, sequence: Int?,
@@ -281,24 +282,23 @@ enum SabrAACPrimingPolicy {
         return markers
     }
 
-    /// Only intended for temporary DEBUG A/B diagnosis. Never suppress
-    /// trimming across a seek, discontinuity, or codec-init change.
-    static func removeRepeatedStart(_ samples: [CMSampleBuffer]) -> (trims: Int, resets: Int) {
-        var trims = 0
-        var resets = 0
-        for sample in samples {
-            if CMGetAttachment(sample, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart,
-                               attachmentModeOut: nil) != nil {
-                CMRemoveAttachment(sample, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart)
-                trims += 1
-            }
-            if CMGetAttachment(sample, key: kCMSampleBufferAttachmentKey_ResetDecoderBeforeDecoding,
-                               attachmentModeOut: nil) != nil {
-                CMRemoveAttachment(sample, key: kCMSampleBufferAttachmentKey_ResetDecoderBeforeDecoding)
-                resets += 1
-            }
-        }
-        return (trims, resets)
+    /// Never override an actual decoder/discontinuity instruction or a
+    /// nonstandard fragment that has multiple trim markers.
+    static func shouldRemoveRepeatedTrim(continuation: Bool, markers: Markers) -> Bool {
+        continuation && markers.startTrim == 1 && markers.endTrim == 0
+            && markers.decoderReset == 0 && markers.decoderDrain == 0
+    }
+
+    /// A legitimate repeated *file-start* marker belongs on the first
+    /// CMSampleBuffer. Do not strip markers from later buffers in the fragment.
+    @discardableResult
+    static func removeRepeatedStartTrim(_ samples: [CMSampleBuffer]) -> Bool {
+        guard let first = samples.first,
+              CMGetAttachment(first, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart,
+                              attachmentModeOut: nil) != nil else { return false }
+        CMRemoveAttachment(first, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart)
+        return CMGetAttachment(first, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart,
+                               attachmentModeOut: nil) == nil
     }
 }
 
@@ -1643,20 +1643,30 @@ final class SabrPlayerController: ObservableObject {
                     sequence: sequence, metadataStartMs: segment.startMs,
                     decodeStartMs: nativeStart
                 )
-                #if DEBUG
+                // This continuity repair must run in Release builds as well.
+                // The old DEBUG-only variant was tested on Apple TV but left
+                // the ~48ms fragment gaps in production builds.
                 let isContinuation = SabrAACPrimingPolicy.isSeamlessContinuation(
                     previousSequence: previousAACSequence, sequence: sequence,
                     previousEndMs: previousSampleEnd, startMs: resolved.startMs
                 )
                 let markers = SabrAACPrimingPolicy.inspect(rawSamples)
-                let removed = isContinuation
-                    ? SabrAACPrimingPolicy.removeRepeatedStart(rawSamples)
-                    : (trims: 0, resets: 0)
-                NSLog("TypeType SABR AAC PRIMING seq=%d continuation=%d startTrim=%d removedTrim=%d reset=%d removedReset=%d endTrim=%d drain=%d",
-                      sequence ?? -1, isContinuation ? 1 : 0,
-                      markers.startTrim, removed.trims,
-                      markers.decoderReset, removed.resets,
-                      markers.endTrim, markers.decoderDrain)
+                let safeToRemove = SabrAACPrimingPolicy.shouldRemoveRepeatedTrim(
+                    continuation: isContinuation, markers: markers
+                )
+                let removedTrim = safeToRemove
+                    ? SabrAACPrimingPolicy.removeRepeatedStartTrim(rawSamples) : false
+                #if DEBUG
+                // Normal fragment transitions no longer generate noisy logs.
+                // Keep exceptional cases observable while SABR recovery is
+                // investigated independently.
+                if (isContinuation && (!safeToRemove || !removedTrim))
+                    || markers.decoderReset > 0 || markers.decoderDrain > 0 {
+                    NSLog("TypeType SABR AAC PRIMING anomaly seq=%d continuation=%d startTrim=%d removedTrim=%d reset=%d endTrim=%d drain=%d",
+                          sequence ?? -1, isContinuation ? 1 : 0,
+                          markers.startTrim, removedTrim ? 1 : 0,
+                          markers.decoderReset, markers.endTrim, markers.decoderDrain)
+                }
                 #endif
                 let samples = try SabrSampleTimeline.aligned(
                     rawSamples, segmentStartMs: resolved.startMs
