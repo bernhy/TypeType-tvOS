@@ -36,6 +36,10 @@ struct TVRemoteDescriptionScrollView: UIViewRepresentable {
             NSNumber(value: UITouch.TouchType.direct.rawValue),
             NSNumber(value: UITouch.TouchType.indirect.rawValue)
         ]
+        // The UIKit text view must be an accessibility element in its own
+        // right. Otherwise SwiftUI can expose only the wrapper's identifier,
+        // hiding the actual scrollable description from XCTest/VoiceOver.
+        view.isAccessibilityElement = true
         view.accessibilityIdentifier = "video-description-scroll"
         view.accessibilityLabel = TVL10n.value("video.descriptionHeading")
         return view
@@ -82,6 +86,10 @@ enum TVDescriptionScrollPolicy {
 }
 
 final class TVDescriptionTextView: UITextView {
+    // A selectable UITextView is not necessarily keyboard/remote-focusable
+    // when embedded in a SwiftUI wrapper on tvOS. Participate explicitly.
+    override var canBecomeFocused: Bool { true }
+
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         var unhandled = Set<UIPress>()
         for item in presses {
