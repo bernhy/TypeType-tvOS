@@ -570,18 +570,37 @@ struct HomeView: View {
                                returningFromDetails: Bool = false) {
         pendingHomeFocus?.cancel()
         pendingHomeFocus = Task { @MainActor in
-            // The popped detail may still cover the grid during its transition.
+            // The pushed detail temporarily owns UIKit focus. Clearing our
+            // old FocusState is necessary even when returning to the exact
+            // same tile, otherwise assigning the same value does nothing.
+            // Give NavigationStack's pop transition time to complete before
+            // asking LazyVGrid to materialize an offscreen tile.
             if returningFromDetails {
-                try? await Task.sleep(nanoseconds: 180_000_000)
+                focusedHomeVideo = nil
+                try? await Task.sleep(for: .milliseconds(450))
             }
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.18)) {
                 scroll.scrollTo(target, anchor: .center)
             }
-            // LazyVGrid creates the offscreen card only after scrolling.
-            try? await Task.sleep(nanoseconds: 140_000_000)
+            try? await Task.sleep(for: .milliseconds(returningFromDetails ? 220 : 140))
             guard !Task.isCancelled else { return }
             focusedHomeVideo = target
+            if returningFromDetails {
+                // A late tvOS pop focus update can choose a geometrically
+                // nearby card after our first restoration. Retry only when
+                // that occurred, while the return operation is still active.
+                try? await Task.sleep(for: .milliseconds(320))
+                guard !Task.isCancelled else { return }
+                if focusedHomeVideo != target {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        scroll.scrollTo(target, anchor: .center)
+                    }
+                    try? await Task.sleep(for: .milliseconds(180))
+                    guard !Task.isCancelled else { return }
+                    focusedHomeVideo = target
+                }
+            }
         }
     }
 
