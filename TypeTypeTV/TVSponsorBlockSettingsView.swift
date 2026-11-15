@@ -59,9 +59,22 @@ struct TVSponsorBlockSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             TVSettingsCard("sponsor.title", summary: "settings.remoteSynced") {
-                Text("sponsor.lookupPrivacy")
-                    .font(.callout)
-                    .foregroundStyle(TTTheme.muted)
+                ZStack(alignment: .topLeading) {
+                    Text("sponsor.lookupPrivacy")
+                        .font(.callout)
+                        .foregroundStyle(TTTheme.muted)
+                    #if DEBUG
+                    if api.origin.host == "preview.invalid" {
+                        // The native tvOS Picker renders its highlight, but
+                        // XCUIElement.hasFocus does not reliably expose it.
+                        // Assert the real SwiftUI FocusState in preview tests.
+                        Text(focus.wrappedValue ?? "none")
+                            .font(.system(size: 1))
+                            .foregroundStyle(.clear)
+                            .accessibilityIdentifier("sponsor-focus-state")
+                    }
+                    #endif
+                }
                 Button("common.refresh") { Task { await reload() } }
                     .buttonStyle(.bordered)
                     .focused(focus, equals: "sponsor.refresh")
