@@ -16,6 +16,7 @@ struct TVSponsorBlockSettingsView: View {
     @State private var lastWrite: Task<Void, Never>?
     @State private var writeGeneration = 0
     @State private var error: String?
+    @State private var pendingFocusMove: Task<Void, Never>?
 
     /// tvOS's geometric Focus Engine would otherwise skip the global mode
     /// (right-aligned Picker) and jump from Refresh into the categories.
@@ -41,8 +42,16 @@ struct TVSponsorBlockSettingsView: View {
         let destination = index + step
         guard orderedFocusIDs.indices.contains(destination) else { return }
         let next = orderedFocusIDs[destination]
-        Task { @MainActor in
-            await Task.yield()
+        pendingFocusMove?.cancel()
+        // tvOS commits its geometrically chosen focus *after* onMoveCommand.
+        // One Task.yield() may run before that commit, causing the native
+        // engine to override the requested Picker with a category below it.
+        // Reassert once the native move has settled. A subsequent press
+        // cancels any outstanding transfer, so rapid remote input cannot
+        // replay an obsolete focus request.
+        pendingFocusMove = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled else { return }
             focus.wrappedValue = next
         }
     }
@@ -148,6 +157,7 @@ struct TVSponsorBlockSettingsView: View {
             }
         }
         .task { await reload() }
+        .onDisappear { pendingFocusMove?.cancel() }
     }
 
     private func choice(_ title: String, current: String, focusID: String,
