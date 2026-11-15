@@ -317,7 +317,7 @@ struct TVSubscriptionsView: View {
             ]
             selectedChannelURL = subscriptions.first?.channelUrl
             await Task.yield()
-            focusedSubscription = selectedChannelURL
+            if focusRequest >= 0 { focusedSubscription = selectedChannelURL }
             return
         }
         #endif
@@ -334,7 +334,11 @@ struct TVSubscriptionsView: View {
                 selectedChannelURL = subscriptions.first?.channelUrl
             }
             await Task.yield()
-            focusedSubscription = selectedChannelURL
+            // In global-menu preview mode (focusRequest == -1) this screen
+            // may load data but must never take focus from the main rail.
+            if focusRequest >= 0 {
+                focusedSubscription = selectedChannelURL
+            }
         } catch is CancellationError {
             return
         } catch {

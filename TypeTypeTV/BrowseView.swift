@@ -391,6 +391,7 @@ struct HomeView: View {
     let focusRequest: Int
     @FocusState private var focusedHomeVideo: String?
     @State private var needsHomeFocus = false
+    @State private var pendingHomeFocus: Task<Void, Never>?
 
     private func homeCardID(_ video: VideoItem, recommended: Bool) -> String {
         (recommended ? "recommendation-" : "recent-") + video.url
@@ -431,8 +432,9 @@ struct HomeView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
+        ScrollViewReader { scroll in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 32) {
                 HStack {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("home.forYou")
@@ -462,7 +464,8 @@ struct HomeView: View {
                         ProgressView("home.loadingHistory")
                             .frame(maxWidth: .infinity, minHeight: 135)
                     } else if !recentVideos.isEmpty {
-                        videoGrid(recentVideos, lookupHistoryMetadata: true)
+                        videoGrid(recentVideos, scroll: scroll,
+                                  lookupHistoryMetadata: true)
                     } else if recentNeedsLogin {
                         VStack(alignment: .leading, spacing: 15) {
                             Text("home.signInForHistory")
@@ -505,7 +508,7 @@ struct HomeView: View {
                             action: { Task { await loadRecommendations() } }
                         )
                     } else {
-                        videoGrid(videos, paginate: true)
+                        videoGrid(videos, scroll: scroll, paginate: true)
                         if loadingMore {
                             ProgressView("home.loadingMore")
                                 .frame(maxWidth: .infinity)
@@ -528,45 +531,73 @@ struct HomeView: View {
             .padding(.top, 42)
             .padding(.bottom, 120)
         }
-        .background(TTTheme.ink)
-        .task {
-            if previewVideos == nil { await refresh() }
+            .background(TTTheme.ink)
+            .task {
+                if previewVideos == nil { await refresh() }
+            }
+            .onExitCommand { handleHomeBack(scroll: scroll) }
+            .task(id: focusRequest) {
+                guard focusRequest > 0 else { return }
+                needsHomeFocus = true
+                await Task.yield()
+                focusFirstHomeVideo(scroll: scroll)
+            }
+            .onChange(of: recentVideos.count) { _, _ in
+                focusFirstHomeVideo(scroll: scroll)
+            }
+            .onChange(of: videos.count) { _, _ in
+                focusFirstHomeVideo(scroll: scroll)
+            }
         }
-        .onExitCommand {
-            // First Back on Home returns to the top recommendation; a second
-            // Back from that tile reopens the global navigation.
-            if let first = videos.first {
-                let target = homeCardID(first, recommended: true)
-                if focusedHomeVideo != target {
-                    focusedHomeVideo = target
-                } else {
-                    onRevealMenu()
-                }
+    }
+
+    @MainActor
+    private func handleHomeBack(scroll: ScrollViewProxy) {
+        if let first = videos.first {
+            let target = homeCardID(first, recommended: true)
+            if focusedHomeVideo != target {
+                focusHomeCard(target, scroll: scroll)
             } else {
                 onRevealMenu()
             }
+        } else {
+            onRevealMenu()
         }
-        .task(id: focusRequest) {
-            guard focusRequest > 0 else { return }
-            needsHomeFocus = true
-            await Task.yield()
-            focusFirstHomeVideo()
-        }
-        .onChange(of: recentVideos.count) { _, _ in focusFirstHomeVideo() }
-        .onChange(of: videos.count) { _, _ in focusFirstHomeVideo() }
     }
 
-    private func focusFirstHomeVideo() {
+    @MainActor
+    private func focusHomeCard(_ target: String, scroll: ScrollViewProxy,
+                               returningFromDetails: Bool = false) {
+        pendingHomeFocus?.cancel()
+        pendingHomeFocus = Task { @MainActor in
+            // The popped detail may still cover the grid during its transition.
+            if returningFromDetails {
+                try? await Task.sleep(nanoseconds: 180_000_000)
+            }
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.18)) {
+                scroll.scrollTo(target, anchor: .center)
+            }
+            // LazyVGrid creates the offscreen card only after scrolling.
+            try? await Task.sleep(nanoseconds: 140_000_000)
+            guard !Task.isCancelled else { return }
+            focusedHomeVideo = target
+        }
+    }
+
+    @MainActor
+    private func focusFirstHomeVideo(scroll: ScrollViewProxy) {
         guard needsHomeFocus else { return }
         let target = videos.first.map { homeCardID($0, recommended: true) } ??
             recentVideos.first.map { homeCardID($0, recommended: false) }
         guard let target else { return }
-        focusedHomeVideo = target
         needsHomeFocus = false
+        focusHomeCard(target, scroll: scroll)
     }
 
     @ViewBuilder
-    private func videoGrid(_ items: [VideoItem], paginate: Bool = false,
+    private func videoGrid(_ items: [VideoItem], scroll: ScrollViewProxy,
+                           paginate: Bool = false,
                            lookupHistoryMetadata: Bool = false) -> some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 34) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, video in
@@ -574,9 +605,9 @@ struct HomeView: View {
                     VideoDetailView(
                         api: api, video: video,
                         onReturnToList: {
-                            TVVideoFocusReturn.restore(
-                                $focusedHomeVideo,
-                                id: homeCardID(video, recommended: paginate)
+                            focusHomeCard(
+                                homeCardID(video, recommended: paginate),
+                                scroll: scroll, returningFromDetails: true
                             )
                         }
                     )
@@ -601,6 +632,8 @@ struct HomeView: View {
                 .accessibilityIdentifier(
                     "home-video-" + (paginate ? "recommendation-" : "recent-") + String(index)
                 )
+                .id(homeCardID(video, recommended: paginate))
+                .onExitCommand { handleHomeBack(scroll: scroll) }
                 .onAppear {
                     // LazyVGrid renders only the rows approaching the viewport.
                     // Prefetch the following page when nearing the last row,
