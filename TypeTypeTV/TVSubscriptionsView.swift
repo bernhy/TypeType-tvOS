@@ -49,8 +49,9 @@ struct TVSubscriptionsView: View {
                     .focusEffectDisabled(true)
                     .focusSection()
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 28) {
                     VStack(alignment: .leading, spacing: 9) {
                         Text(directChannelURL == nil
                              ? "subscriptions.kicker" : "channels.videos")
@@ -112,7 +113,7 @@ struct TVSubscriptionsView: View {
                                         api: api, video: video,
                                         onReturnToList: {
                                             TVVideoFocusReturn.restore(
-                                                $focusedVideo, id: video.url
+                                                $focusedVideo, id: video.url, scroll: scroll
                                             )
                                         }
                                     )
@@ -122,6 +123,7 @@ struct TVSubscriptionsView: View {
                                 .buttonStyle(TVRailButtonStyle())
                                 .focusEffectDisabled(true)
                                 .zIndex(focusedVideo == video.url ? 5 : 0)
+                                .id(video.url)
                                 .videoActions(
                                     api: api, video: video, onChanged: {},
                                     focus: $focusedVideo, focusID: video.url
@@ -160,6 +162,7 @@ struct TVSubscriptionsView: View {
                 .padding(.bottom, 110)
             }
             .focusSection()
+            }
         }
         .background(TTTheme.ink)
         .task {

@@ -17,7 +17,8 @@ struct SearchView: View {
     private var history: [String] { TVRecentQueries.decode(recentJSON) }
 
     var body: some View {
-        ScrollView {
+        ScrollViewReader { scroll in
+            ScrollView {
             VStack(alignment: .leading, spacing: 32) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("search.kicker")
@@ -103,7 +104,7 @@ struct SearchView: View {
                                         api: api, video: video,
                                         onReturnToList: {
                                             TVVideoFocusReturn.restore(
-                                                $focusedVideoURL, id: video.url
+                                                $focusedVideoURL, id: video.url, scroll: scroll
                                             )
                                         }
                                     )
@@ -116,6 +117,7 @@ struct SearchView: View {
                                     Task { await execute(searchedTerm) }
                                 }, focus: $focusedVideoURL, focusID: video.url)
                                 .accessibilityLabel(TTTheme.accessibilityText(for: video))
+                                .id(video.url)
                             }
                         }
                     }
@@ -137,6 +139,7 @@ struct SearchView: View {
             guard focusRequest >= 0 else { return }
             await Task.yield()
             searchFieldFocused = true
+        }
         }
     }
 

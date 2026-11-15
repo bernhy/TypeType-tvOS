@@ -19,7 +19,8 @@ struct TVSubscriptionFeedView: View {
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 4)
 
     var body: some View {
-        ScrollView {
+        ScrollViewReader { scroll in
+            ScrollView {
             VStack(alignment: .leading, spacing: 27) {
                 HStack {
                     VStack(alignment: .leading, spacing: 6) {
@@ -63,7 +64,7 @@ struct TVSubscriptionFeedView: View {
                                     api: api, video: video,
                                     onReturnToList: {
                                         TVVideoFocusReturn.restore(
-                                            $focusedVideo, id: video.url
+                                            $focusedVideo, id: video.url, scroll: scroll
                                         )
                                     }
                                 )
@@ -73,6 +74,7 @@ struct TVSubscriptionFeedView: View {
                             .buttonStyle(TVRailButtonStyle())
                             .focusEffectDisabled(true)
                             .zIndex(focusedVideo == video.url ? 5 : 0)
+                            .id(video.url)
                             .videoActions(api: api, video: video, onChanged: {},
                                           focus: $focusedVideo, focusID: video.url)
                             .onMoveCommand { direction in
@@ -124,6 +126,7 @@ struct TVSubscriptionFeedView: View {
             }
         }
         .onExitCommand { onRevealMenu() }
+        }
     }
 
     @MainActor

@@ -42,8 +42,9 @@ struct LibraryView: View {
                 .environment(\.isFocusEffectEnabled, false)
                 .focusEffectDisabled(true)
                 .focusSection()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 23) {
+            ScrollViewReader { scroll in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 23) {
                     HStack {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("library.kicker")
@@ -124,7 +125,7 @@ struct LibraryView: View {
                                         playbackQueue: playbackQueue,
                                         onReturnToList: {
                                             TVVideoFocusReturn.restore(
-                                                $focusedVideoURL, id: video.url
+                                                $focusedVideoURL, id: video.url, scroll: scroll
                                             )
                                         }
                                     )
@@ -150,6 +151,7 @@ struct LibraryView: View {
                                     }
                                 }
                                 .accessibilityLabel(TTTheme.accessibilityText(for: video))
+                                .id(video.url)
                             }
                         }
                         .focusSection()
@@ -158,6 +160,7 @@ struct LibraryView: View {
                 .padding(.top, 38)
                 .padding(.trailing, 38)
                 .padding(.bottom, 100)
+                }
             }
         }
         .background(TTTheme.ink)

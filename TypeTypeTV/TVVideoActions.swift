@@ -359,9 +359,22 @@ struct TVPlaylistPickerView: View {
 /// Return focus after the pushed video details are removed from the stack.
 /// A synchronous assignment during dismissal is overwritten by tvOS.
 enum TVVideoFocusReturn {
-    static func restore(_ binding: FocusState<String?>.Binding, id: String) {
+    static func restore(_ binding: FocusState<String?>.Binding, id: String,
+                        scroll: ScrollViewProxy? = nil) {
         Task { @MainActor in
-            await Task.yield()
+            // Wait for the detail pop, then materialize the offscreen card
+            // before asking tvOS to give it focus.
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled else { return }
+            if let scroll {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    scroll.scrollTo(id, anchor: .center)
+                }
+                try? await Task.sleep(nanoseconds: 140_000_000)
+                guard !Task.isCancelled else { return }
+            } else {
+                await Task.yield()
+            }
             binding.wrappedValue = id
         }
     }
