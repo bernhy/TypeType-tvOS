@@ -56,6 +56,9 @@ struct BrowseView: View {
     @State private var settingsEntryGroup: TVSettingsGroup
     @State private var settingsFocusRequest = 0
     @State private var homeFocusRequest = 0
+    // On a fresh Home launch, prevent UIKit from selecting the icon rail
+    // before the recommendations grid is mounted and can accept focus.
+    @State private var homeStartupFocusPending = false
     @State private var libraryFocusRequest = 0
     @State private var subscriptionFocusRequest = 0
     @State private var channelFocusRequest = 0
@@ -85,6 +88,9 @@ struct BrowseView: View {
         _homeFocusRequest = State(
             initialValue: initialSection == .home && !initiallyExpanded ? 1 : 0
         )
+        _homeStartupFocusPending = State(
+            initialValue: initialSection == .home && !initiallyExpanded
+        )
         _settingsEntryGroup = State(initialValue: initialSettingsGroup)
     }
 
@@ -95,6 +101,7 @@ struct BrowseView: View {
                 HStack(spacing: 0) {
                     if !playbackVisibility.isVisible {
                         sidebar
+                            .disabled(homeStartupFocusPending)
                             .zIndex(1)
                     }
                 NavigationStack {
@@ -105,6 +112,7 @@ struct BrowseView: View {
                                 api: api, previewVideos: previewVideos,
                                 onRevealMenu: revealMenu,
                                 onOpenAccount: { open(.account) },
+                                onInitialFocusReady: { homeStartupFocusPending = false },
                                 sidebarFocused: menuPreviewVisible,
                                 focusRequest: menuPreviewVisible ? -1 : homeFocusRequest
                             )
@@ -417,9 +425,14 @@ struct HomeView: View {
     let api: TypeTypeAPI
     let onRevealMenu: () -> Void
     let onOpenAccount: () -> Void
+    let onInitialFocusReady: () -> Void
     let sidebarFocused: Bool
     let focusRequest: Int
     @FocusState private var focusedHomeVideo: String?
+    // A separate desired target must survive transient FocusState=nil while
+    // a detail screen is popped. Otherwise resetFocus selects item 0 and
+    // pulls the deep-scrolled grid back to the top.
+    @State private var preferredHomeCardID: String?
     @Namespace private var homeFocusScope
     @Environment(\.resetFocus) private var resetFocus
     @State private var needsHomeFocus = false
@@ -447,15 +460,20 @@ struct HomeView: View {
     init(api: TypeTypeAPI, previewVideos: [VideoItem]? = nil,
          onRevealMenu: @escaping () -> Void = {},
          onOpenAccount: @escaping () -> Void = {},
+         onInitialFocusReady: @escaping () -> Void = {},
          sidebarFocused: Bool = false,
          focusRequest: Int = 0) {
         self.api = api
         self.previewVideos = previewVideos
         self.onRevealMenu = onRevealMenu
         self.onOpenAccount = onOpenAccount
+        self.onInitialFocusReady = onInitialFocusReady
         self.sidebarFocused = sidebarFocused
         self.focusRequest = focusRequest
         _videos = State(initialValue: previewVideos ?? [])
+        _preferredHomeCardID = State(
+            initialValue: previewVideos?.first.map { "recommendation-" + $0.url }
+        )
         _recentVideos = State(initialValue: previewVideos.map {
             Array($0.prefix(4))
         } ?? [])
@@ -581,6 +599,18 @@ struct HomeView: View {
             .onChange(of: videos.count) { _, _ in
                 focusFirstHomeVideo(scroll: scroll)
             }
+            .onChange(of: focusedHomeVideo) { _, current in
+                if let first = videos.first,
+                   current == homeCardID(first, recommended: true) {
+                    // The first recommendation, not the rail, owns startup focus.
+                    onInitialFocusReady()
+                }
+            }
+            .onChange(of: loading) { _, stillLoading in
+                // An empty or unavailable recommendation feed must never
+                // permanently lock the user out of the main navigation.
+                if !stillLoading && videos.isEmpty { onInitialFocusReady() }
+            }
         }
     }
 
@@ -602,6 +632,9 @@ struct HomeView: View {
     private func focusHomeCard(_ target: String, scroll: ScrollViewProxy,
                                returningFromDetails: Bool = false) {
         pendingHomeFocus?.cancel()
+        // Keep the preferred target stable even while FocusState is cleared
+        // for NavigationStack's pop animation.
+        preferredHomeCardID = target
         pendingHomeFocus = Task { @MainActor in
             // The pushed detail temporarily owns UIKit focus. Clearing our
             // old FocusState is necessary even when returning to the exact
@@ -621,21 +654,21 @@ struct HomeView: View {
             focusedHomeVideo = target
             resetFocus(in: homeFocusScope)
             if returningFromDetails {
-                // UIKit may report our target FocusState as selected even
-                // while its final pop-transition focus chooses another cell.
-                // Re-arm the same tile exactly once after the transition,
-                // rather than relying on a comparison that can miss this.
-                try? await Task.sleep(for: .milliseconds(430))
+                // tvOS can finish its focus transition just after the pop.
+                // Re-evaluate the same preferred deep card if native focus
+                // landed elsewhere; do not clear FocusState a second time,
+                // as that used to select the top recommendation instead.
+                try? await Task.sleep(for: .milliseconds(350))
                 guard !Task.isCancelled else { return }
-                focusedHomeVideo = nil
-                await Task.yield()
-                withAnimation(.easeOut(duration: 0.18)) {
-                    scroll.scrollTo(target, anchor: .center)
+                if focusedHomeVideo != target {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        scroll.scrollTo(target, anchor: .center)
+                    }
+                    try? await Task.sleep(for: .milliseconds(180))
+                    guard !Task.isCancelled else { return }
+                    focusedHomeVideo = target
+                    resetFocus(in: homeFocusScope)
                 }
-                try? await Task.sleep(for: .milliseconds(220))
-                guard !Task.isCancelled else { return }
-                focusedHomeVideo = target
-                resetFocus(in: homeFocusScope)
             }
         }
     }
@@ -684,8 +717,7 @@ struct HomeView: View {
                 // Also gives resetFocus() a concrete deep-card destination
                 // after popping a video details screen.
                 .prefersDefaultFocus(
-                    focusedHomeVideo == homeCardID(video, recommended: paginate) ||
-                    (focusedHomeVideo == nil && paginate && index == 0),
+                    preferredHomeCardID == homeCardID(video, recommended: paginate),
                     in: homeFocusScope
                 )
                 .onMoveCommand { direction in
