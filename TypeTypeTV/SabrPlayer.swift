@@ -347,6 +347,78 @@ enum FragmentedMP4Reader {
             }
         }
         if reader.status == .failed { throw reader.error ?? SabrFailure.invalidResponse("MP4 read failed") }
+        #if DEBUG
+        if audioPCM {
+            // Forensic comparison: read the SAME validated init+moof+mdat as
+            // compressed AAC without passing those samples to the renderer.
+            // If the standalone PCM reader discards precisely 2112 frames
+            // per fragment, that is AAC priming/decoder drain, not random
+            // bytes from the network or a renderer buffer underrun.
+            do {
+                let rawReader = try AVAssetReader(asset: asset)
+                let rawOutput = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+                rawOutput.alwaysCopiesSampleData = false
+                if rawReader.canAdd(rawOutput) {
+                    rawReader.add(rawOutput)
+                    if rawReader.startReading() {
+                        var aacPackets = 0
+                        var compressedBytes = 0
+                        var badBuffers = 0
+                        var wrongCodec = 0
+                        while rawReader.status == .reading {
+                            guard let packet = rawOutput.copyNextSampleBuffer() else { break }
+                            let n = CMSampleBufferGetNumSamples(packet)
+                            if n == 0 { continue }
+                            aacPackets += n
+                            let size = CMSampleBufferGetTotalSampleSize(packet)
+                            compressedBytes += size
+                            if let block = CMSampleBufferGetDataBuffer(packet) {
+                                let length = CMBlockBufferGetDataLength(block)
+                                if size <= 0 || length < size || !CMSampleBufferDataIsReady(packet) {
+                                    badBuffers += 1
+                                }
+                            } else {
+                                badBuffers += 1
+                            }
+                            if let format = CMSampleBufferGetFormatDescription(packet) {
+                                if CMFormatDescriptionGetMediaSubType(format) != kAudioFormatMPEG4AAC {
+                                    wrongCodec += 1
+                                }
+                            } else {
+                                wrongCodec += 1
+                            }
+                        }
+                        let pcmFrames = samples.reduce(0) {
+                            $0 + CMSampleBufferGetNumSamples($1)
+                        }
+                        let asbd = trackFormat.flatMap {
+                            CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee
+                        }
+                        let sampleRate = asbd?.mSampleRate ?? 0
+                        let framesPerPacket = Int(asbd?.mFramesPerPacket ?? 0)
+                        let sourceFrames = aacPackets * framesPerPacket
+                        let deficit = sourceFrames - pcmFrames
+                        let deficitMs = sampleRate > 0
+                            ? Double(deficit) * 1_000 / sampleRate : -1
+                        let rawStatus = String(describing: rawReader.status)
+                        NSLog("TypeType SABR AUDIT format=AAC-LC rawStatus=%@ fragmentBytes=%d initBytes=%d aacPackets=%d packetBytes=%d invalidBuffers=%d wrongCodec=%d pcmBuffers=%d pcmFrames=%d sampleRate=%.1f framesPerPacket=%d deficitFrames=%d deficitMs=%.3f",
+                              rawStatus, fragment.count, initialization.count,
+                              aacPackets, compressedBytes, badBuffers, wrongCodec,
+                              samples.count, pcmFrames, sampleRate, framesPerPacket,
+                              deficit, deficitMs)
+                    } else {
+                        NSLog("TypeType SABR AUDIT compressed-reader-start-failed kind=%@",
+                              String(describing: rawReader.error))
+                    }
+                } else {
+                    NSLog("TypeType SABR AUDIT compressed-reader-cannot-add")
+                }
+            } catch {
+                NSLog("TypeType SABR AUDIT compressed-reader-failed kind=%@",
+                      String(describing: type(of: error)))
+            }
+        }
+        #endif
         return samples
     }
 }
