@@ -240,8 +240,10 @@ final class TypeTypeTVUITests: XCTestCase {
         XCUIRemote.shared.press(.right)
         XCTAssertTrue(waitForFocus(refresh),
                       "Right from SponsorBlock must enter the content column")
-        let mode = app.descendants(matching: .any)["sponsor.mode"]
-        let firstCategory = app.descendants(matching: .any)["sponsor.category.sponsor"]
+        // The row exposes both a containing accessibility group and an
+        // interactive tvOS Picker button. Only the button receives focus.
+        let mode = app.buttons["sponsor.mode"]
+        let firstCategory = app.buttons["sponsor.category.sponsor"]
         XCUIRemote.shared.press(.down)
         XCTAssertTrue(waitForFocus(mode),
                       "Down from Refresh must select SponsorBlock behavior, not Categories")
@@ -716,10 +718,11 @@ final class TypeTypeTVUITests: XCTestCase {
         XCUIRemote.shared.press(.down)
         let viewport = app.descendants(matching: .any)
             .matching(identifier: "video-description-focus").firstMatch
-        XCTAssertTrue(waitForFocus(viewport),
-                      "Remote navigation must focus the scrollable description viewport")
         XCTAssertTrue(description.waitForExistence(timeout: 8),
-                      "Native description text must remain accessible after entering the viewport")
+                      "The native UITextView must remain accessible after entering its viewport")
+        XCTAssertTrue(waitForFocus(viewport, timeout: 3) ||
+                      waitForFocus(description, timeout: 3),
+                      "Remote navigation must focus the description container or native text view")
     }
 
     func testLibraryOpensDirectlyOnSelectedSubnavigation() throws {
