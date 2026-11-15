@@ -48,6 +48,8 @@ struct BrowseView: View {
     @State private var section: TVSection
     @State private var expanded = false
     @State private var enteringFromMenu = false
+    @State private var menuHandoffActive = false
+    @State private var menuHandoffGeneration = 0
     @State private var searchFocusRequest = 0
     @State private var sidebarIdentity: TVAccountIdentity?
     @ObservedObject private var playbackVisibility = TVPlaybackVisibility.shared
@@ -227,8 +229,10 @@ struct BrowseView: View {
             }
         }
         .onChange(of: menuFocus) { previous, focused in
-            if enteringFromMenu {
-                // The explicit OK/Right transition owns focus transfer.
+            if enteringFromMenu || menuHandoffActive {
+                // Ignore tvOS focus callbacks while the old rail icon is
+                // disabled for an explicit handoff. Otherwise Right can
+                // immediately re-expand the sidebar and steal page focus.
                 // In particular, never re-expand the rail on a transient
                 // focus callback while the destination is mounting.
                 if focused == nil {
@@ -298,6 +302,7 @@ struct BrowseView: View {
         }
         .buttonStyle(TVRailButtonStyle())
         .focusEffectDisabled(true)
+        .focusDisabled(menuHandoffActive)
         .focused($menuFocus, equals: item)
         .accessibilityLabel(item.label)
         .accessibilityIdentifier("main-nav-\(item.rawValue)")
@@ -357,10 +362,28 @@ struct BrowseView: View {
         section = destination
         expanded = false
 
-        // Release the old focus before requesting a new one. Keeping the
-        // menu's @FocusState set caused OK to leave focus on the old icon;
-        // tvOS would also bounce Right straight back to the rail.
-        if wasInMenu { menuFocus = nil }
+        // Right can still be resolved by UIKit after onMoveCommand returns.
+        // Make the old sidebar icon temporarily ineligible for focus, or a
+        // late focus callback reopens the rail instead of entering the page.
+        if wasInMenu {
+            menuHandoffActive = true
+            menuHandoffGeneration &+= 1
+            let generation = menuHandoffGeneration
+            menuFocus = nil
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(360))
+                guard generation == menuHandoffGeneration else { return }
+                menuFocus = nil
+                expanded = false
+                enteringFromMenu = false
+                menuHandoffActive = false
+                // Search is already mounted during menu preview. Re-issue
+                // its focus request after UIKit has completed the Right move.
+                if destination == .search {
+                    searchFocusRequest &+= 1
+                }
+            }
+        }
 
         // The child gets a new request after the menu has been released.
         // This works for both a previewed (already mounted) destination
@@ -377,6 +400,8 @@ struct BrowseView: View {
     }
 
     private func revealMenu() {
+        menuHandoffGeneration &+= 1
+        menuHandoffActive = false
         enteringFromMenu = false
         menuFocus = section
         expanded = true
@@ -587,19 +612,20 @@ struct HomeView: View {
             guard !Task.isCancelled else { return }
             focusedHomeVideo = target
             if returningFromDetails {
-                // A late tvOS pop focus update can choose a geometrically
-                // nearby card after our first restoration. Retry only when
-                // that occurred, while the return operation is still active.
-                try? await Task.sleep(for: .milliseconds(320))
+                // UIKit may report our target FocusState as selected even
+                // while its final pop-transition focus chooses another cell.
+                // Re-arm the same tile exactly once after the transition,
+                // rather than relying on a comparison that can miss this.
+                try? await Task.sleep(for: .milliseconds(430))
                 guard !Task.isCancelled else { return }
-                if focusedHomeVideo != target {
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        scroll.scrollTo(target, anchor: .center)
-                    }
-                    try? await Task.sleep(for: .milliseconds(180))
-                    guard !Task.isCancelled else { return }
-                    focusedHomeVideo = target
+                focusedHomeVideo = nil
+                await Task.yield()
+                withAnimation(.easeOut(duration: 0.18)) {
+                    scroll.scrollTo(target, anchor: .center)
                 }
+                try? await Task.sleep(for: .milliseconds(220))
+                guard !Task.isCancelled else { return }
+                focusedHomeVideo = target
             }
         }
     }
