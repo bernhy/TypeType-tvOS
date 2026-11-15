@@ -484,7 +484,9 @@ final class SabrService: @unchecked Sendable {
         let path = "sabr/playback/\(sessionId)"
         let _: EmptyReply = try await request(path + "/position", method: "POST", body: body, allowedStatuses: [200, 202, 204], allowEmpty: true)
         var lastPrefetch: Date?
+        #if DEBUG
         var prefetchAttempts = 0
+        #endif
         let startedAt = Date()
         let deadline = startedAt.addingTimeInterval(25)
         for _ in 0..<60 {
@@ -499,13 +501,17 @@ final class SabrService: @unchecked Sendable {
                 // Re-register newly blocked tracks after previous demands
                 // finish. The server deduplicates identical demands. This is
                 // strictly serial and rate-limited: never hammer /prefetch.
+                #if DEBUG
                 if prefetchAttempts > 0 {
                     NSLog("TypeType SABR WINDOW re-prefetch attempt=%d elapsedMs=%d",
                           prefetchAttempts + 1,
                           Int(now.timeIntervalSince(startedAt) * 1_000))
                 }
+                #endif
                 lastPrefetch = now
+                #if DEBUG
                 prefetchAttempts += 1
+                #endif
                 let _: EmptyReply = try await request(path + "/prefetch", method: "POST",
                                                        body: body, allowedStatuses: [200, 202, 204], allowEmpty: true)
             }
@@ -639,11 +645,13 @@ final class SabrService: @unchecked Sendable {
                 // One initial diagnostic, then periodic updates, then a
                 // definitive timeout. This distinguishes a slow network
                 // from the server never making a particular media seq ready.
+                #if DEBUG
                 if segmentPolls == 1 || segmentPolls.isMultiple(of: 10) {
                     NSLog("TypeType SABR SEGMENT pending itag=%d seq=%d polls=%d elapsedMs=%d retryMs=%d status=%@",
                           segmentItag, segmentSequence, segmentPolls, elapsedMs,
                           delay, String((preparing?.status ?? "unknown").prefix(32)))
                 }
+                #endif
                 guard segmentPolls < 60 && Date() < mediaDeadline else {
                     NSLog("TypeType SABR SEGMENT timeout itag=%d seq=%d polls=%d elapsedMs=%d status=%@",
                           segmentItag, segmentSequence, segmentPolls, elapsedMs,
