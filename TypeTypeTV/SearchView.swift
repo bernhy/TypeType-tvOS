@@ -9,6 +9,9 @@ struct SearchView: View {
     @State private var error: String?
     @State private var searching = false
     @State private var requestID = UUID()
+    var focusRequest = 0
+    @FocusState private var focusedVideoURL: String?
+    @FocusState private var searchFieldFocused: Bool
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 30), count: 4)
     private var history: [String] { TVRecentQueries.decode(recentJSON) }
@@ -29,6 +32,7 @@ struct SearchView: View {
                     TextField("search.placeholder", text: $term)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .focused($searchFieldFocused)
                         .onSubmit { Task { await execute(term) } }
                         .accessibilityLabel("search.inputLabel")
                     Button {
@@ -95,7 +99,14 @@ struct SearchView: View {
                         LazyVGrid(columns: columns, spacing: 42) {
                             ForEach(videos) { video in
                                 NavigationLink {
-                                    VideoDetailView(api: api, video: video)
+                                    VideoDetailView(
+                                        api: api, video: video,
+                                        onReturnToList: {
+                                            TVVideoFocusReturn.restore(
+                                                $focusedVideoURL, id: video.url
+                                            )
+                                        }
+                                    )
                                 } label: {
                                     VideoCard(api: api, video: video)
                                 }
@@ -103,7 +114,7 @@ struct SearchView: View {
                                 .focusEffectDisabled(true)
                                 .videoActions(api: api, video: video, onChanged: {
                                     Task { await execute(searchedTerm) }
-                                })
+                                }, focus: $focusedVideoURL, focusID: video.url)
                                 .accessibilityLabel(TTTheme.accessibilityText(for: video))
                             }
                         }
@@ -122,6 +133,11 @@ struct SearchView: View {
             .padding(.bottom, 110)
         }
         .background(TTTheme.ink)
+        .task(id: focusRequest) {
+            guard focusRequest >= 0 else { return }
+            await Task.yield()
+            searchFieldFocused = true
+        }
     }
 
     @MainActor

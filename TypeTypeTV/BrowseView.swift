@@ -349,6 +349,10 @@ struct HomeView: View {
     let focusRequest: Int
     @FocusState private var focusedHomeVideo: String?
     @State private var needsHomeFocus = false
+
+    private func homeCardID(_ video: VideoItem, recommended: Bool) -> String {
+        (recommended ? "recommendation-" : "recent-") + video.url
+    }
     private let previewVideos: [VideoItem]?
 
     @State private var videos: [VideoItem]
@@ -486,7 +490,20 @@ struct HomeView: View {
         .task {
             if previewVideos == nil { await refresh() }
         }
-        .onExitCommand { onRevealMenu() }
+        .onExitCommand {
+            // First Back on Home returns to the top recommendation; a second
+            // Back from that tile reopens the global navigation.
+            if let first = videos.first {
+                let target = homeCardID(first, recommended: true)
+                if focusedHomeVideo != target {
+                    focusedHomeVideo = target
+                } else {
+                    onRevealMenu()
+                }
+            } else {
+                onRevealMenu()
+            }
+        }
         .task(id: focusRequest) {
             guard focusRequest > 0 else { return }
             needsHomeFocus = true
@@ -499,8 +516,8 @@ struct HomeView: View {
 
     private func focusFirstHomeVideo() {
         guard needsHomeFocus else { return }
-        let target = !recentVideos.isEmpty ? "recent-0" :
-            (!videos.isEmpty ? "recommendation-0" : nil)
+        let target = videos.first.map { homeCardID($0, recommended: true) } ??
+            recentVideos.first.map { homeCardID($0, recommended: false) }
         guard let target else { return }
         focusedHomeVideo = target
         needsHomeFocus = false
@@ -512,7 +529,15 @@ struct HomeView: View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 34) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, video in
                 NavigationLink {
-                    VideoDetailView(api: api, video: video)
+                    VideoDetailView(
+                        api: api, video: video,
+                        onReturnToList: {
+                            TVVideoFocusReturn.restore(
+                                $focusedHomeVideo,
+                                id: homeCardID(video, recommended: paginate)
+                            )
+                        }
+                    )
                 } label: {
                     VideoCard(api: api, video: video,
                               lookupMissingMetadata: lookupHistoryMetadata)
@@ -520,17 +545,20 @@ struct HomeView: View {
                 .buttonStyle(TVRailButtonStyle())
                 .focusEffectDisabled(true)
                 .zIndex(focusedHomeVideo ==
-                    (paginate ? "recommendation-" : "recent-") + String(index) ? 5 : 0)
+                    homeCardID(video, recommended: paginate) ? 5 : 0)
                 .videoActions(api: api, video: video, onChanged: {
                     Task { await refresh() }
                 }, focus: $focusedHomeVideo,
-                   focusID: (paginate ? "recommendation-" : "recent-") + String(index))
+                   focusID: homeCardID(video, recommended: paginate))
                 .onMoveCommand { direction in
                     if direction == .left && index % columns.count == 0 {
                         onRevealMenu()
                     }
                 }
                 .accessibilityLabel(TTTheme.accessibilityText(for: video))
+                .accessibilityIdentifier(
+                    "home-video-" + (paginate ? "recommendation-" : "recent-") + String(index)
+                )
                 .onAppear {
                     // LazyVGrid renders only the rows approaching the viewport.
                     // Prefetch the following page when nearing the last row,

@@ -4,6 +4,7 @@ struct VideoDetailView: View {
     let api: TypeTypeAPI
     let video: VideoItem
     var playbackQueue: [VideoItem]? = nil
+    var onReturnToList: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var favorite = false
     @State private var watchLater = false
@@ -171,7 +172,7 @@ struct VideoDetailView: View {
                                         }
                                     }
 
-                                    Button { dismiss() } label: {
+                                    Button { returnToList() } label: {
                                         Label("common.back", systemImage: "chevron.left")
                                     }
                                     .buttonStyle(.bordered)
@@ -366,6 +367,13 @@ struct VideoDetailView: View {
                 }
             }
         }
+        .onExitCommand { returnToList() }
+    }
+
+    @MainActor
+    private func returnToList() {
+        dismiss()
+        onReturnToList?()
     }
 
     @MainActor

@@ -121,7 +121,12 @@ struct LibraryView: View {
                                 NavigationLink {
                                     VideoDetailView(
                                         api: api, video: video,
-                                        playbackQueue: playbackQueue
+                                        playbackQueue: playbackQueue,
+                                        onReturnToList: {
+                                            TVVideoFocusReturn.restore(
+                                                $focusedVideoURL, id: video.url
+                                            )
+                                        }
                                     )
                                 } label: {
                                     VideoCard(api: api, video: video,

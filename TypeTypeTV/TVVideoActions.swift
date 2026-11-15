@@ -355,3 +355,14 @@ struct TVPlaylistPickerView: View {
         } catch { self.error = error.localizedDescription }
     }
 }
+
+/// Return focus after the pushed video details are removed from the stack.
+/// A synchronous assignment during dismissal is overwritten by tvOS.
+enum TVVideoFocusReturn {
+    static func restore(_ binding: FocusState<String?>.Binding, id: String) {
+        Task { @MainActor in
+            await Task.yield()
+            binding.wrappedValue = id
+        }
+    }
+}

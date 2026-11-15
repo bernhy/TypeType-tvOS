@@ -59,7 +59,14 @@ struct TVSubscriptionFeedView: View {
                     LazyVGrid(columns: columns, spacing: 32) {
                         ForEach(Array(videos.enumerated()), id: \.offset) { index, video in
                             NavigationLink {
-                                VideoDetailView(api: api, video: video)
+                                VideoDetailView(
+                                    api: api, video: video,
+                                    onReturnToList: {
+                                        TVVideoFocusReturn.restore(
+                                            $focusedVideo, id: video.url
+                                        )
+                                    }
+                                )
                             } label: {
                                 VideoCard(api: api, video: video)
                             }
