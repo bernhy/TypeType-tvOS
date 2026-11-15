@@ -1947,7 +1947,11 @@ final class SabrPlayerController: ObservableObject {
                 )
                 isInitialized = true
                 isPlaying = !prefersPause
+                #if DEBUG
+                // High-frequency renderer probe is for diagnosing sporadic
+                // Apple TV playback glitches, not production telemetry.
                 startRendererProbe()
+                #endif
                 state = TVL10n.value(
                     prefersPause ? "player.paused" : "player.playing"
                 )
