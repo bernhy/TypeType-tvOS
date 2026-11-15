@@ -395,6 +395,49 @@ final class TypeTypeTVUITests: XCTestCase {
                       app.buttons["Mit Passwort anmelden"].exists)
     }
 
+    func testBackFromVideoDetailsRestoresOriginatingRecommendation() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let recommendation = app.buttons["home-video-recommendation-0"]
+        XCTAssertTrue(recommendation.waitForExistence(timeout: 20))
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(recommendation.hasFocus,
+                      "First Home Back must prioritize recommendations")
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(app.buttons["video-play"].waitForExistence(timeout: 10))
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(recommendation.waitForExistence(timeout: 10))
+        XCTAssertTrue(recommendation.hasFocus,
+                      "Back from a video must focus its original list tile")
+        XCTAssertFalse(app.buttons["main-nav-home"].hasFocus,
+                       "Returning from details must not jump to the global rail")
+    }
+
+    func testGlobalMenuPreviewsOnFocusButEntersOnlyOnSelect() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCUIRemote.shared.press(.menu)  // Top recommendation
+        XCUIRemote.shared.press(.menu)  // Global Home icon
+        let search = app.buttons["main-nav-search"]
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(search.hasFocus,
+                      "Moving Down in the main rail must retain rail focus")
+        XCTAssertTrue(app.staticTexts["VIDEOS ENTDECKEN"].waitForExistence(timeout: 8),
+                      "Search screen should be previewed before pressing OK")
+        XCTAssertTrue(search.hasFocus,
+                      "Preview must not collapse the main navigation")
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.textFields.firstMatch.hasFocus,
+                      "Only OK should transfer focus to the new screen")
+    }
+
     func testOpeningSettingsFromMainMenuTransfersFocusToSubnavigation() throws {
         let app = XCUIApplication()
         app.launchArguments = [
@@ -405,6 +448,9 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 20))
         // Return from Home to the global icon rail, then navigate down to
         // Settings. This exercises the same path as the user's Siri Remote.
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(app.buttons["home-video-recommendation-0"].hasFocus,
+                      "First Home Back must choose top recommendation, not Recent")
         XCUIRemote.shared.press(.menu)
         // Seven main sections (including both subscription destinations).
         for _ in 0..<6 { XCUIRemote.shared.press(.down) }
