@@ -738,18 +738,10 @@ struct VideoCard: View {
                                alignment: .topTrailing)
                         .padding(7)
                 }
-                VStack(alignment: .trailing, spacing: 7) {
-                    if watchLaterMembership.contains(video.url) {
-                        Image(systemName: "bookmark.fill")
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(8)
-                            .background(.black.opacity(0.84),
-                                        in: RoundedRectangle(cornerRadius: 7))
-                            .accessibilityLabel("library.watchLater")
-                    }
+                Group {
                     if video.isLive == true {
-                        Text("video.liveBadge").font(.caption.bold())
+                        Text("video.liveBadge")
+                            .font(.caption.bold())
                             .padding(8)
                             .background(TTTheme.accent,
                                         in: RoundedRectangle(cornerRadius: 6))
@@ -762,8 +754,8 @@ struct VideoCard: View {
                     }
                 }
                 .padding(9)
-                // Scale the label inversely so its background stays the
-                // original size while the entire focused card grows.
+                // Keep the time badge's background at its original size
+                // while the full card scales on focus.
                 .scaleEffect(isFocused ? 1 / 1.065 : 1, anchor: .bottomTrailing)
                 if let fraction {
                     GeometryReader { proxy in
@@ -782,16 +774,28 @@ struct VideoCard: View {
                     .font(.system(size: 21, weight: .semibold))
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, minHeight: 54, alignment: .topLeading)
-                Text(video.uploaderName ?? "")
-                    .font(.system(size: 17))
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(video.uploaderName ?? "")
+                            .font(.system(size: 17))
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, minHeight: 23,
+                                   alignment: .topLeading)
+                        Text(videoMetadata ?? " ")
+                            .font(.system(size: 15))
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, minHeight: 21,
+                                   alignment: .topLeading)
+                    }
                     .foregroundStyle(TTTheme.muted)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, minHeight: 23, alignment: .topLeading)
-                Text(videoMetadata ?? " ")
-                    .font(.system(size: 15))
-                    .foregroundStyle(TTTheme.muted)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, minHeight: 21, alignment: .topLeading)
+                    if watchLaterMembership.contains(video.url) {
+                        Image(systemName: "bookmark.fill")
+                            .font(.system(size: 19, weight: .semibold))
+                            .foregroundStyle(TTTheme.accent)
+                            .padding(.trailing, 2)
+                            .accessibilityLabel("library.watchLater")
+                    }
+                }
             }
             .padding(.horizontal, 14)
             .padding(.top, 11)
