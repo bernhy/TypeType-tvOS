@@ -224,6 +224,7 @@ enum SabrSampleTimingProbe {
                             durationMs: end - startMs)
     }
 
+    #if DEBUG
     static func logEvidence(track: String, itag: Int, sequence: Int?,
                             metadataStartMs: Int64, metadataDurationMs: Int64,
                             nativeStartMs: Int64?, resolvedStartMs: Int64,
@@ -240,6 +241,7 @@ enum SabrSampleTimingProbe {
               nativeStartMs ?? -1, resolvedStartMs, priorSampleEndMs ?? -1,
               actualEndMs ?? -1, sampleGap, corrected ? 1 : 0)
     }
+    #endif
 }
 
 /// AVAssetReader opens each fMP4 segment as a temporary standalone MP4.
@@ -422,12 +424,14 @@ final class SabrPlayerController: ObservableObject {
     private var queuedAudioEndMs: Int64 = 0
     private var queuedVideoEndMs: Int64 = 0
     private var hardwareDecoder: HardwareVideoDecoder?
+    #if DEBUG
     private var rendererProbeTask: Task<Void, Never>?
     private var maxVideoDeliveryMs = 0
     private var lateVideoSamples = 0
     private var videoSamplesDelivered = 0
     private var maxVideoReadyWaitMs = 0
     private var videoReadyWaits = 0
+    #endif
     private var playbackService: SabrService?
     private var segmentCache: SabrFragmentCache?
     private var windowProducerTask: Task<Void, Never>?
@@ -526,8 +530,10 @@ final class SabrPlayerController: ObservableObject {
         diskCacheBytes = 0
         hardwareDecoder?.invalidate()
         hardwareDecoder = nil
+        #if DEBUG
         rendererProbeTask?.cancel()
         rendererProbeTask = nil
+        #endif
         synchronizer.setRate(0, time: synchronizer.currentTime())
         videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
         audioRenderer.flush()
@@ -667,13 +673,16 @@ final class SabrPlayerController: ObservableObject {
         queuedAudioEndMs = 0
         queuedVideoEndMs = 0
         rendererReadyThroughMs = 0
+        #if DEBUG
         maxVideoDeliveryMs = 0
         lateVideoSamples = 0
         videoSamplesDelivered = 0
         maxVideoReadyWaitMs = 0
         videoReadyWaits = 0
+        #endif
     }
 
+    #if DEBUG
     /// Print measured renderer queue headroom *during* playback. Previous
     /// logs identified missing segment numbers but could not detect 100-500ms
     /// frame starvation with perfectly continuous fMP4 timestamps.
@@ -703,6 +712,8 @@ final class SabrPlayerController: ObservableObject {
             }
         }
     }
+
+    #endif
 
     /// Called while the decoder waits for a new, already downloaded media
     /// window. Do not allow audio to keep advancing beyond the shortest
@@ -1352,18 +1363,24 @@ final class SabrPlayerController: ObservableObject {
             NSLog("TypeType SABR PRODUCER window-request requestMs=%lld playbackMs=%lld cachedMs=%lld targetMs=%lld",
                   requestPosition, playhead, retainedEnd, target)
             #endif
+            #if DEBUG
             let windowRequestStarted = Date()
+            #endif
             let original = try await service.window(
                 sessionId: sessionId, selection: choice, generation: generation,
                 positionMs: requestPosition,
                 ranges: SabrSequentialWindowPolicy.advertisedRanges,
                 buffer: buffer, requestedBufferGoalMs: Int(target)
             )
+            #if DEBUG
             let windowElapsedMs = Int(Date().timeIntervalSince(windowRequestStarted) * 1_000)
+            #endif
+            #if DEBUG
             if windowElapsedMs > 2_000 {
                 NSLog("TypeType SABR PRODUCER slow-window requestMs=%lld elapsedMs=%d",
                       requestPosition, windowElapsedMs)
             }
+            #endif
             try Task.checkCancellation()
             guard let originalAudio = original.audio, let originalVideo = original.video else {
                 throw SabrFailure.invalidResponse("SABR window has no audio/video pair")
@@ -1425,7 +1442,9 @@ final class SabrPlayerController: ObservableObject {
                 SabrMediaReference(url: $0.url, itag: choice.video.itag,
                                    startMs: $0.startMs, durationMs: $0.durationMs)
             }
+            #if DEBUG
             let prefetchStarted = Date()
+            #endif
             // /segments can report a ready window containing progressive
             // fragments that still return HTTP 202 on GET. The ordinary
             // window prefetch loop is already finished at this point. Nudge
@@ -1433,7 +1452,9 @@ final class SabrPlayerController: ObservableObject {
             // the actual audio/video fragment downloads are outstanding.
             // Cancellation prevents any heartbeat from outliving a window.
             let mediaPrefetch = Task { @MainActor in
+                #if DEBUG
                 var attempts = 0
+                #endif
                 while !Task.isCancelled {
                     do {
                         try await Task.sleep(nanoseconds: 5_000_000_000)
@@ -1441,10 +1462,14 @@ final class SabrPlayerController: ObservableObject {
                         return
                     }
                     guard !Task.isCancelled else { return }
+                    #if DEBUG
                     attempts += 1
+                    #endif
+                    #if DEBUG
                     NSLog("TypeType SABR MEDIA re-prefetch attempt=%d requestMs=%lld elapsedMs=%d",
                           attempts, requestPosition,
                           Int(Date().timeIntervalSince(prefetchStarted) * 1_000))
+                    #endif
                     do {
                         try await service.refreshMediaPrefetch(
                             sessionId: sessionId, selection: choice,
@@ -1490,8 +1515,10 @@ final class SabrPlayerController: ObservableObject {
                     recoveryAction: requested.recoveryAction,
                     retryVideoItags: requested.retryVideoItags
                 )
+                #if DEBUG
                 NSLog("TypeType SABR PRODUCER progressive-delivery requestMs=%lld audio=%d video=%d",
                       requestPosition, next.audio.count, next.video.count)
+                #endif
                 try await mailbox.offer(partial)
             }
             do {
@@ -1504,11 +1531,15 @@ final class SabrPlayerController: ObservableObject {
                 throw error
             }
             mediaPrefetch.cancel()
+            #if DEBUG
             let prefetchMs = Int(Date().timeIntervalSince(prefetchStarted) * 1_000)
+            #endif
+            #if DEBUG
             if prefetchMs > 2_000 {
                 NSLog("TypeType SABR PRODUCER slow-prefetch requestMs=%lld audioSegments=%d videoSegments=%d elapsedMs=%d",
                       requestPosition, audio.segments.count, video.segments.count, prefetchMs)
             }
+            #endif
             try Task.checkCancellation()
             for part in SabrSequenceOrder.ordered(audio.segments) {
                 try coverage.acceptAudio(part)
@@ -1613,18 +1644,24 @@ final class SabrPlayerController: ObservableObject {
                     try await service.fragmentData(segment.url, sessionId: sid,
                                                    itag: choice.audio.itag, generation: gen)
                 }
+                #if DEBUG
                 let readStarted = ProcessInfo.processInfo.systemUptime
+                #endif
                 let rawSamples = try await FragmentedMP4Reader.compressedSamples(
                     initialization: audioInit, fragment: bytes, mediaType: .audio
                 )
+                #if DEBUG
                 let readMs = Int((ProcessInfo.processInfo.systemUptime - readStarted) * 1_000)
+                #endif
                 let sequence = Int(URL(string: segment.url)?.lastPathComponent ?? "")
+                #if DEBUG
                 if readMs >= 200 {
                     let now = Int64(max(0, playbackSeconds() * 1_000))
                     NSLog("TypeType SABR DEMUX track=audio seq=%d elapsedMs=%d samples=%d clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld",
                           sequence ?? -1, readMs, rawSamples.count, now,
                           queuedAudioEndMs - now, queuedVideoEndMs - now)
                 }
+                #endif
                 let nativeStart = SabrMP4NativeTiming.decodeStartMs(
                     initialization: audioInit, fragment: bytes
                 )
@@ -1705,18 +1742,24 @@ final class SabrPlayerController: ObservableObject {
                     try await service.fragmentData(segment.url, sessionId: sid,
                                                    itag: choice.video.itag, generation: gen)
                 }
+                #if DEBUG
                 let readStarted = ProcessInfo.processInfo.systemUptime
+                #endif
                 let rawSamples = try await FragmentedMP4Reader.compressedSamples(
                     initialization: videoInit, fragment: bytes, mediaType: .video
                 )
+                #if DEBUG
                 let readMs = Int((ProcessInfo.processInfo.systemUptime - readStarted) * 1_000)
+                #endif
                 let sequence = Int(URL(string: segment.url)?.lastPathComponent ?? "")
+                #if DEBUG
                 if readMs >= 200 {
                     let now = Int64(max(0, playbackSeconds() * 1_000))
                     NSLog("TypeType SABR DEMUX track=video seq=%d elapsedMs=%d samples=%d clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld",
                           sequence ?? -1, readMs, rawSamples.count, now,
                           queuedAudioEndMs - now, queuedVideoEndMs - now)
                 }
+                #endif
                 let nativeStart = SabrMP4NativeTiming.decodeStartMs(
                     initialization: videoInit, fragment: bytes
                 )
@@ -1896,7 +1939,9 @@ final class SabrPlayerController: ObservableObject {
                 hasQueuedFirstAudio = true
             case .video:
                 var budget = SabrRendererWaitBudget()
+                #if DEBUG
                 var waitedMs = 0
+                #endif
                 while !videoLayer.sampleBufferRenderer.isReadyForMoreMediaData {
                     try Task.checkCancellation()
                     guard videoLayer.sampleBufferRenderer.status != .failed else {
@@ -1908,18 +1953,25 @@ final class SabrPlayerController: ObservableObject {
                     ) else {
                         throw SabrFailure.stalled("video renderer stopped accepting samples")
                     }
+                    #if DEBUG
                     waitedMs += SabrRendererPolling.milliseconds
+                    #endif
                     try await Task.sleep(nanoseconds: SabrRendererPolling.nanoseconds)
                 }
+                #if DEBUG
                 if waitedMs > 0 {
                     maxVideoReadyWaitMs = max(maxVideoReadyWaitMs, waitedMs)
                     videoReadyWaits += 1
                 }
+                #endif
                 guard let hardwareDecoder else {
                     throw SabrFailure.invalidResponse("decoder missing")
                 }
+                #if DEBUG
                 let deliveryStarted = ProcessInfo.processInfo.systemUptime
+                #endif
                 let lastDecodedPTS = try await hardwareDecoder.decode(video[vi])
+                #if DEBUG
                 let deliveryMs = Int((ProcessInfo.processInfo.systemUptime -
                                       deliveryStarted) * 1_000)
                 maxVideoDeliveryMs = max(maxVideoDeliveryMs, deliveryMs)
@@ -1930,6 +1982,7 @@ final class SabrPlayerController: ObservableObject {
                     let clockMs = Int64(max(0, playbackSeconds() * 1_000))
                     if ptsMs + 75 < clockMs { lateVideoSamples += 1 }
                 }
+                #endif
                 // Use actual frames submitted to AVSampleBufferDisplayLayer,
                 // not compressed input PTS, when measuring renderer headroom.
                 if let lastDecodedPTS {
