@@ -253,3 +253,43 @@ final class SabrTimelineAndHistoryTests: XCTestCase {
         XCTAssertEqual(items[1].title, "Different video")
     }
 }
+
+
+final class SabrAACPrimingPolicyTests: XCTestCase {
+    func testContinuationRequiresConsecutiveSequenceAndAdjacentTimes() {
+        XCTAssertTrue(SabrAACPrimingPolicy.isSeamlessContinuation(
+            previousSequence: 7, sequence: 8,
+            previousEndMs: 69_892, startMs: 69_892
+        ))
+        XCTAssertTrue(SabrAACPrimingPolicy.isSeamlessContinuation(
+            previousSequence: 7, sequence: 8,
+            previousEndMs: 69_844, startMs: 69_892
+        ))
+    }
+
+    func testNoSuppressionForStartResumeOrMissingSegment() {
+        XCTAssertFalse(SabrAACPrimingPolicy.isSeamlessContinuation(
+            previousSequence: nil, sequence: 8,
+            previousEndMs: nil, startMs: 69_892
+        ))
+        XCTAssertFalse(SabrAACPrimingPolicy.isSeamlessContinuation(
+            previousSequence: 7, sequence: 9,
+            previousEndMs: 69_892, startMs: 79_877
+        ))
+        XCTAssertFalse(SabrAACPrimingPolicy.isSeamlessContinuation(
+            previousSequence: 7, sequence: 8,
+            previousEndMs: 69_892, startMs: 80_000
+        ))
+    }
+
+    func testNoSuppressionOnBackwardsTimeOrInvalidSequence() {
+        XCTAssertFalse(SabrAACPrimingPolicy.isSeamlessContinuation(
+            previousSequence: 8, sequence: 7,
+            previousEndMs: 69_892, startMs: 59_907
+        ))
+        XCTAssertFalse(SabrAACPrimingPolicy.isSeamlessContinuation(
+            previousSequence: 8, sequence: nil,
+            previousEndMs: 69_892, startMs: 69_892
+        ))
+    }
+}
