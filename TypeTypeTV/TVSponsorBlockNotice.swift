@@ -35,12 +35,19 @@ struct TVSponsorBlockNotice: View {
                     .padding(.horizontal, 13)
                     .padding(.vertical, 8)
                     .background(.white, in: Capsule())
+                    // Keep focus feedback inside the button's real bounds.
+                    .overlay {
+                        Capsule().strokeBorder(.black.opacity(skipFocused ? 0.24 : 0),
+                                               lineWidth: 1)
+                    }
+                    .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            // tvOS still adds a large glowing pill to .plain buttons even
+            // when focusEffectDisabled is set. The rail's custom style and
+            // explicit environment opt-out keep this capsule at fixed size.
+            .buttonStyle(TVRailButtonStyle())
             .focusEffectDisabled(true)
             .focused($skipFocused)
-            .scaleEffect(skipFocused ? 1.035 : 1)
-            .shadow(color: .white.opacity(skipFocused ? 0.22 : 0), radius: 5)
             .accessibilityIdentifier("sponsorblock-skip")
             .onExitCommand(perform: onDismiss)
         }
@@ -49,6 +56,7 @@ struct TVSponsorBlockNotice: View {
         .background(.black.opacity(0.78), in: Capsule())
         .overlay(Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 1))
         .fixedSize(horizontal: true, vertical: true)
+        .environment(\.isFocusEffectEnabled, false)
         .onExitCommand(perform: onDismiss)
         .task {
             // No remote navigation needed: one confirmation triggers Skip.
