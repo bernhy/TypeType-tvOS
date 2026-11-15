@@ -416,7 +416,7 @@ final class TypeTypeTVUITests: XCTestCase {
                        "Returning from details must not jump to the global rail")
     }
 
-    func testGlobalMenuPreviewsOnFocusButEntersOnlyOnSelect() throws {
+    func testGlobalMenuPreviewsOnFocusAndSelectEntersStably() throws {
         let app = XCUIApplication()
         app.launchArguments = [
             "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
@@ -435,7 +435,35 @@ final class TypeTypeTVUITests: XCTestCase {
         XCUIRemote.shared.press(.select)
         XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 8))
         XCTAssertTrue(app.textFields.firstMatch.hasFocus,
-                      "Only OK should transfer focus to the new screen")
+                      "OK must transfer focus to the new screen")
+        Thread.sleep(forTimeInterval: 0.6)
+        XCTAssertTrue(app.textFields.firstMatch.hasFocus,
+                      "OK focus must not jump back to the global navigation")
+        XCTAssertFalse(search.hasFocus,
+                       "The global navigation must release focus after OK")
+    }
+
+    func testGlobalMenuRightEntersSearchWithoutFocusBounce() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCUIRemote.shared.press(.menu) // First recommendation
+        XCUIRemote.shared.press(.menu) // Main Home icon
+        let search = app.buttons["main-nav-search"]
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(search.hasFocus,
+                      "Previewing Search must keep focus on its menu icon")
+        XCUIRemote.shared.press(.right)
+        let searchInput = app.textFields.firstMatch
+        XCTAssertTrue(searchInput.waitForExistence(timeout: 8))
+        XCTAssertTrue(searchInput.hasFocus,
+                      "Right must enter the Search screen, just like OK")
+        Thread.sleep(forTimeInterval: 0.6)
+        XCTAssertTrue(searchInput.hasFocus,
+                      "Right must not bounce focus back into the main rail")
+        XCTAssertFalse(search.hasFocus)
     }
 
     func testOpeningSettingsFromMainMenuTransfersFocusToSubnavigation() throws {
