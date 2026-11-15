@@ -32,8 +32,8 @@ struct TVHLSPlaybackView: View {
                 .id(segment.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity,
                        alignment: .topTrailing)
-                .padding(.top, 18)
-                .padding(.trailing, 20)
+                .padding(.top, 4)
+                .padding(.trailing, 4)
             }
             if let error = playback.errorMessage {
                 VStack(spacing: 18) {
