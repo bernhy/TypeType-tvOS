@@ -329,6 +329,14 @@ struct VideoDetailView: View {
                             text: description,
                             scrollCommand: descriptionScrollCommand
                         )
+                        #if DEBUG
+                        if api.origin.host == "preview.invalid" {
+                            Text(focusedDetail == .descriptionBody ? "descriptionBody" : "other")
+                                .font(.system(size: 1))
+                                .foregroundStyle(.clear)
+                                .accessibilityIdentifier("video-description-focus-state")
+                        }
+                        #endif
                     }
                         .frame(height: 370)
                         .background(TTTheme.surface,
