@@ -141,7 +141,9 @@ enum TVShowcaseFixtures {
             let uploader: String = number % 3 == 0 ? "TypeType Community" : "Beispielkanal"
             var item = VideoItem(
                 id: "ui-preview-\(number)", title: title,
-                url: "https://youtu.be/dQw4w9WgXcQ", thumbnailUrl: nil,
+                // Unique, deterministic URLs are essential for verifying
+                // card-specific focus restoration inside lazy grids.
+                url: "https://youtu.be/ui-preview-\(number)", thumbnailUrl: nil,
                 uploaderName: uploader, duration: duration, isLive: live
             )
             // Preview both partially viewed and completed cards in Xcode

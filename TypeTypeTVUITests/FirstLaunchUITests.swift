@@ -395,6 +395,73 @@ final class TypeTypeTVUITests: XCTestCase {
                       app.buttons["Mit Passwort anmelden"].exists)
     }
 
+    func testGlobalChannelsPreviewDoesNotTakeFocusUntilRight() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCUIRemote.shared.press(.menu) // First recommended video
+        XCUIRemote.shared.press(.menu) // Global Home
+        for _ in 0..<3 { XCUIRemote.shared.press(.down) }
+        let mainChannels = app.buttons["main-nav-channels"]
+        XCTAssertTrue(mainChannels.hasFocus)
+        let channel = app.buttons["subscription-https://preview.invalid/channel/a"]
+        XCTAssertTrue(channel.waitForExistence(timeout: 8))
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertTrue(mainChannels.hasFocus,
+                      "Preview must not focus the channel subnavigation")
+        XCTAssertFalse(channel.hasFocus,
+                       "Preview should only render the subscribed channels")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(channel.hasFocus,
+                      "Right must enter the channel subnavigation")
+    }
+
+    func testHomeOKFromGlobalRailSelectsFirstRecommendation() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCUIRemote.shared.press(.menu) // Top recommendation
+        XCUIRemote.shared.press(.menu) // Global Home
+        XCTAssertTrue(app.buttons["main-nav-home"].hasFocus)
+        XCUIRemote.shared.press(.select)
+        let recommendation = app.buttons["home-video-recommendation-0"]
+        XCTAssertTrue(recommendation.waitForExistence(timeout: 8))
+        XCTAssertTrue(recommendation.hasFocus,
+                      "OK on Home must enter its recommendations, not stay in the rail")
+        XCTAssertFalse(app.buttons["main-nav-home"].hasFocus)
+    }
+
+    func testBackFromDeepHomeRecommendationRestoresTileAndThenTopRecommendation() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCUIRemote.shared.press(.menu)
+        for _ in 0..<4 { XCUIRemote.shared.press(.down) }
+        let deepButtons = (8..<24).map {
+            app.buttons["home-video-recommendation-\($0)"]
+        }
+        XCTAssertTrue(deepButtons.contains { $0.hasFocus },
+                      "Remote must reach a recommendation below the first viewport")
+        let focusedDeep = deepButtons.first { $0.hasFocus }!
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(app.buttons["video-play"].waitForExistence(timeout: 10))
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(focusedDeep.waitForExistence(timeout: 10))
+        XCTAssertTrue(focusedDeep.hasFocus,
+                      "Back from a distant detail must restore that specific tile")
+        XCUIRemote.shared.press(.menu)
+        let top = app.buttons["home-video-recommendation-0"]
+        XCTAssertTrue(top.waitForExistence(timeout: 8))
+        XCTAssertTrue(top.hasFocus,
+                      "Back from a scrolled Home grid must scroll to first recommendation")
+    }
+
     func testBackFromVideoDetailsRestoresOriginatingRecommendation() throws {
         let app = XCUIApplication()
         app.launchArguments = [
