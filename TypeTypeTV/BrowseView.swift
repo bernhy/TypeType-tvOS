@@ -302,7 +302,7 @@ struct BrowseView: View {
         }
         .buttonStyle(TVRailButtonStyle())
         .focusEffectDisabled(true)
-        .focusDisabled(menuHandoffActive)
+        .disabled(menuHandoffActive)
         .focused($menuFocus, equals: item)
         .accessibilityLabel(item.label)
         .accessibilityIdentifier("main-nav-\(item.rawValue)")
