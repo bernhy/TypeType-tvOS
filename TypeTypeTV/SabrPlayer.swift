@@ -361,6 +361,8 @@ final class SabrPlayerController: ObservableObject {
     private var bufferingNeedsVideo = false
     private var queuedAudioEndMs: Int64 = 0
     private var queuedVideoEndMs: Int64 = 0
+    // Only for diagnosing actual AAC timestamp continuity (not a buffer frontier).
+    private var lastMeasuredAudioSampleEndMs: Int64?
     private var hardwareDecoder: HardwareVideoDecoder?
     private var rendererProbeTask: Task<Void, Never>?
     private var maxVideoDeliveryMs = 0
@@ -368,6 +370,8 @@ final class SabrPlayerController: ObservableObject {
     private var videoSamplesDelivered = 0
     private var maxVideoReadyWaitMs = 0
     private var videoReadyWaits = 0
+    private var maxAudioReadyWaitMs = 0
+    private var audioReadyWaits = 0
     private var playbackService: SabrService?
     private var segmentCache: SabrFragmentCache?
     private var windowProducerTask: Task<Void, Never>?
@@ -606,12 +610,15 @@ final class SabrPlayerController: ObservableObject {
         bufferingNeedsVideo = false
         queuedAudioEndMs = 0
         queuedVideoEndMs = 0
+        lastMeasuredAudioSampleEndMs = nil
         rendererReadyThroughMs = 0
         maxVideoDeliveryMs = 0
         lateVideoSamples = 0
         videoSamplesDelivered = 0
         maxVideoReadyWaitMs = 0
         videoReadyWaits = 0
+        maxAudioReadyWaitMs = 0
+        audioReadyWaits = 0
     }
 
     /// Print measured renderer queue headroom *during* playback. Previous
@@ -628,11 +635,12 @@ final class SabrPlayerController: ObservableObject {
                 let clockMs = Int64(max(0, self.playbackSeconds() * 1_000))
                 let audioAhead = self.queuedAudioEndMs - clockMs
                 let videoAhead = self.queuedVideoEndMs - clockMs
-                NSLog("TypeType SABR RENDER clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld audioQueuedMs=%lld videoQueuedMs=%lld deliveryMaxMs=%d delivered=%d lateVideo=%d videoWaitMaxMs=%d videoWaitCount=%d buffering=%d rate=%.2f",
+                NSLog("TypeType SABR RENDER clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld audioQueuedMs=%lld videoQueuedMs=%lld deliveryMaxMs=%d delivered=%d lateVideo=%d videoWaitMaxMs=%d videoWaitCount=%d audioWaitMaxMs=%d audioWaitCount=%d buffering=%d rate=%.2f",
                       clockMs, audioAhead, videoAhead, self.queuedAudioEndMs,
                       self.queuedVideoEndMs, self.maxVideoDeliveryMs,
                       self.videoSamplesDelivered, self.lateVideoSamples,
                       self.maxVideoReadyWaitMs, self.videoReadyWaits,
+                      self.maxAudioReadyWaitMs, self.audioReadyWaits,
                       self.bufferingClockPaused ? 1 : 0,
                       Double(self.synchronizer.rate))
                 self.maxVideoDeliveryMs = 0
@@ -640,6 +648,8 @@ final class SabrPlayerController: ObservableObject {
                 self.videoSamplesDelivered = 0
                 self.maxVideoReadyWaitMs = 0
                 self.videoReadyWaits = 0
+                self.maxAudioReadyWaitMs = 0
+                self.audioReadyWaits = 0
             }
         }
     }
@@ -1790,7 +1800,10 @@ final class SabrPlayerController: ObservableObject {
             switch choice {
             case .audio:
                 var budget = SabrRendererWaitBudget()
+                let waitStarted = ProcessInfo.processInfo.systemUptime
+                var waitedForAudio = false
                 while !audioRenderer.isReadyForMoreMediaData {
+                    waitedForAudio = true
                     try Task.checkCancellation()
                     guard audioRenderer.status != .failed else {
                         throw SabrFailure.stalled("audio renderer reported failure")
@@ -1802,8 +1815,37 @@ final class SabrPlayerController: ObservableObject {
                     }
                     try await Task.sleep(nanoseconds: SabrRendererPolling.nanoseconds)
                 }
-                audioRenderer.enqueue(audio[ai])
-                noteQueuedMedia(.audio, sample: audio[ai])
+                let audioWaitMs = waitedForAudio
+                    ? Int((ProcessInfo.processInfo.systemUptime - waitStarted) * 1_000) : 0
+                if waitedForAudio {
+                    maxAudioReadyWaitMs = max(maxAudioReadyWaitMs, audioWaitMs)
+                    audioReadyWaits += 1
+                }
+                let audioSample = audio[ai]
+                #if DEBUG
+                // Compare actual decoded fMP4 sample timing against the previous
+                // submitted AAC sample. A high queuedAudioEndMs alone does not
+                // prove there are no small PTS gaps between samples.
+                let startSeconds = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(audioSample))
+                let durationSeconds = CMTimeGetSeconds(CMSampleBufferGetDuration(audioSample))
+                let startMs: Int64 = startSeconds.isFinite && startSeconds >= 0
+                    ? Int64(startSeconds * 1_000) : -1
+                let reportedDurationMs: Int64 = durationSeconds.isFinite && durationSeconds >= 0
+                    ? Int64(durationSeconds * 1_000) : -1
+                let measuredEndMs = SabrSampleTimingProbe.actualEndMs([audioSample])
+                let priorEndMs = lastMeasuredAudioSampleEndMs
+                let gapMs: Int64 = startMs >= 0 && priorEndMs != nil
+                    ? startMs - priorEndMs! : 0
+                #endif
+                audioRenderer.enqueue(audioSample)
+                noteQueuedMedia(.audio, sample: audioSample)
+                #if DEBUG
+                if let measuredEndMs { lastMeasuredAudioSampleEndMs = measuredEndMs }
+                NSLog("TypeType SABR AUDIO ptsMs=%lld durationMs=%lld measuredEndMs=%lld priorEndMs=%lld gapMs=%lld samples=%d waitMs=%d clockMs=%lld queuedEndMs=%lld",
+                      startMs, reportedDurationMs, measuredEndMs ?? -1,
+                      priorEndMs ?? -1, gapMs, CMSampleBufferGetNumSamples(audioSample),
+                      audioWaitMs, Int64(max(0, playbackSeconds() * 1_000)), queuedAudioEndMs)
+                #endif
                 ai += 1
                 hasQueuedFirstAudio = true
             case .video:
