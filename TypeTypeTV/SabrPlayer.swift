@@ -1452,9 +1452,8 @@ final class SabrPlayerController: ObservableObject {
             // the actual audio/video fragment downloads are outstanding.
             // Cancellation prevents any heartbeat from outliving a window.
             let mediaPrefetch = Task { @MainActor in
-                #if DEBUG
+                // Retain the retry count in Release: failure logs still report it.
                 var attempts = 0
-                #endif
                 while !Task.isCancelled {
                     do {
                         try await Task.sleep(nanoseconds: 5_000_000_000)
@@ -1462,9 +1461,7 @@ final class SabrPlayerController: ObservableObject {
                         return
                     }
                     guard !Task.isCancelled else { return }
-                    #if DEBUG
                     attempts += 1
-                    #endif
                     #if DEBUG
                     NSLog("TypeType SABR MEDIA re-prefetch attempt=%d requestMs=%lld elapsedMs=%d",
                           attempts, requestPosition,
