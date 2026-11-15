@@ -2223,6 +2223,12 @@ struct SabrPlayerView: View {
                             Text(video.title).font(.title.bold()).lineLimit(2)
                             Text(video.uploaderName ?? "")
                                 .font(.callout).foregroundStyle(.white.opacity(0.8))
+                            if let metadata = TVVideoMetadata.subtitle(for: video) {
+                                Text(metadata)
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.white.opacity(0.65))
+                                    .lineLimit(1)
+                            }
                         }
                         Spacer()
                         Text(engine.selectionDescription)
@@ -2297,8 +2303,8 @@ struct SabrPlayerView: View {
                         onDismiss: dismissSponsorNotice
                     )
                     .id(segment.id)
-                    .padding(.top, 70)
-                    .padding(.trailing, 80)
+                    .padding(.top, 18)
+                    .padding(.trailing, 20)
                 }
             }
         }

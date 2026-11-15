@@ -80,6 +80,11 @@ struct BrowseView: View {
         self.initialSettingsGroup = initialSettingsGroup
         _section = State(initialValue: initialSection)
         _expanded = State(initialValue: initiallyExpanded)
+        // On cold launch, start directly in Home recommendations, never
+        // in the left rail or the Recent history grid.
+        _homeFocusRequest = State(
+            initialValue: initialSection == .home && !initiallyExpanded ? 1 : 0
+        )
         _settingsEntryGroup = State(initialValue: initialSettingsGroup)
     }
 
@@ -415,6 +420,8 @@ struct HomeView: View {
     let sidebarFocused: Bool
     let focusRequest: Int
     @FocusState private var focusedHomeVideo: String?
+    @Namespace private var homeFocusScope
+    @Environment(\.resetFocus) private var resetFocus
     @State private var needsHomeFocus = false
     @State private var pendingHomeFocus: Task<Void, Never>?
 
@@ -557,6 +564,7 @@ struct HomeView: View {
             .padding(.bottom, 120)
         }
             .background(TTTheme.ink)
+            .focusScope(homeFocusScope)
             .task {
                 if previewVideos == nil { await refresh() }
             }
@@ -611,6 +619,7 @@ struct HomeView: View {
             try? await Task.sleep(for: .milliseconds(returningFromDetails ? 220 : 140))
             guard !Task.isCancelled else { return }
             focusedHomeVideo = target
+            resetFocus(in: homeFocusScope)
             if returningFromDetails {
                 // UIKit may report our target FocusState as selected even
                 // while its final pop-transition focus chooses another cell.
@@ -626,6 +635,7 @@ struct HomeView: View {
                 try? await Task.sleep(for: .milliseconds(220))
                 guard !Task.isCancelled else { return }
                 focusedHomeVideo = target
+                resetFocus(in: homeFocusScope)
             }
         }
     }
@@ -633,9 +643,10 @@ struct HomeView: View {
     @MainActor
     private func focusFirstHomeVideo(scroll: ScrollViewProxy) {
         guard needsHomeFocus else { return }
-        let target = videos.first.map { homeCardID($0, recommended: true) } ??
-            recentVideos.first.map { homeCardID($0, recommended: false) }
-        guard let target else { return }
+        // Wait for recommendations to arrive. Recent history may load first
+        // but must never steal the initial Home focus.
+        guard let firstRecommendation = videos.first else { return }
+        let target = homeCardID(firstRecommendation, recommended: true)
         needsHomeFocus = false
         focusHomeCard(target, scroll: scroll)
     }
@@ -668,6 +679,15 @@ struct HomeView: View {
                     Task { await refresh() }
                 }, focus: $focusedHomeVideo,
                    focusID: homeCardID(video, recommended: paginate))
+                // The default focus engine otherwise prefers the first
+                // (recently watched) grid or the global rail on cold launch.
+                // Also gives resetFocus() a concrete deep-card destination
+                // after popping a video details screen.
+                .prefersDefaultFocus(
+                    focusedHomeVideo == homeCardID(video, recommended: paginate) ||
+                    (focusedHomeVideo == nil && paginate && index == 0),
+                    in: homeFocusScope
+                )
                 .onMoveCommand { direction in
                     if direction == .left && index % columns.count == 0 {
                         onRevealMenu()

@@ -144,7 +144,9 @@ struct VideoDetailView: View {
                                                 startIndex: position
                                             )
                                         } else {
-                                            PlaybackView(api: api, video: video)
+                                            // The detail screen has already enriched views/date
+                                            // via the existing metadata request; forward it to OSD.
+                                            PlaybackView(api: api, video: detailedVideo)
                                         }
                                     } label: {
                                         Label {

@@ -91,6 +91,9 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Empfehlungen"].exists)
         XCTAssertTrue(app.staticTexts["Zuletzt angesehen"].exists)
         XCTAssertTrue(app.buttons["Konto"].exists)
+        XCTAssertTrue(waitForFocus(app.buttons["home-video-recommendation-0"], timeout: 8),
+                      "Home must initially focus the first recommendation, not the rail or history")
+        XCTAssertFalse(app.buttons["main-nav-home"].hasFocus)
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "TypeType-tvOS-Startseite"
         attachment.lifetime = .keepAlways
@@ -503,9 +506,8 @@ final class TypeTypeTVUITests: XCTestCase {
             "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
         ]
         app.launch()
-        XCUIRemote.shared.press(.menu)
-        XCTAssertTrue(waitForFocus(app.buttons["home-video-recommendation-0"]),
-                      "First Back should focus the top recommendation")
+        XCTAssertTrue(waitForFocus(app.buttons["home-video-recommendation-0"], timeout: 8),
+                      "Home startup must focus the first recommendation")
         for _ in 0..<4 { XCUIRemote.shared.press(.down) }
         // LazyVGrid only instantiates cards near the current viewport.
         // Querying hasFocus on an offscreen, non-existent indexed button can
@@ -544,9 +546,8 @@ final class TypeTypeTVUITests: XCTestCase {
         app.launch()
         let recommendation = app.buttons["home-video-recommendation-0"]
         XCTAssertTrue(recommendation.waitForExistence(timeout: 20))
-        XCUIRemote.shared.press(.menu)
-        XCTAssertTrue(recommendation.hasFocus,
-                      "First Home Back must prioritize recommendations")
+        XCTAssertTrue(waitForFocus(recommendation),
+                      "Home startup must focus the first recommendation")
         XCUIRemote.shared.press(.select)
         XCTAssertTrue(app.buttons["video-play"].waitForExistence(timeout: 10))
         XCUIRemote.shared.press(.menu)
@@ -635,11 +636,10 @@ final class TypeTypeTVUITests: XCTestCase {
         app.launch()
         let settings = app.buttons["main-nav-settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 20))
-        // Return from Home to the global icon rail, then navigate down to
-        // Settings. This exercises the same path as the user's Siri Remote.
-        XCUIRemote.shared.press(.menu)
+        // Startup is already in the first recommendation. Back once
+        // returns to the global icon rail, without selecting Recent.
         XCTAssertTrue(waitForFocus(app.buttons["home-video-recommendation-0"]),
-                      "First Home Back must choose top recommendation, not Recent")
+                      "Home startup must choose top recommendation, not Recent")
         XCUIRemote.shared.press(.menu)
         XCTAssertTrue(waitForFocus(app.buttons["main-nav-home"]),
                       "Second Back must return to the global Home icon")
