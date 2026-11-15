@@ -428,6 +428,7 @@ final class SabrPlayerController: ObservableObject {
     private var videoSamplesDelivered = 0
     private var maxVideoReadyWaitMs = 0
     private var videoReadyWaits = 0
+    private var audioPrioritySamples = 0
     private var playbackService: SabrService?
     private var segmentCache: SabrFragmentCache?
     private var windowProducerTask: Task<Void, Never>?
@@ -672,6 +673,7 @@ final class SabrPlayerController: ObservableObject {
         videoSamplesDelivered = 0
         maxVideoReadyWaitMs = 0
         videoReadyWaits = 0
+        audioPrioritySamples = 0
     }
 
     /// Print measured renderer queue headroom *during* playback. Previous
@@ -688,11 +690,12 @@ final class SabrPlayerController: ObservableObject {
                 let clockMs = Int64(max(0, self.playbackSeconds() * 1_000))
                 let audioAhead = self.queuedAudioEndMs - clockMs
                 let videoAhead = self.queuedVideoEndMs - clockMs
-                NSLog("TypeType SABR RENDER clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld audioQueuedMs=%lld videoQueuedMs=%lld deliveryMaxMs=%d delivered=%d lateVideo=%d videoWaitMaxMs=%d videoWaitCount=%d buffering=%d rate=%.2f",
+                NSLog("TypeType SABR RENDER clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld audioQueuedMs=%lld videoQueuedMs=%lld deliveryMaxMs=%d delivered=%d lateVideo=%d videoWaitMaxMs=%d videoWaitCount=%d audioPriority=%d buffering=%d rate=%.2f",
                       clockMs, audioAhead, videoAhead, self.queuedAudioEndMs,
                       self.queuedVideoEndMs, self.maxVideoDeliveryMs,
                       self.videoSamplesDelivered, self.lateVideoSamples,
                       self.maxVideoReadyWaitMs, self.videoReadyWaits,
+                      self.audioPrioritySamples,
                       self.bufferingClockPaused ? 1 : 0,
                       Double(self.synchronizer.rate))
                 self.maxVideoDeliveryMs = 0
@@ -700,6 +703,7 @@ final class SabrPlayerController: ObservableObject {
                 self.videoSamplesDelivered = 0
                 self.maxVideoReadyWaitMs = 0
                 self.videoReadyWaits = 0
+                self.audioPrioritySamples = 0
             }
         }
     }
@@ -1869,9 +1873,22 @@ final class SabrPlayerController: ObservableObject {
                     ? CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(audio[ai])) : nil
                 let vTime = vi < video.count
                     ? CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(video[vi])) : nil
-                guard let pick = SabrMediaInterleave.next(
+                // A/B experiment after priming correction: prequeue ready AAC
+                // slightly sooner at low headroom, without changing PTS,
+                // decoder, per-track order, or SABR network behavior.
+                let chronological = SabrMediaInterleave.next(
                     audioSeconds: aTime, videoSeconds: vTime
+                )
+                guard let pick = SabrMediaInterleave.next(
+                    audioSeconds: aTime, videoSeconds: vTime,
+                    playbackSeconds: playbackSeconds(),
+                    queuedAudioEndSeconds: Double(queuedAudioEndMs) / 1_000,
+                    audioRendererReady: audioRenderer.isReadyForMoreMediaData,
+                    playbackRunning: isInitialized && !prefersPause && !bufferingClockPaused
                 ) else { break }
+                if chronological == .video && pick == .audio {
+                    audioPrioritySamples += 1
+                }
                 choice = pick
             }
 
