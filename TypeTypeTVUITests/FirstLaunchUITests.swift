@@ -20,6 +20,18 @@ final class TypeTypeTVUITests: XCTestCase {
         return target.exists && target.hasFocus
     }
 
+    /// Poll a debug-only, noninteractive FocusState probe when UIKit Pickers
+    /// or UIViewRepresentable wrappers do not expose .hasFocus to XCTest.
+    private func waitForLabel(_ target: XCUIElement, expected: String,
+                              timeout: TimeInterval = 5) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if target.exists && target.label == expected { return true }
+            Thread.sleep(forTimeInterval: 0.15)
+        } while Date() < deadline
+        return target.exists && target.label == expected
+    }
+
     /// Home Back moves from content to the first recommended tile and then
     /// into the global rail. The first press may already reach the rail if
     /// that tile was initially focused by the simulator.
@@ -244,20 +256,22 @@ final class TypeTypeTVUITests: XCTestCase {
         // interactive tvOS Picker button. Only the button receives focus.
         let mode = app.buttons["sponsor.mode"]
         let firstCategory = app.buttons["sponsor.category.sponsor"]
+        let focusedState = app.staticTexts["sponsor-focus-state"]
+        XCTAssertTrue(focusedState.waitForExistence(timeout: 8))
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(waitForFocus(mode),
-                      "Down from Refresh must select SponsorBlock behavior, not Categories")
+        XCTAssertTrue(waitForLabel(focusedState, expected: "sponsor.mode"),
+                      "Down from Refresh must focus SponsorBlock behavior, not Categories")
         XCUIRemote.shared.press(.up)
         XCTAssertTrue(waitForFocus(refresh),
                       "Up from behavior must return to Refresh")
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(waitForFocus(mode),
+        XCTAssertTrue(waitForLabel(focusedState, expected: "sponsor.mode"),
                       "First Down must return to SponsorBlock behavior")
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(waitForFocus(firstCategory),
+        XCTAssertTrue(waitForLabel(focusedState, expected: "sponsor.category.sponsor"),
                       "Next Down from behavior should enter the first category")
         XCUIRemote.shared.press(.up)
-        XCTAssertTrue(waitForFocus(mode),
+        XCTAssertTrue(waitForLabel(focusedState, expected: "sponsor.mode"),
                       "Up from the first category must return to global behavior")
         XCUIRemote.shared.press(.up)
         XCTAssertTrue(waitForFocus(refresh),
@@ -720,9 +734,13 @@ final class TypeTypeTVUITests: XCTestCase {
             .matching(identifier: "video-description-focus").firstMatch
         XCTAssertTrue(description.waitForExistence(timeout: 8),
                       "The native UITextView must remain accessible after entering its viewport")
-        XCTAssertTrue(waitForFocus(viewport, timeout: 3) ||
-                      waitForFocus(description, timeout: 3),
-                      "Remote navigation must focus the description container or native text view")
+        // tvOS exposes the UIViewRepresentable wrapper as a generic element,
+        // and .hasFocus may be false even when SwiftUI's focus binding moved.
+        // The preview-only label reports the actual FocusState, without
+        // weakening the requirement that Down entered descriptionBody.
+        let focusedState = app.staticTexts["video-description-focus-state"]
+        XCTAssertTrue(waitForLabel(focusedState, expected: "descriptionBody"),
+                      "Remote Down must enter the scrollable description body")
     }
 
     func testLibraryOpensDirectlyOnSelectedSubnavigation() throws {
