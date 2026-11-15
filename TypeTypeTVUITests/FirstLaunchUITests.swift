@@ -466,6 +466,29 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertFalse(search.hasFocus)
     }
 
+    func testRightFromMainSettingsIconEntersSettingsWithoutBounce() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCUIRemote.shared.press(.menu) // Top recommendation
+        XCUIRemote.shared.press(.menu) // Global Home icon
+        for _ in 0..<6 { XCUIRemote.shared.press(.down) }
+        let settings = app.buttons["main-nav-settings"]
+        XCTAssertTrue(settings.hasFocus)
+        XCUIRemote.shared.press(.right)
+        let playbackGroup = app.buttons["settings-group-playback"]
+        XCTAssertTrue(playbackGroup.waitForExistence(timeout: 10))
+        XCTAssertTrue(playbackGroup.hasFocus,
+                      "Right on main Settings should focus the Settings subnavigation")
+        Thread.sleep(forTimeInterval: 0.6)
+        XCTAssertTrue(playbackGroup.hasFocus,
+                      "Settings must retain focus after the main rail collapses")
+        XCTAssertFalse(settings.hasFocus,
+                       "The main rail must not reclaim focus after Right")
+    }
+
     func testOpeningSettingsFromMainMenuTransfersFocusToSubnavigation() throws {
         let app = XCUIApplication()
         app.launchArguments = [
