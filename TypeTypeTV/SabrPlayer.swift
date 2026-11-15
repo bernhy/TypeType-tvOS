@@ -365,6 +365,10 @@ final class SabrPlayerController: ObservableObject {
     private var lastMeasuredAudioSampleEndMs: Int64?
     private var hardwareDecoder: HardwareVideoDecoder?
     private var rendererProbeTask: Task<Void, Never>?
+    #if DEBUG
+    private var mediaClockProbeTask: Task<Void, Never>?
+    private var audioAutoFlushObserver: NSObjectProtocol?
+    #endif
     private var maxVideoDeliveryMs = 0
     private var lateVideoSamples = 0
     private var videoSamplesDelivered = 0
@@ -472,6 +476,14 @@ final class SabrPlayerController: ObservableObject {
         hardwareDecoder = nil
         rendererProbeTask?.cancel()
         rendererProbeTask = nil
+        #if DEBUG
+        mediaClockProbeTask?.cancel()
+        mediaClockProbeTask = nil
+        if let audioAutoFlushObserver {
+            NotificationCenter.default.removeObserver(audioAutoFlushObserver)
+            self.audioAutoFlushObserver = nil
+        }
+        #endif
         synchronizer.setRate(0, time: synchronizer.currentTime())
         videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
         audioRenderer.flush()
@@ -625,6 +637,9 @@ final class SabrPlayerController: ObservableObject {
     /// logs identified missing segment numbers but could not detect 100-500ms
     /// frame starvation with perfectly continuous fMP4 timestamps.
     private func startRendererProbe() {
+        #if DEBUG
+        startMediaClockAndFlushProbe()
+        #endif
         rendererProbeTask?.cancel()
         rendererProbeTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -653,6 +668,92 @@ final class SabrPlayerController: ObservableObject {
             }
         }
     }
+
+    #if DEBUG
+    /// Diagnostic only. A healthy compressed AAC timeline does not prove the
+    /// output render synchronizer advances continuously or that AVFoundation
+    /// hasn't flushed its audio queue. Sample the media clock against a
+    /// monotonic host clock, reporting only two-second aggregates to avoid
+    /// logging overhead at every 50-ms sample.
+    private func startMediaClockAndFlushProbe() {
+        mediaClockProbeTask?.cancel()
+        if audioAutoFlushObserver == nil {
+            audioAutoFlushObserver = NotificationCenter.default.addObserver(
+                forName: .AVSampleBufferAudioRendererWasFlushedAutomatically,
+                object: audioRenderer, queue: nil
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.isInitialized else { return }
+                    let clockMs = Int64(max(0, self.playbackSeconds() * 1_000))
+                    NSLog("TypeType SABR AUDIO event=automatic-flush clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld rate=%.2f",
+                          clockMs, self.queuedAudioEndMs - clockMs,
+                          self.queuedVideoEndMs - clockMs,
+                          Double(self.synchronizer.rate))
+                }
+            }
+        }
+        mediaClockProbeTask = Task { [weak self] in
+            var previousWall: Double?
+            var previousMedia: Double?
+            var reportedAt = ProcessInfo.processInfo.systemUptime
+            var maxSlowdownMs = 0
+            var maxSpeedupMs = 0
+            var maxMainActorDelayMs = 0
+            var slowdowns = 0
+            var speedups = 0
+            while !Task.isCancelled {
+                do { try await Task.sleep(nanoseconds: 50_000_000) }
+                catch { return }
+                guard let self, !Task.isCancelled else { return }
+                let wall = ProcessInfo.processInfo.systemUptime
+                let media = self.playbackSeconds()
+                let running = self.isInitialized && !self.prefersPause &&
+                    !self.bufferingClockPaused && self.synchronizer.rate > 0.9 &&
+                    media.isFinite
+                if running {
+                    if let previousWall, let previousMedia {
+                        let wallStep = (wall - previousWall) * 1_000
+                        let mediaStep = (media - previousMedia) * 1_000
+                        if wallStep >= 1 && wallStep < 1_000 {
+                            maxMainActorDelayMs = max(maxMainActorDelayMs, Int(wallStep))
+                            let lag = wallStep - mediaStep
+                            if lag > 75 {
+                                slowdowns += 1
+                                maxSlowdownMs = max(maxSlowdownMs, Int(lag))
+                            } else if lag < -75 {
+                                speedups += 1
+                                maxSpeedupMs = max(maxSpeedupMs, Int(-lag))
+                            }
+                        }
+                    }
+                    previousWall = wall
+                    previousMedia = media
+                } else {
+                    previousWall = nil
+                    previousMedia = nil
+                }
+                if wall - reportedAt >= 2.0 {
+                    if running {
+                        let clockMs = Int64(max(0, media * 1_000))
+                        NSLog("TypeType SABR CLOCK clockMs=%lld slowdowns=%d maxSlowdownMs=%d speedups=%d maxSpeedupMs=%d mainActorGapMaxMs=%d audioAheadMs=%lld videoAheadMs=%lld audioStatus=%@ rate=%.2f",
+                              clockMs, slowdowns, maxSlowdownMs,
+                              speedups, maxSpeedupMs, maxMainActorDelayMs,
+                              self.queuedAudioEndMs - clockMs,
+                              self.queuedVideoEndMs - clockMs,
+                              String(describing: self.audioRenderer.status),
+                              Double(self.synchronizer.rate))
+                    }
+                    reportedAt = wall
+                    maxSlowdownMs = 0
+                    maxSpeedupMs = 0
+                    maxMainActorDelayMs = 0
+                    slowdowns = 0
+                    speedups = 0
+                }
+            }
+        }
+    }
+    #endif
 
     /// Called while the decoder waits for a new, already downloaded media
     /// window. Do not allow audio to keep advancing beyond the shortest
