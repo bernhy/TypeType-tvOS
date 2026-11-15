@@ -920,7 +920,11 @@ struct VideoCard: View {
             .padding(.horizontal, 14)
             .padding(.top, 11)
             .padding(.bottom, 13)
-            .background(TTTheme.surface)
+            // Subtle focus cue only below the thumbnail; keep artwork,
+            // duration badge and existing whole-card zoom unchanged.
+            .background(isFocused
+                        ? Color(red: 0.15, green: 0.15, blue: 0.165)
+                        : TTTheme.surface)
         }
         .frame(minHeight: 322, alignment: .top)
         .background(TTTheme.surface)
