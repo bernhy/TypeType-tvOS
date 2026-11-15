@@ -319,16 +319,24 @@ struct VideoDetailView: View {
                     .onMoveCommand { direction in
                         if direction == .down { focusedDetail = .descriptionBody }
                     }
-                    TVRemoteDescriptionScrollView(
-                        text: description,
-                        scrollCommand: descriptionScrollCommand
-                    )
+                    // Keep the UIKit UITextView's own accessibility ID
+                    // ("video-description-scroll") distinct from the SwiftUI
+                    // focus destination ("video-description-focus").
+                    // Applying both identifiers directly to UIViewRepresentable
+                    // masks the native text view from XCTest/VoiceOver.
+                    ZStack {
+                        TVRemoteDescriptionScrollView(
+                            text: description,
+                            scrollCommand: descriptionScrollCommand
+                        )
+                    }
                         .frame(height: 370)
                         .background(TTTheme.surface,
                                     in: RoundedRectangle(cornerRadius: 12))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         // Give tvOS a real focus destination below the hero;
                         // UIKit handles swipes, SwiftUI handles arrow fallback.
+                        .accessibilityElement(children: .contain)
                         .focusable(true)
                         .focusEffectDisabled()
                         .focused($focusedDetail, equals: .descriptionBody)
