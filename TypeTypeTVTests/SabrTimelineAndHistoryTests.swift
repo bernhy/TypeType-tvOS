@@ -282,6 +282,44 @@ final class SabrAACPrimingPolicyTests: XCTestCase {
         ))
     }
 
+    func testOnlyOneCleanStartTrimIsRemovedFromContinuedAAC() {
+        var normal = SabrAACPrimingPolicy.Markers()
+        normal.startTrim = 1
+        XCTAssertTrue(SabrAACPrimingPolicy.shouldRemoveRepeatedTrim(
+            continuation: true, markers: normal
+        ))
+        XCTAssertFalse(SabrAACPrimingPolicy.shouldRemoveRepeatedTrim(
+            continuation: false, markers: normal
+        ))
+        normal.startTrim = 0
+        XCTAssertFalse(SabrAACPrimingPolicy.shouldRemoveRepeatedTrim(
+            continuation: true, markers: normal
+        ))
+        normal.startTrim = 2
+        XCTAssertFalse(SabrAACPrimingPolicy.shouldRemoveRepeatedTrim(
+            continuation: true, markers: normal
+        ))
+    }
+
+    func testDecoderBoundaryAndFinalTrimAreAlwaysPreserved() {
+        var markers = SabrAACPrimingPolicy.Markers()
+        markers.startTrim = 1
+        markers.decoderReset = 1
+        XCTAssertFalse(SabrAACPrimingPolicy.shouldRemoveRepeatedTrim(
+            continuation: true, markers: markers
+        ))
+        markers.decoderReset = 0
+        markers.decoderDrain = 1
+        XCTAssertFalse(SabrAACPrimingPolicy.shouldRemoveRepeatedTrim(
+            continuation: true, markers: markers
+        ))
+        markers.decoderDrain = 0
+        markers.endTrim = 1
+        XCTAssertFalse(SabrAACPrimingPolicy.shouldRemoveRepeatedTrim(
+            continuation: true, markers: markers
+        ))
+    }
+
     func testNoSuppressionOnBackwardsTimeOrInvalidSequence() {
         XCTAssertFalse(SabrAACPrimingPolicy.isSeamlessContinuation(
             previousSequence: 8, sequence: 7,
