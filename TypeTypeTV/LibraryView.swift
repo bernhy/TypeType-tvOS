@@ -163,6 +163,7 @@ struct LibraryView: View {
         .background(TTTheme.ink)
         .task { await refresh() }
         .task(id: focusRequest) {
+            guard focusRequest >= 0 else { return }
             // Take focus before the asynchronous library requests complete.
             await Task.yield()
             focusedDestination = selected

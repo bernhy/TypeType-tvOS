@@ -47,6 +47,8 @@ struct BrowseView: View {
     let initialSettingsGroup: TVSettingsGroup
     @State private var section: TVSection
     @State private var expanded = false
+    @State private var enteringFromMenu = false
+    @State private var searchFocusRequest = 0
     @State private var sidebarIdentity: TVAccountIdentity?
     @ObservedObject private var playbackVisibility = TVPlaybackVisibility.shared
     @State private var settingsEntryGroup: TVSettingsGroup
@@ -60,6 +62,8 @@ struct BrowseView: View {
     @State private var returnToSwitcherAfterLogin = false
     @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
     @FocusState private var menuFocus: TVSection?
+
+    private var menuPreviewVisible: Bool { expanded && menuFocus != nil }
 
     init(instanceOrigin: String, onDisconnect: @escaping () -> Void,
          initialSection: TVSection = .home, previewVideos: [VideoItem]? = nil,
@@ -91,23 +95,26 @@ struct BrowseView: View {
                                 api: api, previewVideos: previewVideos,
                                 onRevealMenu: revealMenu,
                                 onOpenAccount: { open(.account) },
-                                sidebarFocused: menuFocus != nil,
-                                focusRequest: homeFocusRequest
+                                sidebarFocused: menuPreviewVisible,
+                                focusRequest: menuPreviewVisible ? -1 : homeFocusRequest
                             )
                         case .search:
-                            SearchView(api: api)
-                                .onExitCommand { revealMenu() }
+                            SearchView(
+                                api: api,
+                                focusRequest: menuPreviewVisible ? -1 : searchFocusRequest
+                            )
+                            .onExitCommand { revealMenu() }
                         case .library:
                             LibraryView(api: api,
-                                        focusRequest: libraryFocusRequest,
+                                        focusRequest: menuPreviewVisible ? -1 : libraryFocusRequest,
                                         onRevealMenu: revealMenu)
                         case .subscriptions:
                             TVSubscriptionFeedView(api: api,
-                                                   focusRequest: subscriptionFocusRequest,
+                                                   focusRequest: menuPreviewVisible ? -1 : subscriptionFocusRequest,
                                                    onRevealMenu: revealMenu)
                         case .channels:
                             TVSubscriptionsView(api: api,
-                                                focusRequest: channelFocusRequest,
+                                                focusRequest: menuPreviewVisible ? -1 : channelFocusRequest,
                                                 onRevealMenu: revealMenu)
                         case .account:
                             TVAccountSwitcherView(
@@ -118,14 +125,14 @@ struct BrowseView: View {
                                     open(.settings)
                                 },
                                 onAccountChanged: { accountDidChange(api: api) },
-                                focusRequest: accountFocusRequest
+                                focusRequest: menuPreviewVisible ? -1 : accountFocusRequest
                             )
                             .onExitCommand { revealMenu() }
                         case .settings:
                             PreferencesView(
                                 api: api, onDisconnect: onDisconnect,
                                 initialGroup: settingsEntryGroup,
-                                focusRequest: settingsFocusRequest,
+                                focusRequest: menuPreviewVisible ? -1 : settingsFocusRequest,
                                 autoPresentAddAccount: returnToSwitcherAfterLogin,
                                 onAccountChanged: { accountDidChange(api: api) },
                                 onBackToMenu: revealMenu,
@@ -207,24 +214,42 @@ struct BrowseView: View {
         .onExitCommand {
             // Back while the global rail is focused goes to Home. The final
             // Back on the Home icon is consumed here, never exits TypeType.
-            if section != .home {
+            if section == .home {
+                // On Home, the next Back returns to the first recommendation.
+                open(.home)
+            } else {
                 section = .home
+                menuFocus = .home
+                expanded = true
             }
-            // Back stops at the HOME ICON itself, not the Home content grid.
-            // A further Back is consumed here and cannot exit the app.
-            menuFocus = .home
-            expanded = true
         }
         .onChange(of: menuFocus) { previous, focused in
-            expanded = focused != nil
-            // Back already restores the active icon. A left swipe, however,
-            // lets tvOS choose the geometrically nearest (often Home) icon.
-            // On first entering the global rail, anchor to the selected
-            // section; subsequent up/down movement remains unrestricted.
-            if previous == nil, let focused, focused != section {
+            if let focused {
+                expanded = true
+                if previous == nil, focused != section {
+                    // Left from content anchors to the existing section;
+                    // only subsequent Up/Down previews a different screen.
+                    let previouslyShown = section
+                    Task { @MainActor in
+                        await Task.yield()
+                        if menuFocus == focused { menuFocus = previouslyShown }
+                    }
+                } else if previous != nil, section != focused {
+                    // Preview the focused page immediately while keeping
+                    // the global navigation expanded and focused.
+                    section = focused
+                }
+            } else if enteringFromMenu {
+                // OK/Select committed the page. Its first focus target
+                // takes over while the navigation collapses.
+                enteringFromMenu = false
+                expanded = false
+            } else if expanded {
+                // Mere Right-navigation must not enter a page. If tvOS
+                // moved focus away, restore the selected rail item.
                 Task { @MainActor in
                     await Task.yield()
-                    if menuFocus == focused { menuFocus = section }
+                    if menuFocus == nil && expanded { menuFocus = section }
                 }
             }
         }
@@ -269,6 +294,12 @@ struct BrowseView: View {
         .focused($menuFocus, equals: item)
         .accessibilityLabel(item.label)
         .accessibilityIdentifier("main-nav-\(item.rawValue)")
+        .onMoveCommand { direction in
+            if direction == .right {
+                // Focus alone previews; only Select/OK enters the page.
+                menuFocus = item
+            }
+        }
         .accessibilityAddTraits(item == section ? .isSelected : [])
     }
 
@@ -317,6 +348,7 @@ struct BrowseView: View {
         // Settings child is mounted and explicitly takes it. Clearing the
         // global focus first causes tvOS 26 to temporarily default to Home,
         // flashing a white overlay there before Settings appears.
+        enteringFromMenu = menuFocus != nil
         switch destination {
         case .settings: settingsFocusRequest += 1
         case .home: homeFocusRequest += 1
@@ -324,7 +356,7 @@ struct BrowseView: View {
         case .subscriptions: subscriptionFocusRequest += 1
         case .channels: channelFocusRequest += 1
         case .account: accountFocusRequest += 1
-        case .search: break
+        case .search: searchFocusRequest += 1
         }
         section = destination
         // Do not clear menuFocus while mounting the destination. That
@@ -336,6 +368,7 @@ struct BrowseView: View {
     }
 
     private func revealMenu() {
+        enteringFromMenu = false
         menuFocus = section
         expanded = true
     }

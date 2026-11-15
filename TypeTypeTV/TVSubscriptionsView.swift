@@ -172,6 +172,7 @@ struct TVSubscriptionsView: View {
             }
         }
         .task(id: focusRequest) {
+            guard focusRequest >= 0 else { return }
             await Task.yield()
             if directChannelURL != nil {
                 if let first = videos.first { focusedVideo = first.url }

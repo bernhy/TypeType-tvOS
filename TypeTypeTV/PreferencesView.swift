@@ -114,6 +114,7 @@ struct PreferencesView: View {
         // The global navigation and Settings have independent focus
         // states. Transfer focus explicitly once Settings joins the tree.
         .task(id: focusRequest) {
+            guard focusRequest >= 0 else { return }
             await Task.yield()
             focusedGroup = group
             if autoPresentAddAccount && group == .account {

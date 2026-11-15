@@ -133,15 +133,16 @@ struct TVAccountSwitcherView: View {
         .background(TTTheme.ink)
         .task {
             accounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
-            focusFirstAccount()
+            if focusRequest >= 0 { focusFirstAccount() }
             await refresh()
         }
         .task(id: focusRequest) {
+            guard focusRequest >= 0 else { return }
             await Task.yield()
             focusFirstAccount()
         }
         .onChange(of: accounts.count) { _, _ in
-            if focusedAccountID == nil {
+            if focusRequest >= 0, focusedAccountID == nil {
                 focusFirstAccount()
             }
         }
