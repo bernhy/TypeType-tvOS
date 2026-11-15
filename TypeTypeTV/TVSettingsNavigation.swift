@@ -131,6 +131,7 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
     let focus: FocusState<String?>.Binding?
     let focusTarget: String?
     let onMoveLeft: (() -> Void)?
+    let onVerticalMove: ((MoveCommandDirection) -> Void)?
     let restoreFocusOnSelectionChange: Bool
     @FocusState private var pickerFocus: Bool
     @ViewBuilder let options: Options
@@ -139,6 +140,7 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
          focus: FocusState<String?>.Binding? = nil,
          focusTarget: String? = nil,
          onMoveLeft: (() -> Void)? = nil,
+         onVerticalMove: ((MoveCommandDirection) -> Void)? = nil,
          restoreFocusOnSelectionChange: Bool = true,
          @ViewBuilder options: () -> Options) {
         self.title = title
@@ -146,6 +148,7 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
         self.focus = focus
         self.focusTarget = focusTarget
         self.onMoveLeft = onMoveLeft
+        self.onVerticalMove = onVerticalMove
         self.restoreFocusOnSelectionChange = restoreFocusOnSelectionChange
         self.options = options()
     }
@@ -156,8 +159,13 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
         }
         .labelsHidden()
         .pickerStyle(.menu)
+        .accessibilityIdentifier(focusTarget ?? "settings-menu")
         .onMoveCommand { direction in
-            if direction == .left { onMoveLeft?() }
+            if direction == .left {
+                onMoveLeft?()
+            } else if direction == .up || direction == .down {
+                onVerticalMove?(direction)
+            }
         }
     }
 
@@ -203,17 +211,20 @@ struct TVSettingsSwitchRow: View {
     let focusID: String?
     let accessibilityID: String?
     let onMoveLeft: (() -> Void)?
+    let onVerticalMove: ((MoveCommandDirection) -> Void)?
 
     init(_ title: LocalizedStringKey, isOn: Binding<Bool>,
          focus: FocusState<String?>.Binding? = nil,
          focusID: String? = nil, accessibilityID: String? = nil,
-         onMoveLeft: (() -> Void)? = nil) {
+         onMoveLeft: (() -> Void)? = nil,
+         onVerticalMove: ((MoveCommandDirection) -> Void)? = nil) {
         self.title = title
         self._isOn = isOn
         self.focus = focus
         self.focusID = focusID
         self.accessibilityID = accessibilityID
         self.onMoveLeft = onMoveLeft
+        self.onVerticalMove = onVerticalMove
     }
 
     private var switchButton: some View {
@@ -250,7 +261,11 @@ struct TVSettingsSwitchRow: View {
         .accessibilityValue(TVL10n.value(isOn ? "settings.hardwareYes" : "settings.hardwareNo"))
         .accessibilityIdentifier(accessibilityID ?? focusID ?? "settings-switch")
         .onMoveCommand { direction in
-            if direction == .left { onMoveLeft?() }
+            if direction == .left {
+                onMoveLeft?()
+            } else if direction == .up || direction == .down {
+                onVerticalMove?(direction)
+            }
         }
     }
 

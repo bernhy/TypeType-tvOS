@@ -17,6 +17,36 @@ struct TVSponsorBlockSettingsView: View {
     @State private var writeGeneration = 0
     @State private var error: String?
 
+    /// tvOS's geometric Focus Engine would otherwise skip the global mode
+    /// (right-aligned Picker) and jump from Refresh into the categories.
+    /// One explicit ordering is shared by every remote-focusable control.
+    private var orderedFocusIDs: [String] {
+        ["sponsor.refresh", "sponsor.mode"] +
+        TVSponsorBlock.categories.map { "sponsor.category." + $0 } +
+        ["sponsor.minimum",
+         "sponsor.sponsorBlockShowCurrentSegment",
+         "sponsor.sponsorBlockShowChapters",
+         "sponsor.sponsorBlockShowFullVideoLabels",
+         "sponsor.sponsorBlockManualSkipOnFullVideo",
+         "sponsor.sponsorBlockSkipNonMusicOnlyOnMusicVideos",
+         "sponsor.sponsorBlockMuteInsteadOfSkip"]
+    }
+
+    private func moveFocus(from current: String, direction: MoveCommandDirection) {
+        guard let index = orderedFocusIDs.firstIndex(of: current) else { return }
+        let step: Int
+        if direction == .up { step = -1 }
+        else if direction == .down { step = 1 }
+        else { return }
+        let destination = index + step
+        guard orderedFocusIDs.indices.contains(destination) else { return }
+        let next = orderedFocusIDs[destination]
+        Task { @MainActor in
+            await Task.yield()
+            focus.wrappedValue = next
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             TVSettingsCard("sponsor.title", summary: "settings.remoteSynced") {
@@ -27,7 +57,11 @@ struct TVSponsorBlockSettingsView: View {
                     .buttonStyle(.bordered)
                     .focused(focus, equals: "sponsor.refresh")
                     .onMoveCommand { direction in
-                        if direction == .left { onMoveLeft() }
+                        if direction == .left {
+                            onMoveLeft()
+                        } else {
+                            moveFocus(from: "sponsor.refresh", direction: direction)
+                        }
                     }
                     .accessibilityIdentifier("sponsor-refresh")
                 if loading {
@@ -138,6 +172,9 @@ struct TVSponsorBlockSettingsView: View {
             focus: focus,
             focusTarget: focusID,
             onMoveLeft: onMoveLeft,
+            onVerticalMove: { direction in
+                moveFocus(from: focusID, direction: direction)
+            },
             restoreFocusOnSelectionChange: false
         ) {
             ForEach(choices, id: \.self) { option in
@@ -169,7 +206,10 @@ struct TVSponsorBlockSettingsView: View {
                 }
             ),
             focus: focus, focusID: "sponsor." + field,
-            onMoveLeft: onMoveLeft
+            onMoveLeft: onMoveLeft,
+            onVerticalMove: { direction in
+                moveFocus(from: "sponsor." + field, direction: direction)
+            }
         )
     }
 

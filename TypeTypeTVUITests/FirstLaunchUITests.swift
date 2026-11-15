@@ -195,6 +195,22 @@ final class TypeTypeTVUITests: XCTestCase {
         XCUIRemote.shared.press(.right)
         XCTAssertTrue(refresh.hasFocus,
                       "Right from SponsorBlock must enter the content column")
+        let mode = app.descendants(matching: .any)["sponsor.mode"]
+        let firstCategory = app.descendants(matching: .any)["sponsor.category.sponsor"]
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(mode.hasFocus,
+                      "Down from Refresh must select SponsorBlock behavior, not Categories")
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(refresh.hasFocus,
+                      "Up from behavior must return to Refresh")
+        XCUIRemote.shared.press(.down)
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(firstCategory.hasFocus,
+                      "Next Down from behavior should enter the first category")
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(mode.hasFocus,
+                      "Up from the first category must return to global behavior")
+        XCUIRemote.shared.press(.up)
         XCUIRemote.shared.press(.left)
         XCTAssertTrue(sponsorGroup.hasFocus,
                       "Left must return to SponsorBlock in the settings rail")
