@@ -249,6 +249,8 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(waitForFocus(refresh),
                       "Up from behavior must return to Refresh")
         XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(mode),
+                      "First Down must return to SponsorBlock behavior")
         XCUIRemote.shared.press(.down)
         XCTAssertTrue(waitForFocus(firstCategory),
                       "Next Down from behavior should enter the first category")
@@ -489,12 +491,22 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(waitForFocus(app.buttons["home-video-recommendation-0"]),
                       "First Back should focus the top recommendation")
         for _ in 0..<4 { XCUIRemote.shared.press(.down) }
-        let deepButtons = (8..<24).map {
-            app.buttons["home-video-recommendation-\($0)"]
+        // LazyVGrid only instantiates cards near the current viewport.
+        // Querying hasFocus on an offscreen, non-existent indexed button can
+        // throw an XCTest snapshot exception instead of returning false.
+        let visibleRecommendations = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@",
+                        "home-video-recommendation-")
+        ).allElementsBoundByIndex
+        let focusedDeep = visibleRecommendations.first { button in
+            guard let index = Int(button.identifier.replacingOccurrences(
+                of: "home-video-recommendation-", with: ""
+            )) else { return false }
+            return index >= 8 && button.hasFocus
         }
-        XCTAssertTrue(deepButtons.contains { $0.hasFocus },
-                      "Remote must reach a recommendation below the first viewport")
-        let focusedDeep = deepButtons.first { $0.hasFocus }!
+        XCTAssertNotNil(focusedDeep,
+                        "Remote must reach a recommendation below the first viewport")
+        guard let focusedDeep else { return }
         XCUIRemote.shared.press(.select)
         XCTAssertTrue(app.buttons["video-play"].waitForExistence(timeout: 10))
         XCUIRemote.shared.press(.menu)
