@@ -638,16 +638,17 @@ final class TypeTypeTVUITests: XCTestCase {
         // Return from Home to the global icon rail, then navigate down to
         // Settings. This exercises the same path as the user's Siri Remote.
         XCUIRemote.shared.press(.menu)
-        XCTAssertTrue(app.buttons["home-video-recommendation-0"].hasFocus,
+        XCTAssertTrue(waitForFocus(app.buttons["home-video-recommendation-0"]),
                       "First Home Back must choose top recommendation, not Recent")
         XCUIRemote.shared.press(.menu)
-        // Seven main sections (including both subscription destinations).
-        for _ in 0..<6 { XCUIRemote.shared.press(.down) }
-        XCTAssertTrue(settings.hasFocus)
+        XCTAssertTrue(waitForFocus(app.buttons["main-nav-home"]),
+                      "Second Back must return to the global Home icon")
+        moveDownMainRail(app, to: "settings")
+        XCTAssertTrue(waitForFocus(settings))
         XCUIRemote.shared.press(.select)
         let playbackGroup = app.buttons["settings-group-playback"]
         XCTAssertTrue(playbackGroup.waitForExistence(timeout: 10))
-        XCTAssertTrue(playbackGroup.hasFocus,
+        XCTAssertTrue(waitForFocus(playbackGroup),
                       "Opening Settings must focus its selected subnavigation, not the main rail")
     }
 
