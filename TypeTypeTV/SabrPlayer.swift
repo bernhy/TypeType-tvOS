@@ -242,6 +242,66 @@ enum SabrSampleTimingProbe {
     }
 }
 
+/// AVAssetReader opens each fMP4 segment as a temporary standalone MP4.
+/// It therefore emits a file-start AAC priming trim on every fragment, even
+/// though the compressed AAC packets are fed into one continuous audio
+/// renderer. That repeated trim caused reproducible ~48ms audio dropouts
+/// at 44.1kHz. Retain the trim for the first/seek/discontinuous segment, but
+/// remove the redundant start trim on strictly contiguous subsequent chunks.
+enum SabrAACPrimingPolicy {
+    static func isSeamlessContinuation(
+        previousSequence: Int?, sequence: Int?,
+        previousEndMs: Int64?, startMs: Int64
+    ) -> Bool {
+        guard let previousSequence, let sequence, let previousEndMs,
+              sequence == previousSequence + 1,
+              startMs >= 0, previousEndMs >= 0 else { return false }
+        let delta = startMs - previousEndMs
+        return delta >= -80 && delta <= 80
+    }
+
+    struct Markers {
+        var startTrim = 0
+        var endTrim = 0
+        var decoderReset = 0
+        var decoderDrain = 0
+    }
+
+    static func inspect(_ samples: [CMSampleBuffer]) -> Markers {
+        var markers = Markers()
+        for sample in samples {
+            if CMGetAttachment(sample, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart,
+                               attachmentModeOut: nil) != nil { markers.startTrim += 1 }
+            if CMGetAttachment(sample, key: kCMSampleBufferAttachmentKey_TrimDurationAtEnd,
+                               attachmentModeOut: nil) != nil { markers.endTrim += 1 }
+            if CMGetAttachment(sample, key: kCMSampleBufferAttachmentKey_ResetDecoderBeforeDecoding,
+                               attachmentModeOut: nil) != nil { markers.decoderReset += 1 }
+            if CMGetAttachment(sample, key: kCMSampleBufferAttachmentKey_DrainAfterDecoding,
+                               attachmentModeOut: nil) != nil { markers.decoderDrain += 1 }
+        }
+        return markers
+    }
+
+    /// Never override an actual decoder/discontinuity instruction or a
+    /// nonstandard fragment that has multiple trim markers.
+    static func shouldRemoveRepeatedTrim(continuation: Bool, markers: Markers) -> Bool {
+        continuation && markers.startTrim == 1 && markers.endTrim == 0
+            && markers.decoderReset == 0 && markers.decoderDrain == 0
+    }
+
+    /// A legitimate repeated *file-start* marker belongs on the first
+    /// CMSampleBuffer. Do not strip markers from later buffers in the fragment.
+    @discardableResult
+    static func removeRepeatedStartTrim(_ samples: [CMSampleBuffer]) -> Bool {
+        guard let first = samples.first,
+              CMGetAttachment(first, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart,
+                              attachmentModeOut: nil) != nil else { return false }
+        CMRemoveAttachment(first, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart)
+        return CMGetAttachment(first, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart,
+                               attachmentModeOut: nil) == nil
+    }
+}
+
 // Client-local fMP4 reader. TypeType Server remains untouched.
 // A track consists of the init box sequence (ftyp/moov) and a single media fragment (moof/mdat).
 // AVAssetReader is asked for compressed samples (outputSettings:nil) so decoding stays in VideoToolbox.
@@ -1508,6 +1568,7 @@ final class SabrPlayerController: ObservableObject {
         var pendingAudio: [CMSampleBuffer] = []
         var pendingVideo: [CMSampleBuffer] = []
         var audioTimeline = SabrNativeTimelineResolver()
+        var previousAACSequence: Int?
         var videoTimeline = SabrNativeTimelineResolver()
         var coverage = SabrPlaybackCoverage(audioItag: choice.audio.itag,
                                             videoItag: choice.video.itag,
@@ -1527,6 +1588,7 @@ final class SabrPlayerController: ObservableObject {
                 )
                 audioInitLocation = audio.initUrl
                 audioTimeline = SabrNativeTimelineResolver()
+                previousAACSequence = nil
             }
             if videoInitLocation != video.initUrl {
                 videoInit = try await service.fragmentData(
@@ -1581,6 +1643,31 @@ final class SabrPlayerController: ObservableObject {
                     sequence: sequence, metadataStartMs: segment.startMs,
                     decodeStartMs: nativeStart
                 )
+                // This continuity repair must run in Release builds as well.
+                // The old DEBUG-only variant was tested on Apple TV but left
+                // the ~48ms fragment gaps in production builds.
+                let isContinuation = SabrAACPrimingPolicy.isSeamlessContinuation(
+                    previousSequence: previousAACSequence, sequence: sequence,
+                    previousEndMs: previousSampleEnd, startMs: resolved.startMs
+                )
+                let markers = SabrAACPrimingPolicy.inspect(rawSamples)
+                let safeToRemove = SabrAACPrimingPolicy.shouldRemoveRepeatedTrim(
+                    continuation: isContinuation, markers: markers
+                )
+                let removedTrim = safeToRemove
+                    ? SabrAACPrimingPolicy.removeRepeatedStartTrim(rawSamples) : false
+                #if DEBUG
+                // Normal fragment transitions no longer generate noisy logs.
+                // Keep exceptional cases observable while SABR recovery is
+                // investigated independently.
+                if (isContinuation && (!safeToRemove || !removedTrim))
+                    || markers.decoderReset > 0 || markers.decoderDrain > 0 {
+                    NSLog("TypeType SABR AAC PRIMING anomaly seq=%d continuation=%d startTrim=%d removedTrim=%d reset=%d endTrim=%d drain=%d",
+                          sequence ?? -1, isContinuation ? 1 : 0,
+                          markers.startTrim, removedTrim ? 1 : 0,
+                          markers.decoderReset, markers.endTrim, markers.decoderDrain)
+                }
+                #endif
                 let samples = try SabrSampleTimeline.aligned(
                     rawSamples, segmentStartMs: resolved.startMs
                 )
@@ -1603,6 +1690,7 @@ final class SabrPlayerController: ObservableObject {
                 )
                 #endif
                 pendingAudio.append(contentsOf: samples)
+                previousAACSequence = sequence
                 try coverage.acceptAudio(SabrSampleTimingProbe.measuredFragment(
                     segment, startMs: resolved.startMs, actualEndMs: actualEnd
                 ))
