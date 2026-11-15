@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import UIKit
 import AVFoundation
+import AudioToolbox
 import CoreMedia
 import VideoToolbox
 
@@ -105,13 +106,33 @@ enum SabrSampleWindow {
 /// preserving sample durations, decode ordering and A/V offsets within a track.
 /// Without this, each fragment can replay at time zero and the renderers
 /// display frames as fast as they are enqueued.
+/// Fast PCM timing access for the A/B audio decoder experiment. An uncompressed
+/// buffer can hold thousands of PCM frames; inspecting each frame's timestamp
+/// would make the diagnostic path artificially slow.
+private enum SabrPCMBufferTiming {
+    static func isPCM(_ sample: CMSampleBuffer) -> Bool {
+        guard let description = CMSampleBufferGetFormatDescription(sample) else { return false }
+        return CMFormatDescriptionGetMediaSubType(description) == kAudioFormatLinearPCM
+    }
+
+    static func endSeconds(_ sample: CMSampleBuffer) -> Double? {
+        let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
+        let duration = CMTimeGetSeconds(CMSampleBufferGetDuration(sample))
+        guard pts.isFinite, pts >= 0, duration.isFinite, duration > 0,
+              duration <= 60 else { return nil }
+        return pts + duration
+    }
+}
+
 enum SabrSampleTimeline {
     static func aligned(_ samples: [CMSampleBuffer],
                         segmentStartMs: Int64) throws -> [CMSampleBuffer] {
         guard !samples.isEmpty else { return samples }
         var earliest: CMTime?
         for sample in samples {
-            for i in 0..<CMSampleBufferGetNumSamples(sample) {
+            let n = CMSampleBufferGetNumSamples(sample)
+            let timingCount = SabrPCMBufferTiming.isPCM(sample) ? min(1, n) : n
+            for i in 0..<timingCount {
                 var timing = CMSampleTimingInfo()
                 guard CMSampleBufferGetSampleTimingInfo(
                     sample, at: i, timingInfoOut: &timing
@@ -132,9 +153,11 @@ enum SabrSampleTimeline {
 
         return try samples.map { sample in
             let count = CMSampleBufferGetNumSamples(sample)
+            // CoreMedia accepts one uniform timing entry for an LPCM buffer.
+            let timingCount = SabrPCMBufferTiming.isPCM(sample) ? min(1, count) : count
             var timings: [CMSampleTimingInfo] = []
-            timings.reserveCapacity(count)
-            for i in 0..<count {
+            timings.reserveCapacity(timingCount)
+            for i in 0..<timingCount {
                 var item = CMSampleTimingInfo()
                 guard CMSampleBufferGetSampleTimingInfo(
                     sample, at: i, timingInfoOut: &item
@@ -151,7 +174,7 @@ enum SabrSampleTimeline {
             let code = timings.withUnsafeBufferPointer {
                 CMSampleBufferCreateCopyWithNewTiming(
                     allocator: kCFAllocatorDefault, sampleBuffer: sample,
-                    sampleTimingEntryCount: count,
+                    sampleTimingEntryCount: timingCount,
                     sampleTimingArray: $0.baseAddress, sampleBufferOut: &copy
                 )
             }
@@ -193,6 +216,11 @@ enum SabrSampleTimingProbe {
     static func actualEndMs(_ samples: [CMSampleBuffer]) -> Int64? {
         var endSeconds = -Double.infinity
         for sample in samples {
+            if SabrPCMBufferTiming.isPCM(sample),
+               let end = SabrPCMBufferTiming.endSeconds(sample) {
+                endSeconds = max(endSeconds, end)
+                continue
+            }
             for index in 0..<CMSampleBufferGetNumSamples(sample) {
                 var timing = CMSampleTimingInfo()
                 guard CMSampleBufferGetSampleTimingInfo(
@@ -275,9 +303,27 @@ enum FragmentedMP4Reader {
         // Keep it when AVAssetReader omits the description on individual samples.
         let trackFormat = try await track.load(.formatDescriptions).first
         let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+        #if DEBUG
+        // Controlled A/B test: decode AAC in AVAssetReader, then enqueue
+        // uncompressed signed 16-bit LPCM into the SAME audio renderer.
+        // Video still enters the existing VideoToolbox pipeline unchanged.
+        let audioPCM = mediaType == .audio
+        #else
+        let audioPCM = false
+        #endif
+        let settings: [String: Any]? = audioPCM ? [
+            AVFormatIDKey: Int(kAudioFormatLinearPCM),
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false
+        ] : nil
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
         output.alwaysCopiesSampleData = false
-        guard reader.canAdd(output) else { throw SabrFailure.unsupported("Compressed \(mediaType.rawValue) reader unavailable") }
+        guard reader.canAdd(output) else { throw SabrFailure.unsupported("\(mediaType.rawValue) reader unavailable") }
+        if audioPCM {
+            NSLog("TypeType SABR AUDIO pipeline=linear-pcm decoder=asset-reader (DEBUG A/B experiment)")
+        }
         reader.add(output)
         guard reader.startReading() else {
             throw reader.error ?? SabrFailure.invalidResponse("MP4 reader could not start")
@@ -285,10 +331,13 @@ enum FragmentedMP4Reader {
         var samples: [CMSampleBuffer] = []
         while reader.status == .reading {
             guard let sample = output.copyNextSampleBuffer() else { break }
-            // AVAssetReaderTrackOutput with nil outputSettings can emit
-            // marker-only buffers (discontinuities / timing metadata) without
-            // media samples or a CMBlockBuffer. Do not send them to VideoToolbox.
+            // AVAssetReaderTrackOutput may emit marker-only buffers; do not
+            // enqueue them into either audio or video sample renderers.
             if CMSampleBufferGetNumSamples(sample) == 0 { continue }
+            // Never repair a PCM buffer with the source track's AAC format.
+            if audioPCM && CMSampleBufferGetFormatDescription(sample) == nil {
+                throw SabrFailure.unsupported("Linear PCM reader omitted audio format description")
+            }
             samples.append(try SabrSampleFormatRepair.repair(
                 sample, fallback: trackFormat
             ))
