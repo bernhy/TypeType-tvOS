@@ -64,6 +64,19 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/typetype-device-build" \
             CODE_SIGNING_ALLOWED=NO \
             build
+      - name: Compile Release Apple TV device target without signing
+        run: |
+          set -euo pipefail
+          # Compile out DEBUG-only playback probes and catch Release-only issues.
+          xcodebuild \
+            -project TypeTypeTV.xcodeproj \
+            -scheme TypeTypeTV \
+            -configuration Release \
+            -sdk appletvos \
+            -destination 'generic/platform=tvOS' \
+            -derivedDataPath "$RUNNER_TEMP/typetype-release-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
       - name: Upload unsigned simulator build
         uses: actions/upload-artifact@v4
         with:
