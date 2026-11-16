@@ -88,8 +88,14 @@ enum TVServerErrorMapping {
                           route: String) -> SabrFailure {
         let problem = decoded(data)
         let status = response.statusCode
+        // A terminal bootstrap 422 means no playable video formats exist.
+        // Do not confuse that with a transient no-streams error while
+        // preparing or recovering an already established SABR session.
+        let bootstrapUnavailable = status == 422 &&
+            problem?.code == "no_playable_streams" &&
+            route.contains("streams/youtube/sabr/bootstrap")
         if [404, 410, 422].contains(status),
-           problem?.isPermanentlyUnavailable == true {
+           problem?.isPermanentlyUnavailable == true || bootstrapUnavailable {
             return .unavailable
         }
         if [429, 503, 504].contains(status),
