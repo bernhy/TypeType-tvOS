@@ -36,7 +36,8 @@ enum SabrDirectMP4Reader {
     }
 
     static func compressedSamples(initialization: Data, fragment: Data,
-                                  mediaType: AVMediaType) async throws -> [CMSampleBuffer] {
+                                  mediaType: AVMediaType,
+                                  presentationStartMs: Int64? = nil) async throws -> [CMSampleBuffer] {
         // The controller is @MainActor. Parsing and copying fMP4 payloads
         // must not block the tvOS UI thread while the playback clock runs.
         try await withCheckedThrowingContinuation {
@@ -45,7 +46,8 @@ enum SabrDirectMP4Reader {
                 do {
                     continuation.resume(returning: try decode(
                         initialization: initialization, fragment: fragment,
-                        mediaType: mediaType
+                        mediaType: mediaType,
+                        presentationStartMs: presentationStartMs
                     ))
                 } catch {
                     continuation.resume(throwing: error)
@@ -55,7 +57,8 @@ enum SabrDirectMP4Reader {
     }
 
     private static func decode(initialization: Data, fragment: Data,
-                               mediaType: AVMediaType) throws -> [CMSampleBuffer] {
+                               mediaType: AVMediaType,
+                               presentationStartMs: Int64?) throws -> [CMSampleBuffer] {
         let kind: MP4TrackKind
         switch mediaType {
         case .video: kind = .video
@@ -68,10 +71,26 @@ enum SabrDirectMP4Reader {
             throw MP4Error.missingBox("trak")
         }
         let format = try MP4FormatDescription.make(for: track)
-        guard let samples = try MP4Fragment.samples(
+        guard let sourceSamples = try MP4Fragment.samples(
             in: fragment, tracks: [track]
-        )[track.trackID], !samples.isEmpty, samples.count <= 50_000 else {
+        )[track.trackID], !sourceSamples.isEmpty, sourceSamples.count <= 50_000 else {
             throw MP4Error.invalidBox("empty or oversized media fragment")
+        }
+        // Only audio packets that overlap the actual seek target should play.
+        // The decoder still receives older video samples for reference-frame
+        // preroll, but they are marked DoNotDisplay below.
+        let samples: [MP4Sample]
+        if kind == .audio, let presentationStartMs, presentationStartMs > 0 {
+            samples = sourceSamples.filter {
+                !SabrSeekPreroll.isBeforePresentation(
+                    sampleStartTicks: $0.presentationTime,
+                    durationTicks: $0.duration,
+                    timescale: track.timescale,
+                    targetMs: presentationStartMs
+                )
+            }
+        } else {
+            samples = sourceSamples
         }
 
         var result: [CMSampleBuffer] = []
@@ -81,7 +100,10 @@ enum SabrDirectMP4Reader {
             let end = min(samples.count, position + chunk)
             let buffer = try MP4SampleBuffers.make(
                 samples: Array(samples[position..<end]),
-                data: fragment, timescale: track.timescale, format: format
+                data: fragment, timescale: track.timescale, format: format,
+                hiddenBefore: kind == .video ? presentationStartMs.map {
+                    CMTime(value: $0, timescale: 1_000)
+                } : nil
             )
             // A zero-byte compressed payload must never reach the renderer.
             guard let data = CMSampleBufferGetDataBuffer(buffer),
