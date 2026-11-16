@@ -1,8 +1,22 @@
 import Foundation
 import XCTest
+import UIKit
 @testable import TypeTypeTV
 
 final class TVPlaylistAndThumbnailTests: XCTestCase {
+    func testThumbnailDecoderPreservesShapeWithinPixelBudget() throws {
+        let originalSize = CGSize(width: 64, height: 32)
+        let png = UIGraphicsImageRenderer(size: originalSize).pngData { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(origin: .zero, size: originalSize))
+        }
+        let decoded = try XCTUnwrap(TVThumbnailDecoder.decode(png)?.cgImage)
+        XCTAssertLessThanOrEqual(decoded.width, TVThumbnailDecoder.maximumPixelDimension)
+        XCTAssertLessThanOrEqual(decoded.height, TVThumbnailDecoder.maximumPixelDimension)
+        XCTAssertEqual(decoded.width, 64)
+        XCTAssertEqual(decoded.height, 32)
+    }
+
     func testMediaURLsCannotEscapeOriginViaProtocolRelativePath() throws {
         let https = try TypeTypeAPI(address: "https://typetype.example")
         XCTAssertEqual(
