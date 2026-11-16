@@ -8,7 +8,6 @@ struct TVSponsorBlockNotice: View {
     let onDismiss: () -> Void
 
     @FocusState private var skipFocused: Bool
-    @AppStorage("typetype.exp.glass") private var glassEnabled = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -54,13 +53,10 @@ struct TVSponsorBlockNotice: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(glassEnabled ? Color.black.opacity(0.16) : Color.black.opacity(0.78),
-                    in: Capsule())
+        .background(.black.opacity(0.65), in: Capsule())
         .overlay(Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 1))
         .background {
-            if glassEnabled {
-                Capsule().fill(.clear).glassEffect(.regular, in: Capsule())
-            }
+            Capsule().fill(.clear).glassEffect(.regular, in: Capsule())
         }
         .fixedSize(horizontal: true, vertical: true)
         .environment(\.isFocusEffectEnabled, false)
