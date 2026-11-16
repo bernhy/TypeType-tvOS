@@ -206,11 +206,20 @@ final class SabrTransportTests: XCTestCase {
         // local read. An altered file must not be decoded as valid media.
         let payload = Data([0, 0, 0, 12, 109, 111, 111, 102, 1, 2, 3, 4])
         let digest = SHA256.hash(data: payload)
-        XCTAssertEqual(SHA256.hash(data: Data(payload)), digest)
-        XCTAssertNotEqual(SHA256.hash(data: Data(payload.dropLast())), digest)
+        XCTAssertTrue(SabrCachedPayloadIntegrity.matches(
+            payload, count: payload.count, sha256: digest
+        ))
+        XCTAssertFalse(SabrCachedPayloadIntegrity.matches(
+            Data(payload.dropLast()), count: payload.count, sha256: digest
+        ))
         var tampered = payload
         tampered[9] ^= 0xff
-        XCTAssertNotEqual(SHA256.hash(data: tampered), digest)
+        XCTAssertFalse(SabrCachedPayloadIntegrity.matches(
+            tampered, count: payload.count, sha256: digest
+        ))
+        XCTAssertFalse(SabrCachedPayloadIntegrity.matches(
+            payload, count: payload.count + 1, sha256: digest
+        ))
     }
 
     func testPreloadedSegmentsReusedFromDiskAndBounded() async throws {

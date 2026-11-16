@@ -2,7 +2,7 @@
 
 Native, GPL-3.0 Apple TV client for [TypeType](https://github.com/TypeType-Video/TypeType), based on the Android TV reference (dev branch, 2026-11-13).
 
-**Status (2026-11-16):** Xcode 26.2 successfully builds Debug and Release for Apple TV, and the last verified CI baseline (`d2c976bc`) passed 184 native tests (3 skipped) and 34 tvOS UI tests. Native YouTube SABR playback has been exercised on physical Apple TV hardware, but rare audio dropouts, long-session reliability, A/V synchronization and 4K/HDR/AV1 behavior still require validation. The audio-lead experiment remains separate from `main`; this is not a production-ready, feature-complete port.
+**Status (2026-11-16):** Xcode 26.2 successfully builds Debug and Release for Apple TV, and the last verified CI baseline (`d2c976bc`) passed 184 native tests (3 skipped) and 34 tvOS UI tests. Native YouTube SABR playback has been exercised in long sessions on physical Apple TV hardware; rare audio dropouts sometimes coincide with video stutters. Their media-data versus renderer origin is still under investigation, and 4K/HDR/AV1 behavior needs broader validation. The audio-lead experiment remains separate from `main`; this is not a production-ready, feature-complete port.
 
 ## Device and architecture decisions
 

@@ -39,6 +39,32 @@ Simulator and wire-contract tests do **not** prove reliable playback on a physic
 - The custom Siri Remote UIKit capture layer requires a real remote for touch-contact and directional click validation, especially on 2017 clickpad hardware and 2026 models.
 - The disk cache is bounded and session-local; it currently preloads only segments included in the SABR windows returned by the unmodified server. Filling several minutes across multiple future windows remains under development.
 
+## Sporadic audio/video dropouts on real Apple TV
+
+Long-session playback has been tested; occasional audio glitches can also
+appear as video stutters. Do not assume AAC priming is the sole cause.
+In a Debug build, inspect these **sanitized** log markers near the reported
+playback second:
+
+- `TypeType SABR MEDIA-INTEGRITY` (stage=demux): invalid compressed bytes
+  or timestamps, or a gap *inside* a fragment. A `correlated` marker means
+  audio/video holes occurred at nearly the same media position.
+- `TypeType SABR TIMELINE` and `SABR GAP`: disagreement between server
+  segment metadata, native fMP4 time and previously observed sample end.
+- `TypeType SABR RENDER-UNDERFLOW`: renderer headroom below 120ms,
+  sampled every 100ms and logged at most once every 1.5s. Compare
+  `videoAheadMs`, `audioAheadMs` and `cacheAheadMs`: high downloaded
+  cache headroom but little renderer headroom suggests decode/scheduling
+  backpressure rather than a missing network fragment.
+- `TypeType SABR CACHE integrity-failure`: a cached file has changed or
+  been truncated; it is discarded and the media bytes downloaded again.
+- `TypeType SABR PRODUCER` and `SABR SEGMENT`: slow or failed downloads,
+  server window timeouts, and partial progressive delivery.
+
+Compare with another video/codec. Keep the separate audio-lead experiment
+and its tests in PR #10 independent until actual sample/renderer evidence
+establishes whether its approach helps.
+
 ## Interface, language and network checklist
 
 - 34 tvOS UI tests cover server setup, Home and deep-card focus, sidebar, search, account/settings navigation, video details and SponsorBlock. Screenshot fixtures are Debug-only and do not replace testing with a physical Siri Remote.

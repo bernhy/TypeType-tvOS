@@ -31,6 +31,13 @@ struct SabrBufferSettings: Equatable {
     var backMilliseconds: Int { backSeconds * 1_000 }
 }
 
+/// Compare disk hits against the original HTTP payload, not just file size.
+enum SabrCachedPayloadIntegrity {
+    static func matches(_ data: Data, count: Int, sha256: SHA256.Digest) -> Bool {
+        data.count == count && SHA256.hash(data: data) == sha256
+    }
+}
+
 struct SabrMediaReference: Sendable {
     let url: String
     let itag: Int
@@ -104,8 +111,9 @@ actor SabrFragmentCache {
             // The server does not supply content hashes, so this only proves
             // that the on-disk bytes still equal the successful HTTP payload.
             let bytes = try? Data(contentsOf: entry.file)
-            if let bytes, bytes.count == entry.count,
-               SHA256.hash(data: bytes) == entry.sha256 {
+            if let bytes, SabrCachedPayloadIntegrity.matches(
+                bytes, count: entry.count, sha256: entry.sha256
+            ) {
                 entry.access = clock
                 entries[key] = entry
                 return bytes

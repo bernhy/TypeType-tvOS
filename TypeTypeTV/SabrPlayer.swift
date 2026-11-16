@@ -1604,7 +1604,9 @@ final class SabrPlayerController: ObservableObject {
         var videoTimeline = SabrNativeTimelineResolver()
         // A gap in *both* decoded tracks at nearly the same media time
         // suggests missing/corrupt source samples, not an audio-only trim.
+        #if DEBUG
         var recentAudioGap: SabrMediaGap?
+        #endif
         var coverage = SabrPlaybackCoverage(audioItag: choice.audio.itag,
                                             videoItag: choice.video.itag,
                                             positionMs: start, stage: "decoder")
@@ -1724,7 +1726,7 @@ final class SabrPlayerController: ObservableObject {
                     integrity, track: "audio", sequence: sequence,
                     fragmentBytes: bytes.count, thresholdMs: 80
                 )
-                recentAudioGap = integrity.largestGap?.lengthMs ?? 0 >= 80
+                recentAudioGap = (integrity.largestGap?.lengthMs ?? 0) >= 80
                     ? integrity.largestGap : nil
                 #endif
                 audioTimeline.recordActualEndMs(actualEnd)

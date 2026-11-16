@@ -87,9 +87,12 @@ enum SabrSampleIntegrity {
                 }
                 let pts = CMTimeGetSeconds(timing.presentationTimeStamp)
                 let duration = CMTimeGetSeconds(timing.duration)
-                guard pts.isFinite, pts >= 0, pts <= 7 * 24 * 60 * 60,
-                      duration.isFinite, duration > 0, duration < 60 else {
+                guard pts.isFinite, pts >= 0, pts <= 7 * 24 * 60 * 60 else {
                     invalidTiming += 1
+                    continue
+                }
+                // Unknown per-sample duration is not proof of corruption.
+                guard duration.isFinite, duration > 0, duration < 60 else {
                     continue
                 }
                 spans.append(SabrMediaSpan(
