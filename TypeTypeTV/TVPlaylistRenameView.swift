@@ -38,10 +38,13 @@ struct TVPlaylistRenameView: View {
         .background(TTTheme.ink)
         .task {
             name = initialName
+            let nameAtRequestStart = name
             do {
                 let current = try await api.playlist(playlistID)
                 guard !Task.isCancelled else { return }
-                name = current.name
+                // Keep a name typed while the server request was in flight.
+                // The remote description is still needed to preserve it on PUT.
+                if name == nameAtRequestStart { name = current.name }
                 description = current.description ?? ""
             } catch {
                 self.error = error.localizedDescription

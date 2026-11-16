@@ -50,7 +50,10 @@ struct TVHistoryDTO: Decodable {
         row.uploaderUrl = channelUrl
         row.viewCount = viewCount
         row.publishedAt = publishedAt
-        row.watchPositionMs = Int64(max(0, progress)) * 1_000
+        // History uses seconds; a malformed or corrupt server value must
+        // not trap the entire library screen via Int64 multiplication.
+        let boundedSeconds = min(Int64(max(0, progress)), Int64.max / 1_000)
+        row.watchPositionMs = boundedSeconds * 1_000
         return row
     }
 }

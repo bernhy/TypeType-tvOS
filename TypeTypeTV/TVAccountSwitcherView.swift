@@ -16,6 +16,9 @@ struct TVAccountSwitcherView: View {
     @State private var loading = true
     @State private var changing = false
     @State private var errorMessage: String?
+    // An older /auth/me response must never overwrite identity after a
+    // household member has selected another account.
+    @State private var refreshGeneration = 0
 
     var body: some View {
         ScrollView {
@@ -159,6 +162,9 @@ struct TVAccountSwitcherView: View {
 
     @MainActor
     private func refresh() async {
+        guard !changing else { return }
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
         accounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
         guard api.origin.host != "preview.invalid" else {
             loading = false
@@ -166,9 +172,13 @@ struct TVAccountSwitcherView: View {
         }
         loading = true
         errorMessage = nil
-        defer { loading = false }
+        defer {
+            if refreshGeneration == generation { loading = false }
+        }
         do {
             let actual = try await api.currentAccount()
+            guard !Task.isCancelled, refreshGeneration == generation,
+                  !changing else { return }
             identity = actual
             if let actual, !actual.isGuest {
                 // Existing single-account installations acquire a saved
@@ -177,11 +187,13 @@ struct TVAccountSwitcherView: View {
             }
             accounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
         } catch TypeTypeError.http(401, _) {
+            guard refreshGeneration == generation, !changing else { return }
             // A rejected bearer does not mean that the Keychain has vanished.
             // Keep saved household profiles and offer a fresh sign-in.
             identity = nil
             errorMessage = TVL10n.value("login.sessionExpired")
         } catch {
+            guard refreshGeneration == generation, !changing else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -189,6 +201,8 @@ struct TVAccountSwitcherView: View {
     @MainActor
     private func switchTo(_ account: TVSavedAccount) async {
         guard !changing, identity?.id != account.id else { return }
+        refreshGeneration &+= 1
+        loading = false
         changing = true
         errorMessage = nil
         defer { changing = false }

@@ -3,6 +3,43 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVPlaylistAndThumbnailTests: XCTestCase {
+    func testMediaURLsCannotEscapeOriginViaProtocolRelativePath() throws {
+        let https = try TypeTypeAPI(address: "https://typetype.example")
+        XCTAssertEqual(
+            https.relativeMediaURL("/api/files/image.jpg")?.absoluteString,
+            "https://typetype.example/api/files/image.jpg"
+        )
+        XCTAssertEqual(
+            https.relativeMediaURL("media/segment.m4s")?.absoluteString,
+            "https://typetype.example/media/segment.m4s"
+        )
+        XCTAssertEqual(
+            https.relativeMediaURL("https://cdn.example/thumb.jpg")?.absoluteString,
+            "https://cdn.example/thumb.jpg"
+        )
+        XCTAssertNil(https.relativeMediaURL("//untrusted.example/thumb.jpg"))
+        XCTAssertNil(https.relativeMediaURL("javascript:alert(1)"))
+        XCTAssertNil(https.relativeMediaURL("http://untrusted.example/thumb.jpg"))
+
+        let local = try TypeTypeAPI(address: "http://192.168.0.42:8080")
+        XCTAssertNil(local.relativeMediaURL("//untrusted.example/segment.m4s"))
+        XCTAssertEqual(
+            local.relativeMediaURL("/media/segment.m4s")?.absoluteString,
+            "http://192.168.0.42:8080/media/segment.m4s"
+        )
+    }
+
+    func testOversizedHistoryProgressCannotOverflowMilliseconds() throws {
+        let raw = Data(#"""
+        {"id":"history1","url":"https://youtu.be/abc123def45",
+         "title":"Example","thumbnail":"","channelName":"Channel",
+         "duration":120,"progress":9223372036854775807}
+        """#.utf8)
+        let entry = try JSONDecoder().decode(TVHistoryDTO.self, from: raw)
+        XCTAssertEqual(entry.video.watchPositionMs,
+                       (Int64.max / 1_000) * 1_000)
+    }
+
     func testVideoProgressHasNinetyPercentWatchedThreshold() {
         let base = VideoItem(
             id: "sample", title: "Sample", url: "https://youtu.be/abc123def45",

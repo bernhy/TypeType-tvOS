@@ -258,7 +258,18 @@ struct TypeTypeAPI {
             return nil
         }
         // TypeType generally emits absolute or origin-relative paths.
-        return URL(string: value, relativeTo: origin)?.absoluteURL
+        // A scheme-relative URL (//other-host/...) is NOT an origin-relative
+        // path. Reject it rather than implicitly inheriting our connection
+        // scheme and accidentally accepting a remote HTTP media endpoint.
+        guard !value.hasPrefix("//"),
+              let parts = URLComponents(string: value),
+              parts.scheme == nil, parts.host == nil,
+              parts.user == nil, parts.password == nil,
+              let resolved = URL(string: value, relativeTo: origin)?.absoluteURL,
+              resolved.scheme == origin.scheme,
+              resolved.host?.lowercased() == origin.host?.lowercased(),
+              resolved.port == origin.port else { return nil }
+        return resolved
     }
 
     func instance() async throws -> InstanceInfo {
