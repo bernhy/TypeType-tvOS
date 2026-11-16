@@ -109,7 +109,9 @@ enum TVStoredAccountCleanup {
             if let userID {
                 var rows = profiles[key] ?? [:]
                 if item.service == profileService {
-                    rows[userID] = item.label?.isEmpty == false ? item.label! : userID
+                    rows[userID] = item.label.flatMap {
+                        $0.isEmpty ? nil : $0
+                    } ?? userID
                 } else if rows[userID] == nil {
                     // Even a refresh-only orphan must remain visible/deletable.
                     rows[userID] = userID
@@ -124,16 +126,15 @@ enum TVStoredAccountCleanup {
             var logins = users.map {
                 TVInactiveLogin(origin: origin, userID: $0.key, label: $0.value)
             }
-            if activeOrigins.contains(origin.absoluteString) {
-                let activeID = credentials.token(for: origin)
-                    .flatMap(TVJWTClaims.userID(from:))
-                if activeID == nil || users[activeID!] == nil {
-                    logins.append(TVInactiveLogin(
-                        origin: origin, userID: nil,
-                        label: credentials.displayIdentifier(for: origin) ??
-                            TVL10n.value("accounts.inactiveLegacy")
-                    ))
-                }
+            if activeOrigins.contains(origin.absoluteString), users.isEmpty {
+                // Older installations can have an active single-user slot
+                // without a household profile. Do not read access tokens
+                // merely to build a list of inactive server credentials.
+                logins.append(TVInactiveLogin(
+                    origin: origin, userID: nil,
+                    label: credentials.displayIdentifier(for: origin) ??
+                        TVL10n.value("accounts.inactiveLegacy")
+                ))
             }
             logins.sort { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
             return TVInactiveServer(origin: origin, logins: logins)
