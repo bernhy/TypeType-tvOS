@@ -80,6 +80,57 @@ final class TypeTypeTVUITests: XCTestCase {
         add(screenshot)
     }
 
+    func testExperimentalPreviewButtonsAreReachableByRemote() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-experiments", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let group = app.buttons["settings-group-experiments"]
+        XCTAssertTrue(waitForFocus(group, timeout: 20))
+        XCUIRemote.shared.press(.right)
+        let focusPicker = app.buttons["experiment.focus"]
+        XCTAssertTrue(waitForFocus(focusPicker),
+                      "Right from the experiment rail must enter the first selector")
+        XCUIRemote.shared.press(.down)
+        let focusPreview = app.buttons["experiment-focus-preview"]
+        XCTAssertTrue(waitForFocus(focusPreview),
+                      "Down must reach the thumbnail preview instead of skipping it")
+
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(waitForFocus(focusPreview),
+                      "Cycling the thumbnail preview must not send focus back to its Picker")
+
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(app.buttons["experiment.popup"]),
+                      "Down from thumbnail preview should reach popup options")
+        XCUIRemote.shared.press(.down)
+        let popupPreview = app.buttons["experiment-popup-preview"]
+        XCTAssertTrue(waitForFocus(popupPreview),
+                      "Down must reach popup preview")
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(app.descendants(matching: .any)["experiment-popup-sample"]
+                            .waitForExistence(timeout: 4))
+        XCUIRemote.shared.press(.select)
+        XCTAssertFalse(app.descendants(matching: .any)["experiment-popup-sample"].exists)
+
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(app.buttons["experiment.toast"]))
+        XCUIRemote.shared.press(.down)
+        let toastPreview = app.buttons["experiment-toast-preview"]
+        XCTAssertTrue(waitForFocus(toastPreview),
+                      "Down must reach notification preview")
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(app.descendants(matching: .any)["experiment-toast-sample"]
+                            .waitForExistence(timeout: 4))
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(app.buttons["experiment.toast"]),
+                      "Up from notification preview must return to its selector")
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(group),
+                      "Left must return to the selected Settings group")
+    }
+
     func testFirstLaunchShowsAccessibleServerSetup() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-typetype.instanceOrigin", "", "-typetype.uiLanguage", "de"]

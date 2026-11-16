@@ -116,6 +116,32 @@ struct TVExperimentLoading: View {
     }
 }
 
+/// Deterministic vertical focus order: tvOS otherwise skips the preview buttons
+/// because menu Pickers sit at the far right and the previews sit farther left.
+enum TVExperimentFocusPath {
+    static let order = [
+        "experiment.focus", "experiment.focusPreview",
+        "experiment.popup", "experiment.popupPreview",
+        "experiment.toast", "experiment.toastPreview",
+        "experiment.page", "experiment.hero",
+        "experiment.glass", "experiment.background",
+        "experiment.symbols", "experiment.loading",
+        "experiment.sidebar", "experiment.reset"
+    ]
+
+    static func destination(from id: String, direction: MoveCommandDirection) -> String? {
+        guard let index = order.firstIndex(of: id) else { return nil }
+        switch direction {
+        case .up:
+            return index > 0 ? order[index - 1] : nil
+        case .down:
+            return index + 1 < order.count ? order[index + 1] : nil
+        default:
+            return nil
+        }
+    }
+}
+
 /// Independent focusable settings page. No changes to the server or the playback pipeline.
 struct TVUIExperimentSettings: View {
     let focus: FocusState<String?>.Binding
@@ -135,6 +161,16 @@ struct TVUIExperimentSettings: View {
     @State private var showPopup = false
     @State private var showToast = false
 
+    private func move(_ direction: MoveCommandDirection, from id: String) {
+        if direction == .left {
+            onMoveLeft()
+        } else if let destination = TVExperimentFocusPath.destination(
+            from: id, direction: direction
+        ) {
+            focus.wrappedValue = destination
+        }
+    }
+
     var body: some View {
         VStack(spacing: 24) {
             TVSettingsCard("ui.experiments", summary: "ui.experimentsHelp") {
@@ -144,56 +180,79 @@ struct TVUIExperimentSettings: View {
             TVSettingsCard("ui.focusTitle", summary: "ui.focusHelp") {
                 TVSettingsMenuRow("ui.focusTitle", selection: $focusStyle,
                                   focus: focus, focusTarget: "experiment.focus",
-                                  onMoveLeft: onMoveLeft) {
+                                  onMoveLeft: onMoveLeft,
+                                  onVerticalMove: { move($0, from: "experiment.focus") },
+                                  restoreFocusOnSelectionChange: false) {
                     Text("ui.focusClassic").tag("classic")
                     Text("ui.focusHighlight").tag("highlight")
                     Text("ui.focusLift").tag("lift")
                     Text("ui.focusHybrid").tag("hybrid")
                 }
-                Button {
-                    let choices = ["classic", "highlight", "lift", "hybrid"]
-                    let next = (choices.firstIndex(of: focusStyle) ?? 0) + 1
-                    focusStyle = choices[next % choices.count]
-                } label: {
-                    VStack(alignment: .leading, spacing: 6) {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(LinearGradient(colors: [TTTheme.accent.opacity(0.85),
-                                                          TTTheme.surface],
-                                                 startPoint: .topLeading,
-                                                 endPoint: .bottomTrailing))
-                            .frame(width: 360, height: 195)
-                            .overlay {
-                                Image(systemName: "play.rectangle")
-                                    .font(.system(size: 76))
-                            }
-                            .modifier(TVExperimentArtworkFocus(
-                                mode: focusStyle, reduceMotion: reduceMotion))
-                        Text("ui.focusPreview").font(.callout)
+                HStack {
+                    Spacer(minLength: 0)
+                    Button {
+                        let choices = ["classic", "highlight", "lift", "hybrid"]
+                        let next = (choices.firstIndex(of: focusStyle) ?? 0) + 1
+                        focusStyle = choices[next % choices.count]
+                    } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(LinearGradient(colors: [TTTheme.accent.opacity(0.85),
+                                                              TTTheme.surface],
+                                                     startPoint: .topLeading,
+                                                     endPoint: .bottomTrailing))
+                                .frame(width: 360, height: 195)
+                                .overlay {
+                                    Image(systemName: "play.rectangle")
+                                        .font(.system(size: 76))
+                                }
+                                .modifier(TVExperimentArtworkFocus(
+                                    mode: focusStyle, reduceMotion: reduceMotion))
+                            Text("ui.focusPreview").font(.callout)
+                        }
+                        .padding(8)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14)
+                                .strokeBorder(
+                                    focus.wrappedValue == "experiment.focusPreview"
+                                        ? TTTheme.accent : .clear,
+                                    lineWidth: 3)
+                        }
                     }
+                    .buttonStyle(TVRailButtonStyle())
+                    .focusEffectDisabled(true)
+                    .focused(focus, equals: "experiment.focusPreview")
+                    .accessibilityIdentifier("experiment-focus-preview")
+                    .onMoveCommand { move($0, from: "experiment.focusPreview") }
                 }
-                .buttonStyle(TVRailButtonStyle())
-                .focusEffectDisabled(true)
-                .accessibilityIdentifier("experiment-focus-preview")
             }
             TVSettingsCard("ui.popupTitle", summary: "ui.popupHelp") {
                 TVSettingsMenuRow("ui.popupTitle", selection: $popup,
                                   focus: focus, focusTarget: "experiment.popup",
-                                  onMoveLeft: onMoveLeft) {
+                                  onMoveLeft: onMoveLeft,
+                                  onVerticalMove: { move($0, from: "experiment.popup") }) {
                     Text("ui.off").tag("off")
                     Text("ui.pop").tag("pop")
                     Text("ui.slide").tag("slide")
                     Text("ui.fade").tag("fade")
                 }
-                Button("ui.previewPopup") {
-                    withAnimation(TVUIMotion.animation(popup, reduceMotion: reduceMotion)) {
-                        showPopup.toggle()
+                HStack {
+                    Spacer(minLength: 0)
+                    Button("ui.previewPopup") {
+                        withAnimation(TVUIMotion.animation(popup, reduceMotion: reduceMotion)) {
+                            showPopup.toggle()
+                        }
                     }
+                    .buttonStyle(.bordered)
+                    .focused(focus, equals: "experiment.popupPreview")
+                    .accessibilityIdentifier("experiment-popup-preview")
+                    .onMoveCommand { move($0, from: "experiment.popupPreview") }
                 }
-                .buttonStyle(.bordered)
                 if showPopup {
                     Label("SponsorBlock", systemImage: "forward.end.fill")
                         .padding(18)
                         .background(TTTheme.surface, in: Capsule())
+                        .accessibilityIdentifier("experiment-popup-sample")
                         .transition(TVUIMotion.transition(popup, reduceMotion: reduceMotion,
                                                          anchor: .topTrailing))
                 }
@@ -201,36 +260,46 @@ struct TVUIExperimentSettings: View {
             TVSettingsCard("ui.toastTitle", summary: "ui.toastHelp") {
                 TVSettingsMenuRow("ui.toastTitle", selection: $toast,
                                   focus: focus, focusTarget: "experiment.toast",
-                                  onMoveLeft: onMoveLeft) {
+                                  onMoveLeft: onMoveLeft,
+                                  onVerticalMove: { move($0, from: "experiment.toast") }) {
                     Text("ui.off").tag("standard")
                     Text("ui.pop").tag("pop")
                     Text("ui.slide").tag("slide")
                     Text("ui.fade").tag("fade")
                 }
-                Button("ui.previewToast") {
-                    withAnimation(TVUIMotion.animation(toast, reduceMotion: reduceMotion)) {
-                        showToast.toggle()
+                HStack {
+                    Spacer(minLength: 0)
+                    Button("ui.previewToast") {
+                        withAnimation(TVUIMotion.animation(toast, reduceMotion: reduceMotion)) {
+                            showToast.toggle()
+                        }
                     }
+                    .buttonStyle(.bordered)
+                    .focused(focus, equals: "experiment.toastPreview")
+                    .accessibilityIdentifier("experiment-toast-preview")
+                    .onMoveCommand { move($0, from: "experiment.toastPreview") }
                 }
-                .buttonStyle(.bordered)
                 if showToast {
                     Label("ui.previewSuccess", systemImage: "checkmark.circle.fill")
                         .padding(15)
                         .background(TTTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                        .accessibilityIdentifier("experiment-toast-sample")
                         .transition(TVUIMotion.transition(toast, reduceMotion: reduceMotion))
                 }
             }
             TVSettingsCard("ui.transitions") {
                 TVSettingsMenuRow("ui.page", selection: $page,
                                   focus: focus, focusTarget: "experiment.page",
-                                  onMoveLeft: onMoveLeft) {
+                                  onMoveLeft: onMoveLeft,
+                                  onVerticalMove: { move($0, from: "experiment.page") }) {
                     Text("ui.off").tag("standard")
                     Text("ui.crossfade").tag("crossfade")
                     Text("ui.shift").tag("shift")
                 }
                 TVSettingsMenuRow("ui.hero", selection: $hero,
                                   focus: focus, focusTarget: "experiment.hero",
-                                  onMoveLeft: onMoveLeft) {
+                                  onMoveLeft: onMoveLeft,
+                                  onVerticalMove: { move($0, from: "experiment.hero") }) {
                     Text("ui.off").tag("standard")
                     Text("ui.fade").tag("fade")
                     Text("ui.zoom").tag("zoom")
@@ -241,10 +310,12 @@ struct TVUIExperimentSettings: View {
             TVSettingsCard("ui.materials") {
                 TVSettingsSwitchRow("ui.glass", isOn: $glass,
                                     focus: focus, focusID: "experiment.glass",
-                                    onMoveLeft: onMoveLeft)
+                                    onMoveLeft: onMoveLeft,
+                                    onVerticalMove: { move($0, from: "experiment.glass") })
                 TVSettingsMenuRow("ui.background", selection: $background,
                                   focus: focus, focusTarget: "experiment.background",
-                                  onMoveLeft: onMoveLeft) {
+                                  onMoveLeft: onMoveLeft,
+                                  onVerticalMove: { move($0, from: "experiment.background") }) {
                     Text("ui.off").tag("standard")
                     Text("ui.cinematic").tag("cinematic")
                     Text("ui.blurred").tag("blurred")
@@ -255,29 +326,38 @@ struct TVUIExperimentSettings: View {
             TVSettingsCard("ui.details") {
                 TVSettingsSwitchRow("ui.symbols", isOn: $symbols,
                                     focus: focus, focusID: "experiment.symbols",
-                                    onMoveLeft: onMoveLeft)
+                                    onMoveLeft: onMoveLeft,
+                                    onVerticalMove: { move($0, from: "experiment.symbols") })
                 TVSettingsMenuRow("ui.loading", selection: $loading,
                                   focus: focus, focusTarget: "experiment.loading",
-                                  onMoveLeft: onMoveLeft) {
+                                  onMoveLeft: onMoveLeft,
+                                  onVerticalMove: { move($0, from: "experiment.loading") }) {
                     Text("ui.off").tag("standard")
                     Text("ui.skeleton").tag("skeleton")
                     Text("ui.pulse").tag("pulse")
                 }
                 TVSettingsMenuRow("ui.sidebar", selection: $sidebar,
                                   focus: focus, focusTarget: "experiment.sidebar",
-                                  onMoveLeft: onMoveLeft) {
+                                  onMoveLeft: onMoveLeft,
+                                  onVerticalMove: { move($0, from: "experiment.sidebar") }) {
                     Text("ui.off").tag("standard")
                     Text("ui.fade").tag("fade")
                 }
             }
-            Button("ui.reset") {
-                popup = "off"; focusStyle = "classic"; glass = false
-                toast = "standard"; page = "standard"; hero = "standard"
-                background = "standard"; symbols = false; loading = "standard"
-                sidebar = "standard"; showPopup = false; showToast = false
+            HStack {
+                Spacer(minLength: 0)
+                Button("ui.reset") {
+                    popup = "off"; focusStyle = "classic"; glass = false
+                    toast = "standard"; page = "standard"; hero = "standard"
+                    background = "standard"; symbols = false; loading = "standard"
+                    sidebar = "standard"; showPopup = false; showToast = false
+                }
+                .buttonStyle(.bordered)
+                .tint(TTTheme.accent)
+                .focused(focus, equals: "experiment.reset")
+                .accessibilityIdentifier("experiment-reset")
+                .onMoveCommand { move($0, from: "experiment.reset") }
             }
-            .buttonStyle(.bordered)
-            .tint(TTTheme.accent)
         }
     }
 }
