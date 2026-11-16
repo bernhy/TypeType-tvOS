@@ -42,7 +42,7 @@ struct VideoItem: Decodable, Hashable, Identifiable {
     let url: String
     let thumbnailUrl: String?
     let uploaderName: String?
-    let duration: Int?
+    var duration: Int?
     let isLive: Bool?
     var uploaderUrl: String? = nil
     var watchPositionMs: Int64? = nil
@@ -54,6 +54,12 @@ struct VideoItem: Decodable, Hashable, Identifiable {
     var uploaded: Int64? = nil
     var uploadDate: String? = nil
     var requiresMembership: Bool? = nil
+    // This classification is supplied by TypeType Server.
+    var isShortFormContent: Bool? = nil
+
+    var isShort: Bool {
+        TVShortsPolicy.isShort(isShortFormContent: isShortFormContent, url: url)
+    }
 
     func withProgress(_ position: Int64) -> VideoItem {
         var result = self
@@ -121,6 +127,8 @@ struct StreamInfo: Decodable {
     let publishedAt: Int64?
     let uploaded: Int64?
     let uploadDate: String?
+    var duration: Int? = nil
+    var isShortFormContent: Bool? = nil
 }
 
 enum TypeTypeError: LocalizedError {
@@ -130,6 +138,7 @@ enum TypeTypeError: LocalizedError {
     case http(Int, String)
     case unexpectedResponse
     case unavailableFormat
+    case missingVideoDuration
     case videoUnavailable
     case retryAfter(Int, String, Int)
     case loginMissingFields
@@ -150,6 +159,8 @@ enum TypeTypeError: LocalizedError {
             return TVL10n.value("error.invalidReply")
         case .unavailableFormat:
             return TVL10n.value("error.noFormat")
+        case .missingVideoDuration:
+            return TVL10n.value("action.durationUnavailable")
         case .videoUnavailable:
             return TVL10n.value("player.videoUnavailable")
         case .retryAfter(let status, let route, let seconds):

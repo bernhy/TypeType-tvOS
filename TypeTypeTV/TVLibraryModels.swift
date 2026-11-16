@@ -40,6 +40,7 @@ struct TVHistoryDTO: Decodable {
     let channelName: String
     let duration: Int
     let progress: Int
+    var isShortFormContent: Bool? = nil
     let channelUrl: String?
     let viewCount: Int64?
     let publishedAt: Int64?
@@ -50,6 +51,7 @@ struct TVHistoryDTO: Decodable {
         row.uploaderUrl = channelUrl
         row.viewCount = viewCount
         row.publishedAt = publishedAt
+        row.isShortFormContent = isShortFormContent
         // History uses seconds; a malformed or corrupt server value must
         // not trap the entire library screen via Int64 multiplication.
         let boundedSeconds = min(Int64(max(0, progress)), Int64.max / 1_000)

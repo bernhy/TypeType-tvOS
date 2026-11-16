@@ -82,6 +82,10 @@ extension TVVideoMetadata {
     static func merged(_ video: VideoItem, stream: StreamInfo?) -> VideoItem {
         guard let stream else { return video }
         var row = video
+        if (row.duration ?? 0) <= 0, let duration = stream.duration, duration > 0 {
+            row.duration = duration
+        }
+        if row.isShortFormContent == nil { row.isShortFormContent = stream.isShortFormContent }
         if (row.viewCount ?? -1) <= 0, let views = stream.viewCount, views >= 0 {
             row.viewCount = views
         }
