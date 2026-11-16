@@ -147,6 +147,7 @@ enum TypeTypeError: LocalizedError {
     case missingVideoDuration
     case videoUnavailable
     case retryAfter(Int, String, Int)
+    case serverDetails(Int, String, String)
     case loginMissingFields
     case loginInvalidCredentials
     case loginDisabled
@@ -171,6 +172,8 @@ enum TypeTypeError: LocalizedError {
             return TVL10n.value("player.videoUnavailable")
         case .retryAfter(let status, let route, let seconds):
             return TVL10n.formatted("error.retryAfter", status, seconds, route)
+        case .serverDetails(_, _, let message):
+            return message
         case .loginMissingFields:
             return TVL10n.value("login.missingFields")
         case .loginInvalidCredentials:
@@ -332,7 +335,9 @@ struct TypeTypeAPI {
         case 200: break
         case 401: throw TypeTypeError.loginInvalidCredentials
         case 403: throw TypeTypeError.loginDisabled
-        default: throw TypeTypeError.http(response.statusCode, "auth/login")
+        default: throw TVServerErrorMapping.apiError(
+            data: data, response: response, route: "auth/login"
+        )
         }
         let reply = try JSONDecoder().decode(TVPasswordLoginResponse.self, from: data)
         guard !reply.accessToken.isEmpty else { throw TypeTypeError.unexpectedResponse }
@@ -361,7 +366,9 @@ struct TypeTypeAPI {
                 // unauthorized after an update. Never log credentials.
                 NSLog("TypeType AUTH auth/me returned 401 (bearer was supplied)")
             }
-            throw TypeTypeError.http(response.statusCode, "auth/me")
+            throw TVServerErrorMapping.apiError(
+                data: data, response: response, route: "auth/me"
+            )
         }
         return try JSONDecoder().decode(TVAccountIdentity.self, from: data)
     }
@@ -468,7 +475,9 @@ struct TypeTypeAPI {
             throw TypeTypeError.unexpectedResponse
         }
         guard (200..<300).contains(response.statusCode) else {
-            throw TypeTypeError.http(response.statusCode, "settings")
+            throw TVServerErrorMapping.apiError(
+                data: data, response: response, route: "settings"
+            )
         }
         return try JSONDecoder().decode(TVServerSettings.self, from: data)
     }
@@ -615,7 +624,9 @@ struct TypeTypeAPI {
             throw TypeTypeError.unexpectedResponse
         }
         guard (200..<300).contains(http.statusCode) else {
-            throw TypeTypeError.http(http.statusCode, path)
+            throw TVServerErrorMapping.apiError(
+                data: data, response: http, route: path
+            )
         }
         return try JSONDecoder().decode(Reply.self, from: data)
     }
@@ -660,7 +671,7 @@ struct TypeTypeAPI {
         )
         do {
             try await writeLibrary(url, method: enabled ? "POST" : "DELETE", body: nil)
-        } catch TypeTypeError.http(500, _) where enabled {
+        } catch where enabled && TVServerErrorMapping.httpStatus(error) == 500 {
             // The server uses INSERT rather than UPSERT; verify the row before
             // treating an unavoidable concurrent duplicate as success.
             if try await library(.favorites).contains(where: {
@@ -688,7 +699,7 @@ struct TypeTypeAPI {
         }
         do {
             try await writeLibrary(url, method: enabled ? "POST" : "DELETE", body: body)
-        } catch TypeTypeError.http(500, _) where enabled {
+        } catch where enabled && TVServerErrorMapping.httpStatus(error) == 500 {
             if try await library(.watchLater).contains(where: {
                 TVVideoIdentity.equivalent($0.url, video.url)
             }) { return }
@@ -713,7 +724,9 @@ struct TypeTypeAPI {
         }
         if http.statusCode == 404 { return nil }
         guard (200..<300).contains(http.statusCode) else {
-            throw TypeTypeError.http(http.statusCode, "progress")
+            throw TVServerErrorMapping.apiError(
+                data: data, response: http, route: "progress"
+            )
         }
         return max(0, try JSONDecoder().decode(TVProgressDTO.self, from: data).position)
     }
@@ -804,12 +817,14 @@ struct TypeTypeAPI {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        let (_, result) = try await authenticatedData(for: request)
+        let (data, result) = try await authenticatedData(for: request)
         guard let response = result as? HTTPURLResponse else {
             throw TypeTypeError.unexpectedResponse
         }
         guard (200..<300).contains(response.statusCode) else {
-            throw TypeTypeError.http(response.statusCode, "library")
+            throw TVServerErrorMapping.apiError(
+                data: data, response: response, route: "library"
+            )
         }
     }
 
@@ -851,18 +866,9 @@ struct TypeTypeAPI {
         let (data, response) = try await authenticatedData(for: request)
         guard let response = response as? HTTPURLResponse else { throw TypeTypeError.unexpectedResponse }
         guard (200..<300).contains(response.statusCode) else {
-            if [404, 410, 422].contains(response.statusCode),
-               let issue = try? JSONDecoder().decode(TVStreamProblem.self, from: data),
-               issue.isPermanentlyUnavailable {
-                throw TypeTypeError.videoUnavailable
-            }
-            if [429, 503, 504].contains(response.statusCode),
-               let seconds = SabrRetryAfter.seconds(
-                   response.value(forHTTPHeaderField: "Retry-After")
-               ) {
-                throw TypeTypeError.retryAfter(response.statusCode, endpoint, seconds)
-            }
-            throw TypeTypeError.http(response.statusCode, endpoint)
+            throw TVServerErrorMapping.apiError(
+                data: data, response: response, route: endpoint
+            )
         }
         return try JSONDecoder().decode(T.self, from: data)
     }

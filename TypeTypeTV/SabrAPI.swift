@@ -662,18 +662,9 @@ final class SabrService: @unchecked Sendable {
                 continue
             }
             guard allowedStatuses.contains(http.statusCode) else {
-            if [404, 410, 422].contains(http.statusCode),
-               let issue = try? JSONDecoder().decode(TVStreamProblem.self, from: data),
-               issue.isPermanentlyUnavailable {
-                throw SabrFailure.unavailable
-            }
-            if [429, 503, 504].contains(http.statusCode),
-               let wait = SabrRetryAfter.seconds(
-                   http.value(forHTTPHeaderField: "Retry-After")
-               ) {
-                throw SabrFailure.throttled(http.statusCode, pathForError, wait)
-            }
-            throw SabrFailure.server(http.statusCode, pathForError)
+                throw TVServerErrorMapping.sabrError(
+                    data: data, response: http, route: pathForError
+                )
             }
             return (data, http)
         }
@@ -686,12 +677,15 @@ private struct SabrSegmentPreparing: Decodable {
 }
 
 struct TVStreamProblem: Decodable {
-    let error: String
-    let code: String
+    let error: String?
+    let code: String?
+    let requestId: String?
+    let retryAfterMs: Int?
 
     var isPermanentlyUnavailable: Bool {
-        ["no_playable_streams", "sabr_content_unavailable",
-         "content_unavailable", "video_unavailable"].contains(code)
+        guard let code else { return false }
+        return ["sabr_content_unavailable", "content_unavailable",
+                "video_unavailable"].contains(code)
     }
 }
 
