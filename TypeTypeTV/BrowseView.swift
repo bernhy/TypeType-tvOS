@@ -977,8 +977,10 @@ struct VideoCard: View {
                         }
                         let listCount = playlistMembership.count(for: video.url)
                         if listCount > 0 {
-                            Label(TVL10n.formatted("playlist.membershipBadge", listCount),
-                                  systemImage: "list.bullet.rectangle.fill")
+                            Label(TVL10n.formatted(
+                                    listCount == 1 ? "playlist.membershipBadgeSingle" :
+                                        "playlist.membershipBadge", listCount
+                                ), systemImage: "list.bullet.rectangle.fill")
                                 .padding(.horizontal, 8).padding(.vertical, 6)
                                 .background(Color(red: 0.34, green: 0.24, blue: 0.72),
                                             in: RoundedRectangle(cornerRadius: 6))
