@@ -6,7 +6,9 @@ import UIKit
 final class TVPlaylistAndThumbnailTests: XCTestCase {
     func testThumbnailDecoderPreservesShapeWithinPixelBudget() throws {
         let originalSize = CGSize(width: 64, height: 32)
-        let png = UIGraphicsImageRenderer(size: originalSize).pngData { context in
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let png = UIGraphicsImageRenderer(size: originalSize, format: format).pngData { context in
             UIColor.red.setFill()
             context.fill(CGRect(origin: .zero, size: originalSize))
         }
