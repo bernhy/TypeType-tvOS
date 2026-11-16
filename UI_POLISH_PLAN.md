@@ -54,4 +54,5 @@ Status: **first experimental implementation** in `feat/tvos-ui-polish`. All effe
 - https://developer.apple.com/documentation/TechnologyOverviews/adopting-liquid-glass
 - https://developer.apple.com/documentation/swiftui/transition
 - https://developer.apple.com/documentation/swiftui/zoomnavigationtransition (not supported on tvOS; local detail-header zoom instead)
+- tvOS 26.2 SDK also lacks `NavigationTransition.crossFade`: use `.transition(.opacity)` for the crossfade experiment.
 - https://developer.apple.com/documentation/swiftui/environmentvalues/accessibilityreducemotion

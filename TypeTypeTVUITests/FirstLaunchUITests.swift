@@ -64,6 +64,22 @@ final class TypeTypeTVUITests: XCTestCase {
         }
     }
 
+    func testExperimentalSettingsAreReachableWithoutServer() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-experiments", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCTAssertTrue(app.buttons["settings-group-experiments"].waitForExistence(timeout: 20),
+                      "GUI experiments must have their own Settings group")
+        XCTAssertTrue(app.staticTexts["GUI-Experimente"].firstMatch.exists)
+        XCTAssertTrue(app.buttons["experiment-focus-preview"].waitForExistence(timeout: 10))
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "TypeType-tvOS-GUI-Experimente"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     func testFirstLaunchShowsAccessibleServerSetup() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-typetype.instanceOrigin", "", "-typetype.uiLanguage", "de"]

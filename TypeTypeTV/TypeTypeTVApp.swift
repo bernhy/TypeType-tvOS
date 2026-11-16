@@ -23,6 +23,7 @@ struct RootView: View {
             } else if ["home", "home-expanded", "search", "library", "subscriptions", "channels", "account",
                 "settings", "settings-sponsor", "settings-content", "settings-performance", "settings-device",
                 "settings-language", "settings-account", "settings-instance",
+                "settings-experiments",
                 "settings-about"].contains(preview) {
                 BrowseView(
                     instanceOrigin: "https://preview.invalid",
@@ -40,6 +41,7 @@ struct RootView: View {
                         case "settings-sponsor": return .sponsor
                         case "settings-content": return .content
                         case "settings-performance", "settings-device": return .device
+                        case "settings-experiments": return .experiments
                         case "settings-language": return .language
                         case "settings-account": return .account
                         case "settings-instance": return .instance

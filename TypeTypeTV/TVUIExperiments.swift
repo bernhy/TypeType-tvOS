@@ -67,7 +67,9 @@ struct TVExperimentNavigation: ViewModifier {
 
     @ViewBuilder func body(content: Content) -> some View {
         if style == "crossfade" || reduceMotion && style != "standard" {
-            content.navigationTransition(.crossFade)
+            // The tvOS 26.2 SDK does not expose NavigationTransition.crossFade.
+            // Use a SwiftUI opacity transition instead; no unsupported iOS API.
+            content.transition(.opacity)
         } else if style == "shift" {
             content.transition(.move(edge: .trailing).combined(with: .opacity))
         } else {
