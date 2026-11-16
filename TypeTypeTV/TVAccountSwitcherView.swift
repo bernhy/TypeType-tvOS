@@ -186,15 +186,16 @@ struct TVAccountSwitcherView: View {
                 TypeTypeCredentials.shared.rememberActive(actual, for: api.origin)
             }
             accounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
-        } catch TypeTypeError.http(401, _) {
-            guard refreshGeneration == generation, !changing else { return }
-            // A rejected bearer does not mean that the Keychain has vanished.
-            // Keep saved household profiles and offer a fresh sign-in.
-            identity = nil
-            errorMessage = TVL10n.value("login.sessionExpired")
         } catch {
             guard refreshGeneration == generation, !changing else { return }
-            errorMessage = error.localizedDescription
+            if TVServerErrorMapping.httpStatus(error) == 401 {
+                // Retain saved Keychain logins on a rejected bearer regardless
+                // of optional server code or X-Request-ID metadata.
+                identity = nil
+                errorMessage = TVL10n.value("login.sessionExpired")
+            } else {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

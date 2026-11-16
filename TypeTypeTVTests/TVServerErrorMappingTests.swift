@@ -44,4 +44,11 @@ final class TVServerErrorMappingTests: XCTestCase {
         )
         XCTAssertTrue(detailed.localizedDescription.contains("api-A1"))
     }
+    func testStructuredAndPlainAuthorizationStatus() {
+        let plain = TypeTypeError.http(401, "auth/me")
+        let detailed = TypeTypeError.serverDetails(401, "auth/me", "Expired (ID: auth-1)")
+        XCTAssertEqual(TVServerErrorMapping.httpStatus(plain), 401)
+        XCTAssertEqual(TVServerErrorMapping.httpStatus(detailed), 401)
+        XCTAssertNil(TVServerErrorMapping.httpStatus(CancellationError()))
+    }
 }

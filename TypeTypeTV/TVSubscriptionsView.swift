@@ -516,7 +516,7 @@ struct TVSubscriptionsView: View {
     }
 
     private func subscriptionErrorText(_ error: Error) -> String {
-        if case TypeTypeError.http(401, _) = error {
+        if TVServerErrorMapping.httpStatus(error) == 401 {
             return TVL10n.value("channels.subscriptionRequiresLogin")
         }
         return error.localizedDescription

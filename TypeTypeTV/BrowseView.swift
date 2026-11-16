@@ -926,14 +926,11 @@ struct HomeView: View {
             recentVideos = enriched
         } catch is CancellationError {
             return
-        } catch TypeTypeError.http(let status, _) where status == 401 || status == 403 {
-            recentVideos = []
-            recentNeedsLogin = true
-            recentError = nil
         } catch {
             recentVideos = []
-            recentNeedsLogin = false
-            recentError = error.localizedDescription
+            let status = TVServerErrorMapping.httpStatus(error)
+            recentNeedsLogin = status == 401 || status == 403
+            recentError = recentNeedsLogin ? nil : error.localizedDescription
         }
     }
 }

@@ -861,14 +861,15 @@ struct PreferencesView: View {
                 TypeTypeCredentials.shared.rememberActive(accountIdentity, for: api.origin)
             }
             savedAccounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
-        } catch TypeTypeError.http(401, _) {
-            // A stale bearer is a server rejection, not evidence that Apple
-            // removed the locally stored account profiles during an update.
-            accountIdentity = nil
-            accountError = TVL10n.value("login.sessionExpired")
         } catch {
-            // Keep the existing display state on transient network failures.
-            accountError = error.localizedDescription
+            if TVServerErrorMapping.httpStatus(error) == 401 {
+                // The server rejected the session, not the saved Keychain
+                // identity. This also covers structured HTTP 401 replies.
+                accountIdentity = nil
+                accountError = TVL10n.value("login.sessionExpired")
+            } else {
+                accountError = error.localizedDescription
+            }
         }
     }
 
