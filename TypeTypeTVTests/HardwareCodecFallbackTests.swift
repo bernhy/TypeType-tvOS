@@ -142,6 +142,35 @@ final class HardwareCodecFallbackTests: XCTestCase {
         XCTAssertEqual(Set(order.map(\.video.itag)).count, order.count)
     }
 
+    func testManualFallbackDescendsHeightsAndNeverUpscales() {
+        let audio = SabrBootstrap.Audio(
+            itag: 140, codec: "mp4a.40.2", mimeType: "audio/mp4",
+            audioTrackId: nil, audioTrackName: nil, audioLocale: nil,
+            isOriginal: true, deliveryMethod: "sabr"
+        )
+        let requested = SabrSelection(
+            video: video(400, codec: "av01.0.12M.08", height: 1440, fps: 30),
+            audio: audio
+        )
+        // Automatic ordering may prefer all hardware candidates even if that
+        // would move down to 720p before trying another 1080p codec.
+        let automatic = [
+            video(137, codec: "avc1.640028", height: 1080, fps: 30),
+            video(22, codec: "avc1.64001F", height: 720, fps: 30),
+            video(271, codec: "vp9", height: 1440, fps: 30),
+            video(248, codec: "vp9", height: 1080, fps: 30),
+            video(401, codec: "av01.0.12M.08", height: 2160, fps: 30),
+            requested.video,
+            video(18, codec: "avc1.42001E", height: 360, fps: 30)
+        ].map { SabrSelection(video: $0, audio: audio) }
+        let ordered = SabrPlaybackPreferences.orderedForManualVideo(
+            requested, automaticOrder: automatic
+        )
+        XCTAssertEqual(ordered.map(\.video.itag), [400, 271, 137, 248, 22, 18])
+        XCTAssertFalse(ordered.contains { $0.video.itag == 401 },
+                       "Never select a higher resolution than the user requested")
+    }
+
     func testAutomaticSelectionStillWorksWhenNoHardwareCodecIsOffered() {
         let audio = SabrBootstrap.Audio(
             itag: 140, codec: "mp4a.40.2", mimeType: "audio/mp4",
