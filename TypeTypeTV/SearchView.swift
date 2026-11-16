@@ -26,6 +26,8 @@ struct SearchView: View {
     var focusRequest = 0
     @FocusState private var focusedVideoURL: String?
     @FocusState private var searchFieldFocused: Bool
+    @FocusState private var focusedRecent: String?
+    @FocusState private var clearHistoryFocused: Bool
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 30), count: 4)
     private var history: [String] { TVRecentQueries.decode(recentJSON) }
@@ -84,6 +86,12 @@ struct SearchView: View {
                                 Spacer()
                                 Button("search.clearHistory") { recentJSON = "[]" }
                                     .buttonStyle(.bordered)
+                                    .focused($clearHistoryFocused)
+                                    .onMoveCommand { direction in
+                                        if direction == .down || direction == .left {
+                                            focusedRecent = history.first
+                                        }
+                                    }
                             }
                             ScrollView(.horizontal) {
                                 LazyHStack(spacing: 20) {
@@ -96,10 +104,17 @@ struct SearchView: View {
                                                 .lineLimit(1)
                                         }
                                         .buttonStyle(.bordered)
+                                        .focused($focusedRecent, equals: query)
+                                        .onMoveCommand { direction in
+                                            if direction == .up {
+                                                clearHistoryFocused = true
+                                            }
+                                        }
                                     }
                                 }
                                 .padding(.vertical, 12)
                             }
+                            .focusSection()
                         }
                         .focusSection()
                     }
