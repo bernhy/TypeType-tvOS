@@ -25,7 +25,7 @@ struct TVSearchFilterControls: View {
                             .font(.caption.bold()).foregroundStyle(TTTheme.muted)
                         Picker("search.contentType", selection: $contentFilter) {
                             Text("search.all").tag("")
-                            ForEach(capabilities.contentFilters) { item in
+                            ForEach(TVSearchFilterTexts.choices(capabilities.contentFilters)) { item in
                                 Text(TVSearchFilterTexts.option(item.label))
                                     .tag(item.value)
                             }
@@ -43,7 +43,7 @@ struct TVSearchFilterControls: View {
                             .font(.caption.bold()).foregroundStyle(TTTheme.muted)
                         Picker("search.sort", selection: $sortFilter) {
                             Text("search.default").tag("")
-                            ForEach(capabilities.sortFilters) { item in
+                            ForEach(TVSearchFilterTexts.choices(capabilities.sortFilters)) { item in
                                 Text(TVSearchFilterTexts.option(item.label))
                                     .tag(item.value)
                             }
@@ -58,7 +58,7 @@ struct TVSearchFilterControls: View {
                             .font(.caption.bold()).foregroundStyle(TTTheme.muted)
                         if group.multiSelect {
                             Menu {
-                                ForEach(group.options) { item in
+                                ForEach(TVSearchFilterTexts.choices(group.options)) { item in
                                     Button {
                                         var chosen = selectedGroups[group.key] ?? []
                                         if chosen.contains(item.value) { chosen.remove(item.value) }
@@ -86,8 +86,12 @@ struct TVSearchFilterControls: View {
                                 get: { selectedGroups[group.key]?.first ?? "" },
                                 set: { selectedGroups[group.key] = $0.isEmpty ? [] : [$0] }
                             )) {
-                                Text("search.all").tag("")
-                                ForEach(group.options) { item in
+                                if TVSearchFilterTexts.groupID(group.key) == "sortby" {
+                                    Text("search.default").tag("")
+                                } else {
+                                    Text("search.all").tag("")
+                                }
+                                ForEach(TVSearchFilterTexts.choices(group.options)) { item in
                                     Text(TVSearchFilterTexts.option(item.label)).tag(item.value)
                                 }
                             }
@@ -108,6 +112,14 @@ struct TVSearchFilterControls: View {
 /// translated to the wrong concept. Do not synthesize localization keys:
 /// our project validator requires each key to be statically discoverable.
 enum TVSearchFilterTexts {
+    /// The server supplies an explicit default (usually "all") *and* the
+    /// client has an empty-value default. Keep exactly one displayed choice.
+    static func choices(_ options: [TVSearchFilterOption]) -> [TVSearchFilterOption] {
+        options.filter {
+            $0.isDefault != true && normalized($0.label) != "all"
+        }
+    }
+
     static func groupID(_ key: String) -> String {
         key.split(separator: "|", omittingEmptySubsequences: false)
             .first.map(String.init)?.lowercased() ?? key.lowercased()
