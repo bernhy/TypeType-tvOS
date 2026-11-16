@@ -390,8 +390,33 @@ enum FragmentedMP4Reader {
                   stage, mediaType.rawValue, codec, safeDomain, ns.code,
                   initialization.count, fragment.count, sourceSamples, noDataSamples)
             #endif
+            // AVAssetReader can reject a codec before it emits even one
+            // compressed sample. That is a track-specific format failure,
+            // not a terminal SABR/login failure: allow the player to try
+            // the next representation (e.g. H.264 1080p).
+            if mediaType == .video &&
+                SabrDemuxFallbackPolicy.isCodecSpecificReaderFailure(
+                    stage: stage, errorDomain: (error as NSError).domain
+                ) {
+                throw SabrFailure.unsupported(
+                    "AVAssetReader cannot demux this video representation")
+            }
             throw error
         }
+    }
+}
+
+/// Some AVFoundation errors arise before VideoToolbox can be reached. Treat
+/// only native *video reader* failures as codec-specific; do not turn network,
+/// access, or temporary-file errors into representation retries.
+enum SabrDemuxFallbackPolicy {
+    static func isCodecSpecificReaderFailure(stage: String, errorDomain: String) -> Bool {
+        guard errorDomain == "AVFoundationErrorDomain" else { return false }
+        return [
+            "load-track", "load-format", "reader-create",
+            "reader-add", "reader-start", "sample-read",
+            "sample-format", "reader-finish"
+        ].contains(stage)
     }
 }
 
