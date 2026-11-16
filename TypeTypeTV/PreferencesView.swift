@@ -575,21 +575,17 @@ struct PreferencesView: View {
                     )
                     TVSettingsInfoRow(
                         title: "settings.hardwareSessionStatus",
-                        value: attempt.status == 0 ?
-                            TVL10n.value("settings.hardwareSessionCreated") :
-                            "VideoToolbox OSStatus \(attempt.status)"
+                        value: "AVSampleBufferVideoRenderer"
                     )
+                    // Hardware acceleration and actual frame presentation
+                    // cannot be proven using public native-renderer APIs.
                     TVSettingsInfoRow(
                         title: "settings.hardwareActiveHardware",
-                        value: attempt.hardwareUsed.map {
-                            TVL10n.value($0 ?
-                                "settings.hardwareYes" : "settings.hardwareNo")
-                        } ?? TVL10n.value("settings.hardwareUnknown")
+                        value: TVL10n.value("settings.hardwareUnknown")
                     )
                     TVSettingsInfoRow(
                         title: "settings.hardwareFrame",
-                        value: TVL10n.value(attempt.decodedFrame ?
-                            "settings.hardwareFrameYes" : "settings.hardwareFrameNo")
+                        value: TVL10n.value("settings.hardwareUnknown")
                     )
                 } else {
                     Text("settings.hardwareNoStream")
