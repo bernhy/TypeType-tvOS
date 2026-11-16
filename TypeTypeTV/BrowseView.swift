@@ -860,8 +860,6 @@ struct VideoCard: View {
     @ObservedObject private var localProgress = TVLocalProgress.shared
     @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
     @Environment(\.isFocused) private var isFocused
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage("typetype.exp.focus") private var focusStyle = "classic"
     var lookupMissingMetadata = false
     @State private var streamMetadata: StreamInfo?
     @State private var metadataVideoURL: String?
@@ -912,6 +910,7 @@ struct VideoCard: View {
                     .aspectRatio(16.0 / 9.0, contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipped()
+                    .modifier(TVFocusedArtworkGlint(focused: isFocused))
                 if video.requiresMembership == true {
                     Label("video.membersOnly", systemImage: "person.crop.circle.badge.checkmark")
                         .font(.caption.bold())
@@ -950,9 +949,7 @@ struct VideoCard: View {
                 .padding(9)
                 // Keep the time badge's background at its original size
                 // while the full card scales on focus.
-                .scaleEffect(isFocused && !reduceMotion &&
-                             (focusStyle == "classic" || focusStyle == "hybrid")
-                             ? 1 / 1.065 : 1, anchor: .bottomTrailing)
+                .scaleEffect(isFocused ? 1 / 1.065 : 1, anchor: .bottomTrailing)
                 if let fraction {
                     GeometryReader { proxy in
                         Rectangle()
@@ -965,7 +962,6 @@ struct VideoCard: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 10))
-            .modifier(TVExperimentArtworkFocus(mode: focusStyle, reduceMotion: reduceMotion))
             VStack(alignment: .leading, spacing: 7) {
                 Text(video.title)
                     .font(.system(size: 21, weight: .semibold))
@@ -1008,12 +1004,10 @@ struct VideoCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         // Scale the complete card, not the thumbnail viewport.
         // .fit preserves the original image edges and the progress bar.
-        .scaleEffect(isFocused && !reduceMotion &&
-                     (focusStyle == "classic" || focusStyle == "hybrid") ? 1.065 : 1,
-                     anchor: .center)
-        .shadow(color: isFocused && (focusStyle == "classic" || focusStyle == "hybrid")
-                ? Color.black.opacity(0.55) : .clear, radius: 19, y: 10)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.13), value: isFocused)
+        .scaleEffect(isFocused ? 1.065 : 1, anchor: .center)
+        .shadow(color: isFocused ? Color.black.opacity(0.55) : .clear,
+                radius: 19, y: 10)
+        .animation(.easeOut(duration: 0.13), value: isFocused)
         .foregroundStyle(.white)
         .task(id: video.url) {
             metadataVideoURL = video.url
