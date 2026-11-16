@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import XCTest
 @testable import TypeTypeTV
 
@@ -198,6 +199,18 @@ final class SabrTransportTests: XCTestCase {
         XCTAssertEqual(captured.first?.0, "POST")
         XCTAssertEqual(captured.first?.1,
                        "/api/sabr/playback/example/prefetch")
+    }
+
+    func testCachedSabrPayloadSHA256DistinguishesTruncatedAndMutatedBytes() {
+        // The cache hashes the downloaded payload once, then verifies each
+        // local read. An altered file must not be decoded as valid media.
+        let payload = Data([0, 0, 0, 12, 109, 111, 111, 102, 1, 2, 3, 4])
+        let digest = SHA256.hash(data: payload)
+        XCTAssertEqual(SHA256.hash(data: Data(payload)), digest)
+        XCTAssertNotEqual(SHA256.hash(data: Data(payload.dropLast())), digest)
+        var tampered = payload
+        tampered[9] ^= 0xff
+        XCTAssertNotEqual(SHA256.hash(data: tampered), digest)
     }
 
     func testPreloadedSegmentsReusedFromDiskAndBounded() async throws {

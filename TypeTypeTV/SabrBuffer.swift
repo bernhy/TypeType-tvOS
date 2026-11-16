@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Local buffering preferences. Each stream still obeys the existing TypeType
 /// SABR window protocol and may be limited by server-side window ceilings.
@@ -44,6 +45,7 @@ actor SabrFragmentCache {
     private struct Entry {
         let file: URL
         let count: Int
+        let sha256: SHA256.Digest
         var access: UInt64
         var media: SabrMediaReference?
     }
@@ -98,11 +100,22 @@ actor SabrFragmentCache {
         guard !invalidated else { throw CancellationError() }
         clock &+= 1
         if var entry = entries[key] {
-            if let bytes = try? Data(contentsOf: entry.file) {
+            // Never hand an altered/truncated disk fragment to AVAssetReader.
+            // The server does not supply content hashes, so this only proves
+            // that the on-disk bytes still equal the successful HTTP payload.
+            let bytes = try? Data(contentsOf: entry.file)
+            if let bytes, bytes.count == entry.count,
+               SHA256.hash(data: bytes) == entry.sha256 {
                 entry.access = clock
                 entries[key] = entry
                 return bytes
             }
+            if bytes != nil {
+                // This log deliberately excludes the session-scoped media URL.
+                NSLog("TypeType SABR CACHE integrity-failure expectedBytes=%d actualBytes=%d",
+                      entry.count, bytes?.count ?? -1)
+            }
+            try? FileManager.default.removeItem(at: entry.file)
             entries[key] = nil
             used = max(0, used - entry.count)
         }
@@ -119,7 +132,10 @@ actor SabrFragmentCache {
                 do {
                     try value.write(to: file, options: .atomic)
                     clock &+= 1
-                    entries[key] = Entry(file: file, count: value.count, access: clock, media: nil)
+                    entries[key] = Entry(
+                        file: file, count: value.count, sha256: SHA256.hash(data: value),
+                        access: clock, media: nil
+                    )
                     used += value.count
                 } catch {
                     try? FileManager.default.removeItem(at: file)
