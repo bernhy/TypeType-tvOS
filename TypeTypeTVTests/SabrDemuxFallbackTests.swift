@@ -24,7 +24,7 @@ final class SabrDemuxFallbackTests: XCTestCase {
             stage: "reader-start", errorDomain: "NSURLErrorDomain"))
         XCTAssertFalse(SabrDemuxFallbackPolicy.isCodecSpecificReaderFailure(
             stage: "reader-start", errorDomain: "NSCocoaErrorDomain"))
-        XCTAssertFalse(SabrDemuxFallbackPolicy.isCodecSpecificReaderFailure(
+        XCTAssertTrue(SabrDemuxFallbackPolicy.isCodecSpecificReaderFailure(
             stage: "load-track", errorDomain: "NSOSStatusErrorDomain"))
     }
 }

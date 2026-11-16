@@ -411,7 +411,10 @@ enum FragmentedMP4Reader {
 /// access, or temporary-file errors into representation retries.
 enum SabrDemuxFallbackPolicy {
     static func isCodecSpecificReaderFailure(stage: String, errorDomain: String) -> Bool {
-        guard errorDomain == "AVFoundationErrorDomain" else { return false }
+        // A native reader can surface unsupported codec errors under
+        // either the AVFoundation or CoreMedia/VideoToolbox OSStatus domain.
+        guard errorDomain == "AVFoundationErrorDomain" ||
+              errorDomain == "NSOSStatusErrorDomain" else { return false }
         return [
             "load-track", "load-format", "reader-create",
             "reader-add", "reader-start", "sample-read",
