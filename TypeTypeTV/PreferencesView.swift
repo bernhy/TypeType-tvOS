@@ -279,7 +279,13 @@ struct PreferencesView: View {
                     .padding(.horizontal, 6)
                     .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
                     .modifier(TVRailRowHighlight(
-                        focused: focusedGroup == item, selected: group == item
+                        // Horizontal arrival may momentarily focus a nearby
+                        // category. The selected group is the only valid
+                        // white pill until vertical group navigation resumes.
+                        focused: TVRailVisualFocus.highlights(
+                            item, focused: focusedGroup, selected: group
+                        ),
+                        selected: group == item
                     ))
                 }
                 .buttonStyle(TVRailButtonStyle())

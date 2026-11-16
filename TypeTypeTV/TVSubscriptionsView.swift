@@ -28,6 +28,9 @@ struct TVSubscriptionsView: View {
     @State private var error: String?
     @State private var pageError: String?
     @FocusState private var focusedSubscription: String?
+    // Suppress a geometrically chosen neighbor while returning from video
+    // content; browsing Up/Down within this rail still works normally.
+    @State private var railBrowsingVertically = false
     @FocusState private var focusedVideo: String?
     @FocusState private var loadingRailFocused: Bool
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 22), count: 3)
@@ -201,6 +204,24 @@ struct TVSubscriptionsView: View {
                 await loadChannel(selectedChannelURL)
             }
         }
+        .onChange(of: focusedSubscription) { previous, next in
+            if next == nil {
+                railBrowsingVertically = false
+            } else if previous == nil {
+                railBrowsingVertically = false
+                if let next, let selectedChannelURL, next != selectedChannelURL {
+                    let expected = selectedChannelURL
+                    Task { @MainActor in
+                        await Task.yield()
+                        guard selectedChannelURL == expected,
+                              focusedSubscription == next else { return }
+                        focusedSubscription = expected
+                    }
+                }
+            } else {
+                railBrowsingVertically = true
+            }
+        }
         .onChange(of: showingShorts) { _, _ in
             guard let selectedChannelURL else { return }
             Task { await loadChannel(selectedChannelURL) }
@@ -251,7 +272,12 @@ struct TVSubscriptionsView: View {
                             .padding(.horizontal, 10)
                             .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
                             .modifier(TVRailRowHighlight(
-                                focused: focusedSubscription == channel.channelUrl,
+                                focused: TVRailVisualFocus.highlights(
+                                    channel.channelUrl,
+                                    focused: focusedSubscription,
+                                    selected: selectedChannelURL ?? channel.channelUrl,
+                                    browsingWithinRail: railBrowsingVertically
+                                ),
                                 selected: selectedChannelURL == channel.channelUrl
                             ))
                         }
@@ -260,9 +286,13 @@ struct TVSubscriptionsView: View {
                         .focused($focusedSubscription, equals: channel.channelUrl)
                         .onMoveCommand { direction in
                             if direction == .right {
+                                railBrowsingVertically = false
                                 enterChannel(channel.channelUrl)
                             } else if direction == .left {
+                                railBrowsingVertically = false
                                 onRevealMenu()
+                            } else if direction == .up || direction == .down {
+                                railBrowsingVertically = true
                             }
                         }
                         .accessibilityIdentifier("subscription-\(channel.channelUrl)")

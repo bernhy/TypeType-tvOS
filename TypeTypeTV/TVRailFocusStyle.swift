@@ -12,6 +12,21 @@ struct TVRailButtonStyle: ButtonStyle {
     }
 }
 
+/// A native tvOS horizontal move may focus a vertically closer *wrong* rail
+/// element for one frame before the explicit FocusState restoration wins.
+/// Never use that unverified focus value directly to draw our white focus pill.
+/// On entry, the logical selected destination owns the visual highlight.
+/// Only a confirmed movement *within* the rail can follow native focus.
+enum TVRailVisualFocus {
+    static func highlights<Item: Equatable>(
+        _ item: Item, focused: Item?, selected: Item,
+        browsingWithinRail: Bool = false
+    ) -> Bool {
+        guard let focused else { return false }
+        return browsingWithinRail ? focused == item : selected == item
+    }
+}
+
 /// One consistent appearance for the main rail and Settings subnavigation.
 /// The selected section stays TypeType red, including while it has focus.
 struct TVRailRowHighlight: ViewModifier {

@@ -16,6 +16,9 @@ struct LibraryView: View {
 
     @State private var selected: TVLibraryDestination = .standard(.watchLater)
     @FocusState private var focusedDestination: TVLibraryDestination?
+    // Only Up/Down moves already within this rail may visually follow the
+    // native focus. Left from content is pinned to the selected destination.
+    @State private var railBrowsingVertically = false
     @FocusState private var focusedVideoURL: String?
     @FocusState private var focusedRefresh: Bool
     @FocusState private var focusedEditPlaylist: Bool
@@ -165,6 +168,25 @@ struct LibraryView: View {
         }
         .background(TTTheme.ink)
         .task { await refresh() }
+        .onChange(of: focusedDestination) { previous, next in
+            if next == nil {
+                railBrowsingVertically = false
+            } else if previous == nil {
+                railBrowsingVertically = false
+                if let next, next != selected {
+                    // The nearest playlist/section can win the first native
+                    // focus frame. Restore the page that is actually shown.
+                    let expected = selected
+                    Task { @MainActor in
+                        await Task.yield()
+                        guard selected == expected, focusedDestination == next else { return }
+                        focusedDestination = expected
+                    }
+                }
+            } else {
+                railBrowsingVertically = true
+            }
+        }
         .task(id: focusRequest) {
             guard focusRequest >= 0 else { return }
             // Take focus before the asynchronous library requests complete.
@@ -315,7 +337,10 @@ struct LibraryView: View {
             .padding(.horizontal, 13)
             .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
             .modifier(TVRailRowHighlight(
-                focused: focusedDestination == destination,
+                focused: TVRailVisualFocus.highlights(
+                    destination, focused: focusedDestination, selected: selected,
+                    browsingWithinRail: railBrowsingVertically
+                ),
                 selected: selected == destination
             ))
         }
@@ -324,9 +349,13 @@ struct LibraryView: View {
         .focused($focusedDestination, equals: destination)
         .onMoveCommand { direction in
             if direction == .right {
+                railBrowsingVertically = false
                 enterDestination(destination)
             } else if direction == .left {
+                railBrowsingVertically = false
                 onRevealMenu()
+            } else if direction == .up || direction == .down {
+                railBrowsingVertically = true
             }
         }
         .accessibilityAddTraits(selected == destination ? .isSelected : [])

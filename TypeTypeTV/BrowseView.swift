@@ -330,10 +330,15 @@ struct BrowseView: View {
             .frame(height: 52)
             .frame(maxWidth: .infinity, alignment: .leading)
             .modifier(TVRailRowHighlight(
-                // Paint the destination immediately, not a one-frame
-                // geometrically chosen neighbor during the rail handoff.
-                focused: returnToRailTarget == item ||
-                    (returnToRailTarget == nil && menuFocus == item),
+                // Rendering from native menuFocus alone flashes "Account"
+                // before the return-to-Settings handoff has settled.
+                // Paint ONLY the logical destination while crossing rails;
+                // @FocusState still drives the actual Siri Remote controls.
+                focused: !enteringFromMenu && !menuHandoffActive &&
+                    TVRailVisualFocus.highlights(
+                        item, focused: returnToRailTarget ?? menuFocus,
+                        selected: section
+                    ),
                 selected: section == item
             ))
         }
