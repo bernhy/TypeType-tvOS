@@ -11424,6 +11424,62 @@
           }
         }
       }
+    },
+    "video.shortsBadge": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SHORTS"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SHORTS"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SHORTS"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SHORTS"
+          }
+        }
+      }
+    },
+    "action.durationUnavailable": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Videolänge ist noch nicht verfügbar. Bitte erneut versuchen, nachdem die Videodetails geladen wurden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video duration is not available yet. Try again after the video details finish loading."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La durée de la vidéo n’est pas encore disponible. Réessayez après le chargement des détails."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La duración del vídeo aún no está disponible. Vuelve a intentarlo cuando terminen de cargarse los detalles."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
