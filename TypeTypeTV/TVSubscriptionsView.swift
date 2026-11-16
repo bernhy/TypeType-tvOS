@@ -45,6 +45,7 @@ struct TVSubscriptionsView: View {
     @FocusState private var loadingRailFocused: Bool
     @FocusState private var subscriptionButtonFocused: Bool
     @FocusState private var focusedChannelTab: ChannelTab?
+    @FocusState private var focusedAction: String?
 
     private enum ChannelTab: Hashable {
         case videos, shorts
@@ -120,6 +121,8 @@ struct TVSubscriptionsView: View {
                                         subscriptionButtonFocused = true
                                     } else if direction == .right {
                                         focusedChannelTab = .shorts
+                                    } else if direction == .down {
+                                        focusedAction = "playlists"
                                     }
                                 }
                             Button("channels.shorts") { showingShorts = true }
@@ -130,6 +133,8 @@ struct TVSubscriptionsView: View {
                                         subscriptionButtonFocused = true
                                     } else if direction == .left {
                                         focusedChannelTab = .videos
+                                    } else if direction == .down {
+                                        focusedAction = "playlists"
                                     }
                                 }
                         }
@@ -144,18 +149,21 @@ struct TVSubscriptionsView: View {
                             } label: {
                                 Label("channels.playlists", systemImage: "list.bullet.rectangle")
                             }
+                            .focused($focusedAction, equals: "playlists")
                             NavigationLink {
                                 TVChannelExtrasView(api: api, channelURL: selectedChannelURL,
                                                     kind: .community)
                             } label: {
                                 Label("channels.community", systemImage: "text.bubble")
                             }
+                            .focused($focusedAction, equals: "community")
                             NavigationLink {
                                 TVChannelExtrasView(api: api, channelURL: selectedChannelURL,
                                                     kind: .podcasts)
                             } label: {
                                 Label("channels.podcasts", systemImage: "mic")
                             }
+                            .focused($focusedAction, equals: "podcasts")
                             if hasCourses {
                                 NavigationLink {
                                     TVChannelExtrasView(api: api, channelURL: selectedChannelURL,
@@ -163,6 +171,7 @@ struct TVSubscriptionsView: View {
                                 } label: {
                                     Label("channels.courses", systemImage: "books.vertical")
                                 }
+                                .focused($focusedAction, equals: "courses")
                             }
                             Spacer()
                             if !showingShorts {
@@ -172,10 +181,24 @@ struct TVSubscriptionsView: View {
                                     Text("channels.sortOldest").tag("oldest")
                                 }
                                 .pickerStyle(.menu)
+                                .focused($focusedAction, equals: "sort")
                             }
                         }
                         .buttonStyle(.bordered)
                         .focusSection()
+                        .onMoveCommand { direction in
+                            if direction == .up {
+                                if supportsShorts &&
+                                   contentPreferences.settings?.hideShorts != true {
+                                    focusedChannelTab = showingShorts ? .shorts : .videos
+                                } else {
+                                    subscriptionButtonFocused = true
+                                }
+                            } else if direction == .down,
+                                      let first = visibleVideos.first {
+                                focusedVideo = first.url
+                            }
+                        }
                     }
                     if loadingVideos {
                         ProgressView("settings.remoteLoading")
@@ -231,13 +254,7 @@ struct TVSubscriptionsView: View {
                                 .accessibilityIdentifier("subscription-video-\(index)")
                                 .onMoveCommand { direction in
                                     if direction == .up && index < columns.count {
-                                        // All top-row thumbnails return to the
-                                        // tabs, not only the rightmost one.
-                                        if supportsShorts {
-                                            focusedChannelTab = showingShorts ? .shorts : .videos
-                                        } else {
-                                            subscriptionButtonFocused = true
-                                        }
+                                        focusedAction = "playlists"
                                     } else if direction == .left &&
                                                 index % columns.count == 0 &&
                                                 directChannelURL == nil {
@@ -387,10 +404,10 @@ struct TVSubscriptionsView: View {
         .accessibilityIdentifier("channel-subscription-toggle")
         .onMoveCommand { direction in
             if direction == .down {
-                if supportsShorts {
+                if supportsShorts && contentPreferences.settings?.hideShorts != true {
                     focusedChannelTab = showingShorts ? .shorts : .videos
-                } else if let first = videos.first {
-                    focusedVideo = first.url
+                } else if selectedChannelURL != nil {
+                    focusedAction = "playlists"
                 }
             }
         }
@@ -726,7 +743,8 @@ struct TVSubscriptionsView: View {
                                                  sort: sort)
             try Task.checkCancellation()
             guard channelRequestID == identifier,
-                  selectedChannelURL == channelURL, showingShorts == shorts else { return }
+                  selectedChannelURL == channelURL, showingShorts == shorts,
+                  videoSort == sort else { return }
             channelTitle = response.name
             channelAvatarURL = response.avatarUrl ?? ""
             channelDescription = response.description ?? ""
@@ -744,7 +762,8 @@ struct TVSubscriptionsView: View {
             // first page and pagination exactly like Home and Library.
             let enriched = await api.withProgress(response.videos)
             guard !Task.isCancelled, channelRequestID == identifier,
-                  selectedChannelURL == channelURL, showingShorts == shorts else { return }
+                  selectedChannelURL == channelURL, showingShorts == shorts,
+                  videoSort == sort else { return }
             videos = enriched
         } catch is CancellationError {
             return
