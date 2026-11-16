@@ -208,14 +208,18 @@ struct TVSubscriptionFeedView: View {
             guard !Task.isCancelled, requestID == id else { return }
             let progress = Dictionary(uniqueKeysWithValues: enriched.map { ($0.url, $0) })
             videos = videos.map { progress[$0.url] ?? $0 }
-        } catch TypeTypeError.http(let code, _) where code == 409 {
-            nextCursor = nil
-            loadingMore = false
-            await reload()
         } catch is CancellationError {
             return
         } catch {
-            if requestID == id { pageError = error.localizedDescription }
+            if TVServerErrorMapping.httpStatus(error) == 409 {
+                // A stale subscription snapshot cursor is recoverable whether
+                // the server provided JSON error metadata or a bare status.
+                nextCursor = nil
+                loadingMore = false
+                await reload()
+            } else if requestID == id {
+                pageError = error.localizedDescription
+            }
         }
     }
 }
