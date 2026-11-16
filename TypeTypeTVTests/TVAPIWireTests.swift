@@ -1236,3 +1236,58 @@ extension TVAPIWireTests {
         XCTAssertEqual(records[5].0, "DELETE")
     }
 }
+
+
+extension TVAPIWireTests {
+    func testCommentsRepliesAndAuthenticatedVoiceWireContract() async throws {
+        let lock = NSLock()
+        var requests: [(String, [URLQueryItem], String?)] = []
+        TVAPIWireProtocol.install(host: "comments-wire.example") { request in
+            let comps = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+            lock.withLock {
+                requests.append((request.url?.path ?? "", comps?.queryItems ?? [],
+                                 request.value(forHTTPHeaderField: "Authorization")))
+            }
+            switch request.url?.path {
+            case "/api/comments":
+                return (200, Data(#"{"comments":[{"id":"comment1","text":"Nice &amp; clear","author":"Author","authorUrl":"https://youtube.com/@author","authorAvatarUrl":"","likeCount":10,"textualLikeCount":"10","publishedTime":"Yesterday","isHeartedByUploader":true,"isPinned":false,"uploaderVerified":false,"replyCount":1,"repliesPage":"reply-token","image":{"url":"https://example.com/image.webp","animated":true},"voiceReply":{"url":"https://www.youtube.com/watch?v=98765432109","durationMs":3000,"transcript":"Hello","playable":true}}],"nextpage":"comment-next","commentsDisabled":false}"#.utf8))
+            case "/api/comments/replies":
+                return (200, Data(#"{"comments":[{"id":"reply1","text":"Reply","author":"Responder","replyCount":0}],"nextpage":null,"commentsDisabled":false}"#.utf8))
+            case "/api/comments/voice":
+                return (200, Data([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]))
+            default:
+                return (404, Data())
+            }
+        }
+        let api = try fixtureAPI(host: "comments-wire.example")
+        let videoURL = "https://www.youtube.com/watch?v=abc123def45"
+        let page = try await api.comments(videoURL: videoURL)
+        XCTAssertEqual(page.nextpage, "comment-next")
+        XCTAssertEqual(page.comments.first?.id, "comment1")
+        XCTAssertEqual(page.comments.first?.image?.animated, true)
+        XCTAssertEqual(page.comments.first?.voiceReply?.transcript, "Hello")
+        XCTAssertEqual(page.comments.first?.repliesPage, "reply-token")
+        let replyPage = try await api.commentReplies(videoURL: videoURL,
+                                                     repliesPage: "reply-token")
+        XCTAssertEqual(replyPage.comments.first?.id, "reply1")
+        let voiceBytes = try await api.commentVoiceAudio(
+            watchURL: "https://www.youtube.com/watch?v=98765432109"
+        )
+        XCTAssertEqual(voiceBytes.count, 8)
+        let collected = lock.withLock { requests }
+        XCTAssertEqual(collected.count, 3)
+        XCTAssertTrue(collected.allSatisfy { $0.2 == "Bearer fixture-token" })
+        XCTAssertEqual(collected[0].1.first(where: { $0.name == "url" })?.value,
+                       videoURL)
+        XCTAssertEqual(collected[1].1.first(where: { $0.name == "repliesPage" })?.value,
+                       "reply-token")
+        XCTAssertEqual(collected[2].1.first(where: { $0.name == "url" })?.value,
+                       "https://www.youtube.com/watch?v=98765432109")
+    }
+
+    func testCommentTextStripsHTMLButPreservesReadableLines() {
+        XCTAssertEqual(TVCommentText.plain("Hello<br />world &amp; friends"),
+                       "Hello\nworld & friends")
+        XCTAssertEqual(TVCommentText.plain("<b>Hi</b> &lt;3"), "Hi <3")
+    }
+}
