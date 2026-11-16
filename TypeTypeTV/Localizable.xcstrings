@@ -14734,25 +14734,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dieser TypeType-Server unterstützt diese Funktion noch nicht. Sie wird verfügbar, sobald der entsprechende API-Endpunkt bereitsteht."
+            "value": "Diese Kanal-Funktion ist auf deiner TypeType-Instanz gerade nicht erreichbar. Bitte die installierte Serverversion und gegebenenfalls den Reverse-Proxy prüfen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This TypeType server does not support this feature yet. It will become available once the relevant API endpoint is provided."
+            "value": "This channel feature is not available on your TypeType instance right now. Check the installed server version and, if applicable, the reverse proxy."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce serveur TypeType ne prend pas encore en charge cette fonction. Elle sera disponible lorsque l’API correspondante sera proposée."
+            "value": "Cette fonction de chaîne n’est actuellement pas accessible sur votre instance TypeType. Vérifiez la version du serveur et, le cas échéant, le proxy inverse."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este servidor TypeType todavía no admite esta función. Estará disponible cuando proporcione la API correspondiente."
+            "value": "Esta función del canal no está disponible en tu instancia de TypeType en este momento. Comprueba la versión del servidor y, si procede, el proxy inverso."
           }
         }
       }
