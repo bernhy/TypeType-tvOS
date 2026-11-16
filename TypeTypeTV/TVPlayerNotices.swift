@@ -98,6 +98,37 @@ enum SabrManualQualityFallbackPolicy {
         }
     }
 
+    /// Keep logs useful without ever emitting upstream terminalError text,
+    /// playback URLs, or authentication/session data.
+    static func diagnosticCode(for error: Error) -> String {
+        guard let failure = error as? SabrFailure else {
+            return error is CancellationError ? "cancelled" : "other-error"
+        }
+        switch failure {
+        case .unsupported(let text):
+            if text.contains("VideoToolbox") { return "decoder-session" }
+            if text.contains("AVAssetReader") { return "reader-unsupported" }
+            if text.contains("compressed") { return "compressed-unsupported" }
+            return "unsupported"
+        case .invalidResponse(let text):
+            if text.contains("compressed sample has no data buffer") { return "compressed-no-data" }
+            if text.contains("codec format description") { return "format-missing" }
+            if text.contains("sample timing") { return "sample-timing" }
+            if text.contains("noncontiguous native timestamps") { return "native-timestamps" }
+            if text.contains("segment window timed out") { return "window-timeout" }
+            if text.contains("SABR window stopped advancing") { return "window-stalled" }
+            if text.contains("SABR segment gap") { return "segment-gap" }
+            if text.contains("SABR sample") { return "sample-invalid" }
+            return "invalid-response-other"
+        case .expired: return "session-expired"
+        case .stalled: return "stalled"
+        case .server(let status, _): return "http-\(status)"
+        case .throttled: return "throttled"
+        case .unavailable: return "unavailable"
+        case .stopped: return "stopped"
+        }
+    }
+
     static func reasonKey(for error: Error) -> String {
         guard let failure = error as? SabrFailure else {
             return "player.formatErrorGeneral"

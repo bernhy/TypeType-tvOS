@@ -21,6 +21,25 @@ final class TVPlayerNoticesTests: XCTestCase {
         XCTAssertTrue(stack.items.isEmpty)
     }
 
+    func testDiagnosticLogCodeNeverExposesUpstreamTokens() {
+        let message = "SABR upstream https://example.invalid/private/token=secret"
+        XCTAssertEqual(
+            SabrManualQualityFallbackPolicy.diagnosticCode(
+                for: SabrFailure.invalidResponse(message)),
+            "invalid-response-other"
+        )
+        XCTAssertEqual(
+            SabrManualQualityFallbackPolicy.diagnosticCode(
+                for: SabrFailure.invalidResponse("SABR compressed sample has no data buffer")),
+            "compressed-no-data"
+        )
+        XCTAssertEqual(
+            SabrManualQualityFallbackPolicy.diagnosticCode(
+                for: SabrFailure.unsupported("AVAssetReader cannot demux this video representation")),
+            "reader-unsupported"
+        )
+    }
+
     func testEveryNoticeLastsAtLeastTenSeconds() {
         XCTAssertEqual(TVPlayerNoticePolicy.seconds(0), 10)
         XCTAssertEqual(TVPlayerNoticePolicy.seconds(-1), 10)

@@ -1205,10 +1205,11 @@ final class SabrPlayerController: ObservableObject {
                                 ))
                             }
                         }
-                        NSLog("TypeType SABR QUALITY stop itag=%d index=%d total=%d initialized=%d manual=%d reason=%@",
+                        NSLog("TypeType SABR QUALITY stop itag=%d index=%d total=%d initialized=%d manual=%d reason=%@ detail=%@",
                               choice.video.itag, index + 1, orderedOptions.count,
                               isInitialized ? 1 : 0, manualFallbackActive ? 1 : 0,
-                              SabrManualQualityFallbackPolicy.reasonKey(for: error))
+                              SabrManualQualityFallbackPolicy.reasonKey(for: error),
+                              SabrManualQualityFallbackPolicy.diagnosticCode(for: error))
                         throw error
                     }
                     if manualFallbackActive {
@@ -1224,10 +1225,11 @@ final class SabrPlayerController: ObservableObject {
                             format: TVL10n.value("player.formatTryNext"),
                             current, reason, next
                         ))
-                        NSLog("TypeType SABR QUALITY manual-fallback failedItag=%d failedCodec=%@ failedHeight=%d nextItag=%d reason=%@",
+                        NSLog("TypeType SABR QUALITY manual-fallback failedItag=%d failedCodec=%@ failedHeight=%d nextItag=%d reason=%@ detail=%@",
                               choice.video.itag, choice.video.codec,
                               choice.video.height ?? 0, orderedOptions[index + 1].video.itag,
-                              SabrManualQualityFallbackPolicy.reasonKey(for: error))
+                              SabrManualQualityFallbackPolicy.reasonKey(for: error),
+                              SabrManualQualityFallbackPolicy.diagnosticCode(for: error))
                         // Only the chosen track was manual; alternatives
                         // remain in this run's bounded manual fallback chain.
                         requestedVideoItag = nil
