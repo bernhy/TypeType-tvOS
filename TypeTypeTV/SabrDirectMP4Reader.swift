@@ -6,23 +6,18 @@ import Foundation
 /// Unlike AVAssetReader, this reads moof/traf/trun/tfdt and copies only the
 /// referenced mdat sample bytes into CoreMedia buffers without touching disk.
 /// The MP4 parser is maintained under MPL-2.0 in SabrDirect/.
+/// Native sample-buffer renderers are the only SABR decode path. Unsupported
+/// sample entries trigger the existing quality/codec selection fallback,
+/// rather than reviving the old temporary-file AVAssetReader pipeline.
 enum SabrNativePlaybackPolicy {
-    static let defaultsKey = "typetype.sabrDirectMP4Enabled"
-
-    static func usesDirectRenderer(videoCodec: String, audioCodec: String?,
-                                   audioMIME: String?,
-                                   defaults: UserDefaults = .standard) -> Bool {
-        // Enabled for this experimental branch. Setting false explicitly
-        // leaves the preexisting AVAssetReader + VideoToolbox path intact.
-        if defaults.object(forKey: defaultsKey) as? Bool == false { return false }
-        let video = videoCodec.lowercased()
-        let h26x = video.hasPrefix("avc1") || video.hasPrefix("avc3")
-            || video.hasPrefix("hvc1") || video.hasPrefix("hev1")
-            || video.hasPrefix("vp09") || video.hasPrefix("vp9")
-            || video.hasPrefix("av01")
+    static func supports(videoCodec: String, audioCodec: String?,
+                         audioMIME: String?) -> Bool {
+        let codec = videoCodec.lowercased()
+        let video = ["avc1", "avc3", "hvc1", "hev1", "vp09", "vp9", "av01"]
+            .contains(where: { codec.hasPrefix($0) })
         let audio = (audioCodec ?? "").lowercased()
         let mime = (audioMIME ?? "").lowercased()
-        return h26x && (audio.hasPrefix("mp4a") || mime.contains("audio/mp4"))
+        return video && (audio.hasPrefix("mp4a") || mime.contains("audio/mp4"))
     }
 }
 
@@ -51,8 +46,15 @@ enum SabrDirectMP4Reader {
                         mediaType: mediaType,
                         presentationStartMs: presentationStartMs
                     ))
+                } catch is CancellationError {
+                    continuation.resume(throwing: CancellationError())
                 } catch {
-                    continuation.resume(throwing: error)
+                    // Native parser / CoreMedia format errors are a codec
+                    // compatibility failure, so automatic selection can try
+                    // a different representation. Never expose media URLs.
+                    continuation.resume(throwing: SabrFailure.unsupported(
+                        "Native fMP4 sample format unavailable"
+                    ))
                 }
             }
         }
@@ -118,38 +120,3 @@ enum SabrDirectMP4Reader {
     }
 }
 
-/// A direct-parser failure is non-terminal: use the proven AVAssetReader
-/// demuxer for this particular segment, without changing session generation
-/// or losing the old SABR recovery, timestamp and AAC trim logic.
-enum SabrMediaDemux {
-    static func samples(initialization: Data, fragment: Data,
-                        mediaType: AVMediaType, direct: Bool,
-                        presentationStartMs: Int64? = nil) async throws -> [CMSampleBuffer] {
-        guard direct else {
-            return try await FragmentedMP4Reader.compressedSamples(
-                initialization: initialization, fragment: fragment, mediaType: mediaType
-            )
-        }
-        do {
-            return try await SabrDirectMP4Reader.compressedSamples(
-                initialization: initialization, fragment: fragment,
-                mediaType: mediaType, presentationStartMs: presentationStartMs
-            )
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            // No URLs, session IDs, bearer tokens or private media bytes in logs.
-            let family: String
-            switch error {
-            case is MP4Error: family = "box"
-            case is MP4MediaError: family = "sample"
-            default: family = "other"
-            }
-            NSLog("TypeType SABR DIRECT demux-fallback track=%@ family=%@ initBytes=%d mediaBytes=%d",
-                  mediaType.rawValue, family, initialization.count, fragment.count)
-            return try await FragmentedMP4Reader.compressedSamples(
-                initialization: initialization, fragment: fragment, mediaType: mediaType
-            )
-        }
-    }
-}
