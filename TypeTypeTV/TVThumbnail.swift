@@ -1,5 +1,29 @@
 import SwiftUI
 import UIKit
+import ImageIO
+
+/// Decode only a bounded thumbnail instead of eagerly expanding potentially
+/// huge third-party images. This limits memory spikes from highly compressed
+/// CDN artwork without changing the original aspect ratio.
+enum TVThumbnailDecoder {
+    static let maximumPixelDimension = 2_048
+
+    static func decode(_ data: Data) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maximumPixelDimension,
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(
+            source, 0, options as CFDictionary
+        ) else { return nil }
+        return UIImage(cgImage: image)
+    }
+}
 
 @MainActor
 private final class TVThumbnailMemory {
@@ -96,8 +120,9 @@ struct TVThumbnail: View {
             let (data, response) = try await session.data(for: request)
             guard !Task.isCancelled, let http = response as? HTTPURLResponse,
                   http.statusCode == 200, data.count <= 8_000_000,
-                  let decoded = UIImage(data: data) else { return }
-            let size = Int(decoded.size.width * decoded.size.height * 4)
+                  let decoded = TVThumbnailDecoder.decode(data),
+                  let image = decoded.cgImage else { return }
+            let size = image.bytesPerRow * image.height
             TVThumbnailMemory.shared.configuredCache().setObject(decoded, forKey: key, cost: size)
             bitmap = decoded
         } catch {
