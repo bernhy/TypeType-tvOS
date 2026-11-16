@@ -101,7 +101,7 @@ struct LibraryView: View {
                             .foregroundStyle(.orange).lineLimit(2)
                     }
                     if loading {
-                        ProgressView("settings.remoteLoading")
+                        TVPulsingPlaceholder()
                             .frame(maxWidth: .infinity, minHeight: 230)
                     } else if let statusMessage {
                         TVContentMessage(

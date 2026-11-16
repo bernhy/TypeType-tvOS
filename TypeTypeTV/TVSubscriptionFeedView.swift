@@ -39,7 +39,7 @@ struct TVSubscriptionFeedView: View {
                     ProgressView("subscriptions.feedPreparing")
                         .frame(maxWidth: .infinity, minHeight: 120)
                 } else if loading && videos.isEmpty {
-                    ProgressView("settings.remoteLoading")
+                    TVPulsingPlaceholder()
                         .frame(maxWidth: .infinity, minHeight: 180)
                 }
                 if let error {

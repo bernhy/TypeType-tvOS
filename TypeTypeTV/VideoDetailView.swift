@@ -6,6 +6,8 @@ struct VideoDetailView: View {
     var playbackQueue: [VideoItem]? = nil
     var onReturnToList: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var heroVisible = false
     @State private var favorite = false
     @State private var watchLater = false
     @State private var activityLoaded = false
@@ -184,6 +186,7 @@ struct VideoDetailView: View {
                                     } label: {
                                         Label(TVL10n.value("library.favorites"),
                                               systemImage: favorite ? "heart.fill" : "heart")
+                                            .symbolEffect(.bounce, value: favorite && !reduceMotion)
                                     }
                                     .accessibilityAddTraits(favorite ? .isSelected : [])
                                     .buttonStyle(.bordered)
@@ -195,6 +198,7 @@ struct VideoDetailView: View {
                                     } label: {
                                         Label(TVL10n.value("library.watchLater"),
                                               systemImage: watchLater ? "bookmark.fill" : "bookmark")
+                                            .symbolEffect(.bounce, value: watchLater && !reduceMotion)
                                     }
                                     .accessibilityAddTraits(watchLater ? .isSelected : [])
                                     .buttonStyle(.bordered)
@@ -273,6 +277,8 @@ struct VideoDetailView: View {
                             TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
                                         origin: api.origin)
                                 .frame(width: proxy.size.width, height: proxy.size.height)
+                                .scaleEffect(heroVisible || reduceMotion ? 1 : 0.94)
+                                .opacity(heroVisible || reduceMotion ? 1 : 0)
                                 .clipped()
                             LinearGradient(
                                 stops: [
@@ -365,6 +371,11 @@ struct VideoDetailView: View {
             .background(TTTheme.ink)
             .defaultFocus($focusedDetail, .play)
             .task(id: video.url) {
+                if !heroVisible {
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.38)) {
+                        heroVisible = true
+                    }
+                }
                 if initiallyFocusedVideoURL != video.url {
                     initiallyFocusedVideoURL = video.url
                     // tvOS otherwise chooses the first focusable item,

@@ -195,6 +195,7 @@ struct BrowseView: View {
                     Text("TypeType")
                         .font(.system(size: 23, weight: .bold))
                         .lineLimit(1)
+                        .transition(.opacity)
                 }
                 Spacer(minLength: 0)
             }
@@ -227,7 +228,7 @@ struct BrowseView: View {
         // Disable it for the entire rail; only our pill is allowed to render.
         .environment(\.isFocusEffectEnabled, false)
         .focusEffectDisabled(true)
-        .animation(navigationAnimations ? .easeInOut(duration: 0.16) : nil, value: expanded)
+        .animation(navigationAnimations ? .easeInOut(duration: 0.28) : nil, value: expanded)
         .focusSection()
         .onExitCommand {
             // Back while the global rail is focused goes to Home. The final
@@ -302,6 +303,7 @@ struct BrowseView: View {
                         Text(item.localizedLabel)
                             .font(.system(size: 20, weight: .medium))
                             .lineLimit(1)
+                            .transition(.opacity)
                     }
                     Spacer(minLength: 0)
                 }
@@ -515,7 +517,7 @@ struct HomeView: View {
                     Text("home.recentlyWatched")
                         .font(.system(size: 35, weight: .bold))
                     if loadingRecent && recentVideos.isEmpty {
-                        ProgressView("home.loadingHistory")
+                        TVPulsingPlaceholder()
                             .frame(maxWidth: .infinity, minHeight: 135)
                     } else if !recentVideos.isEmpty {
                         videoGrid(recentVideos, scroll: scroll,
@@ -550,7 +552,7 @@ struct HomeView: View {
                             .foregroundStyle(TTTheme.muted)
                     }
                     if loading && videos.isEmpty {
-                        ProgressView("home.loading")
+                        TVPulsingPlaceholder()
                             .frame(maxWidth: .infinity, minHeight: 200)
                     } else if videos.isEmpty {
                         TVContentMessage(
