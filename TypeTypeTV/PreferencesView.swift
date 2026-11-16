@@ -327,6 +327,7 @@ struct PreferencesView: View {
         case .content:
             return remote == nil ? "content.retry" :
                 "content." + TVServerToggle.allCases[0].rawValue
+        case .blocked: return "blocked.refresh"
         case .device: return "device.skip"
         case .language: return "control.language"
         case .account:
@@ -356,6 +357,9 @@ struct PreferencesView: View {
                                        focus: $focusedControl,
                                        onMoveLeft: returnFocusToGroup)
         case .content: contentPanel
+        case .blocked:
+            TVBlockedSettingsView(api: api, focus: $focusedControl,
+                                  onMoveLeft: returnFocusToGroup)
         case .device: devicePanel
         case .language: languagePanel
         case .account: accountPanel

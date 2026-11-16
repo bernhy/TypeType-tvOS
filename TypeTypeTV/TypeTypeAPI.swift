@@ -635,6 +635,33 @@ struct TypeTypeAPI {
                                method: "POST", body: try JSONEncoder().encode(payload))
     }
 
+    func blockedVideos() async throws -> [TVBlockedItem] {
+        try await get("blocked/videos")
+    }
+
+    func blockedChannels() async throws -> [TVBlockedItem] {
+        try await get("blocked/channels")
+    }
+
+    func blockedKeywords() async throws -> [TVBlockedKeyword] {
+        try await get("blocked/keywords")
+    }
+
+    func removeBlock(_ category: TVBlockedCategory, value: String) async throws {
+        let url = try TVBlockedRoutes.itemURL(base: base, category: category, key: value)
+        try await writeLibrary(url, method: "DELETE", body: nil)
+    }
+
+    func addBlockedKeyword(_ raw: String) async throws {
+        let keyword = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (1...100).contains(keyword.count) else {
+            throw TypeTypeError.invalidServerAddress
+        }
+        try await writeLibrary(base.appendingPathComponent("blocked/keywords"),
+                               method: "POST",
+                               body: try JSONEncoder().encode(TVBlockedKeywordWrite(keyword: keyword)))
+    }
+
     func blockVideo(_ video: VideoItem) async throws {
         try await writeLibrary(
             base.appendingPathComponent("blocked/videos"), method: "POST",
