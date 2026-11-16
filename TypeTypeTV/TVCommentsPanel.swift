@@ -39,15 +39,19 @@ struct TVCommentsPanel: View {
                 }
             }
             .focusSection()
-            if loadingMore {
-                ProgressView("video.commentsLoadingMore")
-                    .frame(maxWidth: .infinity)
-            } else if nextPage != nil && !disabled {
-                Button("video.commentsLoadMore") {
+            if (nextPage != nil || loadingMore) && !disabled {
+                Button {
                     Task { await more() }
+                } label: {
+                    HStack(spacing: 12) {
+                        if loadingMore { ProgressView().controlSize(.small) }
+                        Text("video.commentsLoadMore")
+                    }
                 }
                 .buttonStyle(.bordered)
                 .accessibilityIdentifier("video-comments-load-more")
+                // Never remove/disable the focused button while paging:
+                // tvOS otherwise jumps to the first comment.
             }
             if let pageError {
                 Text(pageError).foregroundStyle(.orange)
@@ -190,9 +194,14 @@ struct TVCommentRepliesPanel: View {
                     Task { await fetch(nextPage ?? firstPage, reset: comments.isEmpty) }
                 }
                 .buttonStyle(.bordered)
-            } else if !loading, let nextPage {
-                Button("video.commentsLoadMore") {
+            } else if let nextPage {
+                Button {
                     Task { await fetch(nextPage, reset: false) }
+                } label: {
+                    HStack(spacing: 12) {
+                        if loading { ProgressView().controlSize(.small) }
+                        Text("video.commentsLoadMore")
+                    }
                 }
                 .buttonStyle(.bordered)
             }

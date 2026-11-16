@@ -32,6 +32,7 @@ struct VideoDetailView: View {
     @FocusState private var focusedDetail: DetailFocus?
     @State private var initiallyFocusedVideoURL: String?
     @State private var descriptionScrollCommand = 0
+    @State private var fullDescriptionPresented = false
 
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
 
@@ -406,37 +407,32 @@ struct VideoDetailView: View {
                                 .focusSection()
                         } else if let description = descriptionText,
                                   !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            // The UIKit UITextView keeps its own accessibility
-                            // identifier and indirect Siri Remote pan gesture.
-                            ZStack {
-                                TVRemoteDescriptionScrollView(
-                                    text: description,
-                                    scrollCommand: descriptionScrollCommand
-                                )
-                                #if DEBUG
-                                if api.origin.host == "preview.invalid" {
-                                    Text(focusedDetail == .descriptionBody
-                                         ? "descriptionBody" : "other")
-                                        .font(.system(size: 1))
-                                        .foregroundStyle(.clear)
-                                        .accessibilityIdentifier("video-description-focus-state")
+                            Button {
+                                fullDescriptionPresented = true
+                            } label: {
+                                VStack(alignment: .leading, spacing: 15) {
+                                    Text(String(description.prefix(430)) +
+                                         (description.count > 430 ? "…" : ""))
+                                        .font(.body)
+                                        .foregroundStyle(TTTheme.muted)
+                                        .multilineTextAlignment(.leading)
+                                        .lineLimit(7)
+                                    Label("video.descriptionOpenFull",
+                                          systemImage: "arrow.up.left.and.arrow.down.right")
+                                        .font(.callout.bold())
+                                        .foregroundStyle(TTTheme.accent)
                                 }
-                                #endif
+                                .padding(25)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(TTTheme.surface,
+                                            in: RoundedRectangle(cornerRadius: 12))
+                                .modifier(TVCardFocusHalo(
+                                    focused: focusedDetail == .descriptionBody))
                             }
-                            .frame(height: 370)
-                            .background(TTTheme.surface,
-                                        in: RoundedRectangle(cornerRadius: 12))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .accessibilityElement(children: .contain)
-                            .focusable(true)
-                            .focusEffectDisabled()
+                            .buttonStyle(TVRailButtonStyle())
+                            .focusEffectDisabled(true)
                             .focused($focusedDetail, equals: .descriptionBody)
                             .accessibilityIdentifier("video-description-focus")
-                            .onMoveCommand { direction in
-                                if direction == .down { descriptionScrollCommand += 1 }
-                                if direction == .up { descriptionScrollCommand -= 1 }
-                            }
-                            .id("description-viewport")
                             .focusSection()
                         }
                     }
@@ -487,7 +483,18 @@ struct VideoDetailView: View {
                 }
             }
         }
-        .onExitCommand { returnToList() }
+        .sheet(isPresented: $fullDescriptionPresented, onDismiss: {
+            focusedDetail = .descriptionBody
+        }) {
+            TVFullDescriptionPanel(description: descriptionText ?? "")
+        }
+        .onExitCommand {
+            if fullDescriptionPresented {
+                fullDescriptionPresented = false
+            } else {
+                returnToList()
+            }
+        }
     }
 
     @MainActor
@@ -502,7 +509,7 @@ struct VideoDetailView: View {
         else { return }
         selectedPane = .description
         withAnimation(.easeOut(duration: 0.24)) {
-            page.scrollTo("description-viewport", anchor: .center)
+            page.scrollTo("video-detail-tabs", anchor: .center)
         }
         Task { @MainActor in
             await Task.yield()

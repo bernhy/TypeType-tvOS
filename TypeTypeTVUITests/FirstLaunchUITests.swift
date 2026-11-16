@@ -813,41 +813,33 @@ final class TypeTypeTVUITests: XCTestCase {
             "Eine günstige TESLA Alternative? XPENG L03: Das perfekte E-Auto für Alltag und lange Reisen – ein ausführlicher Vergleich mit vielen Details")
     }
 
-    func testVideoDescriptionIsOneFocusableScrollableTextView() throws {
+    func testVideoDescriptionOpensFullTextWithoutLeavingDetails() throws {
         let app = XCUIApplication()
         app.launchArguments = [
             "-TypeTypeTVPreview", "detail-long", "-typetype.uiLanguage", "de"
         ]
         app.launch()
-        // The native UITextView can be represented by a generic accessibility
-        // element until its containing SwiftUI scroller enters the viewport.
-        let description = app.descendants(matching: .any)
-            .matching(identifier: "video-description-scroll").firstMatch
         let play = app.buttons["video-play"]
         let watched = app.buttons["Als angesehen markieren"]
-        let descriptionEntry = app.buttons["video-description-entry"]
-        XCTAssertTrue(play.hasFocus, "Play must be the initial focused control")
+        let entry = app.buttons["video-description-entry"]
+        XCTAssertTrue(play.hasFocus)
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(watched.hasFocus,
-                      "Down from Play should reach the secondary action row")
+        XCTAssertTrue(watched.hasFocus)
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(waitForFocus(descriptionEntry),
-                      "Another Down must reach the description below the hero")
-        XCTAssertGreaterThan(descriptionEntry.frame.minY, 0)
-        XCTAssertLessThan(descriptionEntry.frame.midY, app.frame.maxY,
-                          "The outer page must scroll description into view")
+        XCTAssertTrue(waitForFocus(entry))
         XCUIRemote.shared.press(.down)
-        let viewport = app.descendants(matching: .any)
-            .matching(identifier: "video-description-focus").firstMatch
-        XCTAssertTrue(description.waitForExistence(timeout: 8),
-                      "The native UITextView must remain accessible after entering its viewport")
-        // tvOS exposes the UIViewRepresentable wrapper as a generic element,
-        // and .hasFocus may be false even when SwiftUI's focus binding moved.
-        // The preview-only label reports the actual FocusState, without
-        // weakening the requirement that Down entered descriptionBody.
-        let focusedState = app.staticTexts["video-description-focus-state"]
-        XCTAssertTrue(waitForLabel(focusedState, expected: "descriptionBody"),
-                      "Remote Down must enter the scrollable description body")
+        let excerpt = app.buttons["video-description-focus"]
+        XCTAssertTrue(waitForFocus(excerpt))
+        XCUIRemote.shared.press(.select)
+        let close = app.buttons["video-full-description-close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 8),
+                      "Full description must open in a separate popup")
+        let scroll = app.descendants(matching: .any)
+            .matching(identifier: "video-description-scroll").firstMatch
+        XCTAssertTrue(scroll.waitForExistence(timeout: 8))
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(excerpt.waitForExistence(timeout: 8),
+                      "Back must return to the detail page")
     }
 
     func testLibraryOpensDirectlyOnSelectedSubnavigation() throws {
