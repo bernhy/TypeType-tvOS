@@ -80,6 +80,96 @@ final class TVAPIWireTests: XCTestCase {
         )
     }
 
+    func testInactiveProfileRefreshIsExplicitAndPreservesCurrentServer() async throws {
+        let oldHost = "inactive-refresh-\(UUID().uuidString.lowercased()).invalid"
+        let old = try XCTUnwrap(URL(string: "https://\(oldHost)/"))
+        let current = try XCTUnwrap(URL(string: "https://connected-\(UUID().uuidString.lowercased()).invalid/"))
+        let credentials = TypeTypeCredentials.shared
+        defer {
+            _ = TVStoredAccountCleanup.delete(old, excluding: current)
+            credentials.clear(for: current)
+        }
+        guard credentials.save("connected-access", for: current),
+              credentials.save("expired-access", for: old),
+              credentials.saveRefreshToken("old-refresh", for: old) else {
+            throw XCTSkip("Simulator Keychain unavailable")
+        }
+        let member = TVAccountIdentity(
+            id: "member-7", role: "user", publicUsername: "Member"
+        )
+        XCTAssertTrue(credentials.remember(
+            member, token: "expired-access", displayIdentifier: nil, for: old
+        ))
+
+        // The real server returns a signed JWT; the client only reads
+        // its unsigned subject for bookkeeping, not as authentication.
+        let payload = Data(#"{"sub":"member-7","sid":"test-session"}"#.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let renewedToken = "e30.\(payload).signature"
+        var refreshCalls = 0
+        TVAPIWireProtocol.install(
+            host: oldHost,
+            headers: ["Set-Cookie": "refresh_token=rotated-refresh; Path=/; Secure; HttpOnly"]
+        ) { request in
+            switch request.url?.path {
+            case "/api/auth/me":
+                if request.value(forHTTPHeaderField: "Authorization") ==
+                    "Bearer \(renewedToken)" {
+                    return (200, Data(
+                        #"{"id":"member-7","role":"user","publicUsername":"Member"}"#.utf8
+                    ))
+                }
+                return (401, Data(#"{"error":"Invalid token"}"#.utf8))
+            case "/api/auth/refresh":
+                refreshCalls += 1
+                XCTAssertEqual(request.httpMethod, "POST")
+                let body = (try? JSONSerialization.jsonObject(
+                    with: request.httpBody ?? Data()
+                )) as? [String: String]
+                XCTAssertEqual(body?["token"], "old-refresh")
+                return (200, Data(
+                    "{\\\"accessToken\\\":\\\"\(renewedToken)\\\"}".utf8
+                ))
+            default:
+                XCTFail("Unexpected session check endpoint \(request.url?.path ?? "")")
+                return (404, Data())
+            }
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [TVAPIWireProtocol.self]
+        let session = URLSession(configuration: config)
+        let login = TVInactiveLogin(
+            origin: old, userID: "member-7", label: "Member"
+        )
+        // Checking is not triggered by listing the old server.
+        let before = try TVStoredAccountCleanup.inactiveServers(excluding: current)
+        XCTAssertTrue(before.contains { $0.origin == old })
+        XCTAssertEqual(refreshCalls, 0)
+
+        let result = await TVInactiveAccountChecker.check(
+            login, currentOrigin: current, session: session
+        )
+        XCTAssertEqual(result, .renewed)
+        XCTAssertEqual(refreshCalls, 1)
+        XCTAssertEqual(credentials.profileAccessToken("member-7", for: old), renewedToken)
+        XCTAssertEqual(credentials.profileRefreshToken("member-7", for: old),
+                       "rotated-refresh")
+        // This was the selected profile on the former server; keep its
+        // legacy active slot consistent for reconnect without another login.
+        XCTAssertEqual(credentials.token(for: old), renewedToken)
+        XCTAssertEqual(credentials.refreshToken(for: old), "rotated-refresh")
+        XCTAssertEqual(credentials.token(for: current), "connected-access")
+
+        let rechecked = await TVInactiveAccountChecker.check(
+            login, currentOrigin: current, session: session
+        )
+        XCTAssertEqual(rechecked, .valid)
+        XCTAssertEqual(refreshCalls, 1)
+    }
+
     func testSponsorBlockGlobalModeSavesBothFieldsInOneAtomicPut() async throws {
         let host = "sponsor-settings-atomic.example"
         TVAPIWireProtocol.install(host: host) { request in
