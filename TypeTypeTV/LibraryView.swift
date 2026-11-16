@@ -295,7 +295,8 @@ struct LibraryView: View {
         .padding(.horizontal, 16)
         .padding(.bottom, 30)
         .frame(maxHeight: .infinity)
-        .background(TTTheme.surface)
+        // Black secondary navigation matches Settings; main rail remains gray.
+        .background(TTTheme.ink)
         .focusEffectDisabled(true)
     }
 
