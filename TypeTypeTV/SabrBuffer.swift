@@ -166,13 +166,11 @@ actor SabrFragmentCache {
         sessionId: String, generation: Int64,
         onBatch: (@MainActor ([SabrMediaReference]) async throws -> Void)? = nil
     ) async throws {
-        let ordered = references.sorted {
-            if $0.startMs != $1.startMs { return $0.startMs < $1.startMs }
-            return $0.itag < $1.itag
-        }
-        for offset in stride(from: 0, to: ordered.count, by: 2) {
+        // Preserve each track's real segment sequence even when the SABR
+        // metadata reports non-monotonic startMs. Never skip ahead to N+1
+        // simply because the server advertised an earlier timestamp.
+        for batch in SabrPrefetchOrder.batches(references) {
             try Task.checkCancellation()
-            let batch = Array(ordered[offset..<min(offset + 2, ordered.count)])
             try await withThrowingTaskGroup(of: Void.self) { group in
                 for item in batch {
                     group.addTask {
