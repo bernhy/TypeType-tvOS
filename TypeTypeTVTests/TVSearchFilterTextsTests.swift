@@ -7,10 +7,11 @@ final class TVSearchFilterTextsTests: XCTestCase {
             TVSearchFilterOption(value: "date|1|all", label: "all", isDefault: true),
             TVSearchFilterOption(value: "date|2|past_week", label: "past_week", isDefault: false),
             TVSearchFilterOption(value: "sort|1|sort_relevance", label: "sort_relevance", isDefault: true),
-            TVSearchFilterOption(value: "sort|2|sort_view", label: "sort_view", isDefault: false)
+            TVSearchFilterOption(value: "sort|2|sort_view", label: "sort_view", isDefault: false),
+            TVSearchFilterOption(value: "type|1|videos", label: "videos", isDefault: true)
         ]
         let list = TVSearchFilterTexts.choices(options)
-        XCTAssertEqual(list.map(\.value), ["date|2|past_week", "sort|2|sort_view"])
+        XCTAssertEqual(list.map(\.value), ["date|2|past_week", "sort|2|sort_view", "type|1|videos"])
         XCTAssertEqual(TVSearchFilterTexts.groupID("sortby|12"), "sortby")
     }
 

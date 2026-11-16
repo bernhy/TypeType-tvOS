@@ -115,8 +115,14 @@ enum TVSearchFilterTexts {
     /// The server supplies an explicit default (usually "all") *and* the
     /// client has an empty-value default. Keep exactly one displayed choice.
     static func choices(_ options: [TVSearchFilterOption]) -> [TVSearchFilterOption] {
-        options.filter {
-            $0.isDefault != true && normalized($0.label) != "all"
+        options.filter { option in
+            let name = normalized(option.label)
+            // "All" and the sort defaults are already represented by our
+            // synthetic picker item. A default "Videos" content type is NOT
+            // equivalent to "All" and must stay selectable.
+            return name != "all" &&
+                !(option.isDefault == true &&
+                  ["sortrelevance", "sortdefault", "relevance"].contains(name))
         }
     }
 
