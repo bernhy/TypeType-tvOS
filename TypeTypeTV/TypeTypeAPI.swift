@@ -115,6 +115,11 @@ struct TVSubscriptionFeedPage: Decodable {
 
 struct SearchResults: Decodable {
     let items: [VideoItem]
+    let nextpage: String?
+    let searchSuggestion: String?
+    let isCorrectedSearch: Bool?
+    let playlists: [TVPublicPlaylistSummary]?
+    let channels: [TVChannelSearchResult]?
 }
 
 struct StreamInfo: Decodable {
@@ -829,11 +834,40 @@ struct TypeTypeAPI {
         }
     }
 
-    func search(_ term: String) async throws -> SearchResults {
-        try await get("search", query: [
+    /// Dynamic search capabilities and opaque continuation values belong to
+    /// the Server. Repeat the 'filter' query parameter for grouped filters.
+    func searchFilters(contentFilter: String? = nil) async throws -> TVSearchFiltersResponse {
+        var query = [URLQueryItem(name: "service", value: "0")]
+        if let contentFilter, !contentFilter.isEmpty {
+            query.append(URLQueryItem(name: "contentFilter", value: contentFilter))
+        }
+        return try await get("search/filters", query: query)
+    }
+
+    func search(_ term: String, nextpage: String? = nil,
+                contentFilter: String? = nil, filters: [String] = []) async throws -> SearchResults {
+        var query = [
             URLQueryItem(name: "q", value: term),
             URLQueryItem(name: "service", value: "0")
-        ])
+        ]
+        if let nextpage, !nextpage.isEmpty {
+            query.append(URLQueryItem(name: "nextpage", value: nextpage))
+        }
+        if let contentFilter, !contentFilter.isEmpty {
+            query.append(URLQueryItem(name: "contentFilter", value: contentFilter))
+        }
+        query += filters.filter { !$0.isEmpty }.map {
+            URLQueryItem(name: "filter", value: $0)
+        }
+        return try await get("search", query: query)
+    }
+
+    func publicPlaylist(_ url: String, nextpage: String? = nil) async throws -> TVPublicPlaylistPage {
+        var query = [URLQueryItem(name: "url", value: url)]
+        if let nextpage, !nextpage.isEmpty {
+            query.append(URLQueryItem(name: "nextpage", value: nextpage))
+        }
+        return try await get("playlist", query: query)
     }
 
     func stream(for video: VideoItem) async throws -> StreamInfo {
