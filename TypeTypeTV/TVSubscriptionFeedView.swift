@@ -4,10 +4,14 @@ import SwiftUI
 /// querying every subscribed channel on the Apple TV.
 struct TVSubscriptionFeedView: View {
     let api: TypeTypeAPI
+    @ObservedObject private var contentPreferences = TVContentPreferences.shared
     var focusRequest = 0
     var onRevealMenu: () -> Void = {}
 
     @State private var videos: [VideoItem] = []
+    private var visibleVideos: [VideoItem] {
+        contentPreferences.displayed(videos, subscriptionFeed: true)
+    }
     @State private var nextCursor: String?
     @State private var loading = false
     @State private var loadingMore = false
@@ -50,7 +54,7 @@ struct TVSubscriptionFeedView: View {
                         action: { Task { await reload() } },
                         actionTitle: TVL10n.value("subscriptions.feedRetry")
                     )
-                } else if !loading && !preparing && videos.isEmpty {
+                } else if !loading && !preparing && visibleVideos.isEmpty {
                     TVContentMessage(
                         symbol: "play.rectangle",
                         title: TVL10n.value("subscriptions.feedEmpty"),
@@ -58,7 +62,7 @@ struct TVSubscriptionFeedView: View {
                     )
                 } else {
                     LazyVGrid(columns: columns, spacing: 32) {
-                        ForEach(Array(videos.enumerated()), id: \.offset) { index, video in
+                        ForEach(Array(visibleVideos.enumerated()), id: \.offset) { index, video in
                             NavigationLink {
                                 VideoDetailView(
                                     api: api, video: video,
@@ -83,7 +87,7 @@ struct TVSubscriptionFeedView: View {
                                 }
                             }
                             .onAppear {
-                                if index >= videos.count - columns.count - 1,
+                                if index >= visibleVideos.count - columns.count - 1,
                                    nextCursor != nil && !loading && !loadingMore &&
                                    pageError == nil {
                                     Task { await loadMore() }
@@ -111,11 +115,14 @@ struct TVSubscriptionFeedView: View {
             .padding(.bottom, 120)
         }
         .background(TTTheme.ink)
-        .task { await reload() }
+        .task {
+            await contentPreferences.ensureLoaded(api: api)
+            await reload()
+        }
         .task(id: focusRequest) {
             guard focusRequest > 0 else { return }
             await Task.yield()
-            focusedVideo = videos.first?.url
+            focusedVideo = visibleVideos.first?.url
         }
         .onChange(of: videos.map(\.url)) { _, urls in
             guard !urls.isEmpty, focusRequest > 0,

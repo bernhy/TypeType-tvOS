@@ -4,6 +4,7 @@ import SwiftUI
 /// Playlists. Source: GET /api/subscriptions + GET /api/channel?url=...
 struct TVSubscriptionsView: View {
     let api: TypeTypeAPI
+    @ObservedObject private var contentPreferences = TVContentPreferences.shared
     var focusRequest = 0
     var onRevealMenu: () -> Void = {}
     /// When opened from a video's channel link, show this specific channel
@@ -57,6 +58,7 @@ struct TVSubscriptionsView: View {
     }
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 22), count: 3)
+    private var visibleVideos: [VideoItem] { contentPreferences.displayed(videos) }
     private var supportsShorts: Bool {
         guard let url = selectedChannelURL else { return false }
         #if DEBUG
@@ -108,7 +110,7 @@ struct TVSubscriptionsView: View {
                                 .lineLimit(3)
                         }
                     }
-                    if supportsShorts {
+                    if supportsShorts && contentPreferences.settings?.hideShorts != true {
                         HStack(spacing: 15) {
                             Button("channels.videos") { showingShorts = false }
                                 .tint(showingShorts ? TTTheme.muted : TTTheme.accent)
@@ -194,7 +196,7 @@ struct TVSubscriptionsView: View {
                                 }
                             }
                         )
-                    } else if !loadingVideos && videos.isEmpty {
+                    } else if !loadingVideos && visibleVideos.isEmpty {
                         TVContentMessage(
                             symbol: "play.rectangle",
                             title: TVL10n.value("subscriptions.emptyVideos"),
@@ -205,7 +207,7 @@ struct TVSubscriptionsView: View {
                         )
                     } else {
                         LazyVGrid(columns: columns, spacing: 28) {
-                            ForEach(Array(videos.enumerated()), id: \.offset) { index, video in
+                            ForEach(Array(visibleVideos.enumerated()), id: \.offset) { index, video in
                                 NavigationLink {
                                     VideoDetailView(
                                         api: api, video: video,
@@ -307,6 +309,7 @@ struct TVSubscriptionsView: View {
                 returnToChannelRail()
             }
         }
+        .task { await contentPreferences.ensureLoaded(api: api) }
         .task(id: selectedChannelURL) {
             if let selectedChannelURL {
                 await loadChannel(selectedChannelURL)
@@ -337,6 +340,9 @@ struct TVSubscriptionsView: View {
             if let selectedChannelURL, !showingShorts {
                 Task { await loadChannel(selectedChannelURL) }
             }
+        }
+        .onChange(of: contentPreferences.settings?.hideShorts) { _, hidden in
+            if hidden == true && showingShorts { showingShorts = false }
         }
         .onChange(of: showingShorts) { _, _ in
             guard let selectedChannelURL else { return }

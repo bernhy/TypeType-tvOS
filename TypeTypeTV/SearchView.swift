@@ -4,6 +4,7 @@ import SwiftUI
 /// opaque; only values advertised by /search/filters are sent back.
 struct SearchView: View {
     let api: TypeTypeAPI
+    @ObservedObject private var contentPreferences = TVContentPreferences.shared
     @AppStorage("typetype.recentSearches") private var recentJSON = "[]"
     @State private var term = ""
     @State private var searchedTerm = ""
@@ -28,7 +29,8 @@ struct SearchView: View {
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 30), count: 4)
     private var history: [String] { TVRecentQueries.decode(recentJSON) }
-    private var allEmpty: Bool { videos.isEmpty && channels.isEmpty && playlists.isEmpty }
+    private var visibleVideos: [VideoItem] { contentPreferences.displayed(videos) }
+    private var allEmpty: Bool { visibleVideos.isEmpty && channels.isEmpty && playlists.isEmpty }
     private var selectedFilters: [String] {
         ([sortFilter] + groupSelections.keys.sorted().flatMap {
             groupSelections[$0, default: []].sorted()
@@ -181,11 +183,11 @@ struct SearchView: View {
                                 .focusSection()
                             }
 
-                            if !videos.isEmpty {
-                                Text(TVL10n.formatted("search.resultCount", videos.count, searchedTerm))
+                            if !visibleVideos.isEmpty {
+                                Text(TVL10n.formatted("search.resultCount", visibleVideos.count, searchedTerm))
                                     .font(.title2.bold())
                                 LazyVGrid(columns: columns, spacing: 42) {
-                                    ForEach(videos) { video in
+                                    ForEach(visibleVideos) { video in
                                         NavigationLink {
                                             VideoDetailView(
                                                 api: api, video: video,
@@ -236,7 +238,10 @@ struct SearchView: View {
                 .padding(.bottom, 110)
             }
             .background(TTTheme.ink)
-            .task { await loadFilterCapabilities() }
+            .task {
+                await contentPreferences.ensureLoaded(api: api)
+                await loadFilterCapabilities()
+            }
             .onChange(of: contentFilter) { _, _ in
                 groupSelections = [:]
                 Task {
