@@ -2470,14 +2470,16 @@ struct SabrPlayerView: View {
                         TimelineView(.periodic(from: .now, by: 1)) { _ in
                             HStack(spacing: 20) {
                                 Text(engine.timeLabel())
-                                    .monospacedDigit().frame(width: 105)
+                                    .monospacedDigit()
+                                    .frame(width: engine.durationMs >= 3_600_000 ? 140 : 105)
                                 ProgressView(
                                     value: SabrProgressDisplay.value(
                                         engine.playbackSeconds(), durationMs: engine.durationMs),
                                     total: SabrProgressDisplay.total(durationMs: engine.durationMs)
                                 )
                                 Text(engine.totalTimeLabel())
-                                    .monospacedDigit().frame(width: 105)
+                                    .monospacedDigit()
+                                    .frame(width: engine.durationMs >= 3_600_000 ? 140 : 105)
                             }
                         }
                         // Only the full-screen remote capture view should receive
