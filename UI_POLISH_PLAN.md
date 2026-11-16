@@ -1,6 +1,6 @@
 # tvOS UI polish: experiment plan
 
-Status: **proposal only**. No visual changes have been implemented. This work is isolated on `feat/tvos-ui-polish`; do not merge before real Apple TV review.
+Status: **first experimental implementation** in `feat/tvos-ui-polish`. All effects are device-local opt-ins and default to the prior look. Open Settings → Device → GUI experiments (also available directly in the Settings rail). Do not merge until real Apple TV review. See `TypeTypeTV/TVUIExperiments.swift`.
 
 ## Principles
 
@@ -53,4 +53,5 @@ Status: **proposal only**. No visual changes have been implemented. This work is
 - https://developer.apple.com/documentation/uikit/uifocusanimationcoordinator
 - https://developer.apple.com/documentation/TechnologyOverviews/adopting-liquid-glass
 - https://developer.apple.com/documentation/swiftui/transition
+- https://developer.apple.com/documentation/swiftui/zoomnavigationtransition (not supported on tvOS; local detail-header zoom instead)
 - https://developer.apple.com/documentation/swiftui/environmentvalues/accessibilityreducemotion

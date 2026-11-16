@@ -60,6 +60,22 @@ struct TVExperimentGlass: ViewModifier {
     }
 }
 
+/// tvOS does not support the iOS zoom navigation transition.
+struct TVExperimentNavigation: ViewModifier {
+    let style: String
+    let reduceMotion: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if style == "crossfade" || reduceMotion && style != "standard" {
+            content.navigationTransition(.crossFade)
+        } else if style == "shift" {
+            content.transition(.move(edge: .trailing).combined(with: .opacity))
+        } else {
+            content
+        }
+    }
+}
+
 /// Loading is visual-only: it does not start additional network work or timers.
 struct TVExperimentLoading: View {
     @AppStorage("typetype.exp.loading") private var style = "standard"
@@ -133,7 +149,9 @@ struct TVUIExperimentSettings: View {
                     Text("ui.focusHybrid").tag("hybrid")
                 }
                 Button {
-                    // Preview takes focus like any ordinary tvOS button.
+                    let choices = ["classic", "highlight", "lift", "hybrid"]
+                    let next = (choices.firstIndex(of: focusStyle) ?? 0) + 1
+                    focusStyle = choices[next % choices.count]
                 } label: {
                     VStack(alignment: .leading, spacing: 6) {
                         RoundedRectangle(cornerRadius: 10)
@@ -153,6 +171,7 @@ struct TVUIExperimentSettings: View {
                 }
                 .buttonStyle(TVRailButtonStyle())
                 .focusEffectDisabled(true)
+                .accessibilityIdentifier("experiment-focus-preview")
             }
             TVSettingsCard("ui.popupTitle", summary: "ui.popupHelp") {
                 TVSettingsMenuRow("ui.popupTitle", selection: $popup,

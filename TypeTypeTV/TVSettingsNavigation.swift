@@ -11,7 +11,7 @@ enum TVSettingsGroup: String, CaseIterable, Identifiable {
         case .sponsor: return "forward.end.fill"
         case .content: return "square.grid.2x2"
         case .device: return "appletv"
-        case .experiments: return "sparkles.tv"
+        case .experiments: return "sparkles"
         case .language: return "globe"
         case .account: return "person.crop.circle"
         case .instance: return "server.rack"
