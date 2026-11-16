@@ -23,6 +23,8 @@ struct TVSubscriptionsView: View {
     @State private var selectedChannelURL: String?
     @State private var videos: [VideoItem] = []
     @State private var showingShorts = false
+    @State private var videoSort = "latest"
+    @State private var hasCourses = false
     @State private var channelTitle = ""
     @State private var channelDescription = ""
     @State private var nextPage: String?
@@ -128,6 +130,47 @@ struct TVSubscriptionsView: View {
                                         focusedChannelTab = .videos
                                     }
                                 }
+                        }
+                        .buttonStyle(.bordered)
+                        .focusSection()
+                    }
+                    if let selectedChannelURL {
+                        HStack(spacing: 12) {
+                            NavigationLink {
+                                TVChannelExtrasView(api: api, channelURL: selectedChannelURL,
+                                                    kind: .playlists)
+                            } label: {
+                                Label("channels.playlists", systemImage: "list.bullet.rectangle")
+                            }
+                            NavigationLink {
+                                TVChannelExtrasView(api: api, channelURL: selectedChannelURL,
+                                                    kind: .community)
+                            } label: {
+                                Label("channels.community", systemImage: "text.bubble")
+                            }
+                            NavigationLink {
+                                TVChannelExtrasView(api: api, channelURL: selectedChannelURL,
+                                                    kind: .podcasts)
+                            } label: {
+                                Label("channels.podcasts", systemImage: "mic")
+                            }
+                            if hasCourses {
+                                NavigationLink {
+                                    TVChannelExtrasView(api: api, channelURL: selectedChannelURL,
+                                                        kind: .courses)
+                                } label: {
+                                    Label("channels.courses", systemImage: "books.vertical")
+                                }
+                            }
+                            Spacer()
+                            if !showingShorts {
+                                Picker("channels.sort", selection: $videoSort) {
+                                    Text("channels.sortLatest").tag("latest")
+                                    Text("channels.sortPopular").tag("popular")
+                                    Text("channels.sortOldest").tag("oldest")
+                                }
+                                .pickerStyle(.menu)
+                            }
                         }
                         .buttonStyle(.bordered)
                         .focusSection()
@@ -289,6 +332,11 @@ struct TVSubscriptionsView: View {
         }
         .onChange(of: selectedChannelURL) { _, _ in
             subscriptionErrorMessage = nil
+        }
+        .onChange(of: videoSort) { _, _ in
+            if let selectedChannelURL, !showingShorts {
+                Task { await loadChannel(selectedChannelURL) }
+            }
         }
         .onChange(of: showingShorts) { _, _ in
             guard let selectedChannelURL else { return }
@@ -625,6 +673,7 @@ struct TVSubscriptionsView: View {
     @MainActor
     private func loadChannel(_ channelURL: String) async {
         let shorts = showingShorts
+        let sort = videoSort
         #if DEBUG
         if api.origin.host == "preview.invalid" {
             channelTitle = subscriptions.first(where: { $0.channelUrl == channelURL })?.name
@@ -662,17 +711,20 @@ struct TVSubscriptionsView: View {
         channelTitle = subscriptions.first(where: { $0.channelUrl == channelURL })?.name
             ?? (directChannelURL == channelURL ? directChannelName ?? "" : "")
         channelDescription = ""
+        hasCourses = false
         error = nil
         pageError = nil
         defer { if channelRequestID == identifier { loadingVideos = false } }
         do {
-            let response = try await api.channel(channelURL, shorts: shorts)
+            let response = try await api.channel(channelURL, shorts: shorts,
+                                                 sort: sort)
             try Task.checkCancellation()
             guard channelRequestID == identifier,
                   selectedChannelURL == channelURL, showingShorts == shorts else { return }
             channelTitle = response.name
             channelAvatarURL = response.avatarUrl ?? ""
             channelDescription = response.description ?? ""
+            hasCourses = response.hasCourses == true
             videos = response.videos
             nextPage = response.nextpage
             if enterGridAfterLoad {
@@ -703,17 +755,18 @@ struct TVSubscriptionsView: View {
               let selectedChannelURL else { return }
         let identifier = UUID()
         let shorts = showingShorts
+        let sort = videoSort
         pageRequestID = identifier
         pageError = nil
         loadingMore = true
         defer { if pageRequestID == identifier { loadingMore = false } }
         do {
             let response = try await api.channel(selectedChannelURL, nextpage: nextPage,
-                                                 shorts: shorts)
+                                                 shorts: shorts, sort: sort)
             try Task.checkCancellation()
             guard pageRequestID == identifier,
                   self.selectedChannelURL == selectedChannelURL, showingShorts == shorts,
-                  self.nextPage == nextPage else { return }
+                  videoSort == sort, self.nextPage == nextPage else { return }
             var seen = Set(videos.map(\.url))
             let fresh = response.videos.filter { seen.insert($0.url).inserted }
             videos += fresh
