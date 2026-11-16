@@ -5,6 +5,7 @@ struct TVPublicPlaylistView: View {
     let api: TypeTypeAPI
     let playlistURL: String
     let startingTitle: String
+    var isPodcast = false
     @State private var videos: [VideoItem] = []
     @State private var title = ""
     @State private var nextPage: String?
@@ -81,7 +82,7 @@ struct TVPublicPlaylistView: View {
         error = nil
         defer { loading = false }
         do {
-            let result = try await api.publicPlaylist(playlistURL)
+            let result = try await fetchPage()
             try Task.checkCancellation()
             title = result.playlist?.title ?? startingTitle
             videos = result.videos
@@ -92,6 +93,15 @@ struct TVPublicPlaylistView: View {
         }
     }
 
+    private func fetchPage(nextpage: String? = nil) async throws -> TVPublicPlaylistPage {
+        if isPodcast {
+            let response = try await api.podcastEpisodes(playlistURL, nextpage: nextpage)
+            return TVPublicPlaylistPage(playlist: response.podcast, videos: response.episodes,
+                                        nextpage: response.nextpage)
+        }
+        return try await api.publicPlaylist(playlistURL, nextpage: nextpage)
+    }
+
     @MainActor
     private func appendPage() async {
         guard !loadingMore, let cursor = nextPage else { return }
@@ -99,7 +109,7 @@ struct TVPublicPlaylistView: View {
         pageError = nil
         defer { loadingMore = false }
         do {
-            let result = try await api.publicPlaylist(playlistURL, nextpage: cursor)
+            let result = try await fetchPage(nextpage: cursor)
             try Task.checkCancellation()
             let existing = Set(videos.map(\.url))
             let fresh = result.videos.filter { !existing.contains($0.url) }

@@ -1,0 +1,162 @@
+import SwiftUI
+
+enum TVChannelExtraKind: String {
+    case playlists, community, podcasts, courses
+    var labelKey: String { "channels." + rawValue }
+}
+
+/// Standalone channel subpages keep the existing channel rail/focus intact.
+struct TVChannelExtrasView: View {
+    let api: TypeTypeAPI
+    let channelURL: String
+    let kind: TVChannelExtraKind
+    @State private var playlists: [TVPublicPlaylistSummary] = []
+    @State private var episodes: [VideoItem] = []
+    @State private var posts: [TVCommunityPost] = []
+    @State private var nextPage: String?
+    @State private var loading = false
+    @State private var error: String?
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 3)
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 26) {
+                Text(TVL10n.value(kind.labelKey)).font(.largeTitle.bold())
+                if loading { ProgressView("settings.remoteLoading") }
+                if let error {
+                    Text(error).foregroundStyle(.orange)
+                    Button("common.retry") { Task { await fetch(append: false) } }
+                        .buttonStyle(.bordered)
+                }
+                LazyVGrid(columns: columns, spacing: 30) {
+                    ForEach(playlists) { playlist in
+                        NavigationLink {
+                            TVPublicPlaylistView(
+                                api: api, playlistURL: playlist.url,
+                                startingTitle: playlist.title,
+                                isPodcast: kind == .podcasts
+                            )
+                        } label: {
+                            TVSearchNamedCard(
+                                title: playlist.title, subtitle: playlist.uploaderName,
+                                image: api.relativeMediaURL(playlist.thumbnailUrl),
+                                origin: api.origin, symbol: "list.bullet.rectangle"
+                            )
+                        }
+                        .buttonStyle(TVRailButtonStyle())
+                        .focusEffectDisabled(true)
+                    }
+                    ForEach(episodes) { video in
+                        NavigationLink {
+                            VideoDetailView(api: api, video: video)
+                        } label: {
+                            VideoCard(api: api, video: video)
+                        }
+                        .buttonStyle(TVRailButtonStyle())
+                        .focusEffectDisabled(true)
+                        .videoActions(api: api, video: video)
+                    }
+                }
+                .focusSection()
+                ForEach(posts) { post in
+                    TVCommunityPostCard(api: api, post: post)
+                }
+                if !loading && playlists.isEmpty && episodes.isEmpty &&
+                   posts.isEmpty && error == nil {
+                    Text("channels.emptyExtra").foregroundStyle(TTTheme.muted)
+                }
+                if nextPage != nil {
+                    Button("search.loadMore") { Task { await fetch(append: true) } }
+                        .buttonStyle(.bordered)
+                        .disabled(loading)
+                }
+            }
+            .padding(70)
+        }
+        .background(TTTheme.ink)
+        .task(id: channelURL + kind.rawValue) { await fetch(append: false) }
+    }
+
+    @MainActor
+    private func fetch(append: Bool) async {
+        guard !loading else { return }
+        let cursor = append ? nextPage : nil
+        if append && cursor == nil { return }
+        loading = true
+        error = nil
+        defer { loading = false }
+        do {
+            switch kind {
+            case .playlists, .courses:
+                let page = try await api.channelPlaylists(
+                    channelURL, tab: kind.rawValue, nextpage: cursor)
+                if append { playlists += page.playlists }
+                else { playlists = page.playlists }
+                nextPage = page.nextpage == cursor ? nil : page.nextpage
+            case .community:
+                let page = try await api.channelPosts(channelURL, nextpage: cursor)
+                if append { posts += page.posts } else { posts = page.posts }
+                nextPage = page.nextpage == cursor ? nil : page.nextpage
+            case .podcasts:
+                let page = try await api.channelPodcasts(channelURL, nextpage: cursor)
+                if append {
+                    playlists += page.podcasts
+                    episodes += page.episodes
+                } else {
+                    playlists = page.podcasts
+                    episodes = page.episodes
+                }
+                nextPage = page.nextpage == cursor ? nil : page.nextpage
+            }
+        } catch is CancellationError {
+            return
+        } catch { self.error = error.localizedDescription }
+    }
+}
+
+struct TVCommunityPostCard: View {
+    let api: TypeTypeAPI
+    let post: TVCommunityPost
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack {
+                Text(post.authorName ?? "").font(.headline)
+                Spacer()
+                Text(post.publishedTime ?? "")
+                    .font(.caption).foregroundStyle(TTTheme.muted)
+            }
+            let plain = (post.text ?? "").replacingOccurrences(
+                of: "<[^>]+>", with: "", options: .regularExpression)
+            if !plain.isEmpty { Text(plain).font(.body) }
+            ForEach((post.images ?? []).prefix(4), id: \.self) { image in
+                TVThumbnail(url: api.relativeMediaURL(image), origin: api.origin)
+                    .frame(maxWidth: 850, minHeight: 230, maxHeight: 350)
+            }
+            if let poll = post.poll {
+                ForEach(poll.choices ?? []) { choice in
+                    Label(choice.text, systemImage: "circle")
+                        .font(.callout)
+                }
+                Text(poll.textualVoteCount ?? "")
+                    .font(.caption).foregroundStyle(TTTheme.muted)
+            }
+            if let video = post.video {
+                NavigationLink {
+                    VideoDetailView(api: api, video: video.videoItem(author: post.authorName))
+                } label: {
+                    Label(video.title, systemImage: "play.rectangle")
+                }
+                .buttonStyle(.bordered)
+            }
+            HStack(spacing: 20) {
+                Text(post.textualLikeCount ?? "")
+                Label(post.textualCommentCount ?? "", systemImage: "text.bubble")
+            }
+            .font(.caption).foregroundStyle(TTTheme.muted)
+        }
+        .padding(30)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(TTTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+    }
+}
