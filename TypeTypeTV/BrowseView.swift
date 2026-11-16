@@ -904,6 +904,7 @@ struct VideoCard: View {
     let video: VideoItem
     @ObservedObject private var localProgress = TVLocalProgress.shared
     @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
+    @ObservedObject private var playlistMembership = TVPlaylistMembership.shared
     @Environment(\.isFocused) private var isFocused
     var lookupMissingMetadata = false
     @State private var streamMetadata: StreamInfo?
@@ -966,18 +967,31 @@ struct VideoCard: View {
                                alignment: .topLeading)
                         .padding(8)
                 }
-                if metadataVideo.isShort && video.isLive != true {
-                    Label("video.shortsBadge", systemImage: "play.rectangle.fill")
-                        .font(.caption.bold())
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(.black.opacity(0.86),
-                                    in: RoundedRectangle(cornerRadius: 6))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity,
-                               alignment: .bottomLeading)
-                        .padding(.leading, 9)
-                        .padding(.bottom, 14)
+                if metadataVideo.isShort || playlistMembership.count(for: video.url) > 0 {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if metadataVideo.isShort && video.isLive != true {
+                            Label("video.shortsBadge", systemImage: "play.rectangle.fill")
+                                .padding(.horizontal, 8).padding(.vertical, 6)
+                                .background(.black.opacity(0.86),
+                                            in: RoundedRectangle(cornerRadius: 6))
+                        }
+                        let listCount = playlistMembership.count(for: video.url)
+                        if listCount > 0 {
+                            Label(TVL10n.formatted("playlist.membershipBadge", listCount),
+                                  systemImage: "list.bullet.rectangle.fill")
+                                .padding(.horizontal, 8).padding(.vertical, 6)
+                                .background(Color(red: 0.34, green: 0.24, blue: 0.72),
+                                            in: RoundedRectangle(cornerRadius: 6))
+                                .accessibilityIdentifier("playlist-membership-badge")
+                        }
+                    }
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity,
+                           alignment: .bottomLeading)
+                    .padding(.leading, 9)
+                    .padding(.bottom, 14)
+                    .allowsHitTesting(false)
                 }
                 if let position = watchedTime, video.isLive != true {
                     Label(position, systemImage: completed ? "checkmark.circle.fill" : "play.circle")
@@ -1078,6 +1092,9 @@ struct VideoCard: View {
             let fetched = await TVStreamMetadataCache.shared.details(for: video, api: api)
             guard !Task.isCancelled else { return }
             streamMetadata = fetched
+        }
+        .task(id: api.metadataCacheScope) {
+            await playlistMembership.ensureLoaded(api: api)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(TTTheme.accessibilityText(for: video))
