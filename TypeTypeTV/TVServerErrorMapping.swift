@@ -60,8 +60,13 @@ enum TVServerErrorMapping {
                          route: String) -> TypeTypeError {
         let problem = decoded(data)
         let status = response.statusCode
+        // A non-YouTube extractor's terminal 422/no_playable_streams is
+        // permanent for this video. The same code during SABR setup may
+        // recover with another session or codec and must remain retryable.
+        let extractorUnavailable = status == 422 &&
+            problem?.code == "no_playable_streams" && !route.contains("sabr")
         if [404, 410, 422].contains(status),
-           problem?.isPermanentlyUnavailable == true {
+           problem?.isPermanentlyUnavailable == true || extractorUnavailable {
             return .videoUnavailable
         }
         if [429, 503, 504].contains(status),
