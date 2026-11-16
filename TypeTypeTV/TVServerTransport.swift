@@ -136,11 +136,22 @@ final class TVServerTrust: @unchecked Sendable {
             kSecAttrService as String: service,
             kSecAttrAccount as String: report.origin.absoluteString
         ]
-        SecItemDelete(query as CFDictionary)
-        var item = query
-        item[kSecValueData as String] = Data(report.fingerprint.utf8)
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { return false }
+        let bytes = Data(report.fingerprint.utf8)
+        // Updating an existing pin must be atomic. Delete-before-insert
+        // could erase the old pin if a Keychain write failed, allowing a
+        // system-trusted replacement certificate without the prior pin.
+        let updated = SecItemUpdate(query as CFDictionary,
+                                    [kSecValueData as String: bytes] as CFDictionary)
+        let status: OSStatus
+        if updated == errSecItemNotFound {
+            var item = query
+            item[kSecValueData as String] = bytes
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            status = SecItemAdd(item as CFDictionary, nil)
+        } else {
+            status = updated
+        }
+        guard status == errSecSuccess else { return false }
         clearPending(for: report.origin)
         return true
     }
