@@ -1,14 +1,14 @@
 # TypeType tvOS — hardware test checklist
 
-The GitHub simulator build and wire-contract tests do **not** validate playback on a physical Apple TV. Do not advertise the app as working/ready until the tests below pass.
+Simulator and wire-contract tests do **not** prove reliable playback on a physical Apple TV. Initial hardware playback has succeeded, but extended sessions, audio stability and codec coverage must pass the checklist before a production-ready claim.
 
 ## Devices
 
 | Device | Minimum target | Important cases |
 | --- | --- | --- |
-| Apple TV 4K 1st gen (A10X, 2017) | tvOS 17 | H.264 hardware decode; audio/video sync and seek |
-| Apple TV 4K 2nd gen (A12, 2021) | tvOS 17 | H.264, HEVC, HDR and 4K |
-| Apple TV 4K 3rd gen (A15, 2022) | tvOS 17 | Hardware selections, 4K60, HDR |
+| Apple TV 4K 1st gen (A10X, 2017) | tvOS 26 | H.264 hardware decode; audio/video sync and seek |
+| Apple TV 4K 2nd gen (A12, 2021) | tvOS 26 | H.264, HEVC, HDR and 4K |
+| Apple TV 4K 3rd gen (A15, 2022) | tvOS 26 | Hardware selections, 4K60, HDR |
 | Apple TV 4K 4th gen (A19, 2026) | tvOS 26 | AV1 hardware decode, high quality and HDR |
 
 ## Live instance smoke test
@@ -41,10 +41,10 @@ The GitHub simulator build and wire-contract tests do **not** validate playback 
 
 ## Interface, language and network checklist
 
-- Five tvOS screenshot tests: server setup, thumbnail home, expanded sidebar, search and details. The expanded-menu screenshot uses a Debug-only fixture, not real Siri Remote input.
+- 34 tvOS UI tests cover server setup, Home and deep-card focus, sidebar, search, account/settings navigation, video details and SponsorBlock. Screenshot fixtures are Debug-only and do not replace testing with a physical Siri Remote.
 - Check remote left movement from a first-column thumbnail, menu expansion and collapse, native URL keyboard, HTTPS/HTTP selection and hostname shortcuts.
 - Check approved self-signed same-origin thumbnail downloads, external CDN HTTPS, and that bearer tokens never go to a third party.
-- German is the default locale; the English resource catalog is prepared, while full translations remain in progress.
+- German is the default locale; English, French and Spanish translations are maintained in the shared Xcode String Catalog and validated by CI.
 
 ## SABR background-lookahead verification
 

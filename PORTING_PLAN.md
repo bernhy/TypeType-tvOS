@@ -95,11 +95,11 @@ not an Android-TV release tag currently visible there.
 | Bilibili/NicoNico renewed HLS URLs (1.16.0) | AVPlayer stall refresh, bounded retries and position resume | Test discontinuities, expired URLs and pause/seek |
 | End screens (Android 0.6.0-beta.1, server 1.17.0) | Not implemented | Read endScreenElements API, add focusable overlay |
 | Custom seekbar icon (Android 0.5.0) | Not implemented | Account settings and tvOS overlay |
-| Subscriptions/feed channel avatar filters (Android 0.4.x) | Initial channel browser implemented; device validation pending | `GET /subscriptions` channel rail, `GET /channel` videos with cursor paging; group/avatar filters and subscription feed still pending |
+| Subscriptions/feed channel avatar filters (Android 0.4.x) | Channel browser and newest-first subscription feed implemented | Validate group/avatar filters, paging and device focus in real accounts |
 | Search filters videos/playlists/channels/music (Android 0.4.1) | Not implemented | Adapt search UI/API |
 | Skip unavailable videos in playlist (1.17.1) | Sequential Watch Later/playlist player implemented; skips permanent errors with countdown | Verify navigation and playback completion on device |
 | Playback queue, repeat/shuffle, playlist next (web 1.15–1.17) | Not implemented | Separate queue state machine |
-| SponsorBlock, chapters, richer subtitle formats | Partial or absent | After first real decoder test |
+| SponsorBlock, chapters, richer subtitle formats | SponsorBlock category settings, skip overlays and chapter markers implemented; subtitles are experimental | Validate segment timing/remote focus on hardware; extend subtitle formats |
 | Stream health and recovery | SABR bounded retries, HLS reconnect, explicit decoder diagnostics | Hardware test with H.264/AAC 1080p, then 4K/HDR |
 
 **Release gate:** A successful simulator build and tests are necessary, but
@@ -111,5 +111,5 @@ upstream behavior still need physical Apple TV and the user's TypeType server.
 - Existing account credentials must **never** be replaced by an automatic SABR guest-login fallback (including a response arriving after device-code pairing).
 - SABR startup now accumulates a bounded amount of first audio/video compressed samples across independent track-segment indices and windows; no identical index pairing is required. A stream that never offers both tracks is a proper failure, not a false completion.
 - An end-of-stream renderer clock that stops progressing while *playing* is classified as stalled after a bounded deadline. Explicit pause resets the clock watchdog.
-- The last prior green CI baseline was `7e2357dc`; rerun the full tvOS simulator **and** unsigned Apple TV arm64 device build after all subsequent changes.
-- **Still not hardware-proven:** real SABR sample extraction, first-frame VideoToolbox output, audio sync, 4K/HDR, AirPlay/TV focus behavior, multi-minute buffering, subtitles and full remote interaction.
+- Last verified green CI baseline: `d2c976bc` (2026-11-16); 184 native tests (3 skipped) and all 34 UI tests passed, together with Debug/Release Apple TV builds. Re-run CI after subsequent changes.
+- **Physical Apple TV playback has been demonstrated**, but extended A/V sync, rare AAC dropouts, 4K/HDR, multi-minute buffering, subtitles and the full remote-interaction matrix remain under investigation. Audio-specific experimental changes stay on their separate branch.

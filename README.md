@@ -2,7 +2,7 @@
 
 Native, GPL-3.0 Apple TV client for [TypeType](https://github.com/TypeType-Video/TypeType), based on the Android TV reference (dev branch, 2026-11-13).
 
-**Status (2026-11-14):** Xcode 26.2 **builds successfully** in free GitHub Actions, and tvOS Simulator **SABR contract tests pass**. Direct native YouTube SABR playback is an **experimental implementation**; live streams, long-run playback, A/V sync, 4K/HDR and AV1 are **not yet validated on actual Apple TV hardware**. This is not yet a production-ready app or full Android-TV feature-parity port.
+**Status (2026-11-16):** Xcode 26.2 successfully builds Debug and Release for Apple TV, and the last verified CI baseline (`d2c976bc`) passed 184 native tests (3 skipped) and 34 tvOS UI tests. Native YouTube SABR playback has been exercised on physical Apple TV hardware, but rare audio dropouts, long-session reliability, A/V synchronization and 4K/HDR/AV1 behavior still require validation. The audio-lead experiment remains separate from `main`; this is not a production-ready, feature-complete port.
 
 ## Device and architecture decisions
 
@@ -22,26 +22,26 @@ Native, GPL-3.0 Apple TV client for [TypeType](https://github.com/TypeType-Video
 - **Experimental YouTube player**: SABR bootstrap/session/position/prefetch/windows/segments, fMP4 sample extraction using `AVAssetReader`, explicit VideoToolbox hardware decoding, synchronized audio/video renderers, pause and ±seek buttons.
 - Native HLS AVPlayer path for compatible non-YouTube sources.
 - Multilingual interface using Apple's single Xcode String Catalog (TypeTypeTV/Localizable.xcstrings), with semantic keys, dynamic language discovery and an in-app language picker. German is the default; English, French and Spanish are included. See LOCALIZATION.md.
-- CI validates translation resources, builds an unsigned simulator app and runs SABR/network tests plus locale-specific tvOS UI screenshot tests.
+- CI validates translation resources, builds unsigned simulator and Apple TV Debug/Release targets and runs native SABR/network tests plus 34 tvOS UI tests.
 
 ## Technical playback path
 
 TypeType Server SABR session and segments → Swift SABR transport → fMP4 init/fragment → AVAssetReader compressed samples → VideoToolbox (required hardware decoder) → AVSampleBufferDisplayLayer + AVSampleBufferAudioRenderer → AVSampleBufferRenderSynchronizer.
 
-**Caution:** Each segment is temporarily assembled into `init + fragment` for AVAssetReader. This approach has not been validated against real TypeType SABR fragment variants and may require replacing the client-side segment reader. There is **no claim that video playback works on real devices yet**.
+**Caution:** Each segment is temporarily assembled into `init + fragment` for AVAssetReader. Physical Apple TV playback has been demonstrated, but this approach has not been validated against all real TypeType SABR fragment variants and may require further resilience work. Successful playback of individual videos is not a guarantee of uninterrupted playback across codecs or long sessions.
 
 ## Still required for a production release
 
 - Real Apple TV 4K (2017+) testing of VOD, Siri Remote touch and directional press handling, seek, audio/video synchronization, *actual filled* buffer depth, offline resilience and error recovery.
 - VP9/AV1, HEVC/HDR, 4K/60 and decoder profile/frame-rate validation on the appropriate real hardware.
-- SponsorBlock, interactive chapters/endscreens, live chat, expanded queue/shuffle/repeat controls, polished focus/accessibility and broader Android feature parity. Subtitles and audio/quality controls are implemented experimentally and require live device validation; writing to playlists and Watch Later is already implemented.
+- Interactive endscreens, live chat, expanded queue/shuffle/repeat controls, additional focus/accessibility refinement and broader Android feature parity. SponsorBlock categories, skip overlays and account settings are implemented; their behavior, as well as subtitle and audio/quality controls, still requires broader live-device validation. Writing to playlists and Watch Later is implemented.
 - Validate the implemented session refresh/resume, multi-window forward prefetch and cache-aware seeking against real SABR windows to achieve the larger configured buffer target when the server allows it; collect long-run resource measurements, then add signing/distribution.
 
 See [TESTING.md](TESTING.md) for the device and live-stream test checklist.
 
 ## Build on GitHub
 
-On push to `main`/`dev`, [GitHub Actions](https://github.com/bernhy/TypeType-tvOS/actions) uses a public-repository free `macos-26` runner, Xcode 26.2, XcodeGen and a matching tvOS Simulator. Its ZIP artifact is an **unsigned simulator app**, not a device-installable IPA. It also runs the `SabrWireContractTests` XCTest suite.
+On push to `main`/`dev`, [GitHub Actions](https://github.com/bernhy/TypeType-tvOS/actions) uses a public-repository free `macos-26` runner, Xcode 26.2, XcodeGen and a matching tvOS Simulator. Its ZIP artifact is an **unsigned simulator app**, not a device-installable IPA. It also runs the full native contract/unit and tvOS UI test suites.
 
 ## Build locally on a Mac / macOS VM
 

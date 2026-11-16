@@ -84,7 +84,7 @@ jobs:
           path: TypeTypeTV-simulator.app.zip
           if-no-files-found: error
           retention-days: 7
-      - name: Run native SABR contract unit tests
+      - name: Run native contract/unit and tvOS UI tests
         run: |
           xcodebuild \
             -project TypeTypeTV.xcodeproj \
