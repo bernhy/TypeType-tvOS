@@ -21,8 +21,14 @@ struct VideoDetailView: View {
     @ObservedObject private var localProgress = TVLocalProgress.shared
 
     private enum DetailFocus: Hashable {
-        case play, channel, markWatched, playlist, descriptionEntry, descriptionBody
+        case play, channel, markWatched, playlist, descriptionEntry, descriptionBody, commentsTab
     }
+
+    private enum DetailPane {
+        case description, comments
+    }
+
+    @State private var selectedPane: DetailPane = .description
     @FocusState private var focusedDetail: DetailFocus?
     @State private var initiallyFocusedVideoURL: String?
     @State private var descriptionScrollCommand = 0
@@ -324,67 +330,117 @@ struct VideoDetailView: View {
                     }
                     .font(.callout)
                 }
-                if let description = descriptionText,
-                   !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Button {
-                        focusedDetail = .descriptionBody
-                    } label: {
-                        HStack(spacing: 12) {
-                            Text("video.descriptionHeading")
-                                .font(.title2.bold())
-                            Image(systemName: "chevron.down")
-                                .font(.callout.bold())
+                // A single detail area switches between the original remote-
+                // scrollable description and read-only server comments.
+                // Keep the existing description entry/focus identifiers:
+                // device and UI tests depend on this focus chain.
+                if descriptionText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
+                   contentPreferences.settings?.hideComments != true {
+                    VStack(alignment: .leading, spacing: 20) {
+                        HStack(spacing: 18) {
+                            if descriptionText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                                Button {
+                                    selectedPane = .description
+                                    focusedDetail = .descriptionBody
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Text("video.descriptionHeading")
+                                            .font(.title2.bold())
+                                        Image(systemName: "chevron.down")
+                                            .font(.callout.bold())
+                                    }
+                                    .foregroundStyle(focusedDetail == .descriptionEntry ||
+                                                     selectedPane == .description
+                                                     ? .white : TTTheme.muted)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(selectedPane == .description ||
+                                                focusedDetail == .descriptionEntry
+                                                ? Color.white.opacity(0.12) : .clear,
+                                                in: RoundedRectangle(cornerRadius: 9))
+                                }
+                                .buttonStyle(.plain)
+                                .focused($focusedDetail, equals: .descriptionEntry)
+                                .accessibilityIdentifier("video-description-entry")
+                                .accessibilityAddTraits(
+                                    selectedPane == .description ? .isSelected : []
+                                )
+                                .onMoveCommand { direction in
+                                    if direction == .down {
+                                        selectedPane = .description
+                                        focusedDetail = .descriptionBody
+                                    }
+                                }
+                            }
+                            if contentPreferences.settings?.hideComments != true {
+                                Button {
+                                    selectedPane = .comments
+                                    focusedDetail = .commentsTab
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Text("video.commentsTab")
+                                            .font(.title2.bold())
+                                        Image(systemName: "text.bubble")
+                                    }
+                                    .foregroundStyle(selectedPane == .comments
+                                                     ? .white : TTTheme.muted)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(selectedPane == .comments
+                                                ? Color.white.opacity(0.12) : .clear,
+                                                in: RoundedRectangle(cornerRadius: 9))
+                                }
+                                .buttonStyle(.plain)
+                                .focused($focusedDetail, equals: .commentsTab)
+                                .accessibilityAddTraits(
+                                    selectedPane == .comments ? .isSelected : []
+                                )
+                                .accessibilityIdentifier("video-comments-tab")
+                            }
                         }
-                        .foregroundStyle(focusedDetail == .descriptionEntry
-                                         ? .white : TTTheme.muted)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(focusedDetail == .descriptionEntry
-                                    ? Color.white.opacity(0.12) : .clear,
-                                    in: RoundedRectangle(cornerRadius: 9))
-                    }
-                    .buttonStyle(.plain)
-                    .focused($focusedDetail, equals: .descriptionEntry)
-                    .accessibilityIdentifier("video-description-entry")
-                    .onMoveCommand { direction in
-                        if direction == .down { focusedDetail = .descriptionBody }
-                    }
-                    // Keep the UIKit UITextView's own accessibility ID
-                    // ("video-description-scroll") distinct from the SwiftUI
-                    // focus destination ("video-description-focus").
-                    // Applying both identifiers directly to UIViewRepresentable
-                    // masks the native text view from XCTest/VoiceOver.
-                    ZStack {
-                        TVRemoteDescriptionScrollView(
-                            text: description,
-                            scrollCommand: descriptionScrollCommand
-                        )
-                        #if DEBUG
-                        if api.origin.host == "preview.invalid" {
-                            Text(focusedDetail == .descriptionBody ? "descriptionBody" : "other")
-                                .font(.system(size: 1))
-                                .foregroundStyle(.clear)
-                                .accessibilityIdentifier("video-description-focus-state")
-                        }
-                        #endif
-                    }
-                        .frame(height: 370)
-                        .background(TTTheme.surface,
-                                    in: RoundedRectangle(cornerRadius: 12))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        // Give tvOS a real focus destination below the hero;
-                        // UIKit handles swipes, SwiftUI handles arrow fallback.
-                        .accessibilityElement(children: .contain)
-                        .focusable(true)
-                        .focusEffectDisabled()
-                        .focused($focusedDetail, equals: .descriptionBody)
-                        .accessibilityIdentifier("video-description-focus")
-                        .onMoveCommand { direction in
-                            if direction == .down { descriptionScrollCommand += 1 }
-                            if direction == .up { descriptionScrollCommand -= 1 }
-                        }
-                        .id("description-viewport")
                         .focusSection()
+
+                        if selectedPane == .comments &&
+                           contentPreferences.settings?.hideComments != true {
+                            TVCommentsPanel(api: api, videoURL: video.url)
+                                .focusSection()
+                        } else if let description = descriptionText,
+                                  !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            // The UIKit UITextView keeps its own accessibility
+                            // identifier and indirect Siri Remote pan gesture.
+                            ZStack {
+                                TVRemoteDescriptionScrollView(
+                                    text: description,
+                                    scrollCommand: descriptionScrollCommand
+                                )
+                                #if DEBUG
+                                if api.origin.host == "preview.invalid" {
+                                    Text(focusedDetail == .descriptionBody
+                                         ? "descriptionBody" : "other")
+                                        .font(.system(size: 1))
+                                        .foregroundStyle(.clear)
+                                        .accessibilityIdentifier("video-description-focus-state")
+                                }
+                                #endif
+                            }
+                            .frame(height: 370)
+                            .background(TTTheme.surface,
+                                        in: RoundedRectangle(cornerRadius: 12))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .accessibilityElement(children: .contain)
+                            .focusable(true)
+                            .focusEffectDisabled()
+                            .focused($focusedDetail, equals: .descriptionBody)
+                            .accessibilityIdentifier("video-description-focus")
+                            .onMoveCommand { direction in
+                                if direction == .down { descriptionScrollCommand += 1 }
+                                if direction == .up { descriptionScrollCommand -= 1 }
+                            }
+                            .id("description-viewport")
+                            .focusSection()
+                        }
+                    }
+                    .id("video-detail-tabs")
                 }
                 if contentPreferences.settings?.hideRelatedVideos != true,
                    let related = streamMetadata?.relatedStreams, !related.isEmpty {
@@ -415,12 +471,19 @@ struct VideoDetailView: View {
                 _ = await (activity, enrichment)
                 await contentPreferences.ensureLoaded(api: api)
             }
+            .onChange(of: contentPreferences.settings?.hideComments) { _, hidden in
+                if hidden == true && selectedPane == .comments {
+                    selectedPane = .description
+                    focusedDetail = .descriptionEntry
+                }
+            }
             .onChange(of: focusedDetail) { _, next in
-                guard next == .descriptionEntry || next == .descriptionBody else { return }
-                // A nested text scroller cannot be reached if its enclosing
-                // SwiftUI ScrollView never brings the offscreen row onscreen.
+                guard next == .descriptionEntry || next == .descriptionBody ||
+                      next == .commentsTab else { return }
+                // Moving into either tab must scroll the parent into view
+                // before tvOS resolves the nested focus destination.
                 withAnimation(.easeOut(duration: 0.24)) {
-                    page.scrollTo("description-viewport", anchor: .center)
+                    page.scrollTo("video-detail-tabs", anchor: .center)
                 }
             }
         }
@@ -437,6 +500,7 @@ struct VideoDetailView: View {
     private func revealDescription(using page: ScrollViewProxy) {
         guard descriptionText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         else { return }
+        selectedPane = .description
         withAnimation(.easeOut(duration: 0.24)) {
             page.scrollTo("description-viewport", anchor: .center)
         }
