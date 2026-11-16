@@ -1171,9 +1171,12 @@ extension TVAPIWireTests {
         let url = "https://www.youtube.com/@channel"
         let channel = try await api.channel(url, sort: "popular")
         XCTAssertEqual(channel.hasCourses, true)
-        XCTAssertEqual(try await api.channelPlaylists(url, tab: "courses").playlists.count, 1)
-        XCTAssertEqual(try await api.channelPosts(url).posts.first?.id, "post1")
-        XCTAssertEqual(try await api.channelPodcasts(url).podcasts.count, 1)
+        let courses = try await api.channelPlaylists(url, tab: "courses")
+        let posts = try await api.channelPosts(url)
+        let podcasts = try await api.channelPodcasts(url)
+        XCTAssertEqual(courses.playlists.count, 1)
+        XCTAssertEqual(posts.posts.first?.id, "post1")
+        XCTAssertEqual(podcasts.podcasts.count, 1)
         _ = try await api.podcastEpisodes("https://www.youtube.com/playlist?list=PL456")
         _ = try await api.publicPlaylist("https://www.youtube.com/playlist?list=PL123")
         let records = lock.withLock { requests }
@@ -1186,7 +1189,7 @@ extension TVAPIWireTests {
         let lock = NSLock()
         var requests: [(String, String, Data?)] = []
         TVAPIWireProtocol.install(host: "new-blocked.example") { request in
-            let path = request.url?.path ?? ""
+            let path = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? ""
             lock.withLock { requests.append((request.httpMethod ?? "", path, request.httpBody)) }
             if request.httpMethod == "GET" {
                 if path.hasSuffix("/keywords") {
@@ -1197,9 +1200,12 @@ extension TVAPIWireTests {
             return (204, Data())
         }
         let api = try fixtureAPI(host: "new-blocked.example")
-        XCTAssertEqual(try await api.blockedVideos().first?.name, "Spam")
-        XCTAssertEqual(try await api.blockedChannels().count, 1)
-        XCTAssertEqual(try await api.blockedKeywords().first?.keyword, "clickbait")
+        let blockedVideos = try await api.blockedVideos()
+        let blockedChannels = try await api.blockedChannels()
+        let blockedKeywords = try await api.blockedKeywords()
+        XCTAssertEqual(blockedVideos.first?.name, "Spam")
+        XCTAssertEqual(blockedChannels.count, 1)
+        XCTAssertEqual(blockedKeywords.first?.keyword, "clickbait")
         try await api.addBlockedKeyword("  clickbait  ")
         try await api.removeBlock(.videos, value: "https://youtu.be/abc123def45")
         try await api.removeBlock(.keywords, value: "clickbait")
