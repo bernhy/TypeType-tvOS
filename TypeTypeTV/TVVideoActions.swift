@@ -39,6 +39,8 @@ struct TVVideoActionModifier: ViewModifier {
     @State private var feedback: String?
     @State private var errorMessage: String?
     @State private var working = false
+    @AppStorage("typetype.exp.toast") private var toastStyle = "standard"
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
@@ -143,6 +145,17 @@ struct TVVideoActionModifier: ViewModifier {
                         .background(.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 12))
                         .padding(7)
                         .allowsHitTesting(false)
+                        .transition(TVUIMotion.transition(toastStyle, reduceMotion: reduceMotion))
+                }
+            }
+            .animation(TVUIMotion.animation(toastStyle, reduceMotion: reduceMotion),
+                       value: feedback)
+            .task(id: feedback) {
+                guard let current = feedback else { return }
+                try? await Task.sleep(for: .seconds(2.4))
+                guard !Task.isCancelled && feedback == current else { return }
+                withAnimation(TVUIMotion.animation(toastStyle, reduceMotion: reduceMotion)) {
+                    feedback = nil
                 }
             }
             .sheet(isPresented: $pickerVisible, onDismiss: restoreCardFocus) {
