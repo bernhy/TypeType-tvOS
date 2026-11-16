@@ -3,7 +3,6 @@ import SwiftUI
 import UIKit
 import AVFoundation
 import CoreMedia
-import VideoToolbox
 
 /// A resumed stream can have a nonzero playhead before the initial SABR
 /// response tells us its duration. Clamp the HUD value explicitly; SwiftUI
@@ -16,62 +15,6 @@ enum SabrProgressDisplay {
     static func value(_ seconds: Double, durationMs: Int64) -> Double {
         guard seconds.isFinite else { return 0 }
         return min(total(durationMs: durationMs), max(0, seconds))
-    }
-}
-
-/// Some tvOS AVAssetReader builds deliver compressed fMP4 CMSampleBuffers
-/// without their CMFormatDescription. Recover it from the AVAssetTrack rather
-/// than passing an undecodable sample into VideoToolbox. Preserve each sample's
-/// timing and byte boundaries (important for B-frames and multi-sample audio).
-enum SabrSampleFormatRepair {
-    static func repair(_ sample: CMSampleBuffer,
-                       fallback: CMFormatDescription?) throws -> CMSampleBuffer {
-        if CMSampleBufferGetFormatDescription(sample) != nil { return sample }
-        guard let fallback else {
-            throw SabrFailure.invalidResponse("SABR MP4 track has no codec format description")
-        }
-        guard let block = CMSampleBufferGetDataBuffer(sample) else {
-            throw SabrFailure.invalidResponse("SABR compressed sample has no data buffer")
-        }
-        let count = CMSampleBufferGetNumSamples(sample)
-        guard count > 0 && count <= 2_000 else {
-            throw SabrFailure.invalidResponse("SABR sample count out of bounds")
-        }
-        var timings: [CMSampleTimingInfo] = []
-        var sizes: [Int] = []
-        timings.reserveCapacity(count)
-        sizes.reserveCapacity(count)
-        for index in 0..<count {
-            var timing = CMSampleTimingInfo()
-            guard CMSampleBufferGetSampleTimingInfo(
-                sample, at: index, timingInfoOut: &timing
-            ) == noErr else {
-                throw SabrFailure.invalidResponse("SABR sample timing unavailable")
-            }
-            let size = CMSampleBufferGetSampleSize(sample, at: index)
-            guard size > 0 else {
-                throw SabrFailure.invalidResponse("SABR sample byte length unavailable")
-            }
-            timings.append(timing)
-            sizes.append(size)
-        }
-        var repaired: CMSampleBuffer?
-        let status = timings.withUnsafeBufferPointer { timingBuffer in
-            sizes.withUnsafeBufferPointer { sizeBuffer in
-                CMSampleBufferCreateReady(
-                    allocator: kCFAllocatorDefault,
-                    dataBuffer: block, formatDescription: fallback,
-                    sampleCount: count,
-                    sampleTimingEntryCount: count, sampleTimingArray: timingBuffer.baseAddress,
-                    sampleSizeEntryCount: count, sampleSizeArray: sizeBuffer.baseAddress,
-                    sampleBufferOut: &repaired
-                )
-            }
-        }
-        guard status == noErr, let repaired else {
-            throw SabrFailure.invalidResponse("SABR codec format repair failed (CM \(status))")
-        }
-        return repaired
     }
 }
 
@@ -249,205 +192,6 @@ enum SabrSampleTimingProbe {
     #endif
 }
 
-/// AVAssetReader opens each fMP4 segment as a temporary standalone MP4.
-/// It therefore emits a file-start AAC priming trim on every fragment, even
-/// though the compressed AAC packets are fed into one continuous audio
-/// renderer. That repeated trim caused reproducible ~48ms audio dropouts
-/// at 44.1kHz. Retain the trim for the first/seek/discontinuous segment, but
-/// remove the redundant start trim on strictly contiguous subsequent chunks.
-enum SabrAACPrimingPolicy {
-    static func isSeamlessContinuation(
-        previousSequence: Int?, sequence: Int?,
-        previousEndMs: Int64?, startMs: Int64
-    ) -> Bool {
-        guard let previousSequence, let sequence, let previousEndMs,
-              sequence == previousSequence + 1,
-              startMs >= 0, previousEndMs >= 0 else { return false }
-        let delta = startMs - previousEndMs
-        return delta >= -80 && delta <= 80
-    }
-
-    struct Markers {
-        var startTrim = 0
-        var endTrim = 0
-        var decoderReset = 0
-        var decoderDrain = 0
-    }
-
-    static func inspect(_ samples: [CMSampleBuffer]) -> Markers {
-        var markers = Markers()
-        for sample in samples {
-            if CMGetAttachment(sample, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart,
-                               attachmentModeOut: nil) != nil { markers.startTrim += 1 }
-            if CMGetAttachment(sample, key: kCMSampleBufferAttachmentKey_TrimDurationAtEnd,
-                               attachmentModeOut: nil) != nil { markers.endTrim += 1 }
-            if CMGetAttachment(sample, key: kCMSampleBufferAttachmentKey_ResetDecoderBeforeDecoding,
-                               attachmentModeOut: nil) != nil { markers.decoderReset += 1 }
-            if CMGetAttachment(sample, key: kCMSampleBufferAttachmentKey_DrainAfterDecoding,
-                               attachmentModeOut: nil) != nil { markers.decoderDrain += 1 }
-        }
-        return markers
-    }
-
-    /// Never override an actual decoder/discontinuity instruction or a
-    /// nonstandard fragment that has multiple trim markers.
-    static func shouldRemoveRepeatedTrim(continuation: Bool, markers: Markers) -> Bool {
-        continuation && markers.startTrim == 1 && markers.endTrim == 0
-            && markers.decoderReset == 0 && markers.decoderDrain == 0
-    }
-
-    /// A legitimate repeated *file-start* marker belongs on the first
-    /// CMSampleBuffer. Do not strip markers from later buffers in the fragment.
-    @discardableResult
-    static func removeRepeatedStartTrim(_ samples: [CMSampleBuffer]) -> Bool {
-        guard let first = samples.first,
-              CMGetAttachment(first, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart,
-                              attachmentModeOut: nil) != nil else { return false }
-        CMRemoveAttachment(first, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart)
-        return CMGetAttachment(first, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart,
-                               attachmentModeOut: nil) == nil
-    }
-}
-
-// Client-local fMP4 reader. TypeType Server remains untouched.
-// A track consists of the init box sequence (ftyp/moov) and a single media fragment (moof/mdat).
-// AVAssetReader is asked for compressed samples (outputSettings:nil) so decoding stays in VideoToolbox.
-enum FragmentedMP4Reader {
-    static func compressedSamples(initialization: Data, fragment: Data,
-                                  mediaType: AVMediaType) async throws -> [CMSampleBuffer] {
-        guard !initialization.isEmpty && !fragment.isEmpty else {
-            throw SabrFailure.invalidResponse("empty MP4 fragment")
-        }
-        let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("typetype-\(UUID().uuidString).mp4")
-        // Do not log the filename or segment URLs: these are session-private.
-        var stage = "validate-boxes"
-        var codec: FourCharCode = 0
-        var sourceSamples = 0
-        var noDataSamples = 0
-        do {
-            try SabrMP4Boxes.validate(initialization: initialization, fragment: fragment)
-            stage = "create-temp"
-            guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
-                throw SabrFailure.invalidResponse("Cannot create temporary MP4 segment")
-            }
-            defer { try? FileManager.default.removeItem(at: file) }
-            stage = "write-temp"
-            do {
-                let writer = try FileHandle(forWritingTo: file)
-                defer { try? writer.close() }
-                // Do not concatenate large fragments in memory.
-                try writer.write(contentsOf: initialization)
-                try writer.write(contentsOf: fragment)
-            }
-            let asset = AVURLAsset(url: file)
-            stage = "load-track"
-            let tracks = try await asset.loadTracks(withMediaType: mediaType)
-            guard let track = tracks.first else {
-                throw SabrFailure.unsupported(
-                    "AVAssetReader could not find a \(mediaType.rawValue) track")
-            }
-            stage = "load-format"
-            let trackFormat = try await track.load(.formatDescriptions).first
-            if let trackFormat {
-                codec = CMFormatDescriptionGetMediaSubType(trackFormat)
-            }
-            stage = "reader-create"
-            let reader = try AVAssetReader(asset: asset)
-            let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
-            output.alwaysCopiesSampleData = false
-            stage = "reader-add"
-            guard reader.canAdd(output) else {
-                throw SabrFailure.unsupported(
-                    "Compressed \(mediaType.rawValue) reader unavailable")
-            }
-            reader.add(output)
-            stage = "reader-start"
-            guard reader.startReading() else {
-                throw reader.error ?? SabrFailure.invalidResponse("MP4 reader could not start")
-            }
-            var samples: [CMSampleBuffer] = []
-            stage = "sample-read"
-            while reader.status == .reading {
-                guard let sample = output.copyNextSampleBuffer() else { break }
-                // A zero-count CMSampleBuffer is a marker, not compressed data.
-                let count = CMSampleBufferGetNumSamples(sample)
-                guard count > 0 else { continue }
-                sourceSamples += count
-                if CMSampleBufferGetDataBuffer(sample) == nil {
-                    noDataSamples += count
-                    #if DEBUG
-                    // A nonzero-count image buffer with no compressed bytes
-                    // means the native reader is NOT providing the compressed
-                    // samples required by our VideoToolbox pipeline.
-                    NSLog("TypeType SABR DEMUX-NODATA media=%@ codec=0x%08x samples=%d imageBuffer=%d",
-                          mediaType.rawValue, codec, count,
-                          CMSampleBufferGetImageBuffer(sample) == nil ? 0 : 1)
-                    #endif
-                }
-                stage = "sample-format"
-                samples.append(try SabrSampleFormatRepair.repair(
-                    sample, fallback: trackFormat
-                ))
-                if samples.count > 2_000 {
-                    reader.cancelReading()
-                    throw SabrFailure.invalidResponse("unreasonably large media fragment")
-                }
-                stage = "sample-read"
-            }
-            stage = "reader-finish"
-            if reader.status == .failed {
-                throw reader.error ?? SabrFailure.invalidResponse("MP4 read failed")
-            }
-            if samples.isEmpty && mediaType == .video {
-                throw SabrFailure.unsupported(
-                    "AVAssetReader could not expose compressed video samples")
-            }
-            return samples
-        } catch {
-            #if DEBUG
-            // The error's localized text may contain upstream media URLs.
-            // Only log a fixed stage, numeric code, codec and byte counts.
-            let ns = error as NSError
-            let safeDomain = ns.domain == "AVFoundationErrorDomain" ? "AVFoundation" :
-                (ns.domain == "NSOSStatusErrorDomain" ? "OSStatus" : "other")
-            NSLog("TypeType SABR DEMUX-FAIL stage=%@ media=%@ codec=0x%08x errorDomain=%@ errorCode=%d initBytes=%d fragmentBytes=%d sourceSamples=%d noDataSamples=%d",
-                  stage, mediaType.rawValue, codec, safeDomain, ns.code,
-                  initialization.count, fragment.count, sourceSamples, noDataSamples)
-            #endif
-            // AVAssetReader can reject a codec before it emits even one
-            // compressed sample. That is a track-specific format failure,
-            // not a terminal SABR/login failure: allow the player to try
-            // the next representation (e.g. H.264 1080p).
-            if mediaType == .video &&
-                SabrDemuxFallbackPolicy.isCodecSpecificReaderFailure(
-                    stage: stage, errorDomain: (error as NSError).domain
-                ) {
-                throw SabrFailure.unsupported(
-                    "AVAssetReader cannot demux this video representation")
-            }
-            throw error
-        }
-    }
-}
-
-/// Some AVFoundation errors arise before VideoToolbox can be reached. Treat
-/// only native *video reader* failures as codec-specific; do not turn network,
-/// access, or temporary-file errors into representation retries.
-enum SabrDemuxFallbackPolicy {
-    static func isCodecSpecificReaderFailure(stage: String, errorDomain: String) -> Bool {
-        // A native reader can surface unsupported codec errors under
-        // either the AVFoundation or CoreMedia/VideoToolbox OSStatus domain.
-        guard errorDomain == "AVFoundationErrorDomain" ||
-              errorDomain == "NSOSStatusErrorDomain" else { return false }
-        return [
-            "load-track", "load-format", "reader-create",
-            "reader-add", "reader-start", "sample-read",
-            "sample-format", "reader-finish"
-        ].contains(stage)
-    }
-}
-
 /// An existing SABR session and its original selected formats. Reusing a
 /// healthy session for user seeks avoids a new YouTube player identity,
 /// attestation handshake and unnecessary TypeType session bootstrap.
@@ -457,8 +201,7 @@ private struct SabrSeekReuse {
     let selection: SabrSelection
 }
 
-// A native sample-buffer synchronizer instead of a fake HLS playlist or server-side bridge.
-// Samples still require real-device validation: AVAssetReader can reject some fMP4 fragments.
+// Direct compressed fMP4 samples are synchronised by CoreMedia.
 @MainActor
 final class SabrPlayerController: ObservableObject {
     @Published var state = TVL10n.value("player.starting")
@@ -509,9 +252,6 @@ final class SabrPlayerController: ObservableObject {
     private var bufferingNeedsVideo = false
     private var queuedAudioEndMs: Int64 = 0
     private var queuedVideoEndMs: Int64 = 0
-    private var hardwareDecoder: HardwareVideoDecoder?
-    // Direct compressed-sample renderer for H.264/HEVC + AAC, legacy VT for others.
-    private var usesDirectMP4 = false
     #if DEBUG
     private var rendererProbeTask: Task<Void, Never>?
     private var maxVideoDeliveryMs = 0
@@ -643,9 +383,6 @@ final class SabrPlayerController: ObservableObject {
         if let previousCache { Task { await previousCache.clear() } }
         cachedThroughMs = 0
         diskCacheBytes = 0
-        hardwareDecoder?.invalidate()
-        hardwareDecoder = nil
-        usesDirectMP4 = false
         #if DEBUG
         rendererProbeTask?.cancel()
         rendererProbeTask = nil
@@ -757,7 +494,6 @@ final class SabrPlayerController: ObservableObject {
         guard currentVideo != nil, failure == nil, !playbackFinished else { return false }
         if prefersPause == paused { return true }
         prefersPause = paused
-        hardwareDecoder?.playbackPaused = paused
 
         if bufferingClockPaused {
             // Keep the synchronizer paused until both media tracks are ready.
@@ -875,9 +611,9 @@ final class SabrPlayerController: ObservableObject {
         state = TVL10n.value("player.buffering")
     }
 
-    private func noteQueuedMedia(_ track: SabrMediaInterleave.Track,
+    private func noteQueuedMedia(_ track: MP4TrackKind,
                                  sample: CMSampleBuffer) {
-        if usesDirectMP4, let actualEndMs = SabrSampleTimingProbe.actualEndMs([sample]) {
+        if let actualEndMs = SabrSampleTimingProbe.actualEndMs([sample]) {
             noteQueuedTime(track, seconds: Double(actualEndMs) / 1_000)
             return
         }
@@ -886,7 +622,7 @@ final class SabrPlayerController: ObservableObject {
         noteQueuedTime(track, seconds: pts, duration: duration)
     }
 
-    private func noteQueuedTime(_ track: SabrMediaInterleave.Track,
+    private func noteQueuedTime(_ track: MP4TrackKind,
                                 seconds pts: Double, duration: Double = 0) {
         guard pts.isFinite && pts >= 0 else { return }
         let endMs = Int64((pts + (duration.isFinite && duration > 0 ? duration : 0)) * 1_000)
@@ -1155,26 +891,22 @@ final class SabrPlayerController: ObservableObject {
                 currentAudioItag = choice.audio.itag
                 currentAudioTrackId = choice.audio.audioTrackId
                 selectionDescription = choice.description
-                usesDirectMP4 = SabrNativePlaybackPolicy.usesDirectRenderer(
+                guard SabrNativePlaybackPolicy.supports(
                     videoCodec: choice.video.codec,
                     audioCodec: choice.audio.codec,
                     audioMIME: choice.audio.mimeType
-                )
-                NSLog("TypeType SABR PIPELINE native=%d codec=%@",
-                      usesDirectMP4 ? 1 : 0, choice.video.codec)
-                // The sample renderer decodes H.264/HEVC compressed buffers
-                // itself. No duplicate VTDecompressionSession is needed.
-                hardwareDecoder = usesDirectMP4 ? nil : HardwareVideoDecoder(
-                    display: videoLayer, allowSoftware: allowSoftware
-                )
-                hardwareDecoder?.playbackPaused = prefersPause
+                ) else {
+                    throw SabrFailure.unsupported("Native fMP4 codec not supported")
+                }
+                NSLog("TypeType SABR PIPELINE native=1 codec=%@",
+                      choice.video.codec)
                 state = TVL10n.value("player.session")
                 // Request earlier compressed media for decoder/keyframe
                 // preroll while keeping the presentation clock at the exact
                 // requested position. Do not emit audio before that position.
                 let transportStart = SabrSeekPreroll.requestStart(
                     targetMs: playbackStart,
-                    explicit: usesDirectMP4 && playbackStart > 0
+                    explicit: playbackStart > 0
                 )
                 if transportStart != playbackStart {
                     NSLog("TypeType SABR SEEK-PREROLL transportMs=%lld targetMs=%lld",
@@ -1327,8 +1059,6 @@ final class SabrPlayerController: ObservableObject {
                         await activeMailbox.finish(error: CancellationError())
                     }
                     activeMailbox = nil
-                    hardwareDecoder?.invalidate()
-                    hardwareDecoder = nil
                     await videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: true)
                     audioRenderer.flush()
                     synchronizer.setRate(
@@ -1533,14 +1263,6 @@ final class SabrPlayerController: ObservableObject {
                 // displayed still frame is retained until fresh video arrives.
                 await videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: false)
                 audioRenderer.flush()
-                hardwareDecoder?.invalidate()
-                let allowSoftware = UserDefaults.standard.bool(
-                    forKey: "typetype.allowSoftwareDecode"
-                )
-                hardwareDecoder = usesDirectMP4 ? nil : HardwareVideoDecoder(
-                    display: videoLayer, allowSoftware: allowSoftware
-                )
-                hardwareDecoder?.playbackPaused = prefersPause
                 playbackPositionMs = restartPosition
                 isInitialized = false
                 hasQueuedFirstAudio = false
@@ -1893,9 +1615,9 @@ final class SabrPlayerController: ObservableObject {
                 #if DEBUG
                 let readStarted = ProcessInfo.processInfo.systemUptime
                 #endif
-                let rawSamples = try await SabrMediaDemux.samples(
+                let rawSamples = try await SabrDirectMP4Reader.compressedSamples(
                     initialization: audioInit, fragment: bytes,
-                    mediaType: .audio, direct: usesDirectMP4,
+                    mediaType: .audio,
                     presentationStartMs: presentationStartMs > start
                         ? presentationStartMs : nil
                 )
@@ -1931,36 +1653,11 @@ final class SabrPlayerController: ObservableObject {
                     sequence: sequence, metadataStartMs: mediaStartMs,
                     decodeStartMs: nativeStart
                 )
-                // This continuity repair must run in Release builds as well.
-                // The old DEBUG-only variant was tested on Apple TV but left
-                // the ~48ms fragment gaps in production builds.
-                let isContinuation = SabrAACPrimingPolicy.isSeamlessContinuation(
-                    previousSequence: previousAACSequence, sequence: sequence,
-                    previousEndMs: previousSampleEnd, startMs: resolved.startMs
-                )
-                let markers = SabrAACPrimingPolicy.inspect(rawSamples)
-                let safeToRemove = SabrAACPrimingPolicy.shouldRemoveRepeatedTrim(
-                    continuation: isContinuation, markers: markers
-                )
-                let removedTrim = safeToRemove
-                    ? SabrAACPrimingPolicy.removeRepeatedStartTrim(rawSamples) : false
-                #if DEBUG
-                // Normal fragment transitions no longer generate noisy logs.
-                // Keep exceptional cases observable while SABR recovery is
-                // investigated independently.
-                if (isContinuation && (!safeToRemove || !removedTrim))
-                    || markers.decoderReset > 0 || markers.decoderDrain > 0 {
-                    NSLog("TypeType SABR AAC PRIMING anomaly seq=%d continuation=%d startTrim=%d removedTrim=%d reset=%d endTrim=%d drain=%d",
-                          sequence ?? -1, isContinuation ? 1 : 0,
-                          markers.startTrim, removedTrim ? 1 : 0,
-                          markers.decoderReset, markers.endTrim, markers.decoderDrain)
-                }
-                #endif
                 // The direct parser already reports the true tfdt/trun time.
                 // Re-snapping every AAC fragment to rounded server metadata
                 // can introduce a repeatable 20-50ms discontinuity.
                 let nativeSampleStartMs = SabrSampleTimingProbe.actualStartMs(rawSamples)
-                let keepNative = usesDirectMP4 && SabrDirectTimestampPolicy.preserveNative(
+                let keepNative = SabrDirectTimestampPolicy.preserveNative(
                     nativeStartMs: nativeSampleStartMs,
                     expectedStartMs: resolved.startMs,
                     previousActualEndMs: previousSampleEnd,
@@ -1970,7 +1667,7 @@ final class SabrPlayerController: ObservableObject {
                     rawSamples, segmentStartMs: resolved.startMs
                 )
                 #if DEBUG
-                if usesDirectMP4, let nativeSampleStartMs,
+                if let nativeSampleStartMs,
                    abs(Double(nativeSampleStartMs) - Double(resolved.startMs)) > 10 {
                     NSLog("TypeType SABR DIRECT-TIME track=audio seq=%d nativeStartMs=%lld expectedStartMs=%lld previousEndMs=%lld preserved=%d",
                           sequence ?? -1, nativeSampleStartMs, resolved.startMs,
@@ -1991,7 +1688,7 @@ final class SabrPlayerController: ObservableObject {
                 }
                 let actualEnd = SabrSampleTimingProbe.actualEndMs(samples)
                 #if DEBUG
-                if usesDirectMP4, let previousSampleEnd,
+                if let previousSampleEnd,
                    let sampleStartMs = SabrSampleTimingProbe.actualStartMs(samples) {
                     let delta = Double(sampleStartMs) - Double(previousSampleEnd)
                     if abs(delta) > 12 {
@@ -2042,9 +1739,9 @@ final class SabrPlayerController: ObservableObject {
                 #if DEBUG
                 let readStarted = ProcessInfo.processInfo.systemUptime
                 #endif
-                let rawSamples = try await SabrMediaDemux.samples(
+                let rawSamples = try await SabrDirectMP4Reader.compressedSamples(
                     initialization: videoInit, fragment: bytes,
-                    mediaType: .video, direct: usesDirectMP4,
+                    mediaType: .video,
                     presentationStartMs: presentationStartMs > start
                         ? presentationStartMs : nil
                 )
@@ -2081,7 +1778,7 @@ final class SabrPlayerController: ObservableObject {
                     decodeStartMs: nativeStart
                 )
                 let nativeSampleStartMs = SabrSampleTimingProbe.actualStartMs(rawSamples)
-                let keepNative = usesDirectMP4 && SabrDirectTimestampPolicy.preserveNative(
+                let keepNative = SabrDirectTimestampPolicy.preserveNative(
                     nativeStartMs: nativeSampleStartMs,
                     expectedStartMs: resolved.startMs,
                     previousActualEndMs: previousSampleEnd,
@@ -2091,7 +1788,7 @@ final class SabrPlayerController: ObservableObject {
                     rawSamples, segmentStartMs: resolved.startMs
                 )
                 #if DEBUG
-                if usesDirectMP4, let nativeSampleStartMs,
+                if let nativeSampleStartMs,
                    abs(Double(nativeSampleStartMs) - Double(resolved.startMs)) > 10 {
                     NSLog("TypeType SABR DIRECT-TIME track=video seq=%d nativeStartMs=%lld expectedStartMs=%lld previousEndMs=%lld preserved=%d",
                           sequence ?? -1, nativeSampleStartMs, resolved.startMs,
