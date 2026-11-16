@@ -130,8 +130,13 @@ struct SabrPlayerOptions: View {
         .padding(36)
         .frame(width: 790, height: 780)
         .background {
-            RoundedRectangle(cornerRadius: 24)
-                .fill(glassEnabled ? Color.black.opacity(0.18) : Color.black.opacity(0.85))
+            if glassEnabled {
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(Color.black.opacity(0.18))
+            } else {
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(.ultraThickMaterial)
+            }
         }
         .modifier(TVExperimentGlass(enabled: glassEnabled))
         .onAppear {

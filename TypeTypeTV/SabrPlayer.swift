@@ -2405,8 +2405,12 @@ struct SabrPlayerView: View {
                         reveal()
                     }
                 )
+                .transition(TVUIMotion.transition(popupStyle,
+                                                 reduceMotion: reduceMotion))
             }
         }
+        .animation(TVUIMotion.animation(popupStyle, reduceMotion: reduceMotion),
+                   value: optionsVisible)
         .task {
             engine.start(api: api, video: video)
             TVSabrNowPlayingCenter.shared.activate(for: engine, video: video)

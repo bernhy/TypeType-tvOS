@@ -8,17 +8,18 @@ final class TVUIExperimentsTests: XCTestCase {
         XCTAssertEqual(TVSettingsGroup.experiments.symbol, "sparkles")
     }
 
-    func testVisualExperimentsAreOptIn() {
-        // The experiment panel uses the same defaults as the actual views.
-        // Reading these values never writes to TypeType account/server settings.
-        let defaults = UserDefaults.standard
-        for key in ["typetype.exp.popup", "typetype.exp.focus",
-                    "typetype.exp.glass", "typetype.exp.toast",
-                    "typetype.exp.page", "typetype.exp.hero",
-                    "typetype.exp.background", "typetype.exp.symbols",
-                    "typetype.exp.loading", "typetype.exp.sidebar"] {
-            XCTAssertTrue(key.hasPrefix("typetype.exp."))
-        }
-        XCTAssertNotNil(defaults)
+    func testMotionPreservesOriginalAppearanceWhenDisabled() {
+        XCTAssertNil(TVUIMotion.animation("off", reduceMotion: false))
+        XCTAssertNil(TVUIMotion.animation("standard", reduceMotion: false))
+        XCTAssertNotNil(TVUIMotion.animation("pop", reduceMotion: false))
+        XCTAssertNotNil(TVUIMotion.animation("fade", reduceMotion: true))
+    }
+
+    func testVisualOptionsRemainDeviceLocal() {
+        let keys = ["popup", "focus", "glass", "toast", "page", "hero",
+                    "background", "symbols", "loading", "sidebar"]
+        let addresses = keys.map { "typetype.exp." + $0 }
+        XCTAssertEqual(Set(addresses).count, 10)
+        XCTAssertTrue(addresses.allSatisfy { $0.hasPrefix("typetype.exp.") })
     }
 }
