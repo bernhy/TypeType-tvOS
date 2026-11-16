@@ -7,7 +7,6 @@ struct VideoDetailView: View {
     var onReturnToList: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage("typetype.exp.background") private var backgroundStyle = "standard"
     @AppStorage("typetype.exp.hero") private var heroStyle = "standard"
     @AppStorage("typetype.exp.symbols") private var animateSymbols = false
     @AppStorage("typetype.exp.page") private var pageStyle = "standard"
@@ -281,7 +280,6 @@ struct VideoDetailView: View {
                             TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
                                         origin: api.origin)
                                 .frame(width: proxy.size.width, height: proxy.size.height)
-                                .blur(radius: backgroundStyle == "blurred" ? 12 : 0)
                                 .scaleEffect(heroVisible || heroStyle == "standard" || reduceMotion
                                              ? 1 : (heroStyle == "zoom" ? 0.94 : 1))
                                 .opacity(heroVisible || heroStyle == "standard" ? 1 : 0)
@@ -295,10 +293,6 @@ struct VideoDetailView: View {
                             )
                             LinearGradient(colors: [.clear, TTTheme.ink],
                                            startPoint: .center, endPoint: .bottom)
-                            if backgroundStyle == "cinematic" {
-                                LinearGradient(colors: [TTTheme.accent.opacity(0.22), .clear],
-                                               startPoint: .topTrailing, endPoint: .bottomLeading)
-                            }
                         }
                         .clipped()
                     }
