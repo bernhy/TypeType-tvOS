@@ -54,11 +54,21 @@ enum SabrPlaybackPreferences {
             $0.video.itag != requested.video.itag &&
                 $0.video.height == requested.video.height
         }
-        let remaining = automaticOrder.filter {
-            $0.video.itag != requested.video.itag &&
-                $0.video.height != requested.video.height
-        }
-        return [requested] + alternatives + remaining
+        // Never raise the resolution above what the user selected.
+        // Decrease one resolution tier at a time and exhaust that tier's
+        // alternative codecs before moving to the next lower tier.
+        let lower = automaticOrder.enumerated()
+            .filter {
+                $0.element.video.itag != requested.video.itag &&
+                    ($0.element.video.height ?? 0) < (requested.video.height ?? 0)
+            }
+            .sorted { left, right in
+                let lh = left.element.video.height ?? 0
+                let rh = right.element.video.height ?? 0
+                return lh == rh ? left.offset < right.offset : lh > rh
+            }
+            .map(\.element)
+        return [requested] + alternatives + lower
     }
 
     static func preferredVideo(_ candidates: [SabrSelection],
