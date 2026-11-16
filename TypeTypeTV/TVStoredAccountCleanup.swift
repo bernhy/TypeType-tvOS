@@ -257,6 +257,27 @@ enum TVInactiveAccountChecker {
                 store.profileRefreshToken($0, for: origin)
             } ?? store.refreshToken(for: origin)
             guard currentRefresh == refresh else { return .storageFailure }
+
+            // /auth/refresh ROTATES the server credential before this client
+            // receives the reply. Persist the new refresh secret immediately:
+            // if the following /auth/me verification times out, the prior
+            // refresh secret would otherwise be irreversibly invalidated.
+            let wasSelectedOnOldServer = login.userID != nil &&
+                store.token(for: origin) == token &&
+                store.refreshToken(for: origin) == refresh
+            let previousDisplayName = store.displayIdentifier(for: origin)
+            if let userID = login.userID {
+                guard store.saveRefreshToken(rotated, for: origin, userID: userID)
+                else { return .storageFailure }
+                if wasSelectedOnOldServer {
+                    guard store.saveRefreshToken(rotated, for: origin)
+                    else { return .storageFailure }
+                }
+            } else {
+                guard store.saveRefreshToken(rotated, for: origin)
+                else { return .storageFailure }
+            }
+
             let (checkedCode, identity) = try await checkAccess(
                 renewed.accessToken, origin: origin, session: session
             )
@@ -266,24 +287,19 @@ enum TVInactiveAccountChecker {
             }
 
             if let userID = login.userID {
-                guard store.saveRefreshToken(rotated, for: origin, userID: userID),
-                      store.setProfileAccessToken(renewed.accessToken, for: origin,
-                                                  userID: userID, label: login.label)
-                else { return .storageFailure }
-                // The inactive server's selected-account slot may point to
-                // the same profile. Keep it in sync so reconnect still works.
-                if store.token(for: origin) == token,
-                   store.refreshToken(for: origin) == refresh {
-                    guard store.saveRefreshToken(rotated, for: origin),
-                          store.save(renewed.accessToken, for: origin)
+                guard store.setProfileAccessToken(
+                    renewed.accessToken, for: origin,
+                    userID: userID, label: login.label
+                ) else { return .storageFailure }
+                if wasSelectedOnOldServer {
+                    guard store.save(renewed.accessToken, for: origin)
                     else { return .storageFailure }
+                    store.saveDisplayIdentifier(previousDisplayName, for: origin)
                 }
             } else {
-                let oldLabel = store.displayIdentifier(for: origin)
-                guard store.saveRefreshToken(rotated, for: origin),
-                      store.save(renewed.accessToken, for: origin)
+                guard store.save(renewed.accessToken, for: origin)
                 else { return .storageFailure }
-                store.saveDisplayIdentifier(oldLabel, for: origin)
+                store.saveDisplayIdentifier(previousDisplayName, for: origin)
             }
             return .renewed
         } catch {
