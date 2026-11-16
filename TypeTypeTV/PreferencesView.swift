@@ -411,6 +411,13 @@ struct PreferencesView: View {
                             focus: $focusedControl, focusID: "content." + field.rawValue,
                             onMoveLeft: { returnFocusToGroup() }
                         )
+                        Text(TVL10n.value(field.detailKey))
+                            .font(.callout)
+                            .foregroundStyle(TTTheme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 10)
+                            .accessibilityIdentifier("settings-description-" + field.rawValue)
                         // Disabling a focused tvOS button during a network write
                         // makes the focus engine jump to an unrelated rail.
                         // setRemote itself serializes requests and ignores

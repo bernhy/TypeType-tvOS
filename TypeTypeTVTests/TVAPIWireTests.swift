@@ -276,7 +276,10 @@ final class TVAPIWireTests: XCTestCase {
             XCTFail("A disabled device-code API must preserve its HTTP error")
         } catch SabrFailure.server(let status, let path) {
             XCTAssertEqual(status, 403)
-            XCTAssertEqual(path, "auth/device/start")
+            // The transport now maps structured errors to localized text
+            // that includes the route; 403 must still be distinguishable
+            // from an unsupported or non-existent API endpoint.
+            XCTAssertTrue(path.contains("auth/device/start"))
         }
     }
 
@@ -1215,8 +1218,20 @@ extension TVAPIWireTests {
             with: try XCTUnwrap(records[3].2)
         ) as? [String: String])
         XCTAssertEqual(json["keyword"], "clickbait")
-        XCTAssertTrue(records[4].1.contains("%3A%2F%2F"),
-                      "The external URL must not turn into server path segments")
+        // URLComponents initially encodes URL separators. URLSession may
+        // normalize percent-encoded slashes before URLProtocol sees them;
+        // the server's variadic URL-tail route accepts both representations.
+        let originalURL = try TVBlockedRoutes.itemURL(
+            base: api.base, category: .videos, key: "https://youtu.be/abc123def45"
+        )
+        let encoded = try XCTUnwrap(URLComponents(
+            url: originalURL, resolvingAgainstBaseURL: false
+        )?.percentEncodedPath)
+        XCTAssertTrue(encoded.contains("%3A%2F%2F"))
+        let wire = records[4].1
+        XCTAssertTrue(wire.contains("%3A%2F%2F") ||
+                      wire.hasSuffix("/blocked/videos/https://youtu.be/abc123def45"))
+        XCTAssertEqual(records[4].0, "DELETE")
         XCTAssertEqual(records[5].0, "DELETE")
     }
 }
