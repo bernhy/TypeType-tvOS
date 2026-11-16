@@ -222,6 +222,44 @@ final class SabrTransportTests: XCTestCase {
         ))
     }
 
+    func testCachedMediaIsRefetchedAfterOnDiskBitFlipOrTruncation() async throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("typetype-cache-test-\(UUID().uuidString)", isDirectory: true)
+        let cache = SabrFragmentCache(maxMiB: 64, cacheDirectory: folder)
+        defer {
+            // The test cleans up on success or failure; the actor also
+            // removes files after clear().
+            try? FileManager.default.removeItem(at: folder)
+        }
+        let key = "test-media"
+        let original = Data([0, 0, 0, 16, 109, 111, 111, 102, 1, 2, 3, 4, 5, 6, 7, 8])
+        let received = try await cache.data(for: key) { original }
+        XCTAssertEqual(received, original)
+        let files = try FileManager.default.contentsOfDirectory(
+            at: folder, includingPropertiesForKeys: nil
+        )
+        let file = try XCTUnwrap(files.first)
+        XCTAssertEqual(files.count, 1)
+
+        var changed = original
+        changed[changed.count - 1] ^= 0xff
+        try changed.write(to: file, options: .atomic)
+        let recovered = try await cache.data(for: key) { original }
+        XCTAssertEqual(recovered, original,
+                       "Same-length corruption must be discarded and fetched anew")
+
+        let fileAfterRecovery = try XCTUnwrap(FileManager.default.contentsOfDirectory(
+            at: folder, includingPropertiesForKeys: nil
+        ).first)
+        try Data(original.prefix(3)).write(to: fileAfterRecovery, options: .atomic)
+        let repaired = try await cache.data(for: key) { original }
+        XCTAssertEqual(repaired, original,
+                       "A truncated file must never reach the decoder")
+        let cachedItems = await cache.itemCount
+        XCTAssertEqual(cachedItems, 1)
+        await cache.clear()
+    }
+
     func testPreloadedSegmentsReusedFromDiskAndBounded() async throws {
         let lock = NSLock()
         var calls = 0

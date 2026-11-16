@@ -65,9 +65,11 @@ actor SabrFragmentCache {
     private var clock: UInt64 = 0
     private var invalidated = false
 
-    init(maxMiB: Int) {
+    init(maxMiB: Int, cacheDirectory: URL? = nil) {
         capacityBytes = max(64, min(1024, maxMiB)) * 1_048_576
-        directory = FileManager.default.temporaryDirectory
+        // An injectable private directory makes on-disk corruption and
+        // eviction behavior testable without exposing internal cache paths.
+        directory = cacheDirectory ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("typetype-sabr-cache-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
