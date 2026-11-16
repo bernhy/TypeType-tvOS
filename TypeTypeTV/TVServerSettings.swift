@@ -72,7 +72,19 @@ enum TVServerToggle: String, CaseIterable, Identifiable {
     case watchHistory = "disableWatchHistory"
     var id: String { rawValue }
 
-    var detailKey: String { "settings.explain." + String(describing: self) }
+    var detailKey: String {
+        switch self {
+        case .recommendations: return "settings.explain.recommendations"
+        case .continueWatching: return "settings.explain.continueWatching"
+        case .relatedVideos: return "settings.explain.relatedVideos"
+        case .endScreens: return "settings.explain.endScreens"
+        case .subscriptionLiveStreams: return "settings.explain.subscriptionLiveStreams"
+        case .membersOnlyContent: return "settings.explain.membersOnlyContent"
+        case .shorts: return "settings.explain.shorts"
+        case .comments: return "settings.explain.comments"
+        case .watchHistory: return "settings.explain.watchHistory"
+        }
+    }
 
     var titleKey: String {
         switch self {
