@@ -1,1 +1,44 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><rect width="256" height="256" fill="none"/><rect x="32" y="72" width="192" height="136" rx="8" fill="none" stroke="#ef4444" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><polyline points="80 24 128 72 176 24" fill="none" stroke="#ef4444" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/><circle cx="188" cy="116" r="12" fill="#ef4444"/><circle cx="188" cy="164" r="12" fill="#ef4444"/><line x1="152" y1="208" x2="152" y2="72" fill="none" stroke="#ef4444" stroke-linecap="round" stroke-linejoin="round" stroke-width="16"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="TypeType originales TV-Liniensymbol, 3D-Ausführung Rotmetall – poliertes Chromfinish">
+    <title>TypeType – Rotmetall – poliertes Chromfinish</title>
+    <desc>Originalgetreues rotes TypeType-Fernsehsymbol: rechteckiger Rahmen, V-Antenne, zwei rechte Bedienelemente, senkrechte Trennlinie. Nur Oberflächen, 3D-Tiefe und Beleuchtung wurden verändert.</desc>
+    <defs><linearGradient id="anod" x1="0" y1="0" x2=".90" y2="1"><stop offset="0" stop-color="#ffe8df"/><stop offset=".16" stop-color="#fd9a92"/><stop offset=".27" stop-color="#f2474c"/><stop offset=".48" stop-color="#bb1d31"/><stop offset=".56" stop-color="#fd6670"/><stop offset=".70" stop-color="#d42b41"/><stop offset="1" stop-color="#741326"/></linearGradient><linearGradient id="metalDot" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffe2d5"/><stop offset=".27" stop-color="#ff8a85"/><stop offset=".44" stop-color="#d63145"/><stop offset=".60" stop-color="#f35762"/><stop offset="1" stop-color="#831b32"/></linearGradient></defs>
+    
+    <g transform="translate(6 6.7)" opacity="0.2"><g stroke="#2c0a19" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <rect x="32" y="72" width="192" height="136" rx="8"/>
+    <polyline points="80 24 128 72 176 24"/>
+    <path d="M152 208V72"/>
+    </g>
+    <g fill="#2c0a19"><circle cx="188" cy="116" r="12"/><circle cx="188" cy="164" r="12"/></g></g><g transform="translate(4.6 5)" opacity="0.45"><g stroke="#4b0f22" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <rect x="32" y="72" width="192" height="136" rx="8"/>
+    <polyline points="80 24 128 72 176 24"/>
+    <path d="M152 208V72"/>
+    </g>
+    <g fill="#4b0f22"><circle cx="188" cy="116" r="12"/><circle cx="188" cy="164" r="12"/></g></g><g transform="translate(3 3.5)" opacity="0.78"><g stroke="#731e2b" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <rect x="32" y="72" width="192" height="136" rx="8"/>
+    <polyline points="80 24 128 72 176 24"/>
+    <path d="M152 208V72"/>
+    </g>
+    <g fill="#731e2b"><circle cx="188" cy="116" r="12"/><circle cx="188" cy="164" r="12"/></g></g><g transform="translate(1.5 1.8)" opacity="1"><g stroke="#ae2639" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <rect x="32" y="72" width="192" height="136" rx="8"/>
+    <polyline points="80 24 128 72 176 24"/>
+    <path d="M152 208V72"/>
+    </g>
+    <g fill="#ae2639"><circle cx="188" cy="116" r="12"/><circle cx="188" cy="164" r="12"/></g></g>
+    <g stroke="url(#anod)" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <rect x="32" y="72" width="192" height="136" rx="8"/>
+    <polyline points="80 24 128 72 176 24"/>
+    <path d="M152 208V72"/>
+    </g>
+    <g fill="url(#metalDot)"><circle cx="188" cy="116" r="12"/><circle cx="188" cy="164" r="12"/></g>
+    <g transform="translate(-1.45 -1.5)" opacity=".42"><g stroke="#fff0eb" stroke-width="3.7" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <rect x="32" y="72" width="192" height="136" rx="8"/>
+    <polyline points="80 24 128 72 176 24"/>
+    <path d="M152 208V72"/>
+    </g>
+    <g fill="#fff0eb"><circle cx="188" cy="116" r="12"/><circle cx="188" cy="164" r="12"/></g></g><g opacity=".24"><g stroke="#781a2d" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <rect x="32" y="72" width="192" height="136" rx="8"/>
+    <polyline points="80 24 128 72 176 24"/>
+    <path d="M152 208V72"/>
+    </g>
+    <g fill="#771b2f"><circle cx="188" cy="116" r="12"/><circle cx="188" cy="164" r="12"/></g></g>
+    </svg>
