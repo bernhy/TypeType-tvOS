@@ -46,7 +46,7 @@ struct SabrMediaReference: Sendable {
 }
 
 /// Bounded, session-local disk cache for *compressed* media only.
-/// VideoToolbox render buffers are not used as long-term storage.
+/// Compressed-media files are cached, not decoded video renderer frames.
 /// Keys are kept in memory; disk filenames contain UUIDs, not bearer tokens or session IDs.
 actor SabrFragmentCache {
     private struct Entry {
@@ -109,7 +109,7 @@ actor SabrFragmentCache {
         guard !invalidated else { throw CancellationError() }
         clock &+= 1
         if var entry = entries[key] {
-            // Never hand an altered/truncated disk fragment to AVAssetReader.
+            // Never hand altered or truncated compressed media to the native fMP4 parser.
             // The server does not supply content hashes, so this only proves
             // that the on-disk bytes still equal the successful HTTP payload.
             let bytes = try? Data(contentsOf: entry.file)
