@@ -344,13 +344,21 @@ struct BrowseView: View {
         }
         .buttonStyle(TVRailButtonStyle())
         .focusEffectDisabled(true)
-        .disabled(menuHandoffActive ||
-                  (returnToRailTarget != nil && returnToRailTarget != item))
+        // Never disable neighboring rail icons while returning from content:
+        // otherwise an immediate Up/Down on the remote is swallowed for
+        // 360 ms. The visual handoff is controlled by TVRailVisualFocus.
+        .disabled(menuHandoffActive)
         .focused($menuFocus, equals: item)
         .accessibilityLabel(item.label)
         .accessibilityIdentifier("main-nav-\(item.rawValue)")
         .onMoveCommand { direction in
-            if direction == .right {
+            if direction == .up || direction == .down {
+                // A genuine vertical move explicitly ends the visual
+                // Left-to-rail handoff immediately, even if the native
+                // focus engine is still finishing its previous update.
+                returnToRailGeneration &+= 1
+                returnToRailTarget = nil
+            } else if direction == .right {
                 // Right, including a touchpad swipe, is equivalent to OK.
                 // .onChange(of: menuFocus) must not undo this handoff.
                 open(item)
