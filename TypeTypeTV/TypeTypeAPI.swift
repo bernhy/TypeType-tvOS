@@ -931,6 +931,55 @@ struct TypeTypeAPI {
         return try await get("search", query: query)
     }
 
+
+    /// Comment pages are read-only. No comments are fetched until the user
+    /// opens the details page's Comments tab.
+    func comments(videoURL: String, nextpage: String? = nil) async throws -> TVCommentsPage {
+        var query = [URLQueryItem(name: "url", value: videoURL)]
+        if let nextpage, !nextpage.isEmpty {
+            query.append(URLQueryItem(name: "nextpage", value: nextpage))
+        }
+        return try await get("comments", query: query)
+    }
+
+    func commentReplies(videoURL: String, repliesPage: String) async throws -> TVCommentsPage {
+        guard !repliesPage.isEmpty else { throw TypeTypeError.unexpectedResponse }
+        return try await get("comments/replies", query: [
+            URLQueryItem(name: "url", value: videoURL),
+            URLQueryItem(name: "repliesPage", value: repliesPage)
+        ])
+    }
+
+    /// Voice replies require a private server media endpoint and must never
+    /// expose the account token in the audio URL or a log message.
+    func commentVoiceAudio(watchURL: String) async throws -> Data {
+        guard VideoAddress.youtubeID(watchURL) != nil else {
+            throw TypeTypeError.unavailableFormat
+        }
+        var parts = URLComponents(
+            url: base.appendingPathComponent("comments/voice"),
+            resolvingAgainstBaseURL: false
+        )
+        parts?.queryItems = [URLQueryItem(name: "url", value: watchURL)]
+        guard let address = parts?.url else { throw TypeTypeError.invalidServerAddress }
+        var request = authorizedRequest(address, method: "GET")
+        request.setValue("audio/mp4", forHTTPHeaderField: "Accept")
+        let (bytes, result) = try await authenticatedData(for: request)
+        guard let response = result as? HTTPURLResponse else {
+            throw TypeTypeError.unexpectedResponse
+        }
+        guard response.statusCode == 200 else {
+            throw TVServerErrorMapping.apiError(
+                data: bytes, response: response, route: "comments/voice"
+            )
+        }
+        // Server caps audio duration at two minutes; also bound client memory.
+        guard bytes.count > 0 && bytes.count <= 16_000_000 else {
+            throw TypeTypeError.unexpectedResponse
+        }
+        return bytes
+    }
+
     func publicPlaylist(_ url: String, nextpage: String? = nil) async throws -> TVPublicPlaylistPage {
         var query = [URLQueryItem(name: "url", value: url)]
         if let nextpage, !nextpage.isEmpty {
