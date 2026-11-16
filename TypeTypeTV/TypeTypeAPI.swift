@@ -669,8 +669,8 @@ struct TypeTypeAPI {
     func blockVideo(_ video: VideoItem) async throws {
         try await writeLibrary(
             base.appendingPathComponent("blocked/videos"), method: "POST",
-            body: try JSONEncoder().encode(TVBlockWrite(url: video.url, name: nil,
-                                                        thumbnailUrl: nil))
+            body: try JSONEncoder().encode(TVBlockWrite(url: video.url, name: video.title,
+                                                        thumbnailUrl: video.thumbnailUrl))
         )
     }
 

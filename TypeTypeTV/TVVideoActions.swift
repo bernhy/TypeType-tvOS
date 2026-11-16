@@ -196,7 +196,12 @@ struct TVVideoActionModifier: ViewModifier {
                 if old != nil && current == nil { restoreCardFocus() }
             }
             .confirmationDialog(
-                TVL10n.value("action.confirmBlock"),
+                TVL10n.formatted(
+                    "action.confirmBlockNamed",
+                    toBlock == .channel
+                        ? (video.uploaderName ?? TVL10n.value("action.channelUnavailable"))
+                        : video.title
+                ),
                 isPresented: Binding(
                     get: { toBlock != nil },
                     set: { if !$0 { toBlock = nil } }
@@ -211,7 +216,11 @@ struct TVVideoActionModifier: ViewModifier {
                     ) {
                         perform {
                             switch target {
-                            case .video: try await api.blockVideo(video)
+                            case .video:
+                                try await api.blockVideo(video)
+                                TVBlockedNameCache.remember(
+                                    title: video.title, url: video.url, api: api
+                                )
                             case .channel: try await api.blockChannel(video)
                             }
                             return TVL10n.value("action.blocked")
