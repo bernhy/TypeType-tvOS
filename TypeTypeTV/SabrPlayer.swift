@@ -87,8 +87,14 @@ enum SabrSampleWindow {
             // AVC B-frames arrive in decode order, not PTS order. Prefer
             // monotonic DTS when present; checking PTS can strand earlier
             // B-frames behind a future P-frame at a segment boundary.
-            let dts = CMTimeGetSeconds(CMSampleBufferGetDecodeTimeStamp(sample))
-            let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
+            let sampleCount = CMSampleBufferGetNumSamples(sample)
+            guard sampleCount > 0 else { break }
+            var tail = CMSampleTimingInfo()
+            guard CMSampleBufferGetSampleTimingInfo(
+                sample, at: sampleCount - 1, timingInfoOut: &tail
+            ) == noErr else { break }
+            let dts = CMTimeGetSeconds(tail.decodeTimeStamp)
+            let pts = CMTimeGetSeconds(tail.presentationTimeStamp)
             let time = dts.isFinite ? dts : pts
             // Boundary is exclusive: an exact sample at 5.000s belongs to
             // the NEXT A/V window, not the one ending at 5.000s.
@@ -485,6 +491,8 @@ final class SabrPlayerController: ObservableObject {
     private var queuedAudioEndMs: Int64 = 0
     private var queuedVideoEndMs: Int64 = 0
     private var hardwareDecoder: HardwareVideoDecoder?
+    // Direct compressed-sample renderer for H.264/HEVC + AAC, legacy VT for others.
+    private var usesDirectMP4 = false
     #if DEBUG
     private var rendererProbeTask: Task<Void, Never>?
     private var maxVideoDeliveryMs = 0
@@ -526,6 +534,9 @@ final class SabrPlayerController: ObservableObject {
         // legacy layer queue would bypass our shared A/V media timeline.
         synchronizer.addRenderer(videoLayer.sampleBufferRenderer)
         synchronizer.addRenderer(audioRenderer)
+        // A/V startup is gated by the actual first samples below.
+        // Avoid a second implicit rate gate on tvOS after a seek.
+        synchronizer.delaysRateChangeUntilHasSufficientMediaData = false
     }
 
     /// Each message has its own expiry. New messages appear at the top and
@@ -615,6 +626,7 @@ final class SabrPlayerController: ObservableObject {
         diskCacheBytes = 0
         hardwareDecoder?.invalidate()
         hardwareDecoder = nil
+        usesDirectMP4 = false
         #if DEBUG
         rendererProbeTask?.cancel()
         rendererProbeTask = nil
@@ -846,6 +858,10 @@ final class SabrPlayerController: ObservableObject {
 
     private func noteQueuedMedia(_ track: SabrMediaInterleave.Track,
                                  sample: CMSampleBuffer) {
+        if usesDirectMP4, let actualEndMs = SabrSampleTimingProbe.actualEndMs([sample]) {
+            noteQueuedTime(track, seconds: Double(actualEndMs) / 1_000)
+            return
+        }
         let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
         let duration = CMTimeGetSeconds(CMSampleBufferGetDuration(sample))
         noteQueuedTime(track, seconds: pts, duration: duration)
@@ -1120,7 +1136,16 @@ final class SabrPlayerController: ObservableObject {
                 currentAudioItag = choice.audio.itag
                 currentAudioTrackId = choice.audio.audioTrackId
                 selectionDescription = choice.description
-                hardwareDecoder = HardwareVideoDecoder(
+                usesDirectMP4 = SabrNativePlaybackPolicy.usesDirectRenderer(
+                    videoCodec: choice.video.codec,
+                    audioCodec: choice.audio.codec,
+                    audioMIME: choice.audio.mimeType
+                )
+                NSLog("TypeType SABR PIPELINE native=%d codec=%@",
+                      usesDirectMP4 ? 1 : 0, choice.video.codec)
+                // The sample renderer decodes H.264/HEVC compressed buffers
+                // itself. No duplicate VTDecompressionSession is needed.
+                hardwareDecoder = usesDirectMP4 ? nil : HardwareVideoDecoder(
                     display: videoLayer, allowSoftware: allowSoftware
                 )
                 hardwareDecoder?.playbackPaused = prefersPause
@@ -1474,7 +1499,7 @@ final class SabrPlayerController: ObservableObject {
                 let allowSoftware = UserDefaults.standard.bool(
                     forKey: "typetype.allowSoftwareDecode"
                 )
-                hardwareDecoder = HardwareVideoDecoder(
+                hardwareDecoder = usesDirectMP4 ? nil : HardwareVideoDecoder(
                     display: videoLayer, allowSoftware: allowSoftware
                 )
                 hardwareDecoder?.playbackPaused = prefersPause
@@ -1827,8 +1852,9 @@ final class SabrPlayerController: ObservableObject {
                 #if DEBUG
                 let readStarted = ProcessInfo.processInfo.systemUptime
                 #endif
-                let rawSamples = try await FragmentedMP4Reader.compressedSamples(
-                    initialization: audioInit, fragment: bytes, mediaType: .audio
+                let rawSamples = try await SabrMediaDemux.samples(
+                    initialization: audioInit, fragment: bytes,
+                    mediaType: .audio, direct: usesDirectMP4
                 )
                 #if DEBUG
                 let readMs = Int((ProcessInfo.processInfo.systemUptime - readStarted) * 1_000)
@@ -1936,8 +1962,9 @@ final class SabrPlayerController: ObservableObject {
                 #if DEBUG
                 let readStarted = ProcessInfo.processInfo.systemUptime
                 #endif
-                let rawSamples = try await FragmentedMP4Reader.compressedSamples(
-                    initialization: videoInit, fragment: bytes, mediaType: .video
+                let rawSamples = try await SabrMediaDemux.samples(
+                    initialization: videoInit, fragment: bytes,
+                    mediaType: .video, direct: usesDirectMP4
                 )
                 #if DEBUG
                 let readMs = Int((ProcessInfo.processInfo.systemUptime - readStarted) * 1_000)
@@ -2172,30 +2199,43 @@ final class SabrPlayerController: ObservableObject {
                     videoReadyWaits += 1
                 }
                 #endif
-                guard let hardwareDecoder else {
-                    throw SabrFailure.invalidResponse("decoder missing")
-                }
                 #if DEBUG
                 let deliveryStarted = ProcessInfo.processInfo.systemUptime
                 #endif
-                let lastDecodedPTS = try await hardwareDecoder.decode(video[vi])
+                let lastDeliveredPTS: CMTime?
+                if usesDirectMP4 {
+                    // This is the native path used by the official client:
+                    // submit compressed H.264/HEVC directly to Apple's video
+                    // sample renderer, which shares the audio clock.
+                    guard videoLayer.sampleBufferRenderer.status != .failed else {
+                        throw SabrFailure.stalled("native compressed video renderer failed")
+                    }
+                    videoLayer.sampleBufferRenderer.enqueue(video[vi])
+                    lastDeliveredPTS = SabrSampleTimingProbe.actualEndMs([video[vi]]).map {
+                        CMTime(value: $0, timescale: 1_000)
+                    }
+                } else {
+                    guard let hardwareDecoder else {
+                        throw SabrFailure.invalidResponse("decoder missing")
+                    }
+                    lastDeliveredPTS = try await hardwareDecoder.decode(video[vi])
+                }
                 #if DEBUG
                 let deliveryMs = Int((ProcessInfo.processInfo.systemUptime -
                                       deliveryStarted) * 1_000)
                 maxVideoDeliveryMs = max(maxVideoDeliveryMs, deliveryMs)
-                videoSamplesDelivered += 1
-                if let lastDecodedPTS, isInitialized, !prefersPause,
+                videoSamplesDelivered += CMSampleBufferGetNumSamples(video[vi])
+                if let lastDeliveredPTS, isInitialized, !prefersPause,
                    !bufferingClockPaused {
-                    let ptsMs = Int64(CMTimeGetSeconds(lastDecodedPTS) * 1_000)
+                    let ptsMs = Int64(CMTimeGetSeconds(lastDeliveredPTS) * 1_000)
                     let clockMs = Int64(max(0, playbackSeconds() * 1_000))
                     if ptsMs + 75 < clockMs { lateVideoSamples += 1 }
                 }
                 #endif
-                // Use actual frames submitted to AVSampleBufferDisplayLayer,
-                // not compressed input PTS, when measuring renderer headroom.
-                if let lastDecodedPTS {
-                    noteQueuedTime(.video,
-                                   seconds: CMTimeGetSeconds(lastDecodedPTS))
+                // Count the latest actually submitted presentation time, not
+                // just the first compressed sample in a multi-sample buffer.
+                if let lastDeliveredPTS {
+                    noteQueuedTime(.video, seconds: CMTimeGetSeconds(lastDeliveredPTS))
                     hasQueuedFirstVideo = true
                 }
                 vi += 1
