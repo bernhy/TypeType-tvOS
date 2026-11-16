@@ -1112,3 +1112,105 @@ final class TVAPIWireTests: XCTestCase {
     }
 
 }
+
+
+extension TVAPIWireTests {
+    func testAdvancedSearchWireFiltersPaginationAndResultKinds() async throws {
+        let lock = NSLock()
+        var queries: [[URLQueryItem]] = []
+        TVAPIWireProtocol.install(host: "new-search.example") { request in
+            let params = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            lock.withLock { queries.append(params) }
+            if request.url?.path == "/api/search/filters" {
+                return (200, Data(#"{"contentFilters":[{"value":"videos","label":"Videos"}],"sortFilters":[{"value":"date","label":"Date"}],"filterGroups":[{"key":"duration","label":"Duration","multiSelect":true,"options":[{"value":"long","label":"Long"}]}]}"#.utf8))
+            }
+            return (200, Data(#"{"items":[],"nextpage":"cursor2","searchSuggestion":"suggested","isCorrectedSearch":true,"channels":[{"id":"c","name":"Channel","url":"https://www.youtube.com/@channel"}],"playlists":[{"id":"p","title":"Public","url":"https://www.youtube.com/playlist?list=PL123"}]}"#.utf8))
+        }
+        let api = try fixtureAPI(host: "new-search.example")
+        let filters = try await api.searchFilters(contentFilter: "videos")
+        XCTAssertEqual(filters.contentFilters.first?.value, "videos")
+        XCTAssertEqual(filters.filterGroups.first?.key, "duration")
+        let page = try await api.search("keyword", nextpage: "cursor1",
+                                        contentFilter: "videos", filters: ["date", "long"])
+        XCTAssertEqual(page.nextpage, "cursor2")
+        XCTAssertEqual(page.channels?.first?.name, "Channel")
+        XCTAssertEqual(page.playlists?.first?.title, "Public")
+        XCTAssertEqual(page.searchSuggestion, "suggested")
+        XCTAssertEqual(page.isCorrectedSearch, true)
+        let all = lock.withLock { queries }
+        XCTAssertEqual(all.count, 2)
+        XCTAssertEqual(all[0].first(where: { $0.name == "contentFilter" })?.value, "videos")
+        XCTAssertEqual(all[1].filter { $0.name == "filter" }.map(\.value), ["date", "long"])
+        XCTAssertEqual(all[1].first(where: { $0.name == "nextpage" })?.value, "cursor1")
+    }
+
+    func testChannelExtrasWireRoutesAndSort() async throws {
+        let lock = NSLock()
+        var requests: [(String, String)] = []
+        TVAPIWireProtocol.install(host: "new-channel.example") { request in
+            let path = request.url?.path ?? ""
+            let params = request.url?.query ?? ""
+            lock.withLock { requests.append((path, params)) }
+            switch path {
+            case "/api/channel":
+                return (200, Data(#"{"name":"Channel","videos":[],"hasCourses":true}"#.utf8))
+            case "/api/channel/playlists":
+                return (200, Data(#"{"playlists":[{"id":"p","title":"Course","url":"https://www.youtube.com/playlist?list=PL123"}],"nextpage":null}"#.utf8))
+            case "/api/channel/posts":
+                return (200, Data(#"{"posts":[{"id":"post1","text":"Hello","type":"text"}],"nextpage":null}"#.utf8))
+            case "/api/podcasts":
+                return (200, Data(#"{"podcasts":[{"id":"pod1","title":"Podcast","url":"https://www.youtube.com/playlist?list=PL456"}],"episodes":[],"nextpage":null}"#.utf8))
+            case "/api/podcasts/episodes":
+                return (200, Data(#"{"podcast":null,"episodes":[],"nextpage":null}"#.utf8))
+            case "/api/playlist":
+                return (200, Data(#"{"playlist":null,"videos":[],"nextpage":null}"#.utf8))
+            default: return (404, Data())
+            }
+        }
+        let api = try fixtureAPI(host: "new-channel.example")
+        let url = "https://www.youtube.com/@channel"
+        let channel = try await api.channel(url, sort: "popular")
+        XCTAssertEqual(channel.hasCourses, true)
+        XCTAssertEqual(try await api.channelPlaylists(url, tab: "courses").playlists.count, 1)
+        XCTAssertEqual(try await api.channelPosts(url).posts.first?.id, "post1")
+        XCTAssertEqual(try await api.channelPodcasts(url).podcasts.count, 1)
+        _ = try await api.podcastEpisodes("https://www.youtube.com/playlist?list=PL456")
+        _ = try await api.publicPlaylist("https://www.youtube.com/playlist?list=PL123")
+        let records = lock.withLock { requests }
+        XCTAssertEqual(records.count, 6)
+        XCTAssertTrue(records[0].1.contains("sort=popular"))
+        XCTAssertTrue(records[1].1.contains("tab=courses"))
+    }
+
+    func testBlockedContentListAndEncodedRemoval() async throws {
+        let lock = NSLock()
+        var requests: [(String, String, Data?)] = []
+        TVAPIWireProtocol.install(host: "new-blocked.example") { request in
+            let path = request.url?.path ?? ""
+            lock.withLock { requests.append((request.httpMethod ?? "", path, request.httpBody)) }
+            if request.httpMethod == "GET" {
+                if path.hasSuffix("/keywords") {
+                    return (200, Data(#"[{"keyword":"clickbait"}]"#.utf8))
+                }
+                return (200, Data(#"[{"url":"https://youtu.be/abc123def45","name":"Spam"}]"#.utf8))
+            }
+            return (204, Data())
+        }
+        let api = try fixtureAPI(host: "new-blocked.example")
+        XCTAssertEqual(try await api.blockedVideos().first?.name, "Spam")
+        XCTAssertEqual(try await api.blockedChannels().count, 1)
+        XCTAssertEqual(try await api.blockedKeywords().first?.keyword, "clickbait")
+        try await api.addBlockedKeyword("  clickbait  ")
+        try await api.removeBlock(.videos, value: "https://youtu.be/abc123def45")
+        try await api.removeBlock(.keywords, value: "clickbait")
+        let records = lock.withLock { requests }
+        XCTAssertEqual(records.count, 6)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: try XCTUnwrap(records[3].2)
+        ) as? [String: String])
+        XCTAssertEqual(json["keyword"], "clickbait")
+        XCTAssertTrue(records[4].1.contains("%3A%2F%2F"),
+                      "The external URL must not turn into server path segments")
+        XCTAssertEqual(records[5].0, "DELETE")
+    }
+}
