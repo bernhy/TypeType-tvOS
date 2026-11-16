@@ -6,6 +6,12 @@ struct VideoDetailView: View {
     var playbackQueue: [VideoItem]? = nil
     var onReturnToList: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("typetype.exp.background") private var backgroundStyle = "standard"
+    @AppStorage("typetype.exp.hero") private var heroStyle = "standard"
+    @AppStorage("typetype.exp.symbols") private var animateSymbols = false
+    @AppStorage("typetype.exp.page") private var pageStyle = "standard"
+    @State private var heroVisible = false
     @State private var favorite = false
     @State private var watchLater = false
     @State private var activityLoaded = false
@@ -184,6 +190,7 @@ struct VideoDetailView: View {
                                     } label: {
                                         Label(TVL10n.value("library.favorites"),
                                               systemImage: favorite ? "heart.fill" : "heart")
+                                            .symbolEffect(.bounce, value: animateSymbols && favorite && !reduceMotion)
                                     }
                                     .accessibilityAddTraits(favorite ? .isSelected : [])
                                     .buttonStyle(.bordered)
@@ -195,6 +202,7 @@ struct VideoDetailView: View {
                                     } label: {
                                         Label(TVL10n.value("library.watchLater"),
                                               systemImage: watchLater ? "bookmark.fill" : "bookmark")
+                                            .symbolEffect(.bounce, value: animateSymbols && watchLater && !reduceMotion)
                                     }
                                     .accessibilityAddTraits(watchLater ? .isSelected : [])
                                     .buttonStyle(.bordered)
@@ -273,6 +281,10 @@ struct VideoDetailView: View {
                             TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
                                         origin: api.origin)
                                 .frame(width: proxy.size.width, height: proxy.size.height)
+                                .blur(radius: backgroundStyle == "blurred" ? 12 : 0)
+                                .scaleEffect(heroVisible || heroStyle == "standard" || reduceMotion
+                                             ? 1 : (heroStyle == "zoom" ? 0.94 : 1))
+                                .opacity(heroVisible || heroStyle == "standard" ? 1 : 0)
                                 .clipped()
                             LinearGradient(
                                 stops: [
@@ -283,6 +295,10 @@ struct VideoDetailView: View {
                             )
                             LinearGradient(colors: [.clear, TTTheme.ink],
                                            startPoint: .center, endPoint: .bottom)
+                            if backgroundStyle == "cinematic" {
+                                LinearGradient(colors: [TTTheme.accent.opacity(0.22), .clear],
+                                               startPoint: .topTrailing, endPoint: .bottomLeading)
+                            }
                         }
                         .clipped()
                     }
@@ -365,6 +381,12 @@ struct VideoDetailView: View {
             .background(TTTheme.ink)
             .defaultFocus($focusedDetail, .play)
             .task(id: video.url) {
+                if !heroVisible {
+                    withAnimation(heroStyle == "standard" ? nil :
+                                  .easeOut(duration: reduceMotion ? 0.12 : 0.38)) {
+                        heroVisible = true
+                    }
+                }
                 if initiallyFocusedVideoURL != video.url {
                     initiallyFocusedVideoURL = video.url
                     // tvOS otherwise chooses the first focusable item,
@@ -386,6 +408,7 @@ struct VideoDetailView: View {
             }
         }
         .onExitCommand { returnToList() }
+        .modifier(TVExperimentNavigation(style: pageStyle, reduceMotion: reduceMotion))
     }
 
     @MainActor

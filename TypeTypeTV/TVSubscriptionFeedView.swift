@@ -8,6 +8,7 @@ struct TVSubscriptionFeedView: View {
     var onRevealMenu: () -> Void = {}
 
     @State private var videos: [VideoItem] = []
+    @AppStorage("typetype.exp.loading") private var loadingStyle = "standard"
     @State private var nextCursor: String?
     @State private var loading = false
     @State private var loadingMore = false
@@ -39,8 +40,10 @@ struct TVSubscriptionFeedView: View {
                     ProgressView("subscriptions.feedPreparing")
                         .frame(maxWidth: .infinity, minHeight: 120)
                 } else if loading && videos.isEmpty {
-                    ProgressView("settings.remoteLoading")
-                        .frame(maxWidth: .infinity, minHeight: 180)
+                    if loadingStyle == "standard" {
+                        ProgressView("settings.remoteLoading")
+                            .frame(maxWidth: .infinity, minHeight: 180)
+                    } else { TVExperimentLoading() }
                 }
                 if let error {
                     TVContentMessage(

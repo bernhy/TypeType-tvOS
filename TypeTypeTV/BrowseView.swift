@@ -66,6 +66,9 @@ struct BrowseView: View {
     @State private var accountGeneration = 0
     @State private var returnToSwitcherAfterLogin = false
     @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
+    @AppStorage("typetype.exp.sidebar") private var sidebarStyle = "standard"
+    @AppStorage("typetype.exp.page") private var pageStyle = "standard"
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var menuFocus: TVSection?
 
     // Previewing and entering a page are different states. Once an explicit
@@ -161,6 +164,9 @@ struct BrowseView: View {
                     }
                 }
                 .id("\(section.rawValue)-\(accountGeneration)")
+                    .transition(TVUIMotion.pageTransition(pageStyle, reduceMotion: reduceMotion))
+                    .animation(pageStyle == "standard" ? nil : .easeOut(duration: 0.24),
+                               value: section)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .focusSection()
                 }
@@ -195,6 +201,7 @@ struct BrowseView: View {
                     Text("TypeType")
                         .font(.system(size: 23, weight: .bold))
                         .lineLimit(1)
+                        .transition(sidebarStyle == "fade" ? .opacity : .identity)
                 }
                 Spacer(minLength: 0)
             }
@@ -227,7 +234,8 @@ struct BrowseView: View {
         // Disable it for the entire rail; only our pill is allowed to render.
         .environment(\.isFocusEffectEnabled, false)
         .focusEffectDisabled(true)
-        .animation(navigationAnimations ? .easeInOut(duration: 0.16) : nil, value: expanded)
+        .animation(navigationAnimations ? .easeInOut(duration: sidebarStyle == "fade" ? 0.28 : 0.16) : nil,
+                   value: expanded)
         .focusSection()
         .onExitCommand {
             // Back while the global rail is focused goes to Home. The final
@@ -302,6 +310,7 @@ struct BrowseView: View {
                         Text(item.localizedLabel)
                             .font(.system(size: 20, weight: .medium))
                             .lineLimit(1)
+                            .transition(sidebarStyle == "fade" ? .opacity : .identity)
                     }
                     Spacer(minLength: 0)
                 }
@@ -441,6 +450,7 @@ struct HomeView: View {
     // overwrite the card-specific focus restoration with recommendation 0.
     @State private var processedHomeFocusRequest = 0
     @State private var pendingHomeFocus: Task<Void, Never>?
+    @AppStorage("typetype.exp.loading") private var loadingStyle = "standard"
 
     private func homeCardID(_ video: VideoItem, recommended: Bool) -> String {
         (recommended ? "recommendation-" : "recent-") + video.url
@@ -515,8 +525,10 @@ struct HomeView: View {
                     Text("home.recentlyWatched")
                         .font(.system(size: 35, weight: .bold))
                     if loadingRecent && recentVideos.isEmpty {
-                        ProgressView("home.loadingHistory")
-                            .frame(maxWidth: .infinity, minHeight: 135)
+                        if loadingStyle == "standard" {
+                            ProgressView("home.loadingHistory")
+                                .frame(maxWidth: .infinity, minHeight: 135)
+                        } else { TVExperimentLoading() }
                     } else if !recentVideos.isEmpty {
                         videoGrid(recentVideos, scroll: scroll,
                                   lookupHistoryMetadata: true)
@@ -550,8 +562,10 @@ struct HomeView: View {
                             .foregroundStyle(TTTheme.muted)
                     }
                     if loading && videos.isEmpty {
-                        ProgressView("home.loading")
-                            .frame(maxWidth: .infinity, minHeight: 200)
+                        if loadingStyle == "standard" {
+                            ProgressView("home.loading")
+                                .frame(maxWidth: .infinity, minHeight: 200)
+                        } else { TVExperimentLoading() }
                     } else if videos.isEmpty {
                         TVContentMessage(
                             symbol: message == nil ? "rectangle.stack" : "wifi.exclamationmark",
@@ -846,6 +860,8 @@ struct VideoCard: View {
     @ObservedObject private var localProgress = TVLocalProgress.shared
     @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
     @Environment(\.isFocused) private var isFocused
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("typetype.exp.focus") private var focusStyle = "classic"
     var lookupMissingMetadata = false
     @State private var streamMetadata: StreamInfo?
     @State private var metadataVideoURL: String?
@@ -934,7 +950,9 @@ struct VideoCard: View {
                 .padding(9)
                 // Keep the time badge's background at its original size
                 // while the full card scales on focus.
-                .scaleEffect(isFocused ? 1 / 1.065 : 1, anchor: .bottomTrailing)
+                .scaleEffect(isFocused && !reduceMotion &&
+                             (focusStyle == "classic" || focusStyle == "hybrid")
+                             ? 1 / 1.065 : 1, anchor: .bottomTrailing)
                 if let fraction {
                     GeometryReader { proxy in
                         Rectangle()
@@ -947,6 +965,7 @@ struct VideoCard: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 10))
+            .modifier(TVExperimentArtworkFocus(mode: focusStyle, reduceMotion: reduceMotion))
             VStack(alignment: .leading, spacing: 7) {
                 Text(video.title)
                     .font(.system(size: 21, weight: .semibold))
@@ -989,10 +1008,12 @@ struct VideoCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         // Scale the complete card, not the thumbnail viewport.
         // .fit preserves the original image edges and the progress bar.
-        .scaleEffect(isFocused ? 1.065 : 1, anchor: .center)
-        .shadow(color: isFocused ? Color.black.opacity(0.55) : .clear,
-                radius: 19, y: 10)
-        .animation(.easeOut(duration: 0.13), value: isFocused)
+        .scaleEffect(isFocused && !reduceMotion &&
+                     (focusStyle == "classic" || focusStyle == "hybrid") ? 1.065 : 1,
+                     anchor: .center)
+        .shadow(color: isFocused && (focusStyle == "classic" || focusStyle == "hybrid")
+                ? Color.black.opacity(0.55) : .clear, radius: 19, y: 10)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.13), value: isFocused)
         .foregroundStyle(.white)
         .task(id: video.url) {
             metadataVideoURL = video.url

@@ -30,6 +30,7 @@ struct LibraryView: View {
     @State private var statusMessage: String?
     @State private var railError: String?
     @State private var loading = false
+    @AppStorage("typetype.exp.loading") private var loadingStyle = "standard"
     @State private var focusContentAfterLoad = false
     @State private var libraryRequestID = UUID()
     @State private var title = TVL10n.value("library.watchLater")
@@ -101,8 +102,10 @@ struct LibraryView: View {
                             .foregroundStyle(.orange).lineLimit(2)
                     }
                     if loading {
-                        ProgressView("settings.remoteLoading")
-                            .frame(maxWidth: .infinity, minHeight: 230)
+                        if loadingStyle == "standard" {
+                            ProgressView("settings.remoteLoading")
+                                .frame(maxWidth: .infinity, minHeight: 230)
+                        } else { TVExperimentLoading() }
                     } else if let statusMessage {
                         TVContentMessage(
                             symbol: "wifi.exclamationmark",
