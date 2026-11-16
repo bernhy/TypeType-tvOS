@@ -11733,34 +11733,6 @@
         }
       }
     },
-    "playlist.membershipBadge": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d Listen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d playlists"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d listes"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d listas"
-          }
-        }
-      }
-    },
     "playlist.alreadyAdded": {
       "localizations": {
         "de": {
@@ -11785,34 +11757,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ya añadido ✓"
-          }
-        }
-      }
-    },
-    "playlist.membershipBadgeSingle": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d Liste"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d playlist"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d liste"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d lista"
           }
         }
       }

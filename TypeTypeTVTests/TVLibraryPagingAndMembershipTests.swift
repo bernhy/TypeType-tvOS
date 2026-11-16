@@ -47,4 +47,22 @@ final class TVLibraryPagingAndMembershipTests: XCTestCase {
             TVPlaylistMembership.videoKey("https://site.example/videos/2")
         )
     }
+    
+    @MainActor
+    func testFavoriteMarkersMatchEquivalentYouTubeURLs() {
+        XCTAssertEqual(
+            TVFavoriteMembership.videoKey(
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+            ),
+            TVFavoriteMembership.videoKey("https://youtu.be/dQw4w9WgXcQ")
+        )
+        XCTAssertEqual(
+            TVFavoriteMembership.videoKey("https://www.youtube.com/shorts/dQw4w9WgXcQ"),
+            TVPlaylistMembership.videoKey("https://youtu.be/dQw4w9WgXcQ")
+        )
+        XCTAssertNotEqual(
+            TVFavoriteMembership.videoKey("https://site.example/a"),
+            TVFavoriteMembership.videoKey("https://site.example/b")
+        )
+    }
 }

@@ -325,7 +325,6 @@ struct TVPlaylistPickerView: View {
     @State private var pending = false
     @State private var error: String?
     @State private var newName = ""
-    @State private var creating = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -485,17 +484,3 @@ enum TVVideoFocusReturn {
     }
 }
 
-
-/// Match custom navigation popups to the Liquid Glass player options sheet.
-/// Native confirmations and alerts retain tvOS-managed focus and appearance.
-extension View {
-    func tvGlassPopup() -> some View {
-        self
-            .background {
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(Color.black.opacity(0.18))
-            }
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
-            .presentationBackground(.clear)
-    }
-}
