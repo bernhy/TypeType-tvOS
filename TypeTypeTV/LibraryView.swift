@@ -287,7 +287,12 @@ struct LibraryView: View {
 
     private func removalAction(for video: VideoItem) -> (() async throws -> Void)? {
         guard case .playlist(let id) = selected else { return nil }
-        return { try await api.removeFromPlaylist(id, videoURL: video.url) }
+        return {
+            try await api.removeFromPlaylist(id, videoURL: video.url)
+            await TVPlaylistMembership.shared.markRemoved(
+                videoURL: video.url, playlistID: id, api: api
+            )
+        }
     }
 
     @MainActor
@@ -298,6 +303,7 @@ struct LibraryView: View {
         defer { savingPlaylist = false; playlistToDelete = nil }
         do {
             try await api.deletePlaylist(id)
+            TVPlaylistMembership.shared.invalidate(api: api)
             selected = .standard(.watchLater)
             await refresh()
         } catch {
