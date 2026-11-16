@@ -41,6 +41,11 @@ struct TVSubscriptionsView: View {
     @FocusState private var focusedVideo: String?
     @FocusState private var loadingRailFocused: Bool
     @FocusState private var subscriptionButtonFocused: Bool
+    @FocusState private var focusedChannelTab: ChannelTab?
+
+    private enum ChannelTab: Hashable {
+        case videos, shorts
+    }
 
     private var currentSubscription: TVSubscription? {
         guard let selectedChannelURL, let knownMemberships else { return nil }
@@ -105,8 +110,24 @@ struct TVSubscriptionsView: View {
                         HStack(spacing: 15) {
                             Button("channels.videos") { showingShorts = false }
                                 .tint(showingShorts ? TTTheme.muted : TTTheme.accent)
+                                .focused($focusedChannelTab, equals: .videos)
+                                .onMoveCommand { direction in
+                                    if direction == .up {
+                                        subscriptionButtonFocused = true
+                                    } else if direction == .right {
+                                        focusedChannelTab = .shorts
+                                    }
+                                }
                             Button("channels.shorts") { showingShorts = true }
                                 .tint(showingShorts ? TTTheme.accent : TTTheme.muted)
+                                .focused($focusedChannelTab, equals: .shorts)
+                                .onMoveCommand { direction in
+                                    if direction == .up || direction == .right {
+                                        subscriptionButtonFocused = true
+                                    } else if direction == .left {
+                                        focusedChannelTab = .videos
+                                    }
+                                }
                         }
                         .buttonStyle(.bordered)
                         .focusSection()
@@ -164,8 +185,17 @@ struct TVSubscriptionsView: View {
                                 )
                                 .accessibilityIdentifier("subscription-video-\(index)")
                                 .onMoveCommand { direction in
-                                    if direction == .left && index % columns.count == 0,
-                                       directChannelURL == nil {
+                                    if direction == .up && index < columns.count {
+                                        // All top-row thumbnails return to the
+                                        // tabs, not only the rightmost one.
+                                        if supportsShorts {
+                                            focusedChannelTab = showingShorts ? .shorts : .videos
+                                        } else {
+                                            subscriptionButtonFocused = true
+                                        }
+                                    } else if direction == .left &&
+                                                index % columns.count == 0 &&
+                                                directChannelURL == nil {
                                         returnToChannelRail()
                                     }
                                 }
@@ -301,6 +331,15 @@ struct TVSubscriptionsView: View {
         .tint(currentSubscription == nil ? TTTheme.accent : TTTheme.surface)
         .focused($subscriptionButtonFocused)
         .accessibilityIdentifier("channel-subscription-toggle")
+        .onMoveCommand { direction in
+            if direction == .down {
+                if supportsShorts {
+                    focusedChannelTab = showingShorts ? .shorts : .videos
+                } else if let first = videos.first {
+                    focusedVideo = first.url
+                }
+            }
+        }
         .accessibilityHint(currentSubscription != nil
                            ? TVL10n.value("channels.unsubscribeHint")
                            : TVL10n.value("channels.subscribeHint"))
