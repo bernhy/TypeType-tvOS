@@ -11010,25 +11010,389 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gewähltes Format %1$@ ist auf diesem Gerät nicht decodierbar. Verwende %2$@."
+            "value": "Gewähltes Format %1$@ konnte nicht abgespielt werden. Verwende %2$@."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The selected format %1$@ cannot be decoded on this device. Using %2$@."
+            "value": "The selected format %1$@ could not be played. Using %2$@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le format sélectionné %1$@ ne peut pas être décodé sur cet appareil. Utilisation de %2$@."
+            "value": "Le format sélectionné %1$@ n’a pas pu être lu. Utilisation de %2$@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El formato seleccionado %1$@ no se puede decodificar en este dispositivo. Se utiliza %2$@."
+            "value": "No se pudo reproducir el formato elegido %1$@. Se utiliza %2$@."
+          }
+        }
+      }
+    },
+    "settings.playerNoticeTitle": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Player-Meldungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Player notifications"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications du lecteur"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisos del reproductor"
+          }
+        }
+      }
+    },
+    "settings.playerNoticeHelp": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehrere Meldungen können gleichzeitig angezeigt werden. Neue erscheinen oben, ältere rücken nach unten. Jede verschwindet nach ihrer eigenen Anzeigedauer. SponsorBlock bleibt separat bedienbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multiple notices may appear at once. New notices appear on top, older ones move down and each expires independently. SponsorBlock controls remain available."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plusieurs notifications peuvent apparaître en même temps. Les nouvelles sont en haut, les anciennes descendent et chacune disparaît séparément. SponsorBlock reste accessible."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pueden aparecer varios avisos a la vez. Los nuevos se muestran arriba, los anteriores bajan y cada uno desaparece por separado. SponsorBlock sigue disponible."
+          }
+        }
+      }
+    },
+    "settings.playerNoticeDuration": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anzeigedauer je Meldung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duration per notification"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durée par notification"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duración de cada aviso"
+          }
+        }
+      }
+    },
+    "player.formatTryNext": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@. Versuche %3$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@. Trying %3$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : %2$@. Essai de %3$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@. Probando %3$@."
+          }
+        }
+      }
+    },
+    "player.formatExhausted": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qualitätswechsel gescheitert: %1$@ und alle geeigneten Alternativen konnten nicht abgespielt werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quality fallback failed: %1$@ and all compatible alternatives could not be played."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec du changement de qualité : %1$@ et toutes les alternatives compatibles ont échoué."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error al cambiar la calidad: %1$@ y todas las alternativas compatibles no se pudieron reproducir."
+          }
+        }
+      }
+    },
+    "player.formatErrorDecoder": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein geeigneter Video-Decoder verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No suitable video decoder is available"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun décodeur vidéo adapté n’est disponible"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay un decodificador de vídeo compatible"
+          }
+        }
+      }
+    },
+    "player.formatErrorUnsupported": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format wird nicht unterstützt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format not supported"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format non pris en charge"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formato no compatible"
+          }
+        }
+      }
+    },
+    "player.formatErrorSession": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SABR-Sitzung abgelaufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SABR session expired"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session SABR expirée"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión SABR caducada"
+          }
+        }
+      }
+    },
+    "player.formatErrorMedia": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SABR-Mediendaten nicht verfügbar oder fehlerhaft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SABR media data unavailable or invalid"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Données multimédias SABR absentes ou invalides"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datos multimedia SABR no disponibles o no válidos"
+          }
+        }
+      }
+    },
+    "player.formatErrorServer": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server hat diesen Stream nicht bereitgestellt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server could not provide this stream"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le serveur n’a pas fourni ce flux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servidor no pudo proporcionar este flujo"
+          }
+        }
+      }
+    },
+    "player.formatErrorThrottled": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stream wird momentan gedrosselt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stream is currently throttled"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le flux est temporairement limité"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La transmisión está limitada temporalmente"
+          }
+        }
+      }
+    },
+    "player.formatErrorUnavailable": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Stream ist nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This stream is unavailable"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce flux n’est pas disponible"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este flujo no está disponible"
+          }
+        }
+      }
+    },
+    "player.formatErrorGeneral": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiedergabe konnte nicht gestartet werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playback could not be started"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de démarrer la lecture"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar la reproducción"
           }
         }
       }
