@@ -167,26 +167,6 @@ enum SabrSampleTimeline {
 /// server-provided fragment metadata before applying the tvOS timestamp
 /// alignment. We cannot assume a metadata gap means missing decoded frames.
 enum SabrSampleTimingProbe {
-    static func presentationRangeMs(_ samples: [CMSampleBuffer]) -> (first: Int64, last: Int64)? {
-        var minimum = Double.infinity
-        var maximum = -Double.infinity
-        for sample in samples {
-            let count = CMSampleBufferGetNumSamples(sample)
-            for index in 0..<count {
-                var timing = CMSampleTimingInfo()
-                guard CMSampleBufferGetSampleTimingInfo(
-                    sample, at: index, timingInfoOut: &timing
-                ) == noErr else { continue }
-                let pts = CMTimeGetSeconds(timing.presentationTimeStamp)
-                guard pts.isFinite, abs(pts) < 1_000_000_000 else { continue }
-                minimum = min(minimum, pts)
-                maximum = max(maximum, pts)
-            }
-        }
-        guard minimum.isFinite, maximum.isFinite else { return nil }
-        return (Int64(minimum * 1_000), Int64(maximum * 1_000))
-    }
-
     /// Actual presentation end, including the duration of the final frame.
     /// Unlike the SABR header, this is measured from decoded fMP4 sample
     /// timing, without assuming the advertised fragment duration is correct.
@@ -1663,18 +1643,20 @@ final class SabrPlayerController: ObservableObject {
                     initialization: audioInit, fragment: bytes
                 )
                 let previousSampleEnd = audioTimeline.lastActualEndMs
-                if segment.durationMs == 1 {
-                    guard let nativeStart, let previousSampleEnd,
-                          abs(nativeStart - previousSampleEnd) <= 250 else {
-                        NSLog("TypeType SABR REPAIR stage=decoder track=audio seq=%d outcome=noncontiguous nativeMs=%lld previousEndMs=%lld",
-                              sequence ?? -1, nativeStart ?? -1, previousSampleEnd ?? -1)
-                        throw SabrFailure.invalidResponse(
-                            "SABR recovered media has noncontiguous native timestamps"
-                        )
-                    }
+                guard let mediaStartMs = SabrRecoveredFragmentAnchor.startMs(
+                    metadataStartMs: segment.startMs,
+                    isRecovered: segment.durationMs == 1,
+                    nativeDecodeStartMs: nativeStart,
+                    priorSampleEndMs: previousSampleEnd
+                ) else {
+                    NSLog("TypeType SABR REPAIR stage=decoder track=audio seq=%d outcome=noncontiguous nativeMs=%lld previousEndMs=%lld",
+                          sequence ?? -1, nativeStart ?? -1, previousSampleEnd ?? -1)
+                    throw SabrFailure.invalidResponse(
+                        "SABR recovered media has noncontiguous native timestamps"
+                    )
                 }
                 let resolved = audioTimeline.resolve(
-                    sequence: sequence, metadataStartMs: segment.startMs,
+                    sequence: sequence, metadataStartMs: mediaStartMs,
                     decodeStartMs: nativeStart
                 )
                 // This continuity repair must run in Release builds as well.
@@ -1761,18 +1743,20 @@ final class SabrPlayerController: ObservableObject {
                     initialization: videoInit, fragment: bytes
                 )
                 let previousSampleEnd = videoTimeline.lastActualEndMs
-                if segment.durationMs == 1 {
-                    guard let nativeStart, let previousSampleEnd,
-                          abs(nativeStart - previousSampleEnd) <= 250 else {
-                        NSLog("TypeType SABR REPAIR stage=decoder track=video seq=%d outcome=noncontiguous nativeMs=%lld previousEndMs=%lld",
-                              sequence ?? -1, nativeStart ?? -1, previousSampleEnd ?? -1)
-                        throw SabrFailure.invalidResponse(
-                            "SABR recovered media has noncontiguous native timestamps"
-                        )
-                    }
+                guard let mediaStartMs = SabrRecoveredFragmentAnchor.startMs(
+                    metadataStartMs: segment.startMs,
+                    isRecovered: segment.durationMs == 1,
+                    nativeDecodeStartMs: nativeStart,
+                    priorSampleEndMs: previousSampleEnd
+                ) else {
+                    NSLog("TypeType SABR REPAIR stage=decoder track=video seq=%d outcome=noncontiguous nativeMs=%lld previousEndMs=%lld",
+                          sequence ?? -1, nativeStart ?? -1, previousSampleEnd ?? -1)
+                    throw SabrFailure.invalidResponse(
+                        "SABR recovered media has noncontiguous native timestamps"
+                    )
                 }
                 let resolved = videoTimeline.resolve(
-                    sequence: sequence, metadataStartMs: segment.startMs,
+                    sequence: sequence, metadataStartMs: mediaStartMs,
                     decodeStartMs: nativeStart
                 )
                 let samples = try SabrSampleTimeline.aligned(

@@ -80,6 +80,24 @@ enum SabrMP4NativeTiming {
     }
 }
 
+/// A recovered segment is fetched from the original session endpoint, but
+/// its fabricated 1-ms descriptor inherits the NEXT segment's metadata start.
+/// Never realign genuine recovered fMP4 samples to that invented timestamp.
+/// The native decode origin is trusted only when it is adjacent to the prior
+/// track's observed sample end; otherwise recovery remains a hard failure.
+enum SabrRecoveredFragmentAnchor {
+    static func startMs(metadataStartMs: Int64, isRecovered: Bool,
+                        nativeDecodeStartMs: Int64?,
+                        priorSampleEndMs: Int64?) -> Int64? {
+        guard isRecovered else { return metadataStartMs }
+        guard let nativeDecodeStartMs, let priorSampleEndMs,
+              nativeDecodeStartMs >= 0, priorSampleEndMs >= 0,
+              abs(Double(nativeDecodeStartMs) - Double(priorSampleEndMs)) <= 250
+        else { return nil }
+        return nativeDecodeStartMs
+    }
+}
+
 /// Do not splice media on an assumption. A native-time correction is permitted
 /// only after several adjacent fragments establish the same timebase and the
 /// previous *actual* samples end at the proposed start. Missing sequences fail.

@@ -84,6 +84,50 @@ final class SabrTimelineAndHistoryTests: XCTestCase {
         ))
     }
 
+    func testRecoveredMissingDescriptorUsesRealNativeTimestampNotNextMetadata() throws {
+        // Server omitted seq 33 from window metadata, but seq 33 can be
+        // downloaded. Its synthetic duration=1 descriptor borrows seq 34's
+        // start at 185_952 ms. Real samples begin at the end of seq 32.
+        let native = try XCTUnwrap(SabrRecoveredFragmentAnchor.startMs(
+            metadataStartMs: 185_952, isRecovered: true,
+            nativeDecodeStartMs: 179_020, priorSampleEndMs: 179_000
+        ))
+        XCTAssertEqual(native, 179_020)
+        let sampleBeforeAlignment = try sample(at: 0)
+        let aligned = try SabrSampleTimeline.aligned(
+            [sampleBeforeAlignment], segmentStartMs: native
+        )
+        XCTAssertEqual(
+            CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(aligned[0])),
+            179.02, accuracy: 0.001
+        )
+        // An AAC descriptor can be even farther ahead (>8 seconds).
+        XCTAssertEqual(SabrRecoveredFragmentAnchor.startMs(
+            metadataStartMs: 100_000, isRecovered: true,
+            nativeDecodeStartMs: 89_995, priorSampleEndMs: 90_000
+        ), 89_995)
+        // Ordinary advertised segments must retain their own server time.
+        XCTAssertEqual(SabrRecoveredFragmentAnchor.startMs(
+            metadataStartMs: 100_000, isRecovered: false,
+            nativeDecodeStartMs: nil, priorSampleEndMs: nil
+        ), 100_000)
+    }
+
+    func testRecoveredDescriptorRejectsUnverifiedOrMissingNativeTime() {
+        XCTAssertNil(SabrRecoveredFragmentAnchor.startMs(
+            metadataStartMs: 100_000, isRecovered: true,
+            nativeDecodeStartMs: nil, priorSampleEndMs: 90_000
+        ))
+        XCTAssertNil(SabrRecoveredFragmentAnchor.startMs(
+            metadataStartMs: 100_000, isRecovered: true,
+            nativeDecodeStartMs: 91_000, priorSampleEndMs: 90_000
+        ))
+        XCTAssertNil(SabrRecoveredFragmentAnchor.startMs(
+            metadataStartMs: 100_000, isRecovered: true,
+            nativeDecodeStartMs: 89_999, priorSampleEndMs: nil
+        ))
+    }
+
     func testNativeTimelineCorrectsOnlyVerifiedContiguousMetadataJump() {
         var tracker = SabrNativeTimelineResolver()
         for index in 0..<3 {

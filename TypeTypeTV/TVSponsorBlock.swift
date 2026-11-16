@@ -117,9 +117,4 @@ enum TVSponsorBlock {
         return nil
     }
 
-    static func label(segments: [TVSponsorBlockSegment], settings: TVServerSettings,
-                      position: Double, duration: Double) -> String? {
-        activeSegment(segments: segments, settings: settings, position: position,
-                      duration: duration).map { TVL10n.value(titleKey($0.category)) }
-    }
 }
