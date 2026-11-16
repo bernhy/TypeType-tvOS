@@ -1960,6 +1960,16 @@ final class SabrPlayerController: ObservableObject {
                 }
                 let actualEnd = SabrSampleTimingProbe.actualEndMs(samples)
                 #if DEBUG
+                if usesDirectMP4, let previousSampleEnd,
+                   let sampleStartMs = SabrSampleTimingProbe.actualStartMs(samples) {
+                    let delta = Double(sampleStartMs) - Double(previousSampleEnd)
+                    if abs(delta) > 12 {
+                        NSLog("TypeType SABR AUDIO-BOUNDARY seq=%d previousEndMs=%lld actualStartMs=%lld deltaMs=%lld nativePreserved=%d rendererAudioAheadMs=%lld",
+                              sequence ?? -1, previousSampleEnd, sampleStartMs,
+                              Int64(delta.rounded()), keepNative ? 1 : 0,
+                              queuedAudioEndMs - Int64(max(0, playbackSeconds() * 1_000)))
+                    }
+                }
                 let integrity = SabrSampleIntegrity.inspect(samples)
                 SabrSampleIntegrity.logAnomalies(
                     integrity, track: "audio", sequence: sequence,
