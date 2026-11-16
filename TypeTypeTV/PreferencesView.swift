@@ -694,6 +694,10 @@ struct PreferencesView: View {
                     Text(status).foregroundStyle(TTTheme.muted)
                 }
             }
+
+            // Credentials from previously used servers are not necessarily
+            // invalid. Show them separately, and never touch the active origin.
+            TVInactiveServerAccountsView(currentOrigin: api.origin)
         }
     }
 

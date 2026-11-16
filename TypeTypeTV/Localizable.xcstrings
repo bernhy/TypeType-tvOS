@@ -10500,6 +10500,510 @@
           }
         }
       }
+    },
+    "accounts.inactiveTitle": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andere gespeicherte Server"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other saved servers"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autres serveurs enregistrés"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otros servidores guardados"
+          }
+        }
+      }
+    },
+    "accounts.inactiveHelp": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespeicherte Anmeldungen früherer Server. Ein nicht verbundener Server oder abgelaufenes Access-Token bedeutet nicht, dass die Anmeldung ungültig ist. Prüfen und Löschen erfolgen nur auf Wunsch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logins from previously used servers. An offline server or expired access token does not necessarily mean the login is invalid. Checking and deletion are optional."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexions de serveurs précédents. Un serveur hors ligne ou un jeton expiré ne signifie pas nécessairement une connexion invalide. Vérification et suppression sur demande."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesiones de servidores anteriores. Un servidor sin conexión o un token caducado no significa necesariamente una sesión inválida. Comprobación y eliminación opcionales."
+          }
+        }
+      }
+    },
+    "accounts.inactiveLegacy": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frühere Anmeldung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous sign-in"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancienne connexion"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio de sesión anterior"
+          }
+        }
+      }
+    },
+    "accounts.inactiveEmpty": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine weiteren gespeicherten Anmeldungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No other saved logins"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune autre connexion enregistrée"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay otros inicios de sesión guardados"
+          }
+        }
+      }
+    },
+    "accounts.inactiveReadFailure": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespeicherte Konten konnten nicht gelesen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved accounts could not be read."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire les comptes enregistrés."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron leer las cuentas guardadas."
+          }
+        }
+      }
+    },
+    "accounts.inactiveUnchecked": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nicht geprüft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not checked"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non vérifié"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin comprobar"
+          }
+        }
+      }
+    },
+    "accounts.inactiveCheck": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldung prüfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check sign-in"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifier la connexion"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprobar inicio de sesión"
+          }
+        }
+      }
+    },
+    "accounts.inactiveChecking": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldung wird geprüft …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking sign-in…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérification de la connexion…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprobando inicio de sesión…"
+          }
+        }
+      }
+    },
+    "accounts.inactiveValid": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldung gültig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in valid"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion valide"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio de sesión válido"
+          }
+        }
+      }
+    },
+    "accounts.inactiveRenewed": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldung erfolgreich erneuert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in renewed successfully"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion renouvelée"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio de sesión renovado"
+          }
+        }
+      }
+    },
+    "accounts.inactiveSignInRequired": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneute Anmeldung erforderlich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in required"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle connexion nécessaire"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es necesario volver a iniciar sesión"
+          }
+        }
+      }
+    },
+    "accounts.inactiveUnavailable": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server nicht erreichbar oder Prüfung fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server unavailable or check failed"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serveur inaccessible ou échec de vérification"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servidor inaccesible o comprobación fallida"
+          }
+        }
+      }
+    },
+    "accounts.inactiveStorageFailure": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldedaten konnten nicht sicher aktualisiert werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not safely update credentials"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de mettre à jour les identifiants en sécurité"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron actualizar las credenciales de forma segura"
+          }
+        }
+      }
+    },
+    "accounts.inactiveDelete": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokale Server-Anmeldungen löschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete local server logins"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer les connexions locales"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar inicios de sesión locales"
+          }
+        }
+      }
+    },
+    "accounts.inactiveDeleteTitle": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldungen dieses Servers löschen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete this server's sign-ins?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer les connexions de ce serveur ?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar los inicios de sesión de este servidor?"
+          }
+        }
+      }
+    },
+    "accounts.inactiveDeleteHelp": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle auf diesem Apple TV gespeicherten Anmeldedaten für %1$@ werden entfernt. Die Konten auf dem Server bleiben bestehen. Der derzeit verbundene Server wird nicht verändert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All sign-in data saved on this Apple TV for %1$@ will be removed. Server accounts will remain. The connected server will not be changed."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les données de connexion enregistrées sur cette Apple TV pour %1$@ seront supprimées. Les comptes serveur seront conservés. Le serveur actuel ne sera pas modifié."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se eliminarán todos los datos de inicio de sesión guardados en este Apple TV para %1$@. Las cuentas del servidor seguirán existiendo. El servidor conectado no cambiará."
+          }
+        }
+      }
+    },
+    "accounts.inactiveDeleted": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokale Anmeldedaten entfernt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local sign-in data removed"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Données de connexion locales supprimées"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datos de inicio de sesión locales eliminados"
+          }
+        }
+      }
+    },
+    "accounts.inactiveDeleteFailed": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht alle Anmeldedaten konnten entfernt werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not all sign-in data could be removed"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de supprimer toutes les données de connexion"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron eliminar todos los datos de inicio de sesión"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
