@@ -107,6 +107,42 @@ extension TypeTypeCredentials {
         ] as CFDictionary) == errSecSuccess
     }
 
+    /// Access without switching the selected account on the old server.
+    func profileAccessToken(_ userID: String, for origin: URL) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "org.typetype.tvOS.account-profiles",
+            kSecAttrAccount as String: Self.profileKey(origin: origin, userID: userID),
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var value: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &value) == errSecSuccess,
+              let bytes = value as? Data else { return nil }
+        return String(data: bytes, encoding: .utf8)
+    }
+
+    @discardableResult
+    func setProfileAccessToken(_ token: String, for origin: URL,
+                               userID: String, label: String) -> Bool {
+        guard !token.isEmpty, !userID.isEmpty else { return false }
+        let key: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "org.typetype.tvOS.account-profiles",
+            kSecAttrAccount as String: Self.profileKey(origin: origin, userID: userID)
+        ]
+        let updated = SecItemUpdate(key as CFDictionary, [
+            kSecValueData as String: Data(token.utf8)
+        ] as CFDictionary)
+        if updated == errSecSuccess { return true }
+        guard updated == errSecItemNotFound else { return false }
+        var item = key
+        item[kSecValueData as String] = Data(token.utf8)
+        item[kSecAttrLabel as String] = label
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
+    }
+
     /// Make one saved user active using the legacy active-token slot, so all
     /// existing TypeType requests continue to use the chosen user.
     func activate(_ account: TVSavedAccount, for origin: URL) -> Bool {
