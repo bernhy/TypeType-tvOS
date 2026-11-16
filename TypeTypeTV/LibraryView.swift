@@ -304,6 +304,7 @@ struct LibraryView: View {
         do {
             try await api.deletePlaylist(id)
             TVPlaylistMembership.shared.invalidate(api: api)
+            Task { await TVPlaylistMembership.shared.ensureLoaded(api: api) }
             selected = .standard(.watchLater)
             await refresh()
         } catch {
