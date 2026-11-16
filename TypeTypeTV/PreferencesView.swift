@@ -19,6 +19,7 @@ struct PreferencesView: View {
     @AppStorage("typetype.allowSoftwareDecode") private var allowSoftware = false
     @AppStorage("typetype.maxHeight") private var maxHeight = 2160
     @AppStorage("typetype.skipSeconds") private var skipSeconds = 10
+    @AppStorage("typetype.playerNoticeSeconds") private var playerNoticeSeconds = 10
     @AppStorage("typetype.bufferForwardSeconds") private var bufferForwardSeconds = 180
     @AppStorage("typetype.bufferBackSeconds") private var bufferBackSeconds = 120
     @AppStorage("typetype.bufferCacheMiB") private var bufferCacheMiB = 512
@@ -443,6 +444,21 @@ struct PreferencesView: View {
                     }
                 }
             }
+            TVSettingsCard("settings.playerNoticeTitle",
+                           summary: "settings.playerNoticeHelp") {
+                TVSettingsMenuRow(
+                    "settings.playerNoticeDuration",
+                    selection: $playerNoticeSeconds,
+                    focus: $focusedControl,
+                    focusTarget: "device.playerNoticeSeconds",
+                    onMoveLeft: { returnFocusToGroup() }
+                ) {
+                    ForEach(TVPlayerNoticePolicy.choices, id: \.self) { seconds in
+                        Text(TVL10n.formatted("common.seconds", seconds))
+                            .tag(seconds)
+                    }
+                }
+            }
             TVSettingsCard("settings.buffer", summary: "settings.bufferHelp") {
                 TVSettingsMenuRow(
                     "settings.forwardBuffer", selection: $bufferForwardSeconds,
@@ -567,6 +583,7 @@ struct PreferencesView: View {
                 allowSoftware = false
                 maxHeight = 2160
                 skipSeconds = 10
+                playerNoticeSeconds = TVPlayerNoticePolicy.defaultSeconds
                 bufferForwardSeconds = 180
                 bufferBackSeconds = 120
                 bufferCacheMiB = 512
