@@ -11396,6 +11396,34 @@
           }
         }
       }
+    },
+    "player.formatStopped": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@. Der Qualitätswechsel wurde beendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@. The quality fallback has stopped."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : %2$@. Le changement automatique de qualité est arrêté."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@. Se ha detenido el cambio automático de calidad."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
