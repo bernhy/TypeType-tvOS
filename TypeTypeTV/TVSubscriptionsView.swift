@@ -150,6 +150,7 @@ struct TVSubscriptionsView: View {
                                 Label("channels.playlists", systemImage: "list.bullet.rectangle")
                             }
                             .focused($focusedAction, equals: "playlists")
+                            .accessibilityIdentifier("channel-action-playlists")
                             NavigationLink {
                                 TVChannelExtrasView(api: api, channelURL: selectedChannelURL,
                                                     kind: .community)

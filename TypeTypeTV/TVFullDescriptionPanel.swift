@@ -23,6 +23,7 @@ struct TVFullDescriptionPanel: View {
             .frame(height: 510)
             .background(.black.opacity(0.14),
                         in: RoundedRectangle(cornerRadius: 16))
+            .accessibilityElement(children: .contain)
             .focusable(true)
             .focused($descriptionFocused)
             .onMoveCommand { direction in

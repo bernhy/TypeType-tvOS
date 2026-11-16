@@ -473,14 +473,18 @@ final class TypeTypeTVUITests: XCTestCase {
         let subscribe = app.buttons["channel-subscription-toggle"]
         let videosTab = app.buttons["Videos"]
         let shortsTab = app.buttons["Shorts"]
+        let actions = app.buttons["channel-action-playlists"]
         XCTAssertTrue(waitForFocus(channel, timeout: 20))
         XCTAssertTrue(subscribe.waitForExistence(timeout: 12))
         XCUIRemote.shared.press(.right)
         let firstVideo = app.buttons["subscription-video-0"]
         XCTAssertTrue(waitForFocus(firstVideo, timeout: 10))
         XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(actions, timeout: 5),
+                      "Up from thumbnails must reach the channel action row")
+        XCUIRemote.shared.press(.up)
         XCTAssertTrue(waitForFocus(videosTab, timeout: 5),
-                      "Any first-row video should reach the Videos/Shorts tabs")
+                      "Up from actions must reach the Videos/Shorts tabs")
         XCUIRemote.shared.press(.up)
         XCTAssertTrue(waitForFocus(subscribe, timeout: 5),
                       "Up from Videos must reach the subscription button")
@@ -835,7 +839,7 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(close.waitForExistence(timeout: 8),
                       "Full description must open in a separate popup")
         let scroll = app.descendants(matching: .any)
-            .matching(identifier: "video-description-scroll").firstMatch
+            .matching(identifier: "video-full-description-scroll").firstMatch
         XCTAssertTrue(scroll.waitForExistence(timeout: 8))
         XCUIRemote.shared.press(.menu)
         XCTAssertTrue(excerpt.waitForExistence(timeout: 8),
