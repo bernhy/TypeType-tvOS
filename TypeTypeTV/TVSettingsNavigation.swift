@@ -213,12 +213,14 @@ struct TVSettingsSwitchRow: View {
     let focus: FocusState<String?>.Binding?
     let focusID: String?
     let accessibilityID: String?
+    let enabled: Bool
     let onMoveLeft: (() -> Void)?
     let onVerticalMove: ((MoveCommandDirection) -> Void)?
 
     init(_ title: LocalizedStringKey, isOn: Binding<Bool>,
          focus: FocusState<String?>.Binding? = nil,
          focusID: String? = nil, accessibilityID: String? = nil,
+         enabled: Bool = true,
          onMoveLeft: (() -> Void)? = nil,
          onVerticalMove: ((MoveCommandDirection) -> Void)? = nil) {
         self.title = title
@@ -226,6 +228,7 @@ struct TVSettingsSwitchRow: View {
         self.focus = focus
         self.focusID = focusID
         self.accessibilityID = accessibilityID
+        self.enabled = enabled
         self.onMoveLeft = onMoveLeft
         self.onVerticalMove = onVerticalMove
     }
@@ -261,6 +264,8 @@ struct TVSettingsSwitchRow: View {
         }
         .buttonStyle(TVRailButtonStyle())
         .focusEffectDisabled(true)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.36)
         .accessibilityValue(TVL10n.value(isOn ? "settings.hardwareYes" : "settings.hardwareNo"))
         .accessibilityIdentifier(accessibilityID ?? focusID ?? "settings-switch")
         .onMoveCommand { direction in

@@ -409,6 +409,7 @@ struct PreferencesView: View {
                                 set: { setRemote(field, enabled: $0) }
                             ),
                             focus: $focusedControl, focusID: "content." + field.rawValue,
+                            enabled: field != .endScreens,
                             onMoveLeft: { returnFocusToGroup() }
                         )
                         Text(TVL10n.value(field.detailKey))

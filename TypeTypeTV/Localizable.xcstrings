@@ -12158,25 +12158,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wiedergabeverlauf deaktiviert – bisherige Positionen bleiben erhalten."
+            "value": "Wiedergabeverlauf deaktiviert – Fortschritt wird nicht gespeichert."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Watch history is off — previously saved positions remain available."
+            "value": "Watch history is off — playback progress won't be saved."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Historique désactivé : les positions enregistrées restent disponibles."
+            "value": "Historique désactivé — la progression ne sera pas enregistrée."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Historial desactivado: las posiciones guardadas siguen disponibles."
+            "value": "Historial desactivado: no se guardará el progreso."
           }
         }
       }
