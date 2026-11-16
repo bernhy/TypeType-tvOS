@@ -29,10 +29,18 @@ struct TVVideoActionModifier: ViewModifier {
     @ObservedObject private var localProgress = TVLocalProgress.shared
     @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
 
+    private var videoWithKnownDuration: VideoItem {
+        var row = video
+        if (row.duration ?? 0) <= 0, let resolvedDuration {
+            row.duration = resolvedDuration
+        }
+        return row
+    }
     private var isMarkedWatched: Bool {
-        TVWatchedState.isWatched(video, positionMs:
+        TVWatchedState.isWatched(videoWithKnownDuration, positionMs:
             localProgress.position(for: video.url) ?? video.watchPositionMs)
     }
+    @State private var resolvedDuration: Int?
     @FocusState private var cardFocus: Bool
     @State private var pickerVisible = false
     @State private var toBlock: TVBlockTarget?
@@ -60,14 +68,26 @@ struct TVVideoActionModifier: ViewModifier {
                     }
                     .disabled(true)
                 }
-                if video.isLive != true, let duration = video.duration, duration > 0 {
+                if video.isLive != true,
+                   ((videoWithKnownDuration.duration ?? 0) > 0 || video.isShort) {
                     Button {
-                        // Local progress observation refreshes all visible cards.
-                        // Do not reload the entire recommendations page and
-                        // discard its cursor/scroll position after a toggle.
+                        // Resolve missing Shorts duration only when the user
+                        // invokes the action, never for every thumbnail.
                         perform(refresh: false) {
+                            var target = videoWithKnownDuration
+                            if (target.duration ?? 0) <= 0 {
+                                let details = await TVStreamMetadataCache.shared.details(
+                                    for: video, api: api
+                                )
+                                target = TVVideoMetadata.merged(video, stream: details)
+                            }
+                            guard let duration = target.duration, duration > 0,
+                                  duration <= Int64.max / 1_000 else {
+                                throw TypeTypeError.missingVideoDuration
+                            }
                             let markWatched = !isMarkedWatched
-                            try await api.setWatched(markWatched, video: video)
+                            try await api.setWatched(markWatched, video: target)
+                            resolvedDuration = duration
                             TVLocalProgress.shared.record(
                                 video.url, positionMs: markWatched ? Int64(duration) * 1_000 : 0
                             )
