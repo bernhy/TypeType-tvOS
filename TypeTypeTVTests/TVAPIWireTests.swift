@@ -80,6 +80,43 @@ final class TVAPIWireTests: XCTestCase {
         )
     }
 
+    func testOfflineFormerServerNeverDeletesOrInvalidatesLocalLogin() async throws {
+        let host = "inactive-offline-\(UUID().uuidString.lowercased()).invalid"
+        let old = try XCTUnwrap(URL(string: "https://\(host)/"))
+        let current = try XCTUnwrap(URL(string: "https://current-server.invalid/"))
+        let credentials = TypeTypeCredentials.shared
+        defer { _ = TVStoredAccountCleanup.delete(old, excluding: current) }
+        guard credentials.save("saved-old-token", for: old) else {
+            throw XCTSkip("Simulator Keychain unavailable")
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [TVAPIWireProtocol.self]
+        let session = URLSession(configuration: config)
+        let login = TVInactiveLogin(
+            origin: old, userID: nil, label: "Previous sign-in"
+        )
+        TVAPIWireProtocol.install(host: host) { _ in
+            (503, Data(#"{"error":"Server temporarily unavailable"}"#.utf8))
+        }
+        XCTAssertEqual(await TVInactiveAccountChecker.check(
+            login, currentOrigin: current, session: session
+        ), .serverUnavailable)
+        XCTAssertEqual(credentials.token(for: old), "saved-old-token")
+
+        TVAPIWireProtocol.install(host: host) { _ in
+            (401, Data(#"{"error":"Invalid token"}"#.utf8))
+        }
+        XCTAssertEqual(await TVInactiveAccountChecker.check(
+            login, currentOrigin: current, session: session
+        ), .signInRequired)
+        XCTAssertEqual(credentials.token(for: old), "saved-old-token")
+        // Never allow the checker to contact or mutate the current server.
+        XCTAssertEqual(await TVInactiveAccountChecker.check(
+            login, currentOrigin: old, session: session
+        ), .storageFailure)
+        XCTAssertEqual(credentials.token(for: old), "saved-old-token")
+    }
+
     func testInactiveProfileRefreshIsExplicitAndPreservesCurrentServer() async throws {
         let oldHost = "inactive-refresh-\(UUID().uuidString.lowercased()).invalid"
         let old = try XCTUnwrap(URL(string: "https://\(oldHost)/"))
