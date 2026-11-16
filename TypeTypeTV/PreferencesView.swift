@@ -434,9 +434,9 @@ struct PreferencesView: View {
                         .font(.callout).foregroundStyle(.orange)
                 }
             }
-            TVSettingsCard("settings.remoteCompatibility", summary: "settings.remoteCompatibilityHelp") {
-                Label("settings.remoteImplemented", systemImage: "checkmark.shield")
-                    .foregroundStyle(.green)
+            TVSettingsCard("settings.contentVisibilityNote") {
+                Text("settings.contentVisibilityNoteHelp")
+                    .font(.callout).foregroundStyle(TTTheme.muted)
             }
         }
     }
@@ -803,6 +803,7 @@ struct PreferencesView: View {
         defer { remoteLoading = false }
         do {
             remote = try await api.accountSettings()
+            if let remote { TVContentPreferences.shared.apply(remote, api: api) }
         } catch {
             remoteError = error.localizedDescription
         }
@@ -822,6 +823,7 @@ struct PreferencesView: View {
         Task {
             do {
                 remote = try await api.setAccountSetting(field.rawValue, value: .boolean(!enabled))
+                if let remote { TVContentPreferences.shared.apply(remote, api: api) }
             } catch {
                 remote = previous
                 remoteError = error.localizedDescription

@@ -6,6 +6,9 @@ struct TVServerSettings: Decodable {
     var hideHomeRecommendations: Bool?
     var hideContinueWatching: Bool?
     var hideRelatedVideos: Bool?
+    var hideEndScreens: Bool?
+    var hideSubscriptionLiveStreams: Bool?
+    var hideMembersOnlyContent: Bool?
     var hideShorts: Bool?
     var hideComments: Bool?
     var disableWatchHistory: Bool?
@@ -31,6 +34,9 @@ struct TVServerSettings: Decodable {
         case .recommendations: hidden = hideHomeRecommendations ?? false
         case .continueWatching: hidden = hideContinueWatching ?? false
         case .relatedVideos: hidden = hideRelatedVideos ?? false
+        case .endScreens: hidden = hideEndScreens ?? false
+        case .subscriptionLiveStreams: hidden = hideSubscriptionLiveStreams ?? false
+        case .membersOnlyContent: hidden = hideMembersOnlyContent ?? false
         case .shorts: hidden = hideShorts ?? false
         case .comments: hidden = hideComments ?? false
         case .watchHistory: hidden = disableWatchHistory ?? false
@@ -44,6 +50,9 @@ struct TVServerSettings: Decodable {
         case .recommendations: hideHomeRecommendations = hidden
         case .continueWatching: hideContinueWatching = hidden
         case .relatedVideos: hideRelatedVideos = hidden
+        case .endScreens: hideEndScreens = hidden
+        case .subscriptionLiveStreams: hideSubscriptionLiveStreams = hidden
+        case .membersOnlyContent: hideMembersOnlyContent = hidden
         case .shorts: hideShorts = hidden
         case .comments: hideComments = hidden
         case .watchHistory: disableWatchHistory = hidden
@@ -55,6 +64,9 @@ enum TVServerToggle: String, CaseIterable, Identifiable {
     case recommendations = "hideHomeRecommendations"
     case continueWatching = "hideContinueWatching"
     case relatedVideos = "hideRelatedVideos"
+    case endScreens = "hideEndScreens"
+    case subscriptionLiveStreams = "hideSubscriptionLiveStreams"
+    case membersOnlyContent = "hideMembersOnlyContent"
     case shorts = "hideShorts"
     case comments = "hideComments"
     case watchHistory = "disableWatchHistory"
@@ -65,6 +77,9 @@ enum TVServerToggle: String, CaseIterable, Identifiable {
         case .recommendations: return "settings.remoteRecommendations"
         case .continueWatching: return "settings.remoteContinue"
         case .relatedVideos: return "settings.remoteRelated"
+        case .endScreens: return "settings.remoteEndScreens"
+        case .subscriptionLiveStreams: return "settings.remoteLiveStreams"
+        case .membersOnlyContent: return "settings.remoteMembersOnly"
         case .shorts: return "settings.remoteShorts"
         case .comments: return "settings.remoteComments"
         case .watchHistory: return "settings.remoteWatchHistory"
