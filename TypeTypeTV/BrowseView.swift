@@ -192,10 +192,14 @@ struct BrowseView: View {
     private var sidebar: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                Image(systemName: "play.rectangle.fill")
-                    .font(.system(size: 27))
-                    .foregroundStyle(TTTheme.accent)
-                    .frame(width: 36)
+                // Official TypeType TV-shaped mark, generated from the same
+                // vector geometry and red as the app icon.
+                Image("TypeTypeLogo")
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: 36, height: 36)
+                    .accessibilityHidden(true)
                 if expanded {
                     Text("TypeType")
                         .font(.system(size: 23, weight: .bold))

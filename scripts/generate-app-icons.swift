@@ -3,8 +3,8 @@
  * TypeType logo (TV-shaped mark) from assets/TypeType-logo.svg:
  * https://github.com/TypeType-Video/TypeType-Frontend/blob/main/apps/web/public/logo.svg
  *
- * XcodeGen invokes this script before creating the project. Layered PNGs are
- * generated on macOS, not committed, and stay out of git status.
+ * XcodeGen invokes this script before creating the project. Layered PNGs
+ * and the matching sidebar logo are generated on macOS, not committed.
  */
 import Foundation
 import CoreGraphics
@@ -86,3 +86,9 @@ for (name, width, height) in [("Small", 400, 240), ("Large", 1280, 768)] {
 }
 try makePNG(width: 1920, height: 720, kind: "topshelf",
             destination: catalog.appendingPathComponent("Top Shelf Image.imageset/topshelf.png"))
+
+// Use the exact same vector drawing for the sidebar: a transparent square
+// artwork image, without the app icon's dark background or 400x240 framing.
+try makePNG(width: 128, height: 128, kind: "foreground",
+            destination: root.appendingPathComponent(
+                "TypeTypeTV/Assets.xcassets/TypeTypeLogo.imageset/typetype-logo.png"))

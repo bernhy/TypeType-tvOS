@@ -20,3 +20,4 @@ TypeTypeTV/TVBuildInfo.generated.swift
 
 # Rasterized official TypeType icon layers, generated before xcodegen
 TypeTypeTV/Assets.xcassets/App Icon & Top Shelf Image.brandassets/**/*.png
+TypeTypeTV/Assets.xcassets/TypeTypeLogo.imageset/typetype-logo.png
