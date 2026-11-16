@@ -102,6 +102,7 @@ struct TVChannelPage: Decodable {
     let isVerified: Bool?
     let videos: [VideoItem]
     let nextpage: String?
+    let hasCourses: Bool?
 }
 
 /// A feed page (HTTP 200) or first-generation "preparing" reply
@@ -430,7 +431,7 @@ struct TypeTypeAPI {
     }
 
     func channel(_ channelURL: String, nextpage: String? = nil,
-                 shorts: Bool = false) async throws -> TVChannelPage {
+                 shorts: Bool = false, sort: String = "latest") async throws -> TVChannelPage {
         var requestURL = channelURL
         if shorts, var parts = URLComponents(string: channelURL),
            let host = parts.host?.lowercased(),
@@ -445,10 +446,47 @@ struct TypeTypeAPI {
             requestURL = parts.url?.absoluteString ?? channelURL
         }
         var query = [URLQueryItem(name: "url", value: requestURL)]
+        if !shorts && ["latest", "popular", "oldest"].contains(sort) {
+            query.append(URLQueryItem(name: "sort", value: sort))
+        }
         if let nextpage, !nextpage.isEmpty {
             query.append(URLQueryItem(name: "nextpage", value: nextpage))
         }
         return try await get("channel", query: query)
+    }
+
+    func channelPlaylists(_ url: String, tab: String = "playlists",
+                          nextpage: String? = nil) async throws -> TVChannelPlaylistPage {
+        var query = [URLQueryItem(name: "url", value: url),
+                     URLQueryItem(name: "tab", value: tab == "courses" ? "courses" : "playlists")]
+        if let nextpage, !nextpage.isEmpty {
+            query.append(URLQueryItem(name: "nextpage", value: nextpage))
+        }
+        return try await get("channel/playlists", query: query)
+    }
+
+    func channelPosts(_ url: String, nextpage: String? = nil) async throws -> TVCommunityPostsPage {
+        var query = [URLQueryItem(name: "url", value: url)]
+        if let nextpage, !nextpage.isEmpty {
+            query.append(URLQueryItem(name: "nextpage", value: nextpage))
+        }
+        return try await get("channel/posts", query: query)
+    }
+
+    func channelPodcasts(_ url: String, nextpage: String? = nil) async throws -> TVPodcastPage {
+        var query = [URLQueryItem(name: "url", value: url)]
+        if let nextpage, !nextpage.isEmpty {
+            query.append(URLQueryItem(name: "nextpage", value: nextpage))
+        }
+        return try await get("podcasts", query: query)
+    }
+
+    func podcastEpisodes(_ url: String, nextpage: String? = nil) async throws -> TVPodcastEpisodesPage {
+        var query = [URLQueryItem(name: "url", value: url)]
+        if let nextpage, !nextpage.isEmpty {
+            query.append(URLQueryItem(name: "nextpage", value: nextpage))
+        }
+        return try await get("podcasts/episodes", query: query)
     }
 
     /// These are account-level preferences shared with the Android and web clients.
