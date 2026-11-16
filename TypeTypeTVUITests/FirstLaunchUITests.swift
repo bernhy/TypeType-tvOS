@@ -463,6 +463,28 @@ final class TypeTypeTVUITests: XCTestCase {
                       app.buttons["Mit Passwort anmelden"].exists)
     }
 
+    func testChannelPageDisplaysCurrentSubscriptionState() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "channels", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let channel = app.buttons["subscription-https://preview.invalid/channel/a"]
+        XCTAssertTrue(waitForFocus(channel, timeout: 20),
+                      "Opening Subscribed Channels should focus its first channel")
+        let subscribe = app.buttons["channel-subscription-toggle"]
+        XCTAssertTrue(subscribe.waitForExistence(timeout: 12),
+                      "Every channel page should expose an account subscription button")
+        XCTAssertTrue(subscribe.label.contains("Abonniert"),
+                      "An existing subscription must show its active status")
+        XCTAssertTrue(subscribe.label.contains("Abo beenden"),
+                      "The same control must also explain how to unsubscribe")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(app.buttons["subscription-video-0"]
+            .waitForExistence(timeout: 8),
+            "Entering the channel must retain its video grid")
+    }
+
     func testGlobalChannelsPreviewDoesNotTakeFocusUntilRight() throws {
         let app = XCUIApplication()
         app.launchArguments = [
