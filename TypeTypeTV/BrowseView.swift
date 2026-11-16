@@ -436,6 +436,10 @@ struct HomeView: View {
     @Namespace private var homeFocusScope
     @Environment(\.resetFocus) private var resetFocus
     @State private var needsHomeFocus = false
+    // .task(id:) can run again when NavigationStack returns from details.
+    // Consume each explicit request once, so reappearing Home cannot
+    // overwrite the card-specific focus restoration with recommendation 0.
+    @State private var processedHomeFocusRequest = 0
     @State private var pendingHomeFocus: Task<Void, Never>?
 
     private func homeCardID(_ video: VideoItem, recommended: Bool) -> String {
@@ -588,7 +592,9 @@ struct HomeView: View {
             }
             .onExitCommand { handleHomeBack(scroll: scroll) }
             .task(id: focusRequest) {
-                guard focusRequest > 0 else { return }
+                guard focusRequest > 0,
+                      processedHomeFocusRequest != focusRequest else { return }
+                processedHomeFocusRequest = focusRequest
                 needsHomeFocus = true
                 await Task.yield()
                 focusFirstHomeVideo(scroll: scroll)
