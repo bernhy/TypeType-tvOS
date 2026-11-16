@@ -141,7 +141,9 @@ final class TVHLSPlaybackController: ObservableObject {
               playbackGeneration == generation else { return }
         await progressWriter.flush()
         await progressWriter.enable(allowed)
-        let saved = allowed ? (try? await api.savedPosition(videoURL: video.url)) : nil
+        // Shorts are replayed from the beginning, even without a known duration.
+        let saved = allowed && !video.isShort
+            ? (try? await api.savedPosition(videoURL: video.url)) : nil
         guard !Task.isCancelled, !isStopped,
               playbackGeneration == generation else { return }
         let seconds = TVHLSResumePolicy.startSeconds(

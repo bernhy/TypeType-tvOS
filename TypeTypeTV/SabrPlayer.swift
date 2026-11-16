@@ -952,10 +952,13 @@ final class SabrPlayerController: ObservableObject {
             await progressWriter.flush()
             await progressWriter.enable(historyAllowed)
             guard playbackEpoch == epoch, !Task.isCancelled else { return }
-            let recordedPosition = historyAllowed && explicitPositionMs == nil
+            let recordedPosition = historyAllowed && explicitPositionMs == nil && !video.isShort
                 ? (try? await api.savedPosition(videoURL: video.url)) : nil
             guard playbackEpoch == epoch, !Task.isCancelled else { return }
-            var positionMs = max(0, explicitPositionMs ?? recordedPosition ?? 0)
+            var positionMs = TVShortsPolicy.startPositionMs(
+                video: video, explicitPositionMs: explicitPositionMs,
+                savedPositionMs: recordedPosition
+            )
             // Do not resume after the credits of a nearly completed video.
             if let duration = video.duration, duration > 0,
                positionMs >= Int64(duration) * 1_000 - 3_000 {

@@ -909,6 +909,19 @@ struct VideoCard: View {
                                alignment: .topLeading)
                         .padding(8)
                 }
+                if metadataVideo.isShort && video.isLive != true {
+                    Label("video.shortsBadge", systemImage: "play.rectangle.fill")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(.black.opacity(0.86),
+                                    in: RoundedRectangle(cornerRadius: 6))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: .bottomLeading)
+                        .padding(.leading, 9)
+                        .padding(.bottom, 14)
+                }
                 if let position = watchedTime, video.isLive != true {
                     Label(position, systemImage: completed ? "checkmark.circle.fill" : "play.circle")
                         .font(.caption.monospacedDigit())
