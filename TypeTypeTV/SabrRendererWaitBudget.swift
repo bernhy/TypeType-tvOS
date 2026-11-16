@@ -6,6 +6,20 @@ enum SabrRendererPolling {
     static let nanoseconds: UInt64 = UInt64(milliseconds) * 1_000_000
 }
 
+/// Monitor *submitted* samples rather than the much larger downloaded cache.
+/// A short shortage in either renderer can explain a simultaneous A/V glitch
+/// even if all source fMP4 sample timestamps are perfectly continuous.
+enum SabrRendererHeadroom {
+    static let criticalMilliseconds: Int64 = 120
+
+    static func shouldReport(audioAheadMs: Int64, videoAheadMs: Int64,
+                             running: Bool, buffering: Bool) -> Bool {
+        running && !buffering &&
+            (audioAheadMs <= criticalMilliseconds ||
+             videoAheadMs <= criticalMilliseconds)
+    }
+}
+
 /// A paused clock naturally fills the hardware and audio renderer queues.
 /// Only a *running* renderer should consume the 15-second stall budget.
 struct SabrRendererWaitBudget {

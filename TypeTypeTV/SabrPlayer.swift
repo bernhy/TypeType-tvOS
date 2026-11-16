@@ -669,14 +669,38 @@ final class SabrPlayerController: ObservableObject {
     private func startRendererProbe() {
         rendererProbeTask?.cancel()
         rendererProbeTask = Task { [weak self] in
+            var lastSummary = ProcessInfo.processInfo.systemUptime
+            var lastCritical = -Double.infinity
             while !Task.isCancelled {
-                do { try await Task.sleep(nanoseconds: 2_000_000_000) }
+                // A two-second snapshot can miss a 100-300ms glitch. Only
+                // sample more frequently in Debug; report on actual
+                // near-underflow and throttle repeated warnings.
+                do { try await Task.sleep(nanoseconds: 100_000_000) }
                 catch { return }
                 guard let self, !Task.isCancelled else { return }
                 guard self.isInitialized, !self.prefersPause else { continue }
-                let clockMs = Int64(max(0, self.playbackSeconds() * 1_000))
+                let seconds = self.playbackSeconds()
+                guard seconds.isFinite, seconds >= 0,
+                      seconds < Double(Int64.max) / 1_000 else { continue }
+                let clockMs = Int64(seconds * 1_000)
                 let audioAhead = self.queuedAudioEndMs - clockMs
                 let videoAhead = self.queuedVideoEndMs - clockMs
+                let uptime = ProcessInfo.processInfo.systemUptime
+                if SabrRendererHeadroom.shouldReport(
+                    audioAheadMs: audioAhead, videoAheadMs: videoAhead,
+                    running: self.synchronizer.rate > 0,
+                    buffering: self.bufferingClockPaused
+                ), uptime - lastCritical >= 1.5 {
+                    let diskAheadMs = max(0, self.cachedThroughMs - clockMs)
+                    NSLog("TypeType SABR RENDER-UNDERFLOW clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld cacheAheadMs=%lld audioReady=%d videoReady=%d rate=%.2f",
+                          clockMs, audioAhead, videoAhead, diskAheadMs,
+                          self.audioRenderer.isReadyForMoreMediaData ? 1 : 0,
+                          self.videoLayer.sampleBufferRenderer.isReadyForMoreMediaData ? 1 : 0,
+                          Double(self.synchronizer.rate))
+                    lastCritical = uptime
+                }
+                guard uptime - lastSummary >= 2 else { continue }
+                lastSummary = uptime
                 NSLog("TypeType SABR RENDER clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld audioQueuedMs=%lld videoQueuedMs=%lld deliveryMaxMs=%d delivered=%d lateVideo=%d videoWaitMaxMs=%d videoWaitCount=%d buffering=%d rate=%.2f",
                       clockMs, audioAhead, videoAhead, self.queuedAudioEndMs,
                       self.queuedVideoEndMs, self.maxVideoDeliveryMs,
