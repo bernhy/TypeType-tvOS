@@ -183,7 +183,12 @@ struct TVVideoActionModifier: ViewModifier {
                 TVPlaylistPickerView(api: api, video: video) { success in
                     pickerVisible = false
                     presentFeedback(success)
-                    refreshAfterFeedback()
+                    // Adding to another playlist only updates the account-
+                    // scoped membership index. Reloading the whole video
+                    // grid would discard scroll/focus and hide the new badge.
+                    if success == TVL10n.value("action.removedPlaylist") {
+                        refreshAfterFeedback()
+                    }
                 }
             }
             .onChange(of: toBlock) { old, current in
