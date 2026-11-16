@@ -121,7 +121,8 @@ enum SabrDirectMP4Reader {
 /// or losing the old SABR recovery, timestamp and AAC trim logic.
 enum SabrMediaDemux {
     static func samples(initialization: Data, fragment: Data,
-                        mediaType: AVMediaType, direct: Bool) async throws -> [CMSampleBuffer] {
+                        mediaType: AVMediaType, direct: Bool,
+                        presentationStartMs: Int64? = nil) async throws -> [CMSampleBuffer] {
         guard direct else {
             return try await FragmentedMP4Reader.compressedSamples(
                 initialization: initialization, fragment: fragment, mediaType: mediaType
@@ -129,7 +130,8 @@ enum SabrMediaDemux {
         }
         do {
             return try await SabrDirectMP4Reader.compressedSamples(
-                initialization: initialization, fragment: fragment, mediaType: mediaType
+                initialization: initialization, fragment: fragment,
+                mediaType: mediaType, presentationStartMs: presentationStartMs
             )
         } catch is CancellationError {
             throw CancellationError()
