@@ -463,6 +463,38 @@ final class TypeTypeTVUITests: XCTestCase {
                       app.buttons["Mit Passwort anmelden"].exists)
     }
 
+    func testChannelTabsReachSubscriptionButtonWithRemote() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "channels", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let channel = app.buttons["subscription-https://preview.invalid/channel/a"]
+        let subscribe = app.buttons["channel-subscription-toggle"]
+        let videosTab = app.buttons["Videos"]
+        let shortsTab = app.buttons["Shorts"]
+        XCTAssertTrue(waitForFocus(channel, timeout: 20))
+        XCTAssertTrue(subscribe.waitForExistence(timeout: 12))
+        XCUIRemote.shared.press(.right)
+        let firstVideo = app.buttons["subscription-video-0"]
+        XCTAssertTrue(waitForFocus(firstVideo, timeout: 10))
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(videosTab, timeout: 5),
+                      "Any first-row video should reach the Videos/Shorts tabs")
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(subscribe, timeout: 5),
+                      "Up from Videos must reach the subscription button")
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(videosTab, timeout: 5),
+                      "Down must restore the active Videos tab")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(shortsTab, timeout: 5),
+                      "Right from Videos must remain able to reach Shorts")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(subscribe, timeout: 5),
+                      "Right from Shorts must reach the subscription button")
+    }
+
     func testChannelPageDisplaysCurrentSubscriptionState() throws {
         let app = XCUIApplication()
         app.launchArguments = [
