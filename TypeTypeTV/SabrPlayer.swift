@@ -2154,6 +2154,7 @@ struct SabrPlayerView: View {
     var onPlaybackEvent: ((TVPlaybackEvent) -> Void)? = nil
     @StateObject private var engine = SabrPlayerController()
     @AppStorage("typetype.skipSeconds") private var skipSeconds = 10
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var controlsVisible = true
     @State private var revealIndex = 0
     @State private var optionsVisible = false
@@ -2355,17 +2356,24 @@ struct SabrPlayerView: View {
         }
         .overlay(alignment: .topTrailing) {
             TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-                if let segment = currentSponsorSegment(),
-                   sponsorNoticeVisible(segment) {
-                    TVSponsorBlockNotice(
-                        category: segment.category,
-                        onSkip: skipSponsorNotice,
-                        onDismiss: dismissSponsorNotice
-                    )
-                    .id(segment.id)
-                    .padding(.top, 4)
-                    .padding(.trailing, 4)
+                let segment = currentSponsorSegment()
+                let visibleID = segment.flatMap { sponsorNoticeVisible($0) ? $0.id : nil }
+                Group {
+                    if let segment, visibleID != nil {
+                        TVSponsorBlockNotice(
+                            category: segment.category,
+                            onSkip: skipSponsorNotice,
+                            onDismiss: dismissSponsorNotice
+                        )
+                        .id(segment.id)
+                        .padding(.top, 4)
+                        .padding(.trailing, 4)
+                        .transition(TVStableMotion.noticeTransition(
+                            reduceMotion: reduceMotion))
+                    }
                 }
+                .animation(TVStableMotion.noticeAnimation(reduceMotion: reduceMotion),
+                           value: visibleID)
             }
         }
         .overlay {
@@ -2395,8 +2403,11 @@ struct SabrPlayerView: View {
                         reveal()
                     }
                 )
+                .transition(TVStableMotion.noticeTransition(reduceMotion: reduceMotion))
             }
         }
+        .animation(TVStableMotion.noticeAnimation(reduceMotion: reduceMotion),
+                   value: optionsVisible)
         .task {
             engine.start(api: api, video: video)
             TVSabrNowPlayingCenter.shared.activate(for: engine, video: video)

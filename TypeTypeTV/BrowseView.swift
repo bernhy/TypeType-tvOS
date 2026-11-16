@@ -896,6 +896,7 @@ struct VideoCard: View {
                     .aspectRatio(16.0 / 9.0, contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipped()
+                    .modifier(TVFocusedArtworkGlint(focused: isFocused))
                 if video.requiresMembership == true {
                     Label("video.membersOnly", systemImage: "person.crop.circle.badge.checkmark")
                         .font(.caption.bold())

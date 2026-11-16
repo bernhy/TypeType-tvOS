@@ -292,7 +292,9 @@ struct LibraryView: View {
         .padding(.horizontal, 16)
         .padding(.bottom, 30)
         .frame(maxHeight: .infinity)
-        .background(TTTheme.surface)
+        // Same black secondary rail as Settings; the gray main icon rail
+        // remains unchanged while it expands and collapses.
+        .background(TTTheme.ink)
         .focusEffectDisabled(true)
     }
 

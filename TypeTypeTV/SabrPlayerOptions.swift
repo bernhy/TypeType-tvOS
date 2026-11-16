@@ -128,7 +128,10 @@ struct SabrPlayerOptions: View {
         }
         .padding(36)
         .frame(width: 790, height: 780)
-        .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 24))
+        .background {
+            RoundedRectangle(cornerRadius: 24).fill(Color.black.opacity(0.18))
+        }
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
         .onAppear {
             focusedQualityRow = "quality.auto"
         }
