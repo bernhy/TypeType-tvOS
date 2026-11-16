@@ -314,6 +314,7 @@ struct TVPlaylistPickerView: View {
     let onSaved: (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
+    @ObservedObject private var playlistMembership = TVPlaylistMembership.shared
     @State private var playlists: [TVPlaylistDTO] = []
     @State private var loading = true
     @State private var pending = false
@@ -339,17 +340,34 @@ struct TVPlaylistPickerView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(playlists) { playlist in
+                            let included = playlistMembership.contains(
+                                video.url, in: playlist.id
+                            )
                             Button {
-                                Task { await add(to: playlist) }
+                                Task { await toggle(playlist) }
                             } label: {
-                                HStack {
-                                    Label(playlist.name, systemImage: "list.bullet")
+                                HStack(spacing: 12) {
+                                    Label(playlist.name, systemImage:
+                                          included ? "checkmark.circle.fill" : "list.bullet")
                                     Spacer()
-                                    Text("\(playlist.count)")
-                                        .foregroundStyle(TTTheme.muted)
+                                    if included {
+                                        Text("playlist.alreadyAdded")
+                                            .font(.caption.bold())
+                                    } else {
+                                        Text("\(playlist.count)")
+                                            .foregroundStyle(TTTheme.muted)
+                                    }
                                 }
                             }
                             .buttonStyle(.bordered)
+                            .tint(included
+                                  ? Color(red: 0.34, green: 0.24, blue: 0.72)
+                                  : TTTheme.accent)
+                            .background(
+                                included ? Color.purple.opacity(0.25) : .clear,
+                                in: RoundedRectangle(cornerRadius: 10)
+                            )
+                            .accessibilityIdentifier("playlist-choice-\(playlist.id)")
                             .disabled(pending)
                         }
                     }
@@ -365,7 +383,11 @@ struct TVPlaylistPickerView: View {
                 }
             }
             if let error {
-                Text(error).font(.callout).foregroundStyle(.orange)
+                HStack(spacing: 12) {
+                    Text(error).font(.callout).foregroundStyle(.orange)
+                    Button("common.retry") { Task { await reloadMembership() } }
+                        .buttonStyle(.bordered)
+                }
             }
         }
         .padding(50)
@@ -378,12 +400,18 @@ struct TVPlaylistPickerView: View {
     private func load() async {
         loading = true
         defer { loading = false }
-        do {
-            playlists = try await api.playlists()
-            error = nil
-        } catch {
-            self.error = error.localizedDescription
-        }
+        await playlistMembership.ensureLoaded(api: api)
+        playlists = playlistMembership.playlists
+        error = playlistMembership.error
+    }
+
+    @MainActor
+    private func reloadMembership() async {
+        loading = true
+        defer { loading = false }
+        await playlistMembership.retry(api: api)
+        playlists = playlistMembership.playlists
+        error = playlistMembership.error
     }
 
     @MainActor
@@ -395,19 +423,33 @@ struct TVPlaylistPickerView: View {
         do {
             let playlist = try await api.createPlaylist(name: name)
             try await api.addToPlaylist(playlist.id, video: video)
+            playlistMembership.markAdded(videoURL: video.url, playlist: playlist, api: api)
             onSaved(TVL10n.value("action.addedPlaylist"))
         } catch { self.error = error.localizedDescription }
     }
 
     @MainActor
-    private func add(to playlist: TVPlaylistDTO) async {
+    private func toggle(_ playlist: TVPlaylistDTO) async {
         guard !pending else { return }
         pending = true
         defer { pending = false }
         do {
-            try await api.addToPlaylist(playlist.id, video: video)
-            onSaved(TVL10n.value("action.addedPlaylist"))
-        } catch { self.error = error.localizedDescription }
+            if playlistMembership.contains(video.url, in: playlist.id) {
+                try await api.removeFromPlaylist(playlist.id, videoURL: video.url)
+                playlistMembership.markRemoved(
+                    videoURL: video.url, playlistID: playlist.id, api: api
+                )
+                onSaved(TVL10n.value("action.removedPlaylist"))
+            } else {
+                try await api.addToPlaylist(playlist.id, video: video)
+                playlistMembership.markAdded(
+                    videoURL: video.url, playlist: playlist, api: api
+                )
+                onSaved(TVL10n.value("action.addedPlaylist"))
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 }
 
