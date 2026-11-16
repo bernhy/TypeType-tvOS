@@ -73,14 +73,14 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(app.buttons["settings-group-experiments"].waitForExistence(timeout: 20),
                       "GUI experiments must have their own Settings group")
         XCTAssertTrue(app.staticTexts["GUI-Experimente"].firstMatch.exists)
-        XCTAssertTrue(app.buttons["experiment-focus-preview"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["experiment.page"].waitForExistence(timeout: 10))
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "TypeType-tvOS-GUI-Experimente"
         screenshot.lifetime = .keepAlways
         add(screenshot)
     }
 
-    func testExperimentalPreviewButtonsAreReachableByRemote() throws {
+    func testRemainingExperimentalControlsAreReachableByRemote() throws {
         let app = XCUIApplication()
         app.launchArguments = [
             "-TypeTypeTVPreview", "settings-experiments", "-typetype.uiLanguage", "de"
@@ -89,43 +89,26 @@ final class TypeTypeTVUITests: XCTestCase {
         let group = app.buttons["settings-group-experiments"]
         XCTAssertTrue(waitForFocus(group, timeout: 20))
         XCUIRemote.shared.press(.right)
-        let focusPicker = app.buttons["experiment.focus"]
-        XCTAssertTrue(waitForFocus(focusPicker),
-                      "Right from the experiment rail must enter the first selector")
+        XCTAssertTrue(waitForFocus(app.buttons["experiment.page"]),
+                      "Right must enter first remaining experiment")
         XCUIRemote.shared.press(.down)
-        let focusPreview = app.buttons["experiment-focus-preview"]
-        XCTAssertTrue(waitForFocus(focusPreview),
-                      "Down must reach the thumbnail preview instead of skipping it")
-
-        XCUIRemote.shared.press(.select)
-        XCTAssertTrue(waitForFocus(focusPreview),
-                      "Cycling the thumbnail preview must not send focus back to its Picker")
-
+        XCTAssertTrue(waitForFocus(app.buttons["experiment.hero"]),
+                      "Down must reach the detail header experiment")
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(waitForFocus(app.buttons["experiment.popup"]),
-                      "Down from thumbnail preview should reach popup options")
+        XCTAssertTrue(waitForFocus(app.buttons["experiment.symbols"]),
+                      "Down must reach animated symbols")
         XCUIRemote.shared.press(.down)
-        let popupPreview = app.buttons["experiment-popup-preview"]
-        XCTAssertTrue(waitForFocus(popupPreview),
-                      "Down must reach popup preview")
-        XCUIRemote.shared.press(.select)
-        XCTAssertTrue(app.descendants(matching: .any)["experiment-popup-sample"]
-                            .waitForExistence(timeout: 4))
-        XCUIRemote.shared.press(.select)
-        XCTAssertFalse(app.descendants(matching: .any)["experiment-popup-sample"].exists)
-
+        XCTAssertTrue(waitForFocus(app.buttons["experiment.loading"]),
+                      "Down must reach loading placeholders")
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(waitForFocus(app.buttons["experiment.toast"]))
+        XCTAssertTrue(waitForFocus(app.buttons["experiment.sidebar"]),
+                      "Down must reach sidebar fade")
         XCUIRemote.shared.press(.down)
-        let toastPreview = app.buttons["experiment-toast-preview"]
-        XCTAssertTrue(waitForFocus(toastPreview),
-                      "Down must reach notification preview")
-        XCUIRemote.shared.press(.select)
-        XCTAssertTrue(app.descendants(matching: .any)["experiment-toast-sample"]
-                            .waitForExistence(timeout: 4))
+        XCTAssertTrue(waitForFocus(app.buttons["experiment-reset"]),
+                      "Down must reach reset button")
         XCUIRemote.shared.press(.up)
-        XCTAssertTrue(waitForFocus(app.buttons["experiment.toast"]),
-                      "Up from notification preview must return to its selector")
+        XCTAssertTrue(waitForFocus(app.buttons["experiment.sidebar"]),
+                      "Up must navigate back from reset")
         XCUIRemote.shared.press(.left)
         XCTAssertTrue(waitForFocus(group),
                       "Left must return to the selected Settings group")
