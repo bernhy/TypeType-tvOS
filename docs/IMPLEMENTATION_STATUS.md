@@ -1,52 +1,56 @@
 # TypeType tvOS – implementation status
 
-> Maintain the API parity checklist in Git alongside feature changes. Link each
-> implementing commit in the table below. Mark `[x]` **only when CI and contract
-> tests have passed**, then record the implementing SHA in the same status row.
-> Since a commit cannot reference its own SHA, update the status in a follow-up
-> documentation commit once the feature commit has been verified. Keep partial
-> implementations explicitly open.
+> Maintain this list with feature changes. Every item has two checkboxes:
+> **Code** is checked when implementation is committed; **Verified** is checked
+> only after the corresponding build and automated contract/UI tests succeed.
+> Record implementing commit SHAs, and update status in a follow-up documentation
+> commit once CI verifies the code (a commit cannot reference its own SHA).
+> Partial implementations stay open, with progress noted separately.
 
 ## Scope and conventions
 
 - Reference: TypeType Server, Android, and Frontend **main** branches (2026-11-16).
-- `[ ]` means outstanding or awaiting verification; `[x]` means implemented **and verified**.
-- `CI pending` in the Notes means code is committed but tests have not passed yet.
-- Record all relevant implementation SHAs even before verification. Keep unimplemented parts open.
+- **Code**: `[x]` means feature implementation is committed; `[ ]` means open or partial.
+- **Verified**: `[x]` means the combined CI build/tests passed; `[ ]` means still unverified.
+- `CI pending` in Notes means code exists but validation is outstanding.
+- Record relevant SHAs even before verification; retain unimplemented features as open tasks.
 - Link source changes via commit SHA, not a date-only note. Put dependencies and
   known API-version limitations in the Notes column.
 - Distinguish a setting stored via `/settings` from an effect actually applied to tvOS.
 
 ## Planned work
 
-| ID | Status | Feature | Implementation commits | Notes |
-| --- | --- | --- | --- | --- |
-| API-01 | [ ] | Robust API errors: optional codes, request IDs, Retry-After, stable classifications | `10662f66, af7e3158, fdc8baa9, 474e2d9c` | Code integrated; CI pending. Includes bootstrap-vs-session classification and request IDs. |
-| SEARCH-01 | [ ] | `/search/filters`: content filters, grouped filters, sort | `e8400793, e634a0f2` | Code integrated; CI pending. Server-advertised filters and Siri Remote controls. |
-| SEARCH-02 | [ ] | Paginate search with `nextpage`; corrected search hints | `e8400793, e634a0f2` | Code integrated; CI pending. Opaque nextpage, correction and suggestion. |
-| SEARCH-03 | [ ] | Display/search channel and public playlist results | `e634a0f2` | Code integrated; CI pending. Channels and public playlists have navigable cards. |
-| CHANNEL-01 | [ ] | Channel video sorting: latest / popular / oldest | `36c1b554, a7219f6b` | Code integrated; CI pending. Sort not applied to Shorts tab. |
-| CHANNEL-02 | [ ] | Channel playlists and public playlist playback | `36c1b554, f5feb683, a7219f6b` | Code integrated; CI pending. Public playlists distinct from own /playlists. |
-| CHANNEL-03 | [ ] | Channel Community posts (text/images/polls/videos) | `36c1b554, f5feb683, a7219f6b` | Code integrated; CI pending. Read-only posts incl. images, poll choices and video links. |
-| CHANNEL-04 | [ ] | Channel podcasts and courses | `36c1b554, f5feb683, a7219f6b` | Code integrated; CI pending. Courses shown when hasCourses is true. |
-| BLOCK-01 | [ ] | View and remove blocked channels/videos in Settings | `db9f5e79` | Code integrated; CI pending. Global blocks intentionally read-only. |
-| BLOCK-02 | [ ] | Manage blocked title keywords in Settings | `db9f5e79` | Code integrated; CI pending. Adds, lists and removes user keywords. |
-| DETAIL-01 | [ ] | Related videos from `relatedStreams` on detail page | `7315e7f9, 4882e4c3` | Code integrated; CI pending. Honors hideRelatedVideos and filter preferences. |
-| CONTENT-01 | [ ] | Honor hideContinueWatching and hideHomeRecommendations | `443554bf, 744bf946` | Code integrated; CI pending. Existing saved history still visible in Library. |
-| CONTENT-02 | [ ] | Honor hideShorts, hideSubscriptionLiveStreams, hideMembersOnlyContent | `443554bf, 0931b730, 4882e4c3` | Code integrated; CI pending. Visibility metadata may be unavailable for some provider rows. |
-| CONTENT-03 | [ ] | Honor hideRelatedVideos, hideEndScreens, hideComments | `7315e7f9, 4882e4c3` | PARTIAL: related videos obey setting; end screens and comments are not yet rendered at all. |
-| CONTENT-04 | [ ] | Visibly explain disabled watch-history recording at playback start | `7315e7f9` | Code integrated; CI pending. HLS/SABR notices; read old progress but suppress new writes. |
-| CONTENT-05 | [ ] | Startup landing, DeArrow, other content settings parity | — | Separate API/data pipeline |
-| SETTINGS-01 | [ ] | Other account playback settings (autoplay, speed, audio only etc.) | — | Avoid destabilizing SABR |
-| PROFILE-01 | [ ] | Integrate server account profiles under locally saved accounts | — | `/profiles` is user-scoped, not admin |
-| COMMENTS-01 | [ ] | Comments/replies with images and voice replies on video detail | — | Keep in-player UI minimal |
-| ACCOUNT-01 | [ ] | Notification and recommender features, backup/imports | — | Lower priority |
-| API-02 | [ ] | Capability gating via `/instance` and audit unused fields | — | OpenAPI is manually maintained |
+| ID | Code | Verified | Feature | Implementation commits | Notes |
+| --- | --- | --- | --- | --- | --- |
+| API-01 | [x] | [ ] | Robust API errors: optional codes, request IDs, Retry-After, stable classifications | `10662f66, af7e3158, fdc8baa9, 474e2d9c, d02dbef1` | Code integrated; CI pending. Includes bootstrap-vs-session classification and request IDs. |
+| SEARCH-01 | [x] | [ ] | `/search/filters`: content filters, grouped filters, sort | `e8400793, e634a0f2` | Code integrated; CI pending. Server-advertised filters and Siri Remote controls. |
+| SEARCH-02 | [x] | [ ] | Paginate search with `nextpage`; corrected search hints | `e8400793, e634a0f2` | Code integrated; CI pending. Opaque nextpage, correction and suggestion. |
+| SEARCH-03 | [x] | [ ] | Display/search channel and public playlist results | `e634a0f2` | Code integrated; CI pending. Channels and public playlists have navigable cards. |
+| CHANNEL-01 | [x] | [ ] | Channel video sorting: latest / popular / oldest | `36c1b554, a7219f6b` | Code integrated; CI pending. Sort not applied to Shorts tab. |
+| CHANNEL-02 | [x] | [ ] | Channel playlists and public playlist playback | `36c1b554, f5feb683, a7219f6b` | Code integrated; CI pending. Public playlists distinct from own /playlists. |
+| CHANNEL-03 | [x] | [ ] | Channel Community posts (text/images/polls/videos) | `36c1b554, f5feb683, a7219f6b` | Code integrated; CI pending. Read-only posts incl. images, poll choices and video links. |
+| CHANNEL-04 | [x] | [ ] | Channel podcasts and courses | `36c1b554, f5feb683, a7219f6b` | Code integrated; CI pending. Courses shown when hasCourses is true. |
+| BLOCK-01 | [x] | [ ] | View and remove blocked channels/videos in Settings | `db9f5e79` | Code integrated; CI pending. Global blocks intentionally read-only. |
+| BLOCK-02 | [x] | [ ] | Manage blocked title keywords in Settings | `db9f5e79` | Code integrated; CI pending. Adds, lists and removes user keywords. |
+| DETAIL-01 | [x] | [ ] | Related videos from `relatedStreams` on detail page | `7315e7f9, 4882e4c3` | Code integrated; CI pending. Honors hideRelatedVideos and filter preferences. |
+| CONTENT-01 | [x] | [ ] | Honor hideContinueWatching and hideHomeRecommendations | `443554bf, 744bf946` | Code integrated; CI pending. Existing saved history still visible in Library. |
+| CONTENT-02 | [x] | [ ] | Honor hideShorts, hideSubscriptionLiveStreams, hideMembersOnlyContent | `443554bf, 0931b730, 4882e4c3` | Code integrated; CI pending. Visibility metadata may be unavailable for some provider rows. |
+| CONTENT-03 | [ ] | [ ] | Honor hideRelatedVideos, hideEndScreens, hideComments | `7315e7f9, 4882e4c3` | PARTIAL: related videos obey setting; end screens and comments are not yet rendered at all. |
+| CONTENT-04 | [x] | [ ] | Visibly explain disabled watch-history recording at playback start | `7315e7f9` | Code integrated; CI pending. HLS/SABR notices; read old progress but suppress new writes. |
+| CONTENT-05 | [ ] | [ ] | Startup landing, DeArrow, other content settings parity | — | Separate API/data pipeline |
+| SETTINGS-01 | [ ] | [ ] | Other account playback settings (autoplay, speed, audio only etc.) | — | Avoid destabilizing SABR |
+| PROFILE-01 | [ ] | [ ] | Integrate server account profiles under locally saved accounts | — | `/profiles` is user-scoped, not admin |
+| COMMENTS-01 | [ ] | [ ] | Comments/replies with images and voice replies on video detail | — | Keep in-player UI minimal |
+| ACCOUNT-01 | [ ] | [ ] | Notification and recommender features, backup/imports | — | Lower priority |
+| API-02 | [ ] | [ ] | Capability gating via `/instance` and audit unused fields | — | OpenAPI is manually maintained |
 
 ## Automated verification
 
-- All new feature commits listed above are present on `main`, but no single
-  end-to-end tvOS workflow has yet completed for the combined changes.
+- The combined source code has passed the Xcode 26.2 Debug simulator build,
+  Debug Apple TV device build and Release Apple TV device build on an earlier
+  run; new HTTP 401 handling was committed afterwards.
+- An end-to-end tvOS workflow including the final Auth changes is still
+  pending. Do not mark Verified until that workflow completes successfully.
 - Tests for HTTP error handling, search, channel extras and blocked routes:
   `TVServerErrorMappingTests.swift`, `TVAPIWireTests.swift`.
 - The CI workflow performs Debug simulator build, Debug and Release device
