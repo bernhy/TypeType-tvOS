@@ -288,59 +288,110 @@ enum SabrAACPrimingPolicy {
 // A track consists of the init box sequence (ftyp/moov) and a single media fragment (moof/mdat).
 // AVAssetReader is asked for compressed samples (outputSettings:nil) so decoding stays in VideoToolbox.
 enum FragmentedMP4Reader {
-    static func compressedSamples(initialization: Data, fragment: Data, mediaType: AVMediaType) async throws -> [CMSampleBuffer] {
+    static func compressedSamples(initialization: Data, fragment: Data,
+                                  mediaType: AVMediaType) async throws -> [CMSampleBuffer] {
         guard !initialization.isEmpty && !fragment.isEmpty else {
             throw SabrFailure.invalidResponse("empty MP4 fragment")
         }
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("typetype-\(UUID().uuidString).mp4")
-        // Validate structure before asking AVAssetReader to inspect untrusted
-        // bytes. Write two parts separately: '+' copies potentially huge 4K
-        // fragments into a second Data allocation on memory-limited Apple TVs.
-        try SabrMP4Boxes.validate(initialization: initialization, fragment: fragment)
-        guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
-            throw SabrFailure.invalidResponse("Cannot create temporary MP4 segment")
-        }
-        defer { try? FileManager.default.removeItem(at: file) }
+        // Do not log the filename or segment URLs: these are session-private.
+        var stage = "validate-boxes"
+        var codec: FourCharCode = 0
+        var sourceSamples = 0
+        var noDataSamples = 0
         do {
-            let writer = try FileHandle(forWritingTo: file)
-            defer { try? writer.close() }
-            try writer.write(contentsOf: initialization)
-            try writer.write(contentsOf: fragment)
-        }
-        let asset = AVURLAsset(url: file)
-        let tracks = try await asset.loadTracks(withMediaType: mediaType)
-        guard let track = tracks.first else {
-            throw SabrFailure.unsupported("AVAssetReader couldn't find an \(mediaType.rawValue) track in the SABR fragment")
-        }
-        // The codec description belongs to the init segment's sample entry.
-        // Keep it when AVAssetReader omits the description on individual samples.
-        let trackFormat = try await track.load(.formatDescriptions).first
-        let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
-        output.alwaysCopiesSampleData = false
-        guard reader.canAdd(output) else { throw SabrFailure.unsupported("Compressed \(mediaType.rawValue) reader unavailable") }
-        reader.add(output)
-        guard reader.startReading() else {
-            throw reader.error ?? SabrFailure.invalidResponse("MP4 reader could not start")
-        }
-        var samples: [CMSampleBuffer] = []
-        while reader.status == .reading {
-            guard let sample = output.copyNextSampleBuffer() else { break }
-            // AVAssetReaderTrackOutput with nil outputSettings can emit
-            // marker-only buffers (discontinuities / timing metadata) without
-            // media samples or a CMBlockBuffer. Do not send them to VideoToolbox.
-            if CMSampleBufferGetNumSamples(sample) == 0 { continue }
-            samples.append(try SabrSampleFormatRepair.repair(
-                sample, fallback: trackFormat
-            ))
-            if samples.count > 2_000 {
-                reader.cancelReading()
-                throw SabrFailure.invalidResponse("unreasonably large media fragment")
+            try SabrMP4Boxes.validate(initialization: initialization, fragment: fragment)
+            stage = "create-temp"
+            guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
+                throw SabrFailure.invalidResponse("Cannot create temporary MP4 segment")
             }
+            defer { try? FileManager.default.removeItem(at: file) }
+            stage = "write-temp"
+            do {
+                let writer = try FileHandle(forWritingTo: file)
+                defer { try? writer.close() }
+                // Do not concatenate large fragments in memory.
+                try writer.write(contentsOf: initialization)
+                try writer.write(contentsOf: fragment)
+            }
+            let asset = AVURLAsset(url: file)
+            stage = "load-track"
+            let tracks = try await asset.loadTracks(withMediaType: mediaType)
+            guard let track = tracks.first else {
+                throw SabrFailure.unsupported(
+                    "AVAssetReader could not find a \(mediaType.rawValue) track")
+            }
+            stage = "load-format"
+            let trackFormat = try await track.load(.formatDescriptions).first
+            if let trackFormat {
+                codec = CMFormatDescriptionGetMediaSubType(trackFormat)
+            }
+            stage = "reader-create"
+            let reader = try AVAssetReader(asset: asset)
+            let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+            output.alwaysCopiesSampleData = false
+            stage = "reader-add"
+            guard reader.canAdd(output) else {
+                throw SabrFailure.unsupported(
+                    "Compressed \(mediaType.rawValue) reader unavailable")
+            }
+            reader.add(output)
+            stage = "reader-start"
+            guard reader.startReading() else {
+                throw reader.error ?? SabrFailure.invalidResponse("MP4 reader could not start")
+            }
+            var samples: [CMSampleBuffer] = []
+            stage = "sample-read"
+            while reader.status == .reading {
+                guard let sample = output.copyNextSampleBuffer() else { break }
+                // A zero-count CMSampleBuffer is a marker, not compressed data.
+                let count = CMSampleBufferGetNumSamples(sample)
+                guard count > 0 else { continue }
+                sourceSamples += count
+                if CMSampleBufferGetDataBuffer(sample) == nil {
+                    noDataSamples += count
+                    #if DEBUG
+                    // A nonzero-count image buffer with no compressed bytes
+                    // means the native reader is NOT providing the compressed
+                    // samples required by our VideoToolbox pipeline.
+                    NSLog("TypeType SABR DEMUX-NODATA media=%@ codec=0x%08x samples=%d imageBuffer=%d",
+                          mediaType.rawValue, codec, count,
+                          CMSampleBufferGetImageBuffer(sample) == nil ? 0 : 1)
+                    #endif
+                }
+                stage = "sample-format"
+                samples.append(try SabrSampleFormatRepair.repair(
+                    sample, fallback: trackFormat
+                ))
+                if samples.count > 2_000 {
+                    reader.cancelReading()
+                    throw SabrFailure.invalidResponse("unreasonably large media fragment")
+                }
+                stage = "sample-read"
+            }
+            stage = "reader-finish"
+            if reader.status == .failed {
+                throw reader.error ?? SabrFailure.invalidResponse("MP4 read failed")
+            }
+            if samples.isEmpty && mediaType == .video {
+                throw SabrFailure.unsupported(
+                    "AVAssetReader could not expose compressed video samples")
+            }
+            return samples
+        } catch {
+            #if DEBUG
+            // The error's localized text may contain upstream media URLs.
+            // Only log a fixed stage, numeric code, codec and byte counts.
+            let ns = error as NSError
+            let safeDomain = ns.domain == "AVFoundationErrorDomain" ? "AVFoundation" :
+                (ns.domain == "NSOSStatusErrorDomain" ? "OSStatus" : "other")
+            NSLog("TypeType SABR DEMUX-FAIL stage=%@ media=%@ codec=0x%08x errorDomain=%@ errorCode=%d initBytes=%d fragmentBytes=%d sourceSamples=%d noDataSamples=%d",
+                  stage, mediaType.rawValue, codec, safeDomain, ns.code,
+                  initialization.count, fragment.count, sourceSamples, noDataSamples)
+            #endif
+            throw error
         }
-        if reader.status == .failed { throw reader.error ?? SabrFailure.invalidResponse("MP4 read failed") }
-        return samples
     }
 }
 
