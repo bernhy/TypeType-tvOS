@@ -107,12 +107,9 @@ enum SabrManualQualityFallbackPolicy {
         switch failure {
         case .unsupported(let text):
             if text.contains("VideoToolbox") { return "decoder-session" }
-            if text.contains("AVAssetReader") { return "reader-unsupported" }
-            if text.contains("compressed") { return "compressed-unsupported" }
+            if text.contains("compressed") || text.contains("Native fMP4") { return "compressed-unsupported" }
             return "unsupported"
         case .invalidResponse(let text):
-            if text.contains("compressed sample has no data buffer") { return "compressed-no-data" }
-            if text.contains("codec format description") { return "format-missing" }
             if text.contains("sample timing") { return "sample-timing" }
             if text.contains("noncontiguous native timestamps") { return "native-timestamps" }
             if text.contains("segment window timed out") { return "window-timeout" }
