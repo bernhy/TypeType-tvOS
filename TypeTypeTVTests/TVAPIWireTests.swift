@@ -98,22 +98,25 @@ final class TVAPIWireTests: XCTestCase {
         TVAPIWireProtocol.install(host: host) { _ in
             (503, Data(#"{"error":"Server temporarily unavailable"}"#.utf8))
         }
-        XCTAssertEqual(await TVInactiveAccountChecker.check(
+        let offline = await TVInactiveAccountChecker.check(
             login, currentOrigin: current, session: session
-        ), .serverUnavailable)
+        )
+        XCTAssertEqual(offline, .serverUnavailable)
         XCTAssertEqual(credentials.token(for: old), "saved-old-token")
 
         TVAPIWireProtocol.install(host: host) { _ in
             (401, Data(#"{"error":"Invalid token"}"#.utf8))
         }
-        XCTAssertEqual(await TVInactiveAccountChecker.check(
+        let expired = await TVInactiveAccountChecker.check(
             login, currentOrigin: current, session: session
-        ), .signInRequired)
+        )
+        XCTAssertEqual(expired, .signInRequired)
         XCTAssertEqual(credentials.token(for: old), "saved-old-token")
         // Never allow the checker to contact or mutate the current server.
-        XCTAssertEqual(await TVInactiveAccountChecker.check(
+        let blocked = await TVInactiveAccountChecker.check(
             login, currentOrigin: old, session: session
-        ), .storageFailure)
+        )
+        XCTAssertEqual(blocked, .storageFailure)
         XCTAssertEqual(credentials.token(for: old), "saved-old-token")
     }
 
