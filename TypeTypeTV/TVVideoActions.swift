@@ -440,7 +440,10 @@ struct TVPlaylistPickerView: View {
         defer { pending = false }
         do {
             if playlistMembership.contains(video.url, in: playlist.id) {
-                try await api.removeFromPlaylist(playlist.id, videoURL: video.url)
+                try await api.removeFromPlaylist(
+                    playlist.id,
+                    videoURL: playlistMembership.storedURL(video.url, in: playlist.id)
+                )
                 playlistMembership.markRemoved(
                     videoURL: video.url, playlistID: playlist.id, api: api
                 )
