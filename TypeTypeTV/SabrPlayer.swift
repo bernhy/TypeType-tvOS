@@ -377,6 +377,7 @@ final class SabrPlayerController: ObservableObject {
     @Published private(set) var currentAudioTrackId: String?
     @Published private(set) var fixedVideoItag: Int?
     @Published private(set) var qualityFallbackNotice: String?
+    @Published private(set) var playerNotices = TVPlayerNoticeStack()
     @Published private(set) var availableSubtitles: [SabrBootstrap.Subtitle] = []
     @Published private(set) var selectedSubtitleURL: String?
     @Published private(set) var subtitleCues: [SabrCaptionCue] = []
@@ -446,6 +447,27 @@ final class SabrPlayerController: ObservableObject {
         // legacy layer queue would bypass our shared A/V media timeline.
         synchronizer.addRenderer(videoLayer.sampleBufferRenderer)
         synchronizer.addRenderer(audioRenderer)
+    }
+
+    /// Each message has its own expiry. New messages appear at the top and
+    /// push older ones downward; deleting one never affects its neighbors.
+    private func postPlayerNotice(_ text: String) {
+        let id = playerNotices.push(text)
+        let selectedSeconds = UserDefaults.standard.integer(
+            forKey: TVPlayerNoticePolicy.settingsKey
+        )
+        let duration = TVPlayerNoticePolicy.seconds(selectedSeconds)
+        Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(duration)) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            self?.playerNotices.dismiss(id)
+        }
+    }
+
+    private func formatLabel(_ video: SabrBootstrap.Video) -> String {
+        let codec = SabrVideoCodecFamily(codec: video.codec)?.title ?? video.codec
+        return "\(codec) \(video.height ?? 0)p"
     }
 
     /// nil means resume from the account's recorded position; explicit values
@@ -970,6 +992,11 @@ final class SabrPlayerController: ObservableObject {
             guard !orderedOptions.isEmpty else {
                 throw SabrFailure.unsupported(TVL10n.value("player.noHardwareFormat"))
             }
+            // This must not change when the first failed manual format is
+            // unselected. Otherwise the legacy automatic resume rule stops
+            // the second attempt before reaching 1080p.
+            let manualFallbackActive = requestedVideoItag != nil &&
+                orderedOptions.first?.video.itag == requestedVideoItag
             var playbackStart = positionMs
             for (index, option) in orderedOptions.enumerated() {
                 try Task.checkCancellation()
@@ -1062,26 +1089,58 @@ final class SabrPlayerController: ObservableObject {
                     )
                     return
                 } catch {
+                    // Cancellation/teardown is never a format failure.
+                    guard playbackEpoch == epoch, !Task.isCancelled else {
+                        throw CancellationError()
+                    }
                     let codecFallback: Bool
-                    if case SabrFailure.unsupported = error {
-                        codecFallback = index < orderedOptions.count - 1
+                    if manualFallbackActive {
+                        codecFallback = SabrManualQualityFallbackPolicy.shouldTryNext(
+                            error: error, initialized: isInitialized,
+                            currentIndex: index, candidateCount: orderedOptions.count
+                        )
+                    } else if case SabrFailure.unsupported = error {
+                        codecFallback = !isInitialized && index < orderedOptions.count - 1
                     } else {
                         codecFallback = SabrResumeTrackFallbackPolicy.shouldTryNext(
                             error: error, positionMs: playbackStart,
                             initialized: isInitialized, currentIndex: index,
                             candidateCount: orderedOptions.count,
-                            manuallySelected: requestedVideoItag != nil
+                            manuallySelected: false
                         )
                     }
-                    guard codecFallback else { throw error }
-                    if case SabrFailure.unsupported = error,
-                       requestedVideoItag == choice.video.itag {
-                        failedManualFormat = "\(SabrVideoCodecFamily(codec: choice.video.codec)?.title ?? choice.video.codec) \(choice.video.height ?? 0)p"
-                        NSLog("TypeType SABR QUALITY manual-fallback failedItag=%d failedCodec=%@ failedHeight=%d nextItag=%d",
+                    if !codecFallback {
+                        if manualFallbackActive && !isInitialized {
+                            let label = failedManualFormat ?? formatLabel(choice.video)
+                            postPlayerNotice(String(
+                                format: TVL10n.value("player.formatExhausted"), label
+                            ))
+                        }
+                        NSLog("TypeType SABR QUALITY stop itag=%d index=%d total=%d initialized=%d manual=%d reason=%@",
+                              choice.video.itag, index + 1, orderedOptions.count,
+                              isInitialized ? 1 : 0, manualFallbackActive ? 1 : 0,
+                              SabrManualQualityFallbackPolicy.reasonKey(for: error))
+                        throw error
+                    }
+                    if manualFallbackActive {
+                        let current = formatLabel(choice.video)
+                        let next = formatLabel(orderedOptions[index + 1].video)
+                        if failedManualFormat == nil {
+                            failedManualFormat = current
+                        }
+                        let reason = TVL10n.value(
+                            SabrManualQualityFallbackPolicy.reasonKey(for: error)
+                        )
+                        postPlayerNotice(String(
+                            format: TVL10n.value("player.formatTryNext"),
+                            current, reason, next
+                        ))
+                        NSLog("TypeType SABR QUALITY manual-fallback failedItag=%d failedCodec=%@ failedHeight=%d nextItag=%d reason=%@",
                               choice.video.itag, choice.video.codec,
-                              choice.video.height ?? 0, orderedOptions[index + 1].video.itag)
-                        // The failed selection must not be retried during
-                        // subsequent seeks or mistaken for the active quality.
+                              choice.video.height ?? 0, orderedOptions[index + 1].video.itag,
+                              SabrManualQualityFallbackPolicy.reasonKey(for: error))
+                        // Only the chosen track was manual; alternatives
+                        // remain in this run's bounded manual fallback chain.
                         requestedVideoItag = nil
                     }
                     if case SabrFailure.expired = error {
@@ -2055,6 +2114,7 @@ final class SabrPlayerController: ObservableObject {
                         format: TVL10n.value("player.qualityFallback"),
                         failedManualFormat, activeFormat
                     )
+                    postPlayerNotice(qualityFallbackNotice!)
                     self.failedManualFormat = nil
                 }
                 #if DEBUG
@@ -2355,26 +2415,40 @@ struct SabrPlayerView: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-                let segment = currentSponsorSegment()
-                let visibleID = segment.flatMap { sponsorNoticeVisible($0) ? $0.id : nil }
-                Group {
-                    if let segment, visibleID != nil {
-                        TVSponsorBlockNotice(
-                            category: segment.category,
-                            onSkip: skipSponsorNotice,
-                            onDismiss: dismissSponsorNotice
-                        )
-                        .id(segment.id)
-                        .padding(.top, 4)
-                        .padding(.trailing, 4)
+            VStack(alignment: .trailing, spacing: 12) {
+                TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+                    let segment = currentSponsorSegment()
+                    let visibleID = segment.flatMap {
+                        sponsorNoticeVisible($0) ? $0.id : nil
+                    }
+                    Group {
+                        if let segment, visibleID != nil {
+                            TVSponsorBlockNotice(
+                                category: segment.category,
+                                onSkip: skipSponsorNotice,
+                                onDismiss: dismissSponsorNotice
+                            )
+                            .id(segment.id)
+                            .transition(TVStableMotion.noticeTransition(
+                                reduceMotion: reduceMotion))
+                        }
+                    }
+                    .animation(TVStableMotion.noticeAnimation(reduceMotion: reduceMotion),
+                               value: visibleID)
+                }
+                // Newest notices come first. Each owns an independent timer,
+                // so expiring one only moves the remaining notices upward.
+                ForEach(engine.playerNotices.items) { notice in
+                    TVPlayerNoticeView(notice: notice)
                         .transition(TVStableMotion.noticeTransition(
                             reduceMotion: reduceMotion))
-                    }
                 }
-                .animation(TVStableMotion.noticeAnimation(reduceMotion: reduceMotion),
-                           value: visibleID)
             }
+            .frame(maxWidth: 660, alignment: .trailing)
+            .padding(.top, 4)
+            .padding(.trailing, 4)
+            .animation(TVStableMotion.noticeAnimation(reduceMotion: reduceMotion),
+                       value: engine.playerNotices.items.map(\.id))
         }
         .overlay {
             if optionsVisible {
