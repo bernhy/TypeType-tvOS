@@ -11,6 +11,10 @@ final class TVPlaylistMembership: ObservableObject {
 
     @Published private(set) var playlistIDsByVideo: [String: Set<String>] = [:]
     @Published private(set) var playlists: [TVPlaylistDTO] = []
+    // The server removes entries by their *stored* URL, not by YouTube ID.
+    // Preserve that exact URL when the currently viewed video uses a different
+    // but equivalent youtube.com / youtu.be representation.
+    private var storedURLByVideoAndPlaylist: [String: [String: String]] = [:]
     @Published private(set) var loading = false
     @Published private(set) var error: String?
 
@@ -31,6 +35,10 @@ final class TVPlaylistMembership: ObservableObject {
         playlistIDsByVideo[Self.videoKey(videoURL)]?.contains(playlistID) == true
     }
 
+    func storedURL(_ videoURL: String, in playlistID: String) -> String {
+        storedURLByVideoAndPlaylist[Self.videoKey(videoURL)]?[playlistID] ?? videoURL
+    }
+
     /// One shared network request chain even when many thumbnails appear at
     /// once. A failed load remains retryable; never present empty membership
     /// as confirmed if any playlist detail could not be retrieved.
@@ -43,6 +51,7 @@ final class TVPlaylistMembership: ObservableObject {
             loaded = false
             playlists = []
             playlistIDsByVideo = [:]
+            storedURLByVideoAndPlaylist = [:]
             error = nil
             loading = false
         }
@@ -56,17 +65,21 @@ final class TVPlaylistMembership: ObservableObject {
             do {
                 let summaries = try await api.playlists()
                 var result: [String: Set<String>] = [:]
+                var storedURLs: [String: [String: String]] = [:]
                 for playlist in summaries where playlist.count > 0 {
                     try Task.checkCancellation()
                     let detail = try await api.playlist(playlist.id)
                     for video in detail.items {
-                        result[Self.videoKey(video.url), default: []].insert(playlist.id)
+                        let key = Self.videoKey(video.url)
+                        result[key, default: []].insert(playlist.id)
+                        storedURLs[key, default: [:]][playlist.id] = video.url
                     }
                 }
                 try Task.checkCancellation()
                 guard self.scope == account else { return }
                 self.playlists = summaries
                 self.playlistIDsByVideo = result
+                self.storedURLByVideoAndPlaylist = storedURLs
                 self.loaded = true
                 self.error = nil
             } catch is CancellationError {
@@ -95,6 +108,8 @@ final class TVPlaylistMembership: ObservableObject {
     func markAdded(videoURL: String, playlist: TVPlaylistDTO, api: TypeTypeAPI) {
         guard scope == api.metadataCacheScope else { return }
         playlistIDsByVideo[Self.videoKey(videoURL), default: []].insert(playlist.id)
+        storedURLByVideoAndPlaylist[Self.videoKey(videoURL), default: [:]][playlist.id] =
+            videoURL
         if !playlists.contains(where: { $0.id == playlist.id }) {
             playlists.append(playlist)
         }
@@ -103,6 +118,12 @@ final class TVPlaylistMembership: ObservableObject {
     func markRemoved(videoURL: String, playlistID: String, api: TypeTypeAPI) {
         guard scope == api.metadataCacheScope else { return }
         playlistIDsByVideo[Self.videoKey(videoURL)]?.remove(playlistID)
+        storedURLByVideoAndPlaylist[Self.videoKey(videoURL)]?.removeValue(
+            forKey: playlistID
+        )
+        if storedURLByVideoAndPlaylist[Self.videoKey(videoURL)]?.isEmpty == true {
+            storedURLByVideoAndPlaylist.removeValue(forKey: Self.videoKey(videoURL))
+        }
         if playlistIDsByVideo[Self.videoKey(videoURL)]?.isEmpty == true {
             playlistIDsByVideo.removeValue(forKey: Self.videoKey(videoURL))
         }
