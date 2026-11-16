@@ -33,4 +33,33 @@ final class MP4InitSegmentTests: XCTestCase {
     let bytes = MP4TestBoxes.initSegment(video: true)
     XCTAssertThrowsError(try MP4InitSegment.tracks(in: Data(bytes.dropLast(10))))
   }
+
+  func testReadsVP9CodecConfiguration() throws {
+    // vpcC: FullBox version/flags + VP codec fields.
+    let config: [UInt8] = [1, 0, 0, 0, 0, 41, 8, 1, 1, 1, 1, 0, 0, 0]
+    let bytes = MP4TestBoxes.initSegment(
+      video: true, configuration: config, codec: "vp09"
+    )
+    let track = try XCTUnwrap(try MP4InitSegment.tracks(in: Data(bytes)).first)
+    XCTAssertEqual(track.codec, MP4FourCC("vp09"))
+    XCTAssertEqual(track.configuration, Data(config))
+    XCTAssertEqual(track.width, 1920)
+  }
+
+  func testReadsAV1CodecConfiguration() throws {
+    let config: [UInt8] = [0x81, 0x00, 0x0C, 0x00]
+    let bytes = MP4TestBoxes.initSegment(
+      video: true, configuration: config, codec: "av01"
+    )
+    let track = try XCTUnwrap(try MP4InitSegment.tracks(in: Data(bytes)).first)
+    XCTAssertEqual(track.codec, MP4FourCC("av01"))
+    XCTAssertEqual(track.configuration, Data(config))
+  }
+
+  func testRejectsMalformedAV1CodecConfig() {
+    let bytes = MP4TestBoxes.initSegment(
+      video: true, configuration: [0x00, 0, 0, 0], codec: "av01"
+    )
+    XCTAssertThrowsError(try MP4InitSegment.tracks(in: Data(bytes)))
+  }
 }
