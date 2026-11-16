@@ -14,7 +14,7 @@ enum SabrPrefetchOrder {
     static func batches(_ references: [SabrMediaReference]) -> [[SabrMediaReference]] {
         guard !references.isEmpty else { return [] }
         var tracks = Dictionary(grouping: references, by: \.itag)
-        for itag in tracks.keys {
+        for itag in Array(tracks.keys) {
             guard let items = tracks[itag] else { continue }
             let fullySequenced = items.allSatisfy {
                 SabrSequenceOrder.sequence($0.url) != nil
