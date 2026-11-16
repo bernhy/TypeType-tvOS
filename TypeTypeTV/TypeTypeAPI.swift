@@ -87,6 +87,12 @@ struct TVSubscription: Decodable, Identifiable {
     var id: String { channelUrl }
 }
 
+struct TVSubscriptionCreate: Encodable {
+    let channelUrl: String
+    let name: String
+    let avatarUrl: String
+}
+
 struct TVChannelPage: Decodable {
     let name: String
     let description: String?
@@ -371,6 +377,26 @@ struct TypeTypeAPI {
     /// expects the original subscribed channel URL as query parameter.
     func subscriptions() async throws -> [TVSubscription] {
         try await get("subscriptions")
+    }
+
+    /// Same account-scoped subscriptions API used by the server/web client.
+    /// The server canonicalizes channel URLs; keep the returned URL as the
+    /// authoritative key for displaying state and later unsubscription.
+    func subscribe(channelURL: String, name: String,
+                   avatarURL: String) async throws -> TVSubscription {
+        try await postJSON("subscriptions", payload: TVSubscriptionCreate(
+            channelUrl: channelURL, name: name, avatarUrl: avatarURL
+        ))
+    }
+
+    func unsubscribe(channelURL: String) async throws {
+        var parts = URLComponents(
+            url: base.appendingPathComponent("subscriptions"),
+            resolvingAgainstBaseURL: false
+        )
+        parts?.queryItems = [URLQueryItem(name: "url", value: channelURL)]
+        guard let url = parts?.url else { throw TypeTypeError.invalidServerAddress }
+        try await writeLibrary(url, method: "DELETE", body: nil)
     }
 
     func subscriptionFeed(cursor: String? = nil, limit: Int = 30) async throws -> TVSubscriptionFeedPage {
