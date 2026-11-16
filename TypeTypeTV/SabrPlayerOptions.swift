@@ -4,7 +4,6 @@ import SwiftUI
 /// The remote capture layer is hidden while this sheet is presented.
 struct SabrPlayerOptions: View {
     @ObservedObject var engine: SabrPlayerController
-    @AppStorage("typetype.exp.glass") private var glassEnabled = false
     let onQuality: (Int?) -> Void
     let onAudio: (SabrBootstrap.Audio) -> Void
     let onSubtitle: (SabrBootstrap.Subtitle?) -> Void
@@ -130,15 +129,9 @@ struct SabrPlayerOptions: View {
         .padding(36)
         .frame(width: 790, height: 780)
         .background {
-            if glassEnabled {
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(Color.black.opacity(0.18))
-            } else {
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(.ultraThickMaterial)
-            }
+            RoundedRectangle(cornerRadius: 24).fill(Color.black.opacity(0.18))
         }
-        .modifier(TVExperimentGlass(enabled: glassEnabled))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
         .onAppear {
             focusedQualityRow = "quality.auto"
         }
