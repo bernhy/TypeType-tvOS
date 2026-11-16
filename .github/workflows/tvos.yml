@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Validate localization resources
         run: python3 scripts/check_localizations.py
       - name: Select Xcode 26.2 with installed tvOS runtime
@@ -78,7 +78,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
       - name: Upload unsigned simulator build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: TypeTypeTV-tvos-simulator-unsigned
           path: TypeTypeTV-simulator.app.zip
@@ -106,7 +106,7 @@ jobs:
           fi
       - name: Upload UI screenshot artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: TypeTypeTV-ui-screenshots
           path: tvos-ui-screenshots
