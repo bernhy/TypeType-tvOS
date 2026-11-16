@@ -1,58 +1,40 @@
-# tvOS UI polish: experiment plan
+# tvOS GUI polish — remaining experiments
 
-Status: **first experimental implementation** in `feat/tvos-ui-polish`. All effects are device-local opt-ins and default to the prior look. Open Settings → Device → GUI experiments (also available directly in the Settings rail). Do not merge until real Apple TV review. See `TypeTypeTV/TVUIExperiments.swift`.
+This branch contains only the **five effects not yet approved** for stable. It is a **draft PR**, not ready for merging. It remains based on and compatible with the latest `main`.
 
-## Principles
+## Promoted into main
 
-- Prefer native SwiftUI/tvOS focus and motion APIs; use UIKit only if native SwiftUI presentation cannot isolate the artwork as needed.
-- Preserve the TypeType dark/red visual identity and existing Siri Remote semantics. Never let decorative animation change focus targets or navigation.
-- In `VideoCard`, preserve full-image `.fit`, the 1.065 whole-card focus scale until deliberately replaced, the existing duration badge visual size, progress bar, rounded corners, and focus return after details.
-- Keep the global sidebar and Settings rails' stable-size focus pills; never re-enable system focus effects globally. Existing `TVRailButtonStyle` and `.focusEffectDisabled(true)` are intentional.
-- Avoid heavyweight visual effects in video playback and don't alter the SABR/decoder pipeline.
-- Prefer state-driven transitions, and honor `@Environment(\.accessibilityReduceMotion)`; test on Apple TV 4K first generation as well as newer Apple TV devices (Liquid Glass appearance differs).
-- Never assume focus/parallax APIs behave identically in the simulator and on actual Siri Remote hardware.
+The following are now regular TypeType behavior, not experimental settings:
 
-## Candidates
+- Existing **1.065× whole-card thumbnail zoom**, plus an **artwork-only light reflection** on focus. Artwork still uses `.fit`, remains uncropped, and the duration badge retains its original size.
+- **Slide + fade** for SponsorBlock notices and the player options overlay.
+- **Fade in/out** for short action feedback after video context-menu operations.
+- **Liquid Glass** on SponsorBlock and player option surfaces.
+- Video detail background remains the **original standard** appearance (no blur or cinematic color treatment).
+- Library's secondary navigation rail is now **black** like Settings. The global main rail remains dark gray.
 
-| ID | Area | Test | Implementation candidates | Priority |
-| --- | --- | --- | --- | --- |
-| A | SponsorBlock | Pop in/out on appearance and dismissal; no focus theft | `.transition(.asymmetric(...scale + opacity...))` with `.spring` and explicit visibility state, fade for reduced motion | First |
-| B | Video grids | Native tvOS glint/tilt/lift and shadow on focused artwork, no crop or badge inflation | SwiftUI `.hoverEffect(.highlight)` scoped to thumbnail, compare with `.buttonStyle(.card)`, UIKit `UIImageView.adjustsImageWhenAncestorFocused` as fallback | First |
-| C | Brief notifications | Small non-blocking toast, slide/fade/bounce for success and recoverable errors | Shared transient overlay component; no automatic focused button | First |
-| D | Section and detail transitions | Subtle crossfade/move, optionally matched-geometry hero thumbnail; restore focus | `AnyTransition`, `matchedGeometryEffect` / navigation transitions where compatible | Second |
-| E | Icons and status | Brief SF Symbols bounce/pulse on significant actions | `.symbolEffect`, `.contentTransition` | Second |
-| F | Backgrounds | Delicate artwork-driven gradients/blur for video detail only | Background material or restrained blur, avoid full-screen animated gradients | Second |
-| G | Loading | Skeleton placeholders only for true loading states | `redacted(reason: .placeholder)`, simple pulse if enabled | Later |
-| H | Sidebar | Consider *only* gentle section preview transitions, not motion or focus changes to navigation controls | Existing `navigationAnimations` plus small opacity transition | Later |
+The streamer/SABR/video decoder was not changed by this GUI work.
 
-## Existing code and risk boundaries
+## Remaining options and how to see them
 
-- `TypeTypeTV/TVSponsorBlockNotice.swift`: currently an instantly mounted Capsule, with Skip focus acquired in `.task`. Parent is `SabrPlayer.swift` and re-renders through `TimelineView`.
-- `TypeTypeTV/BrowseView.swift`: `VideoCard` currently applies custom 1.065 scale/shadow to the whole card, while the duration badge counter-scales. `NavigationLink` explicitly disables native focus effects; enabling a native effect requires a *scoped* experiment, not a global removal of the disablement.
-- `TVRailFocusStyle.swift` and `BrowseView.swift`: custom rail focus is carefully calibrated after past navigation regressions. Leave unchanged in early experiments.
-- `VideoDetailView.swift`: existing Back/focus restoration is sensitive to scrolling; first test transitions without altering `NavigationStack` focus behavior.
+Open **Settings → Device → GUI experiments** or select **GUI experiments** directly in the Settings category rail.
 
-## Real-device review checklist
+| Option | Location in the app | Trigger and limitations |
+| --- | --- | --- |
+| Page transitions: Standard / Crossfade / Shift | Home, Subscriptions, Library, Search and other pages | Focus the global left sidebar and switch between sections. Only the *page content* animates; the sidebar itself does not slide away. SwiftUI/tvOS may not visibly apply a transition to every navigation container change. |
+| Video detail header: Standard / Fade / Zoom | Large artwork behind the video title on video detail | Select a thumbnail to open a *new* detail screen. The artwork fades or zooms in once when first mounted. Nothing continuously moves after it has appeared. Not a shared-element thumbnail zoom. |
+| Animated action symbols: Off / On | Heart and Watch Later bookmark buttons in the video detail controls | Activate/deactivate Favorites or Watch Later (logged-in account with an enabled button). Their icons briefly bounce. Not part of the thumbnail list or playback HUD. |
+| Loading indicator: Standard / Cards / Pulsing cards | Home recommendations and history, Library grid, Subscriptions feed | Refresh/re-enter a page when data must be fetched; animation exists **only while loading**. A fast or cached response may show no difference. Does not throttle the server. |
+| Sidebar reveal: Standard / Fade | **Global** left TypeType icon rail labels | Navigate into the left icon rail, then leave it for content. The rail expands from 56 to 214 points, but remains *visible* in both modes; only label opacity/timing changes. |
 
-1. Cold-launch first recommendation receives focus; Right and Select from the left sidebar enter content exactly once; Back never quits unexpectedly.
-2. Scrolling deep into Home/Subscriptions and returning from details restores the same thumbnail.
-3. Fast Siri Remote directional clicks and touchpad swipes show no stuck focus, unwanted glow, doubled scale, clipped artwork, or cut-off text/badges.
-4. SponsorBlock overlay appears and disappears smoothly without delaying/dropping Skip or Back.
-5. Open/close player and options rapidly; focus remains on the intended actionable control.
-6. Compare first-generation Apple TV 4K and later devices: native Liquid Glass focus effects are only on second-generation 4K and later; preserve a readable fallback.
-7. Compare Reduce Motion enabled/disabled; eliminate parallax/bounce in reduced-motion mode.
-8. Observe frame pacing in playback, including high-resolution clips. Animation must not cause A/V renderer stalls.
-9. Maintain no unexpected background networking, no account changes, and no generated project files in Git.
+The code contains help text under each option in German, English, French and Spanish. There are no longer popup/toast preview buttons or focus/glass/background selectors: those are promoted or left at Standard. The **Reset** button resets only the five remaining experimental settings.
 
-## API reference
+## Test safety
 
-- https://developer.apple.com/documentation/swiftui/creating-a-tvos-media-catalog-app-in-swiftui
-- https://developer.apple.com/documentation/swiftui/focus
-- https://developer.apple.com/documentation/swiftui/hovereffect
-- https://developer.apple.com/documentation/uikit/uiimageview/adjustsimagewhenancestorfocused
-- https://developer.apple.com/documentation/uikit/uifocusanimationcoordinator
-- https://developer.apple.com/documentation/TechnologyOverviews/adopting-liquid-glass
-- https://developer.apple.com/documentation/swiftui/transition
-- https://developer.apple.com/documentation/swiftui/zoomnavigationtransition (not supported on tvOS; local detail-header zoom instead)
-- tvOS 26.2 SDK also lacks `NavigationTransition.crossFade`: use `.transition(.opacity)` for the crossfade experiment.
-- https://developer.apple.com/documentation/swiftui/environmentvalues/accessibilityreducemotion
+1. Exercise remote Right, Select, Up, Down, Left, and Back from the global rail and the settings rail. Do not change the previously fixed focus restoration.
+2. Repeat the test with Reduce Motion enabled; decorative movement should be reduced.
+3. Compare actual Apple TV behavior: simulator focus treatment and effects may differ.
+4. No new background network requests, server/account settings, or stream decoding logic.
+5. Only merge the remaining experiments when explicitly approved.
+
+See `TypeTypeTV/TVUIExperiments.swift` for the experiment settings and `TypeTypeTV/TVStableVisualEffects.swift` for the approved, shared effects.
