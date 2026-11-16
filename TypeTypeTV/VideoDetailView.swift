@@ -10,6 +10,7 @@ struct VideoDetailView: View {
     @State private var heroVisible = false
     @State private var favorite = false
     @State private var watchLater = false
+    @State private var playlistPickerPresented = false
     @State private var activityLoaded = false
     @State private var activitySaving = false
     @State private var activityError: String?
@@ -20,7 +21,7 @@ struct VideoDetailView: View {
     @ObservedObject private var localProgress = TVLocalProgress.shared
 
     private enum DetailFocus: Hashable {
-        case play, channel, markWatched, descriptionEntry, descriptionBody
+        case play, channel, markWatched, playlist, descriptionEntry, descriptionBody
     }
     @FocusState private var focusedDetail: DetailFocus?
     @State private var initiallyFocusedVideoURL: String?
@@ -173,9 +174,9 @@ struct VideoDetailView: View {
                                         if video.isLive != true,
                                            ((detailedVideo.duration ?? 0) > 0 || detailedVideo.isShort) {
                                             focusedDetail = .markWatched
-                                        } else if descriptionText?.isEmpty == false {
-                                            // Live streams have no watched row.
-                                            revealDescription(using: page)
+                                        } else {
+                                            // A live stream has no watched action.
+                                            focusedDetail = .playlist
                                         }
                                     }
 
@@ -209,28 +210,40 @@ struct VideoDetailView: View {
                                     .disabled(!activityLoaded || activitySaving)
                                 }
 
-                                // Mark-as-watched is a separate, less prominent
-                                // action; never allow its long translated label
-                                // to squeeze the primary controls/progress.
-                                if video.isLive != true,
-                                   ((detailedVideo.duration ?? 0) > 0 || detailedVideo.isShort) {
-                                    Button {
-                                        Task { await changeWatched() }
-                                    } label: {
-                                        Label(isMarkedWatched
-                                              ? "action.markUnwatched" : "action.markWatched",
-                                              systemImage: isMarkedWatched
-                                                  ? "arrow.uturn.backward.circle" : "checkmark.circle")
+                                // Keep "Mark watched" directly below Play,
+                                // first and leftmost in the second action row.
+                                HStack(spacing: 18) {
+                                    if video.isLive != true,
+                                       ((detailedVideo.duration ?? 0) > 0 || detailedVideo.isShort) {
+                                        Button {
+                                            Task { await changeWatched() }
+                                        } label: {
+                                            Label(isMarkedWatched
+                                                  ? "action.markUnwatched" : "action.markWatched",
+                                                  systemImage: isMarkedWatched
+                                                      ? "arrow.uturn.backward.circle" : "checkmark.circle")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .disabled(progressSaving)
+                                        .focused($focusedDetail, equals: .markWatched)
+                                        .onMoveCommand { direction in
+                                            if direction == .down,
+                                               descriptionText?.isEmpty == false {
+                                                revealDescription(using: page)
+                                            }
+                                        }
+                                    }
+                                    Button { playlistPickerPresented = true } label: {
+                                        Label("action.addPlaylist",
+                                              systemImage: "list.bullet.rectangle")
                                     }
                                     .buttonStyle(.bordered)
-                                    .disabled(progressSaving)
-                                    .focused($focusedDetail, equals: .markWatched)
+                                    .tint(Color(red: 0.26, green: 0.56, blue: 1))
+                                    .focused($focusedDetail, equals: .playlist)
+                                    .accessibilityIdentifier("video-add-playlist")
                                     .onMoveCommand { direction in
                                         if direction == .down,
                                            descriptionText?.isEmpty == false {
-                                            // The nested text view is offscreen. Scroll
-                                            // the enclosing page *before* transferring
-                                            // focus so tvOS can actually reach it.
                                             revealDescription(using: page)
                                         }
                                     }
@@ -401,6 +414,13 @@ struct VideoDetailView: View {
             }
         }
         .onExitCommand { returnToList() }
+        .sheet(isPresented: $playlistPickerPresented, onDismiss: {
+            focusedDetail = .playlist
+        }) {
+            TVPlaylistPickerView(api: api, video: detailedVideo) { _ in
+                playlistPickerPresented = false
+            }
+        }
     }
 
     @MainActor
@@ -490,6 +510,7 @@ struct VideoDetailView: View {
         defer { activitySaving = false }
         do {
             try await api.setFavorite(videoURL: video.url, enabled: favorite)
+            TVFavoriteMembership.shared.mark(video.url, present: favorite, api: api)
         } catch {
             favorite = old
             activityError = error.localizedDescription

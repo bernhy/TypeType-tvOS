@@ -131,7 +131,7 @@ struct TVAddAccountSheet: View {
         .padding(45)
         .frame(width: 1040, alignment: .leading)
         .frame(minHeight: 435)
-        .background(TTTheme.surface, in: RoundedRectangle(cornerRadius: 22))
+        .tvGlassPopup()
         .onExitCommand {
             if method == .choose { dismiss() }
             else {

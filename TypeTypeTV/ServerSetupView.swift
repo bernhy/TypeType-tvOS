@@ -177,6 +177,8 @@ struct ServerSetupView: View {
             .padding(70)
             .frame(maxWidth: 1250, alignment: .leading)
         }
+        .frame(width: 1250, height: 850)
+        .tvGlassPopup()
     }
 
     @MainActor

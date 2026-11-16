@@ -396,6 +396,7 @@ struct BrowseView: View {
         // Later requests and progress UI must belong to the newly selected user.
         TVLocalProgress.shared.clear()
         TVWatchLaterMembership.shared.invalidate()
+        TVFavoriteMembership.shared.invalidate()
         accountGeneration += 1
         sidebarIdentity = nil
         Task { await reloadSidebarIdentity(api: api) }
@@ -905,6 +906,7 @@ struct VideoCard: View {
     @ObservedObject private var localProgress = TVLocalProgress.shared
     @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
     @ObservedObject private var playlistMembership = TVPlaylistMembership.shared
+    @ObservedObject private var favoriteMembership = TVFavoriteMembership.shared
     @Environment(\.isFocused) private var isFocused
     var lookupMissingMetadata = false
     @State private var streamMetadata: StreamInfo?
@@ -967,33 +969,19 @@ struct VideoCard: View {
                                alignment: .topLeading)
                         .padding(8)
                 }
-                if metadataVideo.isShort || playlistMembership.count(for: video.url) > 0 {
-                    VStack(alignment: .leading, spacing: 6) {
-                        if metadataVideo.isShort && video.isLive != true {
-                            Label("video.shortsBadge", systemImage: "play.rectangle.fill")
-                                .padding(.horizontal, 8).padding(.vertical, 6)
-                                .background(.black.opacity(0.86),
-                                            in: RoundedRectangle(cornerRadius: 6))
-                        }
-                        let listCount = playlistMembership.count(for: video.url)
-                        if listCount > 0 {
-                            Label(TVL10n.formatted(
-                                    listCount == 1 ? "playlist.membershipBadgeSingle" :
-                                        "playlist.membershipBadge", listCount
-                                ), systemImage: "list.bullet.rectangle.fill")
-                                .padding(.horizontal, 8).padding(.vertical, 6)
-                                .background(Color(red: 0.34, green: 0.24, blue: 0.72),
-                                            in: RoundedRectangle(cornerRadius: 6))
-                                .accessibilityIdentifier("playlist-membership-badge")
-                        }
-                    }
-                    .font(.caption.bold())
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity,
-                           alignment: .bottomLeading)
-                    .padding(.leading, 9)
-                    .padding(.bottom, 14)
-                    .allowsHitTesting(false)
+                if metadataVideo.isShort && video.isLive != true {
+                    Label("video.shortsBadge", systemImage: "play.rectangle.fill")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(.black.opacity(0.86),
+                                    in: RoundedRectangle(cornerRadius: 6))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: .bottomLeading)
+                        .padding(.leading, 9)
+                        .padding(.bottom, 14)
+                        .allowsHitTesting(false)
                 }
                 if let position = watchedTime, video.isLive != true {
                     Label(position, systemImage: completed ? "checkmark.circle.fill" : "play.circle")
@@ -1057,13 +1045,31 @@ struct VideoCard: View {
                                    alignment: .topLeading)
                     }
                     .foregroundStyle(TTTheme.muted)
-                    if watchLaterMembership.contains(video.url) {
-                        Image(systemName: "bookmark.fill")
-                            .font(.system(size: 19, weight: .semibold))
-                            .foregroundStyle(TTTheme.accent)
-                            .padding(.trailing, 2)
-                            .accessibilityLabel("library.watchLater")
+                    // Compact library indicators on one metadata row:
+                    // red Watch Later, blue playlists, heart for favorites.
+                    HStack(spacing: 9) {
+                        if watchLaterMembership.contains(video.url) {
+                            Image(systemName: "bookmark.fill")
+                                .foregroundStyle(TTTheme.accent)
+                                .accessibilityLabel("library.watchLater")
+                        }
+                        if playlistMembership.count(for: video.url) > 0 {
+                            // Match the Library playlist menu symbol.
+                            Image(systemName: "list.bullet.rectangle")
+                                .foregroundStyle(Color(red: 0.26, green: 0.56, blue: 1))
+                                .accessibilityIdentifier("playlist-membership-badge")
+                                .accessibilityLabel("action.playlists")
+                        }
+                        if favoriteMembership.contains(video.url) {
+                            Image(systemName: "heart.fill")
+                                .foregroundStyle(Color(red: 0.96, green: 0.25, blue: 0.38))
+                                .accessibilityIdentifier("favorite-membership-badge")
+                                .accessibilityLabel("library.favorites")
+                        }
                     }
+                    .font(.system(size: 19, weight: .semibold))
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.trailing, 2)
                 }
             }
             .padding(.horizontal, 14)
@@ -1097,6 +1103,9 @@ struct VideoCard: View {
         }
         .task(id: api.metadataCacheScope) {
             await playlistMembership.ensureLoaded(api: api)
+        }
+        .task(id: api.metadataCacheScope) {
+            await favoriteMembership.ensureLoaded(api: api)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(TTTheme.accessibilityText(for: video))

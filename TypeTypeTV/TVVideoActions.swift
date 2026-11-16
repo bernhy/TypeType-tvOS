@@ -397,7 +397,7 @@ struct TVPlaylistPickerView: View {
         }
         .padding(50)
         .frame(width: 850, height: 820)
-        .background(TTTheme.ink)
+        .tvGlassPopup()
         .task { await load() }
     }
 
@@ -482,5 +482,20 @@ enum TVVideoFocusReturn {
             }
             binding.wrappedValue = id
         }
+    }
+}
+
+
+/// Match custom navigation popups to the Liquid Glass player options sheet.
+/// Native confirmations and alerts retain tvOS-managed focus and appearance.
+extension View {
+    func tvGlassPopup() -> some View {
+        self
+            .background {
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(Color.black.opacity(0.18))
+            }
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
+            .presentationBackground(.clear)
     }
 }

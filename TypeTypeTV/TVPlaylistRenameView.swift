@@ -35,7 +35,7 @@ struct TVPlaylistRenameView: View {
         }
         .padding(46)
         .frame(width: 760)
-        .background(TTTheme.ink)
+        .tvGlassPopup()
         .task {
             name = initialName
             let nameAtRequestStart = name
