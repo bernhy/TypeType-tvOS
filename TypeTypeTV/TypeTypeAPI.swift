@@ -207,13 +207,19 @@ enum TVLibraryRoutes {
 /// should see each video once, in most-recent-first order, even if it was
 /// started repeatedly during testing. YouTube URL variants share one ID.
 enum TVHistoryDeduplicator {
+    static func key(for video: VideoItem) -> String {
+        VideoAddress.youtubeID(video.url).map { "yt:" + $0 }
+            ?? (!video.url.isEmpty ? "url:" + video.url : "id:" + video.id)
+    }
+
     static func unique(_ videos: [VideoItem]) -> [VideoItem] {
         var seen = Set<String>()
-        return videos.filter { video in
-            let key = VideoAddress.youtubeID(video.url).map { "yt:" + $0 }
-                ?? (!video.url.isEmpty ? "url:" + video.url : "id:" + video.id)
-            return seen.insert(key).inserted
-        }
+        return videos.filter { seen.insert(key(for: $0)).inserted }
+    }
+
+    static func appendUnique(_ page: [VideoItem], to current: [VideoItem]) -> [VideoItem] {
+        var seen = Set(current.map { key(for: $0) })
+        return page.filter { seen.insert(key(for: $0)).inserted }
     }
 }
 
@@ -612,6 +618,17 @@ struct TypeTypeAPI {
             throw TypeTypeError.http(http.statusCode, path)
         }
         return try JSONDecoder().decode(Reply.self, from: data)
+    }
+
+    /// The server defaults GET /history to 60 raw events, often far fewer
+    /// unique videos after deduplication. Fetch explicit pages by raw OFFSET;
+    /// the UI merges unique videos and requests additional pages as needed.
+    func historyPage(offset: Int, limit: Int = 100) async throws -> [VideoItem] {
+        let rows: [TVHistoryDTO] = try await get("history", query: [
+            URLQueryItem(name: "limit", value: String(max(1, min(1_000, limit)))),
+            URLQueryItem(name: "offset", value: String(max(0, offset)))
+        ])
+        return rows.map(\.video)
     }
 
     func library(_ section: TVLibrarySection) async throws -> [VideoItem] {
