@@ -54,6 +54,10 @@ struct VideoItem: Decodable, Hashable, Identifiable {
     var uploaded: Int64? = nil
     var uploadDate: String? = nil
     var requiresMembership: Bool? = nil
+    var isLiveContent: Bool? = nil
+    var isPostLive: Bool? = nil
+    var uploaderVerified: Bool? = nil
+    var shortDescription: String? = nil
     // This classification is supplied by TypeType Server.
     var isShortFormContent: Bool? = nil
 
