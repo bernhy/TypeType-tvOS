@@ -4,6 +4,20 @@ Native, GPL-3.0 Apple TV client for [TypeType](https://github.com/TypeType-Video
 
 **Status (2026-11-16):** Xcode 26.2 successfully builds Debug and Release for Apple TV, and the last verified CI baseline (`d2c976bc`) passed 184 native tests (3 skipped) and 34 tvOS UI tests. Native YouTube SABR playback has been exercised in long sessions on physical Apple TV hardware; rare audio dropouts sometimes coincide with video stutters. Their media-data versus renderer origin is still under investigation, and 4K/HDR/AV1 behavior needs broader validation. The audio-lead experiment remains separate from `main`; this is not a production-ready, feature-complete port.
 
+
+## Attribution and third-party licenses
+
+This application's original code is GPL-3.0 (see [LICENSE](LICENSE)).
+The direct fMP4 parser and CoreMedia sample construction in
+[`TypeTypeTV/SabrDirect/`](TypeTypeTV/SabrDirect/) were adapted from
+[`TypeType-Video/TypeType-tvOS`](https://github.com/TypeType-Video/TypeType-tvOS)
+(`TypeTypePlayerKit`) under the **Mozilla Public License 2.0**.
+The upstream-derived source files retain MPL-2.0 SPDX headers and source
+attribution; their source-level changes remain subject to MPL-2.0.
+The original MPL text is included at [`LICENSES/MPL-2.0.txt`](LICENSES/MPL-2.0.txt).
+The rest of the player (SABR session, track coordination, seeking, UI)
+is developed in this project. Thanks to the upstream TypeType developers.
+
 ## Device and architecture decisions
 
 - Support **Apple TV 4K first generation (2017) or newer**; Apple TV HD is out of scope. Minimum deployment target: **tvOS 26.0**.
