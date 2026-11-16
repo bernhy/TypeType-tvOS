@@ -1976,6 +1976,7 @@ final class SabrPlayerController: ObservableObject {
             }
             #endif
             renderer.enqueue(sample)
+            TVHardwareDiagnostics.shared.recordNativeRendererSample(sample)
             if let endMs = SabrSampleTimingProbe.actualEndMs([sample]) {
                 noteQueuedTime(.video, seconds: Double(endMs) / 1_000)
                 hasQueuedFirstVideo = true
