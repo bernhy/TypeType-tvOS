@@ -130,9 +130,7 @@ final class TVAPIWireTests: XCTestCase {
                     with: request.httpBody ?? Data()
                 )) as? [String: String]
                 XCTAssertEqual(body?["token"], "old-refresh")
-                return (200, Data(
-                    "{\\\"accessToken\\\":\\\"\(renewedToken)\\\"}".utf8
-                ))
+                return (200, Data(#"{"accessToken":"\#(renewedToken)"}"#.utf8))
             default:
                 XCTFail("Unexpected session check endpoint \(request.url?.path ?? "")")
                 return (404, Data())
