@@ -376,6 +376,7 @@ final class SabrPlayerController: ObservableObject {
     @Published private(set) var currentAudioItag: Int?
     @Published private(set) var currentAudioTrackId: String?
     @Published private(set) var fixedVideoItag: Int?
+    @Published private(set) var qualityFallbackNotice: String?
     @Published private(set) var availableSubtitles: [SabrBootstrap.Subtitle] = []
     @Published private(set) var selectedSubtitleURL: String?
     @Published private(set) var subtitleCues: [SabrCaptionCue] = []
@@ -428,6 +429,7 @@ final class SabrPlayerController: ObservableObject {
     private var historyEnabled = false
     private var prefersPause = false
     private var requestedVideoItag: Int?
+    private var failedManualFormat: String?
     private var requestedAudioItag: Int?
     private var requestedAudioTrackId: String?
     private var sponsorLookupTask: Task<Void, Never>?
@@ -480,6 +482,8 @@ final class SabrPlayerController: ObservableObject {
         presenceReported = false
         currentAPI = nil
         currentVideo = nil
+        qualityFallbackNotice = nil
+        failedManualFormat = nil
         hasRecordedHistory = false
         running?.cancel()
         running = nil
@@ -945,8 +949,9 @@ final class SabrPlayerController: ObservableObject {
             let orderedOptions: [SabrSelection]
             if let requested = requestedVideoItag,
                let selected = options.first(where: { $0.video.itag == requested }) {
-                orderedOptions = [selected] +
-                    automaticOrder.filter { $0.video.itag != requested }
+                orderedOptions = SabrPlaybackPreferences.orderedForManualVideo(
+                    selected, automaticOrder: automaticOrder
+                )
             } else if let reusing,
                       let selected = automaticOrder.first(where: {
                           $0.video.itag == reusing.selection.video.itag
@@ -1069,6 +1074,16 @@ final class SabrPlayerController: ObservableObject {
                         )
                     }
                     guard codecFallback else { throw error }
+                    if case SabrFailure.unsupported = error,
+                       requestedVideoItag == choice.video.itag {
+                        failedManualFormat = "\(SabrVideoCodecFamily(codec: choice.video.codec)?.title ?? choice.video.codec) \(choice.video.height ?? 0)p"
+                        NSLog("TypeType SABR QUALITY manual-fallback failedItag=%d failedCodec=%@ failedHeight=%d nextItag=%d",
+                              choice.video.itag, choice.video.codec,
+                              choice.video.height ?? 0, orderedOptions[index + 1].video.itag)
+                        // The failed selection must not be retried during
+                        // subsequent seeks or mistaken for the active quality.
+                        requestedVideoItag = nil
+                    }
                     if case SabrFailure.expired = error {
                         NSLog("TypeType SABR RESUME alternate-track firstItag=%d nextItag=%d positionMs=%lld reason=expired",
                               choice.video.itag, orderedOptions[index + 1].video.itag,
@@ -2034,6 +2049,14 @@ final class SabrPlayerController: ObservableObject {
                 )
                 isInitialized = true
                 isPlaying = !prefersPause
+                if let failedManualFormat, let selection {
+                    let activeFormat = "\(SabrVideoCodecFamily(codec: selection.video.codec)?.title ?? selection.video.codec) \(selection.video.height ?? 0)p"
+                    qualityFallbackNotice = String(
+                        format: TVL10n.value("player.qualityFallback"),
+                        failedManualFormat, activeFormat
+                    )
+                    self.failedManualFormat = nil
+                }
                 #if DEBUG
                 // High-frequency renderer probe is for diagnosing sporadic
                 // Apple TV playback glitches, not production telemetry.

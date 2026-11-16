@@ -41,6 +41,26 @@ enum SabrPlaybackPreferences {
         return preferredHardwareFirst(within) + preferredHardwareFirst(above)
     }
 
+    /// A manually requested resolution should not silently fall straight
+    /// back to a lower-resolution automatic choice when a different codec
+    /// at the same height is still available for a real decoder attempt.
+    /// Preserve the exact requested itag first and use the normal automatic
+    /// order only after same-height alternatives have been tried.
+    static func orderedForManualVideo(
+        _ requested: SabrSelection,
+        automaticOrder: [SabrSelection]
+    ) -> [SabrSelection] {
+        let alternatives = automaticOrder.filter {
+            $0.video.itag != requested.video.itag &&
+                $0.video.height == requested.video.height
+        }
+        let remaining = automaticOrder.filter {
+            $0.video.itag != requested.video.itag &&
+                $0.video.height != requested.video.height
+        }
+        return [requested] + alternatives + remaining
+    }
+
     static func preferredVideo(_ candidates: [SabrSelection],
                                defaultQuality: String?,
                                deviceMax: Int) -> SabrSelection? {

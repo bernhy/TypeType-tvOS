@@ -119,6 +119,29 @@ final class HardwareCodecFallbackTests: XCTestCase {
         XCTAssertEqual(capped.map(\.video.itag), [137, 248, 401, 400])
     }
 
+    func testManual1440pFallbackKeepsOther1440pCodecsAheadOf1080p() {
+        let audio = SabrBootstrap.Audio(
+            itag: 140, codec: "mp4a.40.2", mimeType: "audio/mp4",
+            audioTrackId: nil, audioTrackName: nil, audioLocale: nil,
+            isOriginal: true, deliveryMethod: "sabr"
+        )
+        let requested = SabrSelection(
+            video: video(400, codec: "av01.0.12M.08", height: 1440, fps: 30),
+            audio: audio
+        )
+        let auto = [
+            video(299, codec: "avc1.64002A", height: 1080, fps: 60),
+            video(308, codec: "vp09.00.51.08", height: 1440, fps: 30),
+            requested.video,
+            video(248, codec: "vp09.00.51.08", height: 1080, fps: 30)
+        ].map { SabrSelection(video: $0, audio: audio) }
+        let order = SabrPlaybackPreferences.orderedForManualVideo(
+            requested, automaticOrder: auto
+        )
+        XCTAssertEqual(order.map(\.video.itag), [400, 308, 299, 248])
+        XCTAssertEqual(Set(order.map(\.video.itag)).count, order.count)
+    }
+
     func testAutomaticSelectionStillWorksWhenNoHardwareCodecIsOffered() {
         let audio = SabrBootstrap.Audio(
             itag: 140, codec: "mp4a.40.2", mimeType: "audio/mp4",

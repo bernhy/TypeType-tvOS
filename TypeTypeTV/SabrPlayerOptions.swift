@@ -42,6 +42,12 @@ struct SabrPlayerOptions: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     if section == .quality {
+                        if let notice = engine.qualityFallbackNotice {
+                            Text(notice)
+                                .font(.callout)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                         if let qualityCodec {
                             Button {
                                 showCodecList()

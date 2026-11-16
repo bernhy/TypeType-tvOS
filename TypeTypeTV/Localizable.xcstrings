@@ -11004,6 +11004,34 @@
           }
         }
       }
+    },
+    "player.qualityFallback": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gewähltes Format %1$@ ist auf diesem Gerät nicht decodierbar. Verwende %2$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected format %1$@ cannot be decoded on this device. Using %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le format sélectionné %1$@ ne peut pas être décodé sur cet appareil. Utilisation de %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El formato seleccionado %1$@ no se puede decodificar en este dispositivo. Se utiliza %2$@."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
