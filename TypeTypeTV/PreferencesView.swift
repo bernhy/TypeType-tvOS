@@ -321,6 +321,7 @@ struct PreferencesView: View {
             return remote == nil ? "content.retry" :
                 "content." + TVServerToggle.allCases[0].rawValue
         case .device: return "device.skip"
+        case .experiments: return "experiment.focus"
         case .language: return "control.language"
         case .account:
             return savedAccounts.first.map { "account.remove." + $0.id } ?? "account.add"
@@ -350,6 +351,9 @@ struct PreferencesView: View {
                                        onMoveLeft: returnFocusToGroup)
         case .content: contentPanel
         case .device: devicePanel
+        case .experiments:
+            TVUIExperimentSettings(focus: $focusedControl,
+                                   onMoveLeft: returnFocusToGroup)
         case .language: languagePanel
         case .account: accountPanel
         case .instance: instancePanel
@@ -432,6 +436,11 @@ struct PreferencesView: View {
 
     private var devicePanel: some View {
         VStack(spacing: 24) {
+            TVSettingsCard("ui.experiments", summary: "ui.experimentsHelp") {
+                Button("ui.openExperiments") { enterGroup(.experiments) }
+                    .buttonStyle(.bordered)
+                    .tint(TTTheme.accent)
+            }
             TVSettingsCard("settings.remote", summary: "settings.remoteHelp") {
                 TVSettingsMenuRow(
                     "settings.skipLength", selection: $skipSeconds,
