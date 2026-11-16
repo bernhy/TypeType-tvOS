@@ -205,7 +205,8 @@ struct TVVideoActionModifier: ViewModifier {
                 isPresented: Binding(
                     get: { toBlock != nil },
                     set: { if !$0 { toBlock = nil } }
-                )
+                ),
+                titleVisibility: .visible
             ) {
                 if let target = toBlock {
                     Button(
