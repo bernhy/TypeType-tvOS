@@ -418,6 +418,7 @@ struct BrowseView: View {
         TVLocalProgress.shared.clear()
         TVWatchLaterMembership.shared.invalidate()
         TVFavoriteMembership.shared.invalidate()
+        TVContentPreferences.shared.invalidate()
         accountGeneration += 1
         sidebarIdentity = nil
         Task { await reloadSidebarIdentity(api: api) }
@@ -504,6 +505,7 @@ struct BrowseView: View {
 
 struct HomeView: View {
     let api: TypeTypeAPI
+    @ObservedObject private var contentPreferences = TVContentPreferences.shared
     let onRevealMenu: () -> Void
     let onOpenAccount: () -> Void
     let onInitialFocusReady: () -> Void
@@ -541,6 +543,15 @@ struct HomeView: View {
     @State private var loadMoreError: String?
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 4)
+    private var visibleRecent: [VideoItem] { contentPreferences.displayed(recentVideos) }
+    private var visibleRecommendations: [VideoItem] { contentPreferences.displayed(videos) }
+    private var showRecent: Bool { contentPreferences.settings?.hideContinueWatching != true }
+    private var showRecommendations: Bool { contentPreferences.settings?.hideHomeRecommendations != true }
+    private var firstVisible: (video: VideoItem, recommendation: Bool)? {
+        if showRecommendations, let v = visibleRecommendations.first { return (v, true) }
+        if showRecent, let v = visibleRecent.first { return (v, false) }
+        return nil
+    }
 
     init(api: TypeTypeAPI, previewVideos: [VideoItem]? = nil,
          onRevealMenu: @escaping () -> Void = {},
@@ -592,14 +603,15 @@ struct HomeView: View {
                               sidebarFocused)
                 }
 
+                if showRecent {
                 VStack(alignment: .leading, spacing: 19) {
                     Text("home.recentlyWatched")
                         .font(.system(size: 35, weight: .bold))
                     if loadingRecent && recentVideos.isEmpty {
                         TVPulsingPlaceholder()
                             .frame(maxWidth: .infinity, minHeight: 135)
-                    } else if !recentVideos.isEmpty {
-                        videoGrid(recentVideos, scroll: scroll,
+                    } else if !visibleRecent.isEmpty {
+                        videoGrid(visibleRecent, scroll: scroll,
                                   lookupHistoryMetadata: true)
                     } else if recentNeedsLogin {
                         VStack(alignment: .leading, spacing: 15) {
@@ -619,6 +631,8 @@ struct HomeView: View {
                     }
                 }
 
+                }
+                if showRecommendations {
                 Divider().padding(.vertical, 6)
 
                 VStack(alignment: .leading, spacing: 19) {
@@ -626,14 +640,14 @@ struct HomeView: View {
                         Text("home.recommendations")
                             .font(.system(size: 35, weight: .bold))
                         Spacer()
-                        Text(TVL10n.formatted("common.videoCount", videos.count))
+                        Text(TVL10n.formatted("common.videoCount", visibleRecommendations.count))
                             .font(.callout)
                             .foregroundStyle(TTTheme.muted)
                     }
                     if loading && videos.isEmpty {
                         TVPulsingPlaceholder()
                             .frame(maxWidth: .infinity, minHeight: 200)
-                    } else if videos.isEmpty {
+                    } else if visibleRecommendations.isEmpty {
                         TVContentMessage(
                             symbol: message == nil ? "rectangle.stack" : "wifi.exclamationmark",
                             title: TVL10n.value(
@@ -643,7 +657,7 @@ struct HomeView: View {
                             action: { Task { await loadRecommendations() } }
                         )
                     } else {
-                        videoGrid(videos, scroll: scroll, paginate: true)
+                        videoGrid(visibleRecommendations, scroll: scroll, paginate: true)
                         if loadingMore {
                             ProgressView("home.loadingMore")
                                 .frame(maxWidth: .infinity)
@@ -661,6 +675,7 @@ struct HomeView: View {
                         }
                     }
                 }
+                }
             }
             .padding(.horizontal, 64)
             .padding(.top, 42)
@@ -669,6 +684,7 @@ struct HomeView: View {
             .background(TTTheme.ink)
             .focusScope(homeFocusScope)
             .task {
+                await contentPreferences.ensureLoaded(api: api)
                 if previewVideos == nil { await refresh() }
             }
             .onExitCommand { handleHomeBack(scroll: scroll) }
@@ -687,8 +703,8 @@ struct HomeView: View {
                 focusFirstHomeVideo(scroll: scroll)
             }
             .onChange(of: focusedHomeVideo) { _, current in
-                if let first = videos.first,
-                   current == homeCardID(first, recommended: true) {
+                if let first = firstVisible,
+                   current == homeCardID(first.video, recommended: first.recommendation) {
                     // The first recommendation, not the rail, owns startup focus.
                     onInitialFocusReady()
                 }
@@ -696,15 +712,15 @@ struct HomeView: View {
             .onChange(of: loading) { _, stillLoading in
                 // An empty or unavailable recommendation feed must never
                 // permanently lock the user out of the main navigation.
-                if !stillLoading && videos.isEmpty { onInitialFocusReady() }
+                if !stillLoading && firstVisible == nil { onInitialFocusReady() }
             }
         }
     }
 
     @MainActor
     private func handleHomeBack(scroll: ScrollViewProxy) {
-        if let first = videos.first {
-            let target = homeCardID(first, recommended: true)
+        if let first = firstVisible {
+            let target = homeCardID(first.video, recommended: first.recommendation)
             if focusedHomeVideo != target {
                 focusHomeCard(target, scroll: scroll)
             } else {
@@ -765,8 +781,8 @@ struct HomeView: View {
         guard needsHomeFocus else { return }
         // Wait for recommendations to arrive. Recent history may load first
         // but must never steal the initial Home focus.
-        guard let firstRecommendation = videos.first else { return }
-        let target = homeCardID(firstRecommendation, recommended: true)
+        guard let first = firstVisible else { return }
+        let target = homeCardID(first.video, recommended: first.recommendation)
         needsHomeFocus = false
         focusHomeCard(target, scroll: scroll)
     }
@@ -834,6 +850,7 @@ struct HomeView: View {
 
     @MainActor
     private func refresh() async {
+        await contentPreferences.ensureLoaded(api: api)
         async let recommendations: Void = loadRecommendations()
         async let history: Void = loadHistory()
         _ = await (recommendations, history)
