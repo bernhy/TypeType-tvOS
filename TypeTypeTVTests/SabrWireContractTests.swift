@@ -267,7 +267,10 @@ final class SabrWireContractTests: XCTestCase {
     func testHumanReadableDurations() {
         XCTAssertEqual(TTTheme.time(0), "0:00")
         XCTAssertEqual(TTTheme.time(65), "1:05")
+        XCTAssertEqual(TTTheme.time(3599), "59:59")
+        XCTAssertEqual(TTTheme.time(3600), "1:00:00")
         XCTAssertEqual(TTTheme.time(3661), "1:01:01")
+        XCTAssertEqual(TTTheme.time(36023), "10:00:23")
         XCTAssertEqual(TTTheme.time(-15), "0:00")
     }
 
