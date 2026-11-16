@@ -274,7 +274,8 @@ struct TVSubscriptionsView: View {
         .padding(.horizontal, 13)
         .padding(.bottom, 32)
         .frame(maxHeight: .infinity)
-        .background(TTTheme.surface)
+        // Match Library and Settings; the global icon rail stays gray.
+        .background(TTTheme.ink)
     }
 
     @MainActor

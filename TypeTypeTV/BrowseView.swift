@@ -896,7 +896,6 @@ struct VideoCard: View {
                     .aspectRatio(16.0 / 9.0, contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipped()
-                    .modifier(TVFocusedArtworkGlint(focused: isFocused))
                 if video.requiresMembership == true {
                     Label("video.membersOnly", systemImage: "person.crop.circle.badge.checkmark")
                         .font(.caption.bold())
@@ -948,6 +947,9 @@ struct VideoCard: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 10))
+            // The actual remote-driven specular/glimbal highlight lives on
+            // the artwork viewport. It was previously a fixed gradient.
+            .modifier(TVFocusedArtworkGlint())
             VStack(alignment: .leading, spacing: 7) {
                 Text(video.title)
                     .font(.system(size: 21, weight: .semibold))

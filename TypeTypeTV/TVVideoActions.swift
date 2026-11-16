@@ -37,6 +37,7 @@ struct TVVideoActionModifier: ViewModifier {
     @State private var pickerVisible = false
     @State private var toBlock: TVBlockTarget?
     @State private var feedback: String?
+    @State private var feedbackDelayTask: Task<Void, Never>?
     @State private var errorMessage: String?
     @State private var working = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -157,10 +158,11 @@ struct TVVideoActionModifier: ViewModifier {
                     feedback = nil
                 }
             }
+            .onDisappear { feedbackDelayTask?.cancel() }
             .sheet(isPresented: $pickerVisible, onDismiss: restoreCardFocus) {
                 TVPlaylistPickerView(api: api, video: video) { success in
                     pickerVisible = false
-                    feedback = success
+                    presentFeedback(success)
                     refreshAfterFeedback()
                 }
             }
@@ -220,6 +222,26 @@ struct TVVideoActionModifier: ViewModifier {
         }
     }
 
+    /// A menu dismissal briefly shrinks then re-enlarges its focused card.
+    /// Wait for that navigation/focus animation before starting the toast fade.
+    /// The server action itself runs immediately; only visual feedback waits.
+    @MainActor
+    private func presentFeedback(_ message: String) {
+        feedbackDelayTask?.cancel()
+        feedback = nil
+        feedbackDelayTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(TVActionFeedbackPolicy.delayMilliseconds))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: reduceMotion ? 0.12 : 0.23)) {
+                feedback = message
+            }
+        }
+    }
+
     private func refreshAfterFeedback() {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
@@ -231,12 +253,13 @@ struct TVVideoActionModifier: ViewModifier {
                          _ action: @escaping () async throws -> String) {
         guard !working else { return }
         working = true
+        feedbackDelayTask?.cancel()
         feedback = nil
         Task { @MainActor in
             defer { working = false }
             do {
                 let text = try await action()
-                feedback = text
+                presentFeedback(text)
                 if refresh { refreshAfterFeedback() }
             } catch {
                 errorMessage = error.localizedDescription
