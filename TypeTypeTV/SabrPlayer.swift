@@ -173,6 +173,25 @@ enum SabrSampleTimeline {
 /// server-provided fragment metadata before applying the tvOS timestamp
 /// alignment. We cannot assume a metadata gap means missing decoded frames.
 enum SabrSampleTimingProbe {
+    /// The native compressed sample clock begins at the first actual PTS,
+    /// which can differ slightly from the server's rounded segmentStartMs.
+    static func actualStartMs(_ samples: [CMSampleBuffer]) -> Int64? {
+        var firstSeconds = Double.infinity
+        for sample in samples {
+            for index in 0..<CMSampleBufferGetNumSamples(sample) {
+                var timing = CMSampleTimingInfo()
+                guard CMSampleBufferGetSampleTimingInfo(
+                    sample, at: index, timingInfoOut: &timing
+                ) == noErr else { continue }
+                let pts = CMTimeGetSeconds(timing.presentationTimeStamp)
+                guard pts.isFinite, pts >= 0, pts <= 7 * 24 * 60 * 60 else { continue }
+                firstSeconds = min(firstSeconds, pts)
+            }
+        }
+        guard firstSeconds.isFinite else { return nil }
+        return Int64((firstSeconds * 1_000).rounded())
+    }
+
     /// Actual presentation end, including the duration of the final frame.
     /// Unlike the SABR header, this is measured from decoded fMP4 sample
     /// timing, without assuming the advertised fragment duration is correct.
@@ -1801,6 +1820,7 @@ final class SabrPlayerController: ObservableObject {
         var audioTimeline = SabrNativeTimelineResolver()
         var previousAACSequence: Int?
         var videoTimeline = SabrNativeTimelineResolver()
+        var previousVideoSequence: Int?
         // A gap in *both* decoded tracks at nearly the same media time
         // suggests missing/corrupt source samples, not an audio-only trim.
         #if DEBUG
@@ -1833,6 +1853,7 @@ final class SabrPlayerController: ObservableObject {
                 )
                 videoInitLocation = video.initUrl
                 videoTimeline = SabrNativeTimelineResolver()
+                previousVideoSequence = nil
             }
 
             // Merge segments by media time, NEVER by array index. Index pairing
@@ -1913,9 +1934,27 @@ final class SabrPlayerController: ObservableObject {
                           markers.decoderReset, markers.endTrim, markers.decoderDrain)
                 }
                 #endif
-                let samples = try SabrSampleTimeline.aligned(
+                // The direct parser already reports the true tfdt/trun time.
+                // Re-snapping every AAC fragment to rounded server metadata
+                // can introduce a repeatable 20-50ms discontinuity.
+                let nativeSampleStartMs = SabrSampleTimingProbe.actualStartMs(rawSamples)
+                let keepNative = usesDirectMP4 && SabrDirectTimestampPolicy.preserveNative(
+                    nativeStartMs: nativeSampleStartMs,
+                    expectedStartMs: resolved.startMs,
+                    previousActualEndMs: previousSampleEnd,
+                    previousSequence: previousAACSequence, sequence: sequence
+                )
+                let samples = keepNative ? rawSamples : try SabrSampleTimeline.aligned(
                     rawSamples, segmentStartMs: resolved.startMs
                 )
+                #if DEBUG
+                if usesDirectMP4, let nativeSampleStartMs,
+                   abs(Double(nativeSampleStartMs) - Double(resolved.startMs)) > 10 {
+                    NSLog("TypeType SABR DIRECT-TIME track=audio seq=%d nativeStartMs=%lld expectedStartMs=%lld previousEndMs=%lld preserved=%d",
+                          sequence ?? -1, nativeSampleStartMs, resolved.startMs,
+                          previousSampleEnd ?? -1, keepNative ? 1 : 0)
+                }
+                #endif
                 guard !samples.isEmpty else {
                     throw SabrFailure.unsupported("SABR audio segment contains no compressed samples")
                 }
@@ -1998,9 +2037,24 @@ final class SabrPlayerController: ObservableObject {
                     sequence: sequence, metadataStartMs: mediaStartMs,
                     decodeStartMs: nativeStart
                 )
-                let samples = try SabrSampleTimeline.aligned(
+                let nativeSampleStartMs = SabrSampleTimingProbe.actualStartMs(rawSamples)
+                let keepNative = usesDirectMP4 && SabrDirectTimestampPolicy.preserveNative(
+                    nativeStartMs: nativeSampleStartMs,
+                    expectedStartMs: resolved.startMs,
+                    previousActualEndMs: previousSampleEnd,
+                    previousSequence: previousVideoSequence, sequence: sequence
+                )
+                let samples = keepNative ? rawSamples : try SabrSampleTimeline.aligned(
                     rawSamples, segmentStartMs: resolved.startMs
                 )
+                #if DEBUG
+                if usesDirectMP4, let nativeSampleStartMs,
+                   abs(Double(nativeSampleStartMs) - Double(resolved.startMs)) > 10 {
+                    NSLog("TypeType SABR DIRECT-TIME track=video seq=%d nativeStartMs=%lld expectedStartMs=%lld previousEndMs=%lld preserved=%d",
+                          sequence ?? -1, nativeSampleStartMs, resolved.startMs,
+                          previousSampleEnd ?? -1, keepNative ? 1 : 0)
+                }
+                #endif
                 guard !samples.isEmpty else {
                     throw SabrFailure.unsupported("SABR video segment contains no compressed samples")
                 }
@@ -2035,6 +2089,7 @@ final class SabrPlayerController: ObservableObject {
                 )
                 #endif
                 pendingVideo.append(contentsOf: samples)
+                previousVideoSequence = sequence
                 try coverage.acceptVideo(SabrSampleTimingProbe.measuredFragment(
                     segment, startMs: resolved.startMs, actualEndMs: actualEnd
                 ))
