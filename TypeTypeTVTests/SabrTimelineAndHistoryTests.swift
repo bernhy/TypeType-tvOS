@@ -40,6 +40,47 @@ final class SabrTimelineAndHistoryTests: XCTestCase {
         return try XCTUnwrap(result)
     }
 
+    func testSampleContinuityDetectsMissingAudioAndVideoFrames() throws {
+        let audio = SabrSampleIntegrity.largestGap(in: [
+            SabrMediaSpan(startMs: 10_000, lengthMs: 23),
+            SabrMediaSpan(startMs: 10_023, lengthMs: 23),
+            SabrMediaSpan(startMs: 10_300, lengthMs: 23)
+        ])
+        let video = SabrSampleIntegrity.largestGap(in: [
+            SabrMediaSpan(startMs: 10_000, lengthMs: 33),
+            SabrMediaSpan(startMs: 10_033, lengthMs: 33),
+            SabrMediaSpan(startMs: 10_320, lengthMs: 33)
+        ])
+        XCTAssertEqual(audio, SabrMediaGap(startMs: 10_046, lengthMs: 254))
+        XCTAssertEqual(video, SabrMediaGap(startMs: 10_066, lengthMs: 254))
+        XCTAssertTrue(SabrSampleIntegrity.coincident(
+            try XCTUnwrap(audio), try XCTUnwrap(video)
+        ))
+    }
+
+    func testBFrameDecodeOrderDoesNotCreateFalsePresentationGap() throws {
+        let reordered = [
+            SabrMediaSpan(startMs: 1_000, lengthMs: 40),
+            SabrMediaSpan(startMs: 1_080, lengthMs: 40),
+            SabrMediaSpan(startMs: 1_040, lengthMs: 40)
+        ]
+        XCTAssertNil(SabrSampleIntegrity.largestGap(in: reordered))
+        XCTAssertNil(SabrSampleIntegrity.largestGap(in: []))
+        let distantAudio = SabrMediaGap(startMs: 2_000, lengthMs: 200)
+        let distantVideo = SabrMediaGap(startMs: 4_000, lengthMs: 200)
+        XCTAssertFalse(SabrSampleIntegrity.coincident(distantAudio, distantVideo))
+    }
+
+    func testCompressedSampleInspectionReadsValidTimingAndPayload() throws {
+        let one = try sample(at: 3)
+        let report = SabrSampleIntegrity.inspect([one])
+        XCTAssertEqual(report.totalSamples, 1)
+        XCTAssertEqual(report.sampleBytes, 4)
+        XCTAssertEqual(report.invalidTimingSamples, 0)
+        XCTAssertEqual(report.missingPayloadSamples, 0)
+        XCTAssertNil(report.largestGap)
+    }
+
     func testSabrFragmentTimelineStartsAtServerMediaTime() throws {
         let original = try [sample(at: 0), sample(at: 1)]
         let aligned = try SabrSampleTimeline.aligned(original, segmentStartMs: 12_000)

@@ -1578,6 +1578,9 @@ final class SabrPlayerController: ObservableObject {
         var audioTimeline = SabrNativeTimelineResolver()
         var previousAACSequence: Int?
         var videoTimeline = SabrNativeTimelineResolver()
+        // A gap in *both* decoded tracks at nearly the same media time
+        // suggests missing/corrupt source samples, not an audio-only trim.
+        var recentAudioGap: SabrMediaGap?
         var coverage = SabrPlaybackCoverage(audioItag: choice.audio.itag,
                                             videoItag: choice.video.itag,
                                             positionMs: start, stage: "decoder")
@@ -1691,6 +1694,15 @@ final class SabrPlayerController: ObservableObject {
                     throw SabrFailure.unsupported("SABR audio segment contains no compressed samples")
                 }
                 let actualEnd = SabrSampleTimingProbe.actualEndMs(samples)
+                #if DEBUG
+                let integrity = SabrSampleIntegrity.inspect(samples)
+                SabrSampleIntegrity.logAnomalies(
+                    integrity, track: "audio", sequence: sequence,
+                    fragmentBytes: bytes.count, thresholdMs: 80
+                )
+                recentAudioGap = integrity.largestGap?.lengthMs ?? 0 >= 80
+                    ? integrity.largestGap : nil
+                #endif
                 audioTimeline.recordActualEndMs(actualEnd)
                 if segment.durationMs == 1 {
                     NSLog("TypeType SABR REPAIR stage=decoder track=audio seq=%d outcome=sample-verified nativeMs=%lld actualEndMs=%lld",
@@ -1766,6 +1778,21 @@ final class SabrPlayerController: ObservableObject {
                     throw SabrFailure.unsupported("SABR video segment contains no compressed samples")
                 }
                 let actualEnd = SabrSampleTimingProbe.actualEndMs(samples)
+                #if DEBUG
+                let integrity = SabrSampleIntegrity.inspect(samples)
+                SabrSampleIntegrity.logAnomalies(
+                    integrity, track: "video", sequence: sequence,
+                    fragmentBytes: bytes.count, thresholdMs: 150
+                )
+                if let audioGap = recentAudioGap,
+                   let videoGap = integrity.largestGap,
+                   videoGap.lengthMs >= 150,
+                   SabrSampleIntegrity.coincident(audioGap, videoGap) {
+                    NSLog("TypeType SABR MEDIA-INTEGRITY correlated audioGapMs=%lld videoGapMs=%lld atMs=%lld",
+                          audioGap.lengthMs, videoGap.lengthMs,
+                          videoGap.startMs)
+                }
+                #endif
                 videoTimeline.recordActualEndMs(actualEnd)
                 if segment.durationMs == 1 {
                     NSLog("TypeType SABR REPAIR stage=decoder track=video seq=%d outcome=sample-verified nativeMs=%lld actualEndMs=%lld",
