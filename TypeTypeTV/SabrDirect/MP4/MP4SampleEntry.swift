@@ -28,12 +28,31 @@ struct MP4SampleEntry {
       switch entry.type {
       case MP4FourCC("avc1"), MP4FourCC("avc3"): configType = MP4FourCC("avcC")
       case MP4FourCC("hvc1"), MP4FourCC("hev1"): configType = MP4FourCC("hvcC")
+      // ISO BMFF VP9 / AV1 carry their decoder configuration in vpcC / av1C.
+      // Keep these atoms as-is for CoreMedia's native compressed renderer.
+      case MP4FourCC("vp09"): configType = MP4FourCC("vpcC")
+      case MP4FourCC("av01"): configType = MP4FourCC("av1C")
       default: throw MP4Error.unsupportedCodec(entry.type.description)
       }
       result.width = Int(try reader.uint16(at: base + 24))
       result.height = Int(try reader.uint16(at: base + 26))
+      guard result.width > 0, result.height > 0 else {
+        throw MP4Error.invalidBox("visual sample entry dimensions")
+      }
       let config = try reader.requiredBox(configType, in: (base + visualHeader)..<entry.end)
       result.configuration = try reader.data(config.content)
+      if configType == MP4FourCC("av1C") {
+        // AV1CodecConfigurationRecord starts with marker=1 and version=1.
+        guard result.configuration.count >= 4,
+              result.configuration[0] == 0x81 else {
+          throw MP4Error.invalidBox("av1C")
+        }
+      } else if configType == MP4FourCC("vpcC") {
+        // Version/flags (4 bytes) plus the VP codec configuration (8+).
+        guard result.configuration.count >= 12 else {
+          throw MP4Error.invalidBox("vpcC")
+        }
+      }
     case .audio:
       guard entry.type == MP4FourCC("mp4a") else {
         throw MP4Error.unsupportedCodec(entry.type.description)
