@@ -79,6 +79,56 @@ final class TVAccountProfilesTests: XCTestCase {
         XCTAssertEqual(credentials.profileRefreshToken("member-b", for: origin), "refresh-b")
     }
 
+    func testInactiveServersAreListedWithoutTouchingCurrentCredentials() throws {
+        let suffix = UUID().uuidString.lowercased()
+        let current = try XCTUnwrap(URL(string: "https://current-\(suffix).invalid/"))
+        let old = try XCTUnwrap(URL(string: "https://former-\(suffix).invalid/"))
+        let other = try XCTUnwrap(URL(string: "https://another-\(suffix).invalid/"))
+        let credentials = TypeTypeCredentials.shared
+        defer {
+            _ = TVStoredAccountCleanup.delete(old, excluding: current)
+            _ = TVStoredAccountCleanup.delete(other, excluding: current)
+            credentials.forget("member", for: current)
+            credentials.clear(for: current)
+        }
+
+        guard credentials.save("current-access", for: current),
+              credentials.save("old-access", for: old),
+              credentials.saveRefreshToken("old-refresh", for: old),
+              credentials.saveRefreshToken("refresh-only", for: old,
+                                           userID: "refresh-only-user"),
+              credentials.save("other-access", for: other) else {
+            throw XCTSkip("Simulator Keychain unavailable")
+        }
+        let identity = TVAccountIdentity(
+            id: "member", role: "user", publicUsername: "Member"
+        )
+        XCTAssertTrue(credentials.remember(
+            identity, token: "old-access", displayIdentifier: nil, for: old
+        ))
+
+        let listed = try TVStoredAccountCleanup.inactiveServers(excluding: current)
+        let former = try XCTUnwrap(listed.first { $0.origin == old })
+        XCTAssertTrue(former.logins.contains { $0.userID == "member" })
+        XCTAssertTrue(former.logins.contains { $0.userID == "refresh-only-user" })
+        XCTAssertTrue(listed.contains { $0.origin == other })
+        XCTAssertFalse(listed.contains { $0.origin == current })
+
+        XCTAssertFalse(TVStoredAccountCleanup.delete(current, excluding: current))
+        XCTAssertEqual(credentials.token(for: current), "current-access")
+
+        XCTAssertTrue(TVStoredAccountCleanup.delete(old, excluding: current))
+        XCTAssertNil(credentials.token(for: old))
+        XCTAssertNil(credentials.refreshToken(for: old))
+        XCTAssertNil(credentials.profileRefreshToken("member", for: old))
+        XCTAssertNil(credentials.profileRefreshToken("refresh-only-user", for: old))
+        XCTAssertNil(credentials.profileAccessToken("member", for: old))
+        XCTAssertEqual(credentials.token(for: current), "current-access")
+        let remaining = try TVStoredAccountCleanup.inactiveServers(excluding: current)
+        XCTAssertFalse(remaining.contains { $0.origin == old })
+        XCTAssertTrue(remaining.contains { $0.origin == other })
+    }
+
     func testGuestCannotBecomeSavedFamilyProfile() {
         let origin = URL(string: "https://guest-profiles.invalid")!
         let guest = TVAccountIdentity(id: "guest:opaque", role: "guest", publicUsername: nil)
