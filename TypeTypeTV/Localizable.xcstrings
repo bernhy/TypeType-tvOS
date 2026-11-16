@@ -1434,25 +1434,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Standardmäßig AUS. Nicht hardwarekompatible Codecs werden dadurch nicht automatisch gewählt."
+            "value": "Standardmäßig AUS. Diese Option erlaubt Softwaredecoder, die tvOS selbst bereitstellt. TypeType enthält derzeit keinen eigenen AV1- oder VP9-Decoder. Ein angebotener Stream ist daher nicht automatisch abspielbar."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "OFF by default. Software-only codecs are never selected automatically."
+            "value": "OFF by default. This only permits software decoders provided by tvOS. TypeType does not bundle its own AV1 or VP9 decoder. An offered stream may still be unplayable."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Désactivé par défaut. Les codecs non pris en charge par le matériel ne sont jamais sélectionnés automatiquement."
+            "value": "Désactivé par défaut. Seuls les décodeurs logiciels fournis par tvOS sont autorisés. TypeType n'intègre pas de décodeur AV1 ou VP9. Un flux proposé peut rester illisible."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desactivado por defecto. Nunca se seleccionan automáticamente los códecs no compatibles con el hardware."
+            "value": "Desactivado de forma predeterminada. Solo permite los decodificadores de software de tvOS. TypeType no incluye un decodificador AV1 ni VP9. Un formato disponible puede seguir sin reproducirse."
           }
         }
       }
