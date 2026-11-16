@@ -865,7 +865,7 @@ struct VideoCard: View {
     }
     private var fraction: Double? {
         guard video.isLive != true,
-              let duration = video.duration, duration > 0,
+              let duration = metadataVideo.duration, duration > 0,
               let progress = effectivePosition, progress > 0 else { return nil }
         return max(0, min(1, Double(progress) / Double(Int64(duration) * 1_000)))
     }
@@ -873,7 +873,7 @@ struct VideoCard: View {
         // Some server versions expose a 'watched' convenience flag whose
         // duration and progress units differ. Prefer measured millisecond
         // progress and its 90% threshold whenever the position is available.
-        TVWatchedState.isWatched(video, positionMs: effectivePosition)
+        TVWatchedState.isWatched(metadataVideo, positionMs: effectivePosition)
     }
     private var watchedTime: String? {
         guard let progress = effectivePosition, progress > 0 else { return nil }
@@ -938,7 +938,7 @@ struct VideoCard: View {
                             .padding(8)
                             .background(TTTheme.accent,
                                         in: RoundedRectangle(cornerRadius: 6))
-                    } else if let duration = video.duration, duration > 0 {
+                    } else if let duration = metadataVideo.duration, duration > 0 {
                         Text(TTTheme.time(duration))
                             .font(.caption.monospacedDigit())
                             .padding(8)

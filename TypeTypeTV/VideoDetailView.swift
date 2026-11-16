@@ -59,11 +59,11 @@ struct VideoDetailView: View {
         // A stale server progress record can exceed the video's duration
         // (e.g. the screenshot showed 10:20 / 3:33). Never present an
         // impossible position even if its completed flag is correct.
-        guard let duration = video.duration, duration > 0 else { return saved }
+        guard let duration = detailedVideo.duration, duration > 0 else { return saved }
         return min(saved, Int64(duration) * 1_000)
     }
     private var watchedFraction: Double {
-        guard let duration = video.duration, duration > 0 else { return 0 }
+        guard let duration = detailedVideo.duration, duration > 0 else { return 0 }
         return max(0, min(1, Double(playbackPosition) / (Double(duration) * 1_000)))
     }
     private var isMarkedWatched: Bool {
@@ -124,8 +124,11 @@ struct VideoDetailView: View {
                             if video.isLive == true {
                                 Label("video.liveStream", systemImage: "dot.radiowaves.left.and.right")
                                     .foregroundStyle(TTTheme.accent)
-                            } else if let seconds = video.duration, seconds > 0 {
+                            } else if let seconds = detailedVideo.duration, seconds > 0 {
                                 Label(TTTheme.time(seconds), systemImage: "clock")
+                            }
+                            if detailedVideo.isShort && video.isLive != true {
+                                Label("video.shortsBadge", systemImage: "play.rectangle.fill")
                             }
                             Text(youtube && video.isLive != true
                                 ? "YouTube · SABR"
@@ -168,7 +171,7 @@ struct VideoDetailView: View {
                                     .onMoveCommand { direction in
                                         guard direction == .down else { return }
                                         if video.isLive != true,
-                                           (video.duration ?? 0) > 0 {
+                                           ((detailedVideo.duration ?? 0) > 0 || detailedVideo.isShort) {
                                             focusedDetail = .markWatched
                                         } else if descriptionText?.isEmpty == false {
                                             // Live streams have no watched row.
@@ -209,7 +212,8 @@ struct VideoDetailView: View {
                                 // Mark-as-watched is a separate, less prominent
                                 // action; never allow its long translated label
                                 // to squeeze the primary controls/progress.
-                                if video.isLive != true, (video.duration ?? 0) > 0 {
+                                if video.isLive != true,
+                                   ((detailedVideo.duration ?? 0) > 0 || detailedVideo.isShort) {
                                     Button {
                                         Task { await changeWatched() }
                                     } label: {
@@ -249,7 +253,7 @@ struct VideoDetailView: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                            if video.isLive != true, let duration = video.duration,
+                            if video.isLive != true, let duration = detailedVideo.duration,
                                duration > 0 {
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text("video.progressHeading")
@@ -429,13 +433,25 @@ struct VideoDetailView: View {
 
     @MainActor
     private func changeWatched() async {
-        guard !progressSaving, let duration = video.duration, duration > 0 else { return }
+        guard !progressSaving else { return }
         progressSaving = true
         progressError = nil
         defer { progressSaving = false }
         let next = !isMarkedWatched
         do {
-            try await api.setWatched(next, video: video)
+            var target = detailedVideo
+            // /history omits Shorts metadata and may have no duration.
+            // Resolve a real duration, never invent one just to mark watched.
+            if (target.duration ?? 0) <= 0, target.isShort {
+                let details = await TVStreamMetadataCache.shared.details(for: video, api: api)
+                guard !Task.isCancelled else { return }
+                if let details { streamMetadata = details }
+                target = TVVideoMetadata.merged(video, stream: details)
+            }
+            guard let duration = target.duration, duration > 0 else {
+                throw TypeTypeError.missingVideoDuration
+            }
+            try await api.setWatched(next, video: target)
             let position = next ? Int64(duration) * 1_000 : 0
             savedPositionMs = position
             TVLocalProgress.shared.record(video.url, positionMs: position)
