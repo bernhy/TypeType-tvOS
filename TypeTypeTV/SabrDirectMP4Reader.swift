@@ -18,6 +18,8 @@ enum SabrNativePlaybackPolicy {
         let video = videoCodec.lowercased()
         let h26x = video.hasPrefix("avc1") || video.hasPrefix("avc3")
             || video.hasPrefix("hvc1") || video.hasPrefix("hev1")
+            || video.hasPrefix("vp09") || video.hasPrefix("vp9")
+            || video.hasPrefix("av01")
         let audio = (audioCodec ?? "").lowercased()
         let mime = (audioMIME ?? "").lowercased()
         return h26x && (audio.hasPrefix("mp4a") || mime.contains("audio/mp4"))
