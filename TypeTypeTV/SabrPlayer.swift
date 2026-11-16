@@ -2154,7 +2154,6 @@ struct SabrPlayerView: View {
     var onPlaybackEvent: ((TVPlaybackEvent) -> Void)? = nil
     @StateObject private var engine = SabrPlayerController()
     @AppStorage("typetype.skipSeconds") private var skipSeconds = 10
-    @AppStorage("typetype.exp.popup") private var popupStyle = "off"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var controlsVisible = true
     @State private var revealIndex = 0
@@ -2369,12 +2368,11 @@ struct SabrPlayerView: View {
                         .id(segment.id)
                         .padding(.top, 4)
                         .padding(.trailing, 4)
-                        .transition(TVUIMotion.transition(
-                            popupStyle, reduceMotion: reduceMotion,
-                            anchor: .topTrailing))
+                        .transition(TVStableMotion.noticeTransition(
+                            reduceMotion: reduceMotion))
                     }
                 }
-                .animation(TVUIMotion.animation(popupStyle, reduceMotion: reduceMotion),
+                .animation(TVStableMotion.noticeAnimation(reduceMotion: reduceMotion),
                            value: visibleID)
             }
         }
@@ -2405,11 +2403,10 @@ struct SabrPlayerView: View {
                         reveal()
                     }
                 )
-                .transition(TVUIMotion.transition(popupStyle,
-                                                 reduceMotion: reduceMotion))
+                .transition(TVStableMotion.noticeTransition(reduceMotion: reduceMotion))
             }
         }
-        .animation(TVUIMotion.animation(popupStyle, reduceMotion: reduceMotion),
+        .animation(TVStableMotion.noticeAnimation(reduceMotion: reduceMotion),
                    value: optionsVisible)
         .task {
             engine.start(api: api, video: video)
