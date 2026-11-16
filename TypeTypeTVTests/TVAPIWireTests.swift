@@ -1222,7 +1222,8 @@ extension TVAPIWireTests {
         // normalize percent-encoded slashes before URLProtocol sees them;
         // the server's variadic URL-tail route accepts both representations.
         let originalURL = try TVBlockedRoutes.itemURL(
-            base: api.base, category: .videos, key: "https://youtu.be/abc123def45"
+            base: api.origin.appendingPathComponent("api", isDirectory: true),
+            category: .videos, key: "https://youtu.be/abc123def45"
         )
         let encoded = try XCTUnwrap(URLComponents(
             url: originalURL, resolvingAgainstBaseURL: false
