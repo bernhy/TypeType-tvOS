@@ -35,6 +35,11 @@ struct LibraryView: View {
     @State private var loading = false
     @State private var focusContentAfterLoad = false
     @State private var libraryRequestID = UUID()
+    @State private var historyOffset = 0
+    @State private var historyHasMore = false
+    @State private var historyLoadingMore = false
+    @State private var historyPageError: String?
+    private let historyPageSize = 100
     @State private var title = TVL10n.value("library.watchLater")
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 25), count: 4)
 
@@ -155,9 +160,35 @@ struct LibraryView: View {
                                 }
                                 .accessibilityLabel(TTTheme.accessibilityText(for: video))
                                 .id(video.url)
+                                .onAppear {
+                                    guard selected == .standard(.history),
+                                          !loading && !historyLoadingMore && historyHasMore,
+                                          let index = videos.firstIndex(where: {
+                                              TVHistoryDeduplicator.key(for: $0) ==
+                                                  TVHistoryDeduplicator.key(for: video)
+                                          }),
+                                          index >= videos.count - 8 else { return }
+                                    Task { await loadMoreHistory() }
+                                }
                             }
                         }
                         .focusSection()
+                        if selected == .standard(.history) && historyHasMore {
+                            HStack(spacing: 16) {
+                                if historyLoadingMore { ProgressView() }
+                                Button("library.loadMoreHistory") {
+                                    Task { await loadMoreHistory() }
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(historyLoadingMore)
+                                if let historyPageError {
+                                    Text(historyPageError)
+                                        .foregroundStyle(.orange)
+                                        .font(.callout)
+                                }
+                            }
+                            .padding(.top, 8)
+                        }
                     }
                 }
                 .padding(.top, 38)
@@ -409,6 +440,59 @@ struct LibraryView: View {
         await loadSelected()
     }
 
+    /// Load further raw history events until at least one *new* video is
+    /// found. A whole page can contain only previously displayed videos.
+    /// Never replace the existing grid: preserve focus, scroll and zoom.
+    @MainActor
+    private func loadMoreHistory() async {
+        guard selected == .standard(.history),
+              !historyLoadingMore && !loading && historyHasMore else { return }
+        let requestID = libraryRequestID
+        historyLoadingMore = true
+        historyPageError = nil
+        defer {
+            if requestID == libraryRequestID { historyLoadingMore = false }
+        }
+        do {
+            var nextOffset = historyOffset
+            var more = historyHasMore
+            var newVideos: [VideoItem] = []
+            // Duplicated history events can span several consecutive pages.
+            // This is bounded to avoid a very long blocking UI operation.
+            for _ in 0..<10 {
+                let page = try await api.historyPage(
+                    offset: nextOffset, limit: historyPageSize
+                )
+                try Task.checkCancellation()
+                guard selected == .standard(.history),
+                      libraryRequestID == requestID else { return }
+                nextOffset += page.count
+                more = page.count == historyPageSize
+                newVideos = TVHistoryDeduplicator.appendUnique(page, to: videos)
+                if !newVideos.isEmpty || !more { break }
+            }
+            historyOffset = nextOffset
+            historyHasMore = more
+            guard !newVideos.isEmpty else { return }
+            videos.append(contentsOf: newVideos)
+            let enriched = await api.withProgress(newVideos)
+            guard !Task.isCancelled, selected == .standard(.history),
+                  libraryRequestID == requestID else { return }
+            let lookup = Dictionary(
+                enriched.map { (TVHistoryDeduplicator.key(for: $0), $0) },
+                uniquingKeysWith: { newer, _ in newer }
+            )
+            videos = videos.map {
+                lookup[TVHistoryDeduplicator.key(for: $0)] ?? $0
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            guard libraryRequestID == requestID else { return }
+            historyPageError = error.localizedDescription
+        }
+    }
+
     @MainActor
     private func loadSelected() async {
         let requested = selected
@@ -416,6 +500,10 @@ struct LibraryView: View {
         libraryRequestID = identifier
         loading = true
         statusMessage = nil
+        historyOffset = 0
+        historyHasMore = false
+        historyLoadingMore = false
+        historyPageError = nil
         defer {
             if libraryRequestID == identifier { loading = false }
         }
@@ -424,7 +512,17 @@ struct LibraryView: View {
             let heading: String
             switch requested {
             case .standard(let section):
-                loaded = try await api.library(section)
+                if section == .history {
+                    let page = try await api.historyPage(offset: 0, limit: historyPageSize)
+                    loaded = TVHistoryDeduplicator.unique(page)
+                    // Do not use unique count as HTTP offset: duplicated
+                    // playback events still occupy rows in the server.
+                    guard requested == selected, libraryRequestID == identifier else { return }
+                    historyOffset = page.count
+                    historyHasMore = page.count == historyPageSize
+                } else {
+                    loaded = try await api.library(section)
+                }
                 heading = section.title
             case .playlist(let id):
                 let playlist = try await api.playlist(id)
