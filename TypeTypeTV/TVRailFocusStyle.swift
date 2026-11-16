@@ -45,3 +45,20 @@ struct TVRailRowHighlight: ViewModifier {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
+
+/// Cards in pushed pages need a visible focus halo. The rail button style
+/// deliberately draws none, and we avoid scaling the text or cropping thumbs.
+struct TVCardFocusHalo: ViewModifier {
+    let focused: Bool
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(focused ? 1.045 : 1)
+            .overlay {
+                RoundedRectangle(cornerRadius: 15)
+                    .strokeBorder(.white.opacity(focused ? 0.94 : 0), lineWidth: 4)
+            }
+            .shadow(color: .black.opacity(focused ? 0.40 : 0),
+                    radius: focused ? 16 : 0, y: 7)
+            .animation(.easeOut(duration: 0.18), value: focused)
+    }
+}

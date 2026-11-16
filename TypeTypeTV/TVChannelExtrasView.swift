@@ -10,6 +10,10 @@ struct TVChannelExtrasView: View {
     let api: TypeTypeAPI
     let channelURL: String
     let kind: TVChannelExtraKind
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var focusedBack: Bool
+    @FocusState private var focusedCard: String?
+    @State private var unsupported = false
     @State private var playlists: [TVPublicPlaylistSummary] = []
     @State private var episodes: [VideoItem] = []
     @State private var posts: [TVCommunityPost] = []
@@ -21,9 +25,22 @@ struct TVChannelExtrasView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
-                Text(TVL10n.value(kind.labelKey)).font(.largeTitle.bold())
+                HStack(spacing: 18) {
+                    Button { dismiss() } label: {
+                        Label("common.back", systemImage: "chevron.left")
+                    }
+                    .buttonStyle(.bordered)
+                    .focused($focusedBack)
+                    .accessibilityIdentifier("channel-extra-back")
+                    Text(TVL10n.value(kind.labelKey)).font(.largeTitle.bold())
+                }
+                .focusSection()
+                if unsupported {
+                    Label("channels.notSupportedByServer", systemImage: "info.circle")
+                        .foregroundStyle(TTTheme.muted)
+                }
                 if loading { ProgressView("settings.remoteLoading") }
-                if let error {
+                if let error, !unsupported {
                     Text(error).foregroundStyle(.orange)
                     Button("common.retry") { Task { await fetch(append: false) } }
                         .buttonStyle(.bordered)
@@ -42,18 +59,24 @@ struct TVChannelExtrasView: View {
                                 image: api.relativeMediaURL(playlist.thumbnailUrl),
                                 origin: api.origin, symbol: "list.bullet.rectangle"
                             )
+                            .modifier(TVCardFocusHalo(focused: focusedCard == playlist.url))
                         }
                         .buttonStyle(TVRailButtonStyle())
                         .focusEffectDisabled(true)
+                        .focused($focusedCard, equals: playlist.url)
+                        .zIndex(focusedCard == playlist.url ? 5 : 0)
                     }
                     ForEach(episodes) { video in
                         NavigationLink {
                             VideoDetailView(api: api, video: video)
                         } label: {
                             VideoCard(api: api, video: video)
+                                .modifier(TVCardFocusHalo(focused: focusedCard == video.url))
                         }
                         .buttonStyle(TVRailButtonStyle())
                         .focusEffectDisabled(true)
+                        .focused($focusedCard, equals: video.url)
+                        .zIndex(focusedCard == video.url ? 5 : 0)
                         .videoActions(api: api, video: video)
                     }
                 }
@@ -62,7 +85,7 @@ struct TVChannelExtrasView: View {
                     TVCommunityPostCard(api: api, post: post)
                 }
                 if !loading && playlists.isEmpty && episodes.isEmpty &&
-                   posts.isEmpty && error == nil {
+                   posts.isEmpty && error == nil && !unsupported {
                     Text("channels.emptyExtra").foregroundStyle(TTTheme.muted)
                 }
                 if nextPage != nil {
@@ -74,7 +97,11 @@ struct TVChannelExtrasView: View {
             .padding(70)
         }
         .background(TTTheme.ink)
-        .task(id: channelURL + kind.rawValue) { await fetch(append: false) }
+        .task(id: channelURL + kind.rawValue) {
+            focusedBack = true
+            await fetch(append: false)
+        }
+        .onExitCommand { dismiss() }
     }
 
     @MainActor
@@ -84,6 +111,7 @@ struct TVChannelExtrasView: View {
         if append && cursor == nil { return }
         loading = true
         error = nil
+        if !append { unsupported = false }
         defer { loading = false }
         do {
             switch kind {
@@ -110,7 +138,14 @@ struct TVChannelExtrasView: View {
             }
         } catch is CancellationError {
             return
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            if [404, 501].contains(TVServerErrorMapping.httpStatus(error) ?? -1) {
+                unsupported = true
+                self.error = nil
+            } else {
+                self.error = error.localizedDescription
+            }
+        }
     }
 }
 

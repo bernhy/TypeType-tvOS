@@ -14728,6 +14728,34 @@
           }
         }
       }
+    },
+    "channels.notSupportedByServer": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser TypeType-Server unterstützt diese Funktion noch nicht. Sie wird verfügbar, sobald der entsprechende API-Endpunkt bereitsteht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This TypeType server does not support this feature yet. It will become available once the relevant API endpoint is provided."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce serveur TypeType ne prend pas encore en charge cette fonction. Elle sera disponible lorsque l’API correspondante sera proposée."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este servidor TypeType todavía no admite esta función. Estará disponible cuando proporcione la API correspondiente."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

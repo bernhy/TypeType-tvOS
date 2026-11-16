@@ -6,6 +6,8 @@ struct TVPublicPlaylistView: View {
     let playlistURL: String
     let startingTitle: String
     var isPodcast = false
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var focusedBack: Bool
     @State private var videos: [VideoItem] = []
     @State private var title = ""
     @State private var nextPage: String?
@@ -20,8 +22,17 @@ struct TVPublicPlaylistView: View {
         ScrollViewReader { scroll in
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    Text(title.isEmpty ? startingTitle : title)
-                        .font(.largeTitle.bold())
+                    HStack(spacing: 18) {
+                        Button { dismiss() } label: {
+                            Label("common.back", systemImage: "chevron.left")
+                        }
+                        .buttonStyle(.bordered)
+                        .focused($focusedBack)
+                        .accessibilityIdentifier("public-playlist-back")
+                        Text(title.isEmpty ? startingTitle : title)
+                            .font(.largeTitle.bold())
+                    }
+                    .focusSection()
                     if !videos.isEmpty {
                         NavigationLink {
                             TVPlaylistPlaybackView(api: api, videos: videos)
@@ -50,9 +61,12 @@ struct TVPublicPlaylistView: View {
                                 )
                             } label: {
                                 VideoCard(api: api, video: video)
+                                    .modifier(TVCardFocusHalo(focused: focusedVideo == video.url))
                             }
                             .buttonStyle(TVRailButtonStyle())
                             .focusEffectDisabled(true)
+                            .focused($focusedVideo, equals: video.url)
+                            .zIndex(focusedVideo == video.url ? 5 : 0)
                             .videoActions(api: api, video: video,
                                           focus: $focusedVideo, focusID: video.url)
                         }
@@ -71,7 +85,11 @@ struct TVPublicPlaylistView: View {
                 .padding(75)
             }
             .background(TTTheme.ink)
-            .task(id: playlistURL) { await load() }
+            .task(id: playlistURL) {
+                focusedBack = true
+                await load()
+            }
+            .onExitCommand { dismiss() }
         }
     }
 
