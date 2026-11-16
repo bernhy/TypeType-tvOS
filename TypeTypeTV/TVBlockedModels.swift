@@ -30,7 +30,7 @@ enum TVBlockedRoutes {
     static func itemURL(base: URL, category: TVBlockedCategory, key: String) throws -> URL {
         guard !key.isEmpty else { throw TypeTypeError.invalidServerAddress }
         var allowed = CharacterSet.urlPathAllowed
-        allowed.remove(charactersIn: "/?#%")
+        allowed.remove(charactersIn: "/:?#%")
         guard let encoded = key.addingPercentEncoding(withAllowedCharacters: allowed),
               var result = URLComponents(
                 url: base.appendingPathComponent("blocked/" + category.rawValue,
