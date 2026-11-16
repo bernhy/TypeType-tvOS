@@ -26,19 +26,14 @@ final class TVHardwareDiagnosticsTests: XCTestCase {
         )
         XCTAssertEqual(status, noErr)
         let format = try XCTUnwrap(description)
-        var timing = CMSampleTimingInfo(
-            duration: CMTime(value: 1, timescale: 30),
-            presentationTimeStamp: .zero, decodeTimeStamp: .zero
+        let sample = try MP4SampleBuffers.make(
+            samples: [MP4Sample(
+                offset: 0, size: 4, decodeTime: 0,
+                duration: 3_000, compositionOffset: 0, isSync: true
+            )],
+            data: Data([0, 0, 0, 1]), timescale: 90_000, format: format
         )
-        var sample: CMSampleBuffer?
-        XCTAssertEqual(CMSampleBufferCreateReady(
-            allocator: kCFAllocatorDefault, dataBuffer: nil,
-            formatDescription: format, sampleCount: 1,
-            sampleTimingEntryCount: 1, sampleTimingArray: &timing,
-            sampleSizeEntryCount: 0, sampleSizeArray: nil,
-            sampleBufferOut: &sample
-        ), noErr)
-        TVHardwareDiagnostics.shared.recordNativeRendererSample(try XCTUnwrap(sample))
+        TVHardwareDiagnostics.shared.recordNativeRendererSample(sample)
         XCTAssertEqual(TVHardwareDiagnostics.shared.lastAttempt?.codec, "avc1")
         XCTAssertEqual(TVHardwareDiagnostics.shared.lastAttempt?.resolution, "1920 × 1080")
     }
