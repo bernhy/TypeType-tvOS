@@ -11066,25 +11066,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Visuelle Effekte einzeln ausprobieren. Nur auf diesem Apple TV gespeichert."
+            "value": "Nur die noch nicht übernommenen Animationen. Die bestätigten Effekte gehören bereits zur Standardoberfläche."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Try visual effects individually. Stored only on this Apple TV."
+            "value": "Only unapproved animation experiments remain. Approved effects are already part of the standard interface."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Essayez les effets séparément. Stockage local sur l’Apple TV."
+            "value": "Seules les animations non approuvées restent ici. Les effets adoptés font déjà partie de l’interface standard."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prueba los efectos por separado. Solo se guardan en este Apple TV."
+            "value": "Solo quedan las animaciones no aprobadas. Los efectos aceptados ya forman parte de la interfaz estándar."
           }
         }
       }
@@ -11145,314 +11145,6 @@
         }
       }
     },
-    "ui.focusTitle": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thumbnail-Fokus"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thumbnail focus"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Focus des miniatures"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Foco de miniaturas"
-          }
-        }
-      }
-    },
-    "ui.focusHelp": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vergleiche Zoom, Glanz und den nativen Parallax-Effekt. Das Bild bleibt vollständig sichtbar."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compare zoom, shine and native parallax. Artwork stays uncropped."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comparez zoom, reflet et parallaxe. Image non recadrée."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compara zoom, brillo y paralaje. La imagen no se recorta."
-          }
-        }
-      }
-    },
-    "ui.focusClassic": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Klassisch (bisheriger Zoom)"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Classic (current zoom)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Classique (zoom actuel)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clásico (zoom actual)"
-          }
-        }
-      }
-    },
-    "ui.focusHighlight": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nativer Lichtreflex"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Native highlight"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reflet natif"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reflejo nativo"
-          }
-        }
-      }
-    },
-    "ui.focusLift": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nativer Lift-Effekt"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Native lift"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Effet de relief natif"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elevación nativa"
-          }
-        }
-      }
-    },
-    "ui.focusHybrid": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hybrid (Zoom + Licht)"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hybrid (zoom + light)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hybride (zoom + lumière)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Híbrido (zoom + luz)"
-          }
-        }
-      }
-    },
-    "ui.focusPreview": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vorschau – mit der Fernbedienung fokussieren"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preview – focus with the remote"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aperçu – sélectionner avec la télécommande"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vista previa – enfocar con el mando"
-          }
-        }
-      }
-    },
-    "ui.popupTitle": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Popup-Einblendungen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Popup animations"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Animations des fenêtres"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Animaciones emergentes"
-          }
-        }
-      }
-    },
-    "ui.popupHelp": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Für SponsorBlock-Hinweise und spätere Player-Popups."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "For SponsorBlock notices and future player popups."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pour SponsorBlock et les futures notifications du lecteur."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Para avisos de SponsorBlock y ventanas del reproductor."
-          }
-        }
-      }
-    },
-    "ui.toastTitle": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktionsmeldungen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Action notifications"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notifications d’action"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notificaciones de acciones"
-          }
-        }
-      }
-    },
-    "ui.toastHelp": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bestätigung beim Hinzufügen, Merken oder Bearbeiten von Videos."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feedback for saving and managing videos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Confirmation lors de la gestion des vidéos."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Confirmaciones al guardar o gestionar vídeos."
-          }
-        }
-      }
-    },
     "ui.off": {
       "localizations": {
         "de": {
@@ -11481,62 +11173,6 @@
         }
       }
     },
-    "ui.pop": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Federndes Ploppen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spring pop"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rebond"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rebote"
-          }
-        }
-      }
-    },
-    "ui.slide": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hereingleiten"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slide in"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Glissement"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deslizar"
-          }
-        }
-      }
-    },
     "ui.fade": {
       "localizations": {
         "de": {
@@ -11561,90 +11197,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fundido"
-          }
-        }
-      }
-    },
-    "ui.previewPopup": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Popup-Vorschau ein-/ausblenden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle popup preview"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer l’aperçu"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar/ocultar vista previa"
-          }
-        }
-      }
-    },
-    "ui.previewToast": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Meldungsvorschau ein-/ausblenden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle notification preview"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher/masquer la notification"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar/ocultar notificación"
-          }
-        }
-      }
-    },
-    "ui.previewSuccess": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktion erfolgreich"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Action succeeded"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Action réussie"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Acción completada"
           }
         }
       }
@@ -11845,174 +11397,6 @@
         }
       }
     },
-    "ui.materials": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Materialien und Hintergründe"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Materials and backgrounds"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Matériaux et arrière-plans"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Materiales y fondos"
-          }
-        }
-      }
-    },
-    "ui.glass": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Liquid Glass in Player-Popups"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Liquid Glass in player popups"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Liquid Glass dans le lecteur"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Liquid Glass en el reproductor"
-          }
-        }
-      }
-    },
-    "ui.background": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hintergrund der Videodetails"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Video detail background"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arrière-plan des détails"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fondo de detalles"
-          }
-        }
-      }
-    },
-    "ui.cinematic": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cinematisch mit Akzent"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cinematic accent"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Accent cinématique"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Acento cinematográfico"
-          }
-        }
-      }
-    },
-    "ui.blurred": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Weichgezeichnetes Titelbild"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Blurred artwork"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Image floutée"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Imagen desenfocada"
-          }
-        }
-      }
-    },
-    "ui.glassNote": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Liquid Glass wirkt je nach tvOS-Version und Apple-TV-Modell unterschiedlich."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Liquid Glass appearance varies by tvOS version and Apple TV model."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’apparence dépend de tvOS et du modèle d’Apple TV."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La apariencia depende de tvOS y del modelo de Apple TV."
-          }
-        }
-      }
-    },
     "ui.details": {
       "localizations": {
         "de": {
@@ -12205,6 +11589,146 @@
           "stringUnit": {
             "state": "translated",
             "value": "Restablecer experimentos"
+          }
+        }
+      }
+    },
+    "ui.pageInstructions": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test: In der Hauptnavigation links beispielsweise zwischen Start und Abos wechseln. Nur die Seiteninhalte werden anders überblendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test: Switch between Home and Subscriptions using the main left rail. Only page content transitions change."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test : changez de page entre Accueil et Abonnements via le menu principal. Seul le contenu de la page change."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prueba: cambia entre Inicio y Suscripciones usando el menú principal. Solo cambia la transición del contenido."
+          }
+        }
+      }
+    },
+    "ui.heroInstructions": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test: Ein Video-Thumbnail öffnen. Die große Hintergrundgrafik erscheint einmal kurz mit Fade oder Zoom; danach ist kein Effekt zu sehen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test: Open a video thumbnail. The large background artwork fades or zooms in briefly once, then remains still."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test : ouvrez une miniature. La grande image apparaît brièvement avec un fondu ou un zoom."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prueba: abre una miniatura. La imagen de fondo grande aparece brevemente con fundido o zoom."
+          }
+        }
+      }
+    },
+    "ui.symbolsInstructions": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test: In den Videodetails das Herz (Favorit) oder „Später ansehen“ aktivieren und deaktivieren. Nur diese beiden Symbole springen kurz."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test: Toggle Favorite (heart) or Watch Later from video details. Only these two icons bounce briefly."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test : changez Favoris (cœur) ou À regarder plus tard dans les détails vidéo. Seules ces icônes rebondissent."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prueba: activa o desactiva Favoritos (corazón) o Ver más tarde en detalles. Solo rebotan esos iconos."
+          }
+        }
+      }
+    },
+    "ui.loadingInstructions": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test: Start, Bibliothek oder Abo-Feed neu laden. Die Platzhalter erscheinen nur während des Ladens; bei schnellen Antworten sind sie eventuell kaum sichtbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test: Reload Home, Library or subscription feed. Placeholders show only during loading and may be too brief on a fast connection."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test : rechargez Accueil, Bibliothèque ou Abonnements. Les cartes n’apparaissent que pendant le chargement."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prueba: recarga Inicio, Biblioteca o Suscripciones. Las tarjetas solo se muestran mientras se cargan los datos."
+          }
+        }
+      }
+    },
+    "ui.sidebarInstructions": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test: Linke Hauptnavigation fokussieren und wieder verlassen. Nur die Beschriftungen werden beim Auf- und Zuklappen weicher eingeblendet; die Icon-Leiste bleibt sichtbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test: Focus and leave the main left rail. Only the text fades more gently as the rail expands and collapses; icons remain visible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test : entrez et sortez de la barre principale. Seuls les libellés changent de fondu ; les icônes restent visibles."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prueba: entra y sal del menú principal. Solo cambia el fundido del texto; los iconos siguen visibles."
           }
         }
       }
