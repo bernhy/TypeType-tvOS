@@ -10,7 +10,6 @@ struct VideoDetailView: View {
     @State private var heroVisible = false
     @State private var favorite = false
     @State private var watchLater = false
-    @State private var playlistPickerPresented = false
     @State private var activityLoaded = false
     @State private var activitySaving = false
     @State private var activityError: String?
@@ -233,7 +232,12 @@ struct VideoDetailView: View {
                                             }
                                         }
                                     }
-                                    Button { playlistPickerPresented = true } label: {
+                                    Button {
+                                        TVPlaylistPopupPresenter.shared.present(
+                                            api: api, video: detailedVideo,
+                                            onDismiss: { focusedDetail = .playlist }
+                                        )
+                                    } label: {
                                         Label("action.addPlaylist",
                                               systemImage: "list.bullet.rectangle")
                                     }
@@ -414,13 +418,6 @@ struct VideoDetailView: View {
             }
         }
         .onExitCommand { returnToList() }
-        .sheet(isPresented: $playlistPickerPresented, onDismiss: {
-            focusedDetail = .playlist
-        }) {
-            TVPlaylistPickerView(api: api, video: detailedVideo) { _ in
-                playlistPickerPresented = false
-            }
-        }
     }
 
     @MainActor

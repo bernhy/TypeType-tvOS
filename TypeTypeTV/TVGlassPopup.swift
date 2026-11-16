@@ -4,13 +4,14 @@ import SwiftUI
 /// playback option panel. Native confirmation dialogs and alerts keep the
 /// system-provided tvOS appearance and focus behavior.
 extension View {
-    func tvGlassPopup() -> some View {
+    func tvGlassPopup(transparent: Bool = false) -> some View {
         self
             .background {
                 RoundedRectangle(cornerRadius: 24)
-                    .fill(Color.black.opacity(0.18))
+                    .fill(Color.black.opacity(transparent ? 0.08 : 0.18))
             }
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
+            .glassEffect(transparent ? .clear : .regular,
+                         in: RoundedRectangle(cornerRadius: 24))
             .presentationBackground(.clear)
     }
 }

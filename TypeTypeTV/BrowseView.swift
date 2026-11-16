@@ -58,6 +58,7 @@ struct BrowseView: View {
     @State private var searchFocusRequest = 0
     @State private var sidebarIdentity: TVAccountIdentity?
     @ObservedObject private var playbackVisibility = TVPlaybackVisibility.shared
+    @ObservedObject private var playlistPopup = TVPlaylistPopupPresenter.shared
     @State private var settingsEntryGroup: TVSettingsGroup
     @State private var settingsFocusRequest = 0
     @State private var homeFocusRequest = 0
@@ -171,10 +172,30 @@ struct BrowseView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea(.container, edges: .leading)
+                // Keep the entire existing navigation screen visible beneath
+                // the picker instead of presenting an opaque tvOS sheet.
+                .disabled(playlistPopup.request != nil)
+
+                if let request = playlistPopup.request {
+                    ZStack {
+                        Color.black.opacity(0.18).ignoresSafeArea()
+                        TVPlaylistPickerView(
+                            api: request.api, video: request.video,
+                            onSaved: { playlistPopup.finish(result: $0) },
+                            onCancel: { playlistPopup.finish() }
+                        )
+                        .id(request.video.url)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .focusSection()
+                    .onExitCommand { playlistPopup.finish() }
+                    .zIndex(10)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(TTTheme.ink.ignoresSafeArea())
             .task { await reloadSidebarIdentity(api: api) }
+            .onDisappear { playlistPopup.finish() }
             .onChange(of: section) { old, _ in
                 if old == .account || old == .settings {
                     Task { await reloadSidebarIdentity(api: api) }

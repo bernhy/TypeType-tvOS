@@ -65,4 +65,29 @@ final class TVLibraryPagingAndMembershipTests: XCTestCase {
             TVFavoriteMembership.videoKey("https://site.example/b")
         )
     }
+
+    @MainActor
+    func testPlaylistPopupSavesAndRestoresFocusOrCancels() throws {
+        let api = try TypeTypeAPI(address: "https://preview.invalid")
+        let target = video("test", url: "https://youtu.be/dQw4w9WgXcQ")
+        let popup = TVPlaylistPopupPresenter.shared
+        popup.finish()
+        var events: [String] = []
+
+        popup.present(api: api, video: target,
+                      onSaved: { events.append("saved:" + $0) },
+                      onDismiss: { events.append("dismissed") })
+        XCTAssertEqual(popup.request?.video.url, target.url)
+        popup.finish(result: "added")
+        XCTAssertNil(popup.request)
+        XCTAssertEqual(events, ["saved:added", "dismissed"])
+
+        events.removeAll()
+        popup.present(api: api, video: target,
+                      onSaved: { events.append("saved:" + $0) },
+                      onDismiss: { events.append("dismissed") })
+        popup.finish()
+        XCTAssertEqual(events, ["dismissed"])
+        XCTAssertNil(popup.request)
+    }
 }

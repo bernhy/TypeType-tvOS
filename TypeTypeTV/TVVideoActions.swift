@@ -42,7 +42,6 @@ struct TVVideoActionModifier: ViewModifier {
     }
     @State private var resolvedDuration: Int?
     @FocusState private var cardFocus: Bool
-    @State private var pickerVisible = false
     @State private var toBlock: TVBlockTarget?
     @State private var feedback: String?
     @State private var feedbackDelayTask: Task<Void, Never>?
@@ -127,7 +126,18 @@ struct TVVideoActionModifier: ViewModifier {
                     }
                 }
                 Button {
-                    pickerVisible = true
+                    TVPlaylistPopupPresenter.shared.present(
+                        api: api, video: video,
+                        onSaved: { success in
+                            presentFeedback(success)
+                            // A successful addition updates only the shared
+                            // membership index, retaining grid scroll/focus.
+                            if success == TVL10n.value("action.removedPlaylist") {
+                                refreshAfterFeedback()
+                            }
+                        },
+                        onDismiss: restoreCardFocus
+                    )
                 } label: {
                     Label("action.addPlaylist", systemImage: "text.badge.plus")
                 }
@@ -179,18 +189,6 @@ struct TVVideoActionModifier: ViewModifier {
                 }
             }
             .onDisappear { feedbackDelayTask?.cancel() }
-            .sheet(isPresented: $pickerVisible, onDismiss: restoreCardFocus) {
-                TVPlaylistPickerView(api: api, video: video) { success in
-                    pickerVisible = false
-                    presentFeedback(success)
-                    // Adding to another playlist only updates the account-
-                    // scoped membership index. Reloading the whole video
-                    // grid would discard scroll/focus and hide the new badge.
-                    if success == TVL10n.value("action.removedPlaylist") {
-                        refreshAfterFeedback()
-                    }
-                }
-            }
             .onChange(of: toBlock) { old, current in
                 if old != nil && current == nil { restoreCardFocus() }
             }
@@ -317,7 +315,8 @@ struct TVPlaylistPickerView: View {
     let api: TypeTypeAPI
     let video: VideoItem
     let onSaved: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
+    let onCancel: () -> Void
+    @FocusState private var cancelFocused: Bool
 
     @ObservedObject private var playlistMembership = TVPlaylistMembership.shared
     @State private var playlists: [TVPlaylistDTO] = []
@@ -331,8 +330,10 @@ struct TVPlaylistPickerView: View {
             HStack {
                 Text("action.choosePlaylist").font(.title.bold())
                 Spacer()
-                Button("common.cancel") { dismiss() }
+                Button("common.cancel", action: onCancel)
                     .buttonStyle(.bordered)
+                    .focused($cancelFocused)
+                    .disabled(pending)
             }
             Text(video.title)
                 .font(.callout)
@@ -396,7 +397,8 @@ struct TVPlaylistPickerView: View {
         }
         .padding(50)
         .frame(width: 850, height: 820)
-        .tvGlassPopup()
+        .tvGlassPopup(transparent: true)
+        .onAppear { cancelFocused = true }
         .task { await load() }
     }
 
