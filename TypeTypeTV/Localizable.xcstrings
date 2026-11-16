@@ -14812,6 +14812,90 @@
           }
         }
       }
+    },
+    "settings.blockedUnknownVideo": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video (Titel nicht verfügbar)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video (title unavailable)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidéo (titre indisponible)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeo (título no disponible)"
+          }
+        }
+      }
+    },
+    "settings.blockedUnknownChannel": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kanal (Name nicht verfügbar)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Channel (name unavailable)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaîne (nom indisponible)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canal (nombre no disponible)"
+          }
+        }
+      }
+    },
+    "settings.blockedKeywordHelp": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blendet Videos aus, deren Titel das Schlüsselwort oder die Wortfolge enthält (Groß-/Kleinschreibung ist egal). Kanalnamen werden nicht gesperrt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides videos whose titles contain the word or phrase (case-insensitive). Channel names are not blocked."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masque les vidéos dont le titre contient le mot ou l’expression (sans distinction de casse). Les noms de chaînes ne sont pas bloqués."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta vídeos cuyo título contiene la palabra o frase (sin distinguir mayúsculas). No bloquea nombres de canales."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

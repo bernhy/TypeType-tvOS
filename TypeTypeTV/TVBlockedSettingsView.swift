@@ -14,6 +14,7 @@ struct TVBlockedSettingsView: View {
     @State private var saving = false
     @State private var error: String?
     @State private var status: String?
+    @State private var removedOverlay: Set<String> = []
 
     var body: some View {
         VStack(spacing: 24) {
@@ -29,18 +30,27 @@ struct TVBlockedSettingsView: View {
             TVSettingsCard("settings.blockedVideos") {
                 if videos.isEmpty { Text("settings.blockedEmpty").foregroundStyle(TTTheme.muted) }
                 ForEach(videos) { video in
-                    entry(video.name ?? video.url, id: video.id,
-                          globallyBlocked: video.global == true, category: .videos)
+                    entry(
+                        video.name ?? TVBlockedNameCache.title(for: video.url, api: api)
+                            ?? TVL10n.value("settings.blockedUnknownVideo"),
+                        id: video.id, globallyBlocked: video.global == true,
+                        category: .videos
+                    )
                 }
             }
             TVSettingsCard("settings.blockedChannels") {
                 if channels.isEmpty { Text("settings.blockedEmpty").foregroundStyle(TTTheme.muted) }
                 ForEach(channels) { channel in
-                    entry(channel.name ?? channel.url, id: channel.id,
+                    entry(channel.name ?? TVL10n.value("settings.blockedUnknownChannel"),
+                          id: channel.id,
                           globallyBlocked: channel.global == true, category: .channels)
                 }
             }
             TVSettingsCard("settings.blockedKeywords") {
+                Text("settings.blockedKeywordHelp")
+                    .font(.callout)
+                    .foregroundStyle(TTTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 16) {
                     TextField("settings.blockedKeywordPlaceholder", text: $newKeyword)
                         .textInputAutocapitalization(.never)
@@ -67,8 +77,15 @@ struct TVBlockedSettingsView: View {
 
     private func entry(_ label: String, id: String, globallyBlocked: Bool,
                        category: TVBlockedCategory) -> some View {
-        HStack(spacing: 18) {
-            Text(label).font(.callout).lineLimit(3)
+        let token = category.rawValue + "|" + id
+        return HStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label).font(.callout).lineLimit(3)
+                if category != .keywords {
+                    Text("(" + TVBlockedNameCache.shortID(id, category: category) + ")")
+                        .font(.caption).foregroundStyle(TTTheme.muted)
+                }
+            }
             if globallyBlocked {
                 Label("settings.blockedGlobal", systemImage: "lock.shield")
                     .font(.caption).foregroundStyle(TTTheme.muted)
@@ -78,11 +95,25 @@ struct TVBlockedSettingsView: View {
                 Task { await remove(id, category: category) }
             }
             .buttonStyle(.bordered)
-            .disabled(saving || globallyBlocked)
+            .disabled(globallyBlocked)
             .focused(focus, equals: "blocked." + category.rawValue + "." + id)
             .onMoveCommand { if $0 == .left { onMoveLeft() } }
         }
         .padding(.vertical, 7)
+        .overlay {
+            if removedOverlay.contains(token) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(.black.opacity(0.45))
+                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12))
+                    Label("settings.blockedRemoved", systemImage: "checkmark.circle.fill")
+                        .font(.callout.bold())
+                        .foregroundStyle(.white)
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+        }
     }
 
     @MainActor
@@ -117,14 +148,31 @@ struct TVBlockedSettingsView: View {
 
     @MainActor
     private func remove(_ key: String, category: TVBlockedCategory) async {
-        guard !saving else { return }
+        let token = category.rawValue + "|" + key
+        guard !saving, !removedOverlay.contains(token) else { return }
         saving = true
         error = nil
         do {
             try await api.removeBlock(category, value: key)
-            status = TVL10n.value("settings.blockedRemoved")
-        } catch { self.error = error.localizedDescription }
+            withAnimation(.easeOut(duration: 0.2)) {
+                removedOverlay.insert(token)
+            }
+            // Keep the original row visible under its glass confirmation.
+            try? await Task.sleep(for: .seconds(1.8))
+            withAnimation(.easeOut(duration: 0.2)) {
+                switch category {
+                case .videos: videos.removeAll { $0.url == key }
+                case .channels: channels.removeAll { $0.url == key }
+                case .keywords: keywords.removeAll { $0.keyword == key }
+                }
+                removedOverlay.remove(token)
+            }
+            if category == .videos {
+                TVBlockedNameCache.remove(url: key, api: api)
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
         saving = false
-        if error == nil { await reload() }
     }
 }
