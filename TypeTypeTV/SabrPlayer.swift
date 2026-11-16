@@ -333,6 +333,11 @@ final class SabrPlayerController: ObservableObject {
         historyEnabled = false
         prefersPause = false
         playbackPositionMs = positionMs ?? 0
+        // After a seek, do not leave the sample renderer clock parked at
+        // the previous playback position while decoder preroll is queued.
+        synchronizer.setRate(
+            0, time: CMTime(value: playbackPositionMs, timescale: 1_000)
+        )
         failure = nil
         playbackUnavailable = false
         playbackFinished = false
@@ -742,6 +747,11 @@ final class SabrPlayerController: ObservableObject {
                 positionMs = 0
             }
             playbackPositionMs = positionMs
+            // Also cover an automatic history resume, whose target is only
+            // known after the saved-position API response.
+            synchronizer.setRate(
+                0, time: CMTime(value: positionMs, timescale: 1_000)
+            )
             try Task.checkCancellation()
             guard let id = VideoAddress.youtubeID(video.url) else {
                 throw SabrFailure.unsupported(TVL10n.value("player.notYoutube"))
