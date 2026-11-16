@@ -708,14 +708,14 @@ final class SabrPlayerController: ObservableObject {
     }
 
     func totalTimeLabel() -> String {
-        let seconds = max(0, durationMs / 1_000)
-        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
+        TTTheme.time(Int(clamping: max(0, durationMs / 1_000)))
     }
 
     func timeLabel() -> String {
         let seconds = CMTimeGetSeconds(synchronizer.currentTime())
-        let current = isInitialized && seconds.isFinite ? Int64(seconds) : playbackPositionMs / 1000
-        return String(format: "%02d:%02d", max(0,current) / 60, max(0,current) % 60)
+        let current = isInitialized && seconds.isFinite
+            ? Int64(max(0, seconds)) : max(0, playbackPositionMs / 1_000)
+        return TTTheme.time(Int(clamping: current))
     }
 
     /// An external Play/Pause command is an *absolute intent*, not a
