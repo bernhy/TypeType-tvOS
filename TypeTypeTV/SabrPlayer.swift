@@ -1112,9 +1112,19 @@ final class SabrPlayerController: ObservableObject {
                     if !codecFallback {
                         if manualFallbackActive && !isInitialized {
                             let label = failedManualFormat ?? formatLabel(choice.video)
-                            postPlayerNotice(String(
-                                format: TVL10n.value("player.formatExhausted"), label
-                            ))
+                            if index == orderedOptions.count - 1 {
+                                postPlayerNotice(String(
+                                    format: TVL10n.value("player.formatExhausted"), label
+                                ))
+                            } else {
+                                let reason = TVL10n.value(
+                                    SabrManualQualityFallbackPolicy.reasonKey(for: error)
+                                )
+                                postPlayerNotice(String(
+                                    format: TVL10n.value("player.formatStopped"),
+                                    formatLabel(choice.video), reason
+                                ))
+                            }
                         }
                         NSLog("TypeType SABR QUALITY stop itag=%d index=%d total=%d initialized=%d manual=%d reason=%@",
                               choice.video.itag, index + 1, orderedOptions.count,
