@@ -45,6 +45,38 @@
 | ACCOUNT-01 | [ ] | [ ] | Notification and recommender features, backup/imports | — | Lower priority |
 | API-02 | [ ] | [ ] | Capability gating via `/instance` and audit unused fields | — | OpenAPI is manually maintained |
 
+## Physical Apple TV feedback – 2026-11-16
+
+All fixes below were committed after real-hardware feedback. **Code** is
+committed, while **Verified** remains unchecked until the combined final
+Xcode 26.2 CI run completes. Hardware revalidation is still recommended.
+
+| ID | Code | Verified | User-visible correction | Implementation commits | Notes |
+| --- | --- | --- | --- | --- | --- |
+| QA-SEARCH-01 | [x] | [ ] | Group headings, four-language search filter labels, one unambiguous sort/default picker | `629c9a30`, `4da81150`, `20a043d4` | Preserve opaque server filter values and selectable default content types |
+| QA-SEARCH-02 | [x] | [ ] | Remote navigation from Clear History to recent search terms | `629c9a30` | Await Apple TV focus confirmation |
+| QA-CHANNEL-01 | [x] | [ ] | Correct Up focus through new channel actions, then Videos/Shorts and Subscribe | `6b666416`, `f46642c1` | UI regression updated for the new action row |
+| QA-CHANNEL-02 | [x] | [ ] | Explicit Back and visible thumbnail focus in channel extra and public playlist pages | `1db3a6b6` | Includes empty/error subpage focus fallback |
+| QA-CHANNEL-03 | [x] | [ ] | Friendly Community 404/501 explanation | `1db3a6b6`, `1de2d71d` | **Server diagnostic open**: `/channel/posts` is in upstream `v1.17.1`; deployed endpoint or reverse proxy should be checked |
+| QA-DETAIL-01 | [x] | [ ] | Description excerpt opens full text in a Liquid Glass popup | `f79642d1`, `f46642c1` | Prevent outer scrolling from skipping to related videos; focus and Back regression tests |
+| QA-COMMENTS-01 | [x] | [ ] | Preserve pagination button focus while loading comments/replies | `f79642d1` | Confirm on hardware, particularly last page |
+| QA-CONTENT-01 | [x] | [ ] | Disable unavailable End Screens setting | `934fbcf7` | Underlying server value left unchanged |
+| QA-BLOCK-01 | [x] | [ ] | Visible video/channel name in blocking confirmation | `75f65f2e`, `63ec7695` | System confirmation title explicitly visible |
+| QA-BLOCK-02 | [x] | [ ] | Blocked name and short ID instead of full URL | `75f65f2e`, `1c1833c6` | TypeType 1.17.1 does not persist video titles; locally remembered for new Apple TV blocks, ID fallback for old/remote blocks |
+| QA-BLOCK-03 | [x] | [ ] | Glass unblock acknowledgement on the row before delayed removal | `1c1833c6` | Entry remains visible ~1.8s before disappearing |
+| QA-BLOCK-04 | [x] | [ ] | Explain keyword rules in Settings | `1c1833c6` | Case-insensitive matches in **video titles**, not channel names |
+| QA-PLAYER-01 | [x] | [ ] | Short playback history-off notice in four languages | `934fbcf7` | Existing resume/progress semantics unchanged |
+
+**Still awaiting representative live-server samples:** public playlist search hits,
+podcasts, courses, comment images and voice replies, and global blocked entries.
+CI covers contracts, but does not prove the presence of these upstream data.
+
+**Latest code under verification:** `63ec7695` —
+[GitHub Actions run #43939056877](https://github.com/bernhy/TypeType-tvOS/actions/runs/43939056877).
+Previous combined run `46250e98` passed all three builds and 239 unit tests
+(6 skips), but had three UI test failures. The follow-up updates the changed
+UI flow assertions and popup accessibility before final verification.
+
 ## Automated verification
 
 - **Confirmed passing:** [tvOS workflow #43915106174](https://github.com/bernhy/TypeType-tvOS/actions/runs/43915106174) on code commit `a04f4937c1abc4ccbb4bb936479a1991026cd736` (2026-11-16).
