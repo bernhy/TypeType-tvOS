@@ -947,12 +947,18 @@ final class SabrPlayerController: ObservableObject {
                 settings?.disableWatchHistory != true && video.isLive != true
             historyEnabled = historyAllowed
             sponsorSettings = settings
+            if settings?.disableWatchHistory == true && explicitPositionMs == nil &&
+               reusing == nil && video.isLive != true {
+                postPlayerNotice(TVL10n.value("player.historyRecordingDisabled"))
+            }
             await lastProgressSubmission?.value
             guard playbackEpoch == epoch, !Task.isCancelled else { return }
             await progressWriter.flush()
             await progressWriter.enable(historyAllowed)
             guard playbackEpoch == epoch, !Task.isCancelled else { return }
-            let recordedPosition = historyAllowed && explicitPositionMs == nil && !video.isShort
+            // Previously saved positions remain readable when NEW history
+            // recording has been disabled; only future writes are suppressed.
+            let recordedPosition = explicitPositionMs == nil && !video.isShort
                 ? (try? await api.savedPosition(videoURL: video.url)) : nil
             guard playbackEpoch == epoch, !Task.isCancelled else { return }
             var positionMs = TVShortsPolicy.startPositionMs(

@@ -12124,6 +12124,62 @@
           }
         }
       }
+    },
+    "video.relatedVideos": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ähnliche Videos"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Related videos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidéos similaires"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeos relacionados"
+          }
+        }
+      }
+    },
+    "player.historyRecordingDisabled": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiedergabeverlauf deaktiviert – bisherige Positionen bleiben erhalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Watch history is off — previously saved positions remain available."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historique désactivé : les positions enregistrées restent disponibles."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historial desactivado: las posiciones guardadas siguen disponibles."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

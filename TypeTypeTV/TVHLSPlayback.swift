@@ -14,6 +14,7 @@ struct TVHLSPlaybackView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var playback = TVHLSPlaybackController()
     @State private var dismissedSponsorSegmentID: String?
+    @State private var historyNotices = TVPlayerNoticeStack()
 
     var body: some View {
         ZStack {
@@ -48,6 +49,23 @@ struct TVHLSPlaybackView: View {
                 .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 16))
             }
         }
+        .overlay(alignment: .topTrailing) {
+            VStack(spacing: 12) {
+                ForEach(historyNotices.items) { notice in
+                    TVPlayerNoticeView(notice: notice)
+                }
+            }
+            .padding(.top, 4)
+            .padding(.trailing, 4)
+        }
+        .onChange(of: playback.historyRecordingDisabled) { _, disabled in
+            guard disabled else { return }
+            let id = historyNotices.push(TVL10n.value("player.historyRecordingDisabled"))
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(10))
+                historyNotices.dismiss(id)
+            }
+        }
         .task(id: url.absoluteString) {
             dismissedSponsorSegmentID = nil
             await playback.prepare(api: api, video: video, url: url,
@@ -77,6 +95,7 @@ final class TVHLSPlaybackController: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var playbackFinished = false
     @Published private(set) var playbackUnavailable = false
+    @Published private(set) var historyRecordingDisabled = false
     @Published private(set) var sponsorCurrent: TVSponsorBlockActive?
 
     private var api: TypeTypeAPI?
@@ -123,6 +142,7 @@ final class TVHLSPlaybackController: ObservableObject {
         isStopped = false
         let generation = playbackGeneration
         historyRecorded = false
+        historyRecordingDisabled = false
         retryCount = 0
         lastRecoveryAttempt = nil
         errorMessage = nil
@@ -136,13 +156,14 @@ final class TVHLSPlaybackController: ObservableObject {
         let allowed = settings != nil &&
             settings?.disableWatchHistory != true && video.isLive != true
         historyEnabled = allowed
+        historyRecordingDisabled = settings?.disableWatchHistory == true && video.isLive != true
         await lastProgressSubmission?.value
         guard !Task.isCancelled, !isStopped,
               playbackGeneration == generation else { return }
         await progressWriter.flush()
         await progressWriter.enable(allowed)
         // Shorts are replayed from the beginning, even without a known duration.
-        let saved = allowed && !video.isShort
+        let saved = !video.isShort
             ? (try? await api.savedPosition(videoURL: video.url)) : nil
         guard !Task.isCancelled, !isStopped,
               playbackGeneration == generation else { return }

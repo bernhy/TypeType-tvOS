@@ -14,6 +14,7 @@ struct VideoDetailView: View {
     @State private var activitySaving = false
     @State private var activityError: String?
     @State private var streamMetadata: StreamInfo?
+    @State private var contentSettings: TVServerSettings?
     @State private var savedPositionMs: Int64?
     @State private var progressSaving = false
     @State private var progressError: String?
@@ -385,6 +386,10 @@ struct VideoDetailView: View {
                         .id("description-viewport")
                         .focusSection()
                 }
+                if contentSettings?.hideRelatedVideos != true,
+                   let related = streamMetadata?.relatedStreams, !related.isEmpty {
+                    TVRelatedVideosSection(api: api, videos: related)
+                }
             }
             .padding(.horizontal, 90)
             .padding(.bottom, 110)
@@ -407,6 +412,7 @@ struct VideoDetailView: View {
                 async let activity: Void = loadActivity()
                 async let enrichment: Void = loadMetadata()
                 _ = await (activity, enrichment)
+                contentSettings = try? await api.accountSettings()
             }
             .onChange(of: focusedDetail) { _, next in
                 guard next == .descriptionEntry || next == .descriptionBody else { return }

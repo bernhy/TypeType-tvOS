@@ -130,6 +130,7 @@ struct StreamInfo: Decodable {
     let viewCount: Int64?
     let likeCount: Int64?
     let dislikeCount: Int64?
+    let relatedStreams: [VideoItem]?
     let publishedAt: Int64?
     let uploaded: Int64?
     let uploadDate: String?
