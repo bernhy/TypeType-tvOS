@@ -55,7 +55,9 @@ final class TVPlaylistMembership: ObservableObject {
             error = nil
             loading = false
         }
-        if loaded { return }
+        // A failed refresh is retryable in the picker, but must not trigger
+        // a new failed HTTP request for every thumbnail entering the grid.
+        if loaded || error != nil { return }
         if let loadTask {
             await loadTask.value
             return
@@ -100,6 +102,7 @@ final class TVPlaylistMembership: ObservableObject {
 
     func retry(api: TypeTypeAPI) async {
         loaded = false
+        error = nil
         loadTask?.cancel()
         loadTask = nil
         await ensureLoaded(api: api)
@@ -132,7 +135,11 @@ final class TVPlaylistMembership: ObservableObject {
     func invalidate(api: TypeTypeAPI) {
         guard scope == api.metadataCacheScope else { return }
         loaded = false
+        error = nil
         loadTask?.cancel()
         loadTask = nil
+        playlists = []
+        playlistIDsByVideo = [:]
+        storedURLByVideoAndPlaylist = [:]
     }
 }
