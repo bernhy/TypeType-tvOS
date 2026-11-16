@@ -1169,6 +1169,17 @@ final class SabrPlayerController: ObservableObject {
                 )
                 hardwareDecoder?.playbackPaused = prefersPause
                 state = TVL10n.value("player.session")
+                // Request earlier compressed media for decoder/keyframe
+                // preroll while keeping the presentation clock at the exact
+                // requested position. Do not emit audio before that position.
+                let transportStart = SabrSeekPreroll.requestStart(
+                    targetMs: playbackStart,
+                    explicit: usesDirectMP4 && playbackStart > 0
+                )
+                if transportStart != playbackStart {
+                    NSLog("TypeType SABR SEEK-PREROLL transportMs=%lld targetMs=%lld",
+                          transportStart, playbackStart)
+                }
                 do {
                     let reuseSession = reusing.flatMap { prior in
                         SabrSessionReusePolicy.matches(
@@ -1184,11 +1195,11 @@ final class SabrPlayerController: ObservableObject {
                         if let reuseSession {
                             return try await service.seek(
                                 sessionId: reuseSession.sessionId,
-                                selection: choice, positionMs: playbackStart
+                                selection: choice, positionMs: transportStart
                             )
                         }
                         return try await service.start(
-                            videoId: id, selection: choice, positionMs: playbackStart
+                            videoId: id, selection: choice, positionMs: transportStart
                         )
                     }
                     if let reusing,
@@ -1217,7 +1228,8 @@ final class SabrPlayerController: ObservableObject {
                     generation = session.generation
                     try await consume(
                         service: service, videoId: id, choice: choice,
-                        positionMs: playbackStart, buffer: buffer
+                        positionMs: transportStart, presentationStartMs: playbackStart,
+                        buffer: buffer
                     )
                     return
                 } catch {
@@ -1356,8 +1368,10 @@ final class SabrPlayerController: ObservableObject {
     /// downloads the compressed bytes to the disk cache before advancing.
     private func consume(service: SabrService, videoId: String,
                          choice: SabrSelection, positionMs start: Int64,
+                         presentationStartMs target: Int64,
                          buffer: SabrBufferSettings) async throws {
         var restartPosition = max(0, start)
+        var presentationStart = max(restartPosition, target)
         let policy = SabrRecoveryPolicy()
         var recoveryBudget = SabrRecoveryBudget()
         var previousStallPositionMs: Int64?
@@ -1411,7 +1425,9 @@ final class SabrPlayerController: ObservableObject {
             windowProducerTask = producer
             do {
                 try await playCachedWindows(mailbox: mailbox, service: service,
-                                            choice: choice, start: restartPosition, cache: cache)
+                                            choice: choice, start: restartPosition,
+                                            presentationStartMs: presentationStart,
+                                            cache: cache)
                 producer.cancel()
                 windowProducerTask = nil
                 activeMailbox = nil
@@ -1459,6 +1475,9 @@ final class SabrPlayerController: ObservableObject {
                 let clockMs = max(0, Int64(playbackSeconds() * 1_000))
                 let confirmedMs = max(restartPosition, positionMs - 1_000)
                 restartPosition = min(clockMs, confirmedMs)
+                // A subsequent recovery resumes at its own position; the
+                // original seek target is no longer an active preroll barrier.
+                presentationStart = restartPosition
                 recordProgress(force: true)
                 synchronizer.setRate(
                     0, time: CMTime(value: restartPosition, timescale: 1_000)
@@ -1806,6 +1825,7 @@ final class SabrPlayerController: ObservableObject {
     /// cannot hold up the next server window while the renderer is busy.
     private func playCachedWindows(mailbox: SabrWindowMailbox, service: SabrService,
                                    choice: SabrSelection, start: Int64,
+                                   presentationStartMs: Int64,
                                    cache: SabrFragmentCache) async throws {
         var audioInit = Data()
         var videoInit = Data()
@@ -1875,7 +1895,9 @@ final class SabrPlayerController: ObservableObject {
                 #endif
                 let rawSamples = try await SabrMediaDemux.samples(
                     initialization: audioInit, fragment: bytes,
-                    mediaType: .audio, direct: usesDirectMP4
+                    mediaType: .audio, direct: usesDirectMP4,
+                    presentationStartMs: presentationStartMs > start
+                        ? presentationStartMs : nil
                 )
                 #if DEBUG
                 let readMs = Int((ProcessInfo.processInfo.systemUptime - readStarted) * 1_000)
@@ -1955,8 +1977,17 @@ final class SabrPlayerController: ObservableObject {
                           previousSampleEnd ?? -1, keepNative ? 1 : 0)
                 }
                 #endif
-                guard !samples.isEmpty else {
-                    throw SabrFailure.unsupported("SABR audio segment contains no compressed samples")
+                if samples.isEmpty {
+                    // In a decoder preroll this entire audio fragment may
+                    // end before the real seek target. Its metadata remains
+                    // relevant to window continuity, but it must stay silent.
+                    guard presentationStartMs > start else {
+                        throw SabrFailure.unsupported("SABR audio segment contains no compressed samples")
+                    }
+                    try coverage.acceptAudio(segment)
+                    previousAACSequence = sequence
+                    seen.insert(key)
+                    continue
                 }
                 let actualEnd = SabrSampleTimingProbe.actualEndMs(samples)
                 #if DEBUG
@@ -2013,7 +2044,9 @@ final class SabrPlayerController: ObservableObject {
                 #endif
                 let rawSamples = try await SabrMediaDemux.samples(
                     initialization: videoInit, fragment: bytes,
-                    mediaType: .video, direct: usesDirectMP4
+                    mediaType: .video, direct: usesDirectMP4,
+                    presentationStartMs: presentationStartMs > start
+                        ? presentationStartMs : nil
                 )
                 #if DEBUG
                 let readMs = Int((ProcessInfo.processInfo.systemUptime - readStarted) * 1_000)
@@ -2109,7 +2142,7 @@ final class SabrPlayerController: ObservableObject {
                 // window while both hardware renderer queues drain.
                 try await enqueueReadyPrefix(
                     audio: &pendingAudio, video: &pendingVideo,
-                    commonEndMs: coverage.safeEndMs, startMs: start
+                    commonEndMs: coverage.safeEndMs, startMs: presentationStartMs
                 )
             }
 
@@ -2117,7 +2150,7 @@ final class SabrPlayerController: ObservableObject {
             // already pending from an earlier window.
             try await enqueueReadyPrefix(
                 audio: &pendingAudio, video: &pendingVideo,
-                commonEndMs: coverage.safeEndMs, startMs: start
+                commonEndMs: coverage.safeEndMs, startMs: presentationStartMs
             )
 
             positionMs = coverage.safeEndMs
@@ -2183,7 +2216,9 @@ final class SabrPlayerController: ObservableObject {
         guard audioCount > 0 || videoCount > 0 else { return }
         let audioReady = Array(pendingAudio.prefix(audioCount))
         let videoReady = Array(pendingVideo.prefix(videoCount))
-        // Never start the shared clock with only one track.
+        // Both tracks must be ready beyond the seek target before the new
+        // clock starts, or we may freeze on pre-target reference frames.
+        if !isInitialized && commonEndMs <= startMs + 250 { return }
         guard isInitialized || (!audioReady.isEmpty && !videoReady.isEmpty) else { return }
         try await enqueueInterleaved(
             audio: audioReady, video: videoReady, startMs: startMs
