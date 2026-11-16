@@ -50,6 +50,11 @@ struct BrowseView: View {
     @State private var enteringFromMenu = false
     @State private var menuHandoffActive = false
     @State private var menuHandoffGeneration = 0
+    // When returning from content, tvOS may momentarily choose the closest
+    // *other* icon before @FocusState can restore our selected section.
+    // Restrict the rail to the intended icon until that Left move settles.
+    @State private var returnToRailTarget: TVSection?
+    @State private var returnToRailGeneration = 0
     @State private var searchFocusRequest = 0
     @State private var sidebarIdentity: TVAccountIdentity?
     @ObservedObject private var playbackVisibility = TVPlaybackVisibility.shared
@@ -243,6 +248,15 @@ struct BrowseView: View {
             }
         }
         .onChange(of: menuFocus) { previous, focused in
+            if let target = returnToRailTarget {
+                // Ignore transient native focus callbacks while the Left
+                // movement is resolving. Never preview Account when
+                // returning from the Settings subnavigation.
+                if focused != target {
+                    menuFocus = target
+                }
+                return
+            }
             if enteringFromMenu || menuHandoffActive {
                 // Ignore tvOS focus callbacks while the old rail icon is
                 // disabled for an explicit handoff. Otherwise Right can
@@ -312,12 +326,17 @@ struct BrowseView: View {
             .frame(height: 52)
             .frame(maxWidth: .infinity, alignment: .leading)
             .modifier(TVRailRowHighlight(
-                focused: menuFocus == item, selected: section == item
+                // Paint the destination immediately, not a one-frame
+                // geometrically chosen neighbor during the rail handoff.
+                focused: returnToRailTarget == item ||
+                    (returnToRailTarget == nil && menuFocus == item),
+                selected: section == item
             ))
         }
         .buttonStyle(TVRailButtonStyle())
         .focusEffectDisabled(true)
-        .disabled(menuHandoffActive)
+        .disabled(menuHandoffActive ||
+                  (returnToRailTarget != nil && returnToRailTarget != item))
         .focused($menuFocus, equals: item)
         .accessibilityLabel(item.label)
         .accessibilityIdentifier("main-nav-\(item.rawValue)")
@@ -370,6 +389,9 @@ struct BrowseView: View {
     }
 
     private func open(_ destination: TVSection) {
+        // Cancel any pending Left-to-rail handoff before a Right/OK enter.
+        returnToRailGeneration &+= 1
+        returnToRailTarget = nil
         // Explicit activation is the ONLY path which transfers focus from
         // the main rail to a page. Up/Down continues to preview on focus.
         let wasInMenu = menuFocus != nil
@@ -418,8 +440,26 @@ struct BrowseView: View {
         menuHandoffGeneration &+= 1
         menuHandoffActive = false
         enteringFromMenu = false
-        menuFocus = section
+        // The active page, not the nearest vertically positioned rail icon,
+        // must own the first visible focus frame on return.
+        let target = section
+        returnToRailGeneration &+= 1
+        let generation = returnToRailGeneration
+        returnToRailTarget = target
+        menuFocus = target
         expanded = true
+
+        // UIKit may finish its Left move after this handler returns. Keep
+        // other rail icons out of the focus search until the remote movement
+        // and our 0.28s expansion have completed. Subsequent Up/Down moves
+        // once again work normally.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(360))
+            guard generation == returnToRailGeneration,
+                  returnToRailTarget == target else { return }
+            menuFocus = target
+            returnToRailTarget = nil
+        }
     }
 }
 

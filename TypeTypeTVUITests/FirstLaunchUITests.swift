@@ -606,6 +606,45 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertFalse(search.hasFocus)
     }
 
+    func testLeftFromSettingsSubrailFocusesGlobalSettingsWithoutAccountFlash() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-about",
+            "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+
+        let about = app.buttons["settings-group-about"]
+        let settings = app.buttons["main-nav-settings"]
+        let account = app.buttons["main-nav-account"]
+        XCTAssertTrue(waitForFocus(about, timeout: 20),
+                      "The selected About category should own initial focus")
+        XCUIRemote.shared.press(.left)
+
+        // The account icon is vertically closest to the About category.
+        // It must not receive transient focus before the selected Settings
+        // icon; that caused a visible wrong white focus pill.
+        XCTAssertFalse(account.hasFocus,
+                       "Returning to main navigation must never focus Account")
+        XCTAssertTrue(waitForFocus(settings, timeout: 5),
+                      "Left from About must focus the global Settings icon")
+        XCTAssertFalse(account.hasFocus)
+        Thread.sleep(forTimeInterval: 0.45)
+        XCTAssertTrue(settings.hasFocus, "Settings focus must remain stable")
+        XCTAssertFalse(account.hasFocus)
+
+        // Releasing the return-only focus restriction must preserve normal
+        // Up/Down traversal and re-enter Settings with Right.
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(account),
+                      "Up after returning must reach the Account icon")
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(settings))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(about),
+                      "Right must return to the previously chosen Settings group")
+    }
+
     func testRightFromMainSettingsIconEntersSettingsWithoutBounce() throws {
         let app = XCUIApplication()
         app.launchArguments = [
