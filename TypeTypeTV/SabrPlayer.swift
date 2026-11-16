@@ -1661,7 +1661,8 @@ final class SabrPlayerController: ObservableObject {
                     nativeStartMs: nativeSampleStartMs,
                     expectedStartMs: resolved.startMs,
                     previousActualEndMs: previousSampleEnd,
-                    previousSequence: previousAACSequence, sequence: sequence
+                    previousSequence: previousAACSequence, sequence: sequence,
+                    seekTargetMs: presentationStartMs > start ? presentationStartMs : nil
                 )
                 let samples = keepNative ? rawSamples : try SabrSampleTimeline.aligned(
                     rawSamples, segmentStartMs: resolved.startMs
