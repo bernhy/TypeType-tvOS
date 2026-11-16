@@ -2182,12 +2182,115 @@ final class SabrPlayerController: ObservableObject {
         pendingVideo.removeFirst(videoCount)
     }
 
-    /// Feed one compressed sample at a time, preserving the original decode
-    /// order within each track and comparing PTS only across tracks.
-    /// Starting after one sample of both tracks avoids a pre-roll deadlock:
-    /// renderers have a bounded queue and may stop accepting data at rate zero.
+    /// In the native compressed path, audio and video MUST NOT wait on each
+    /// other's renderer. The old single feed loop could be stuck waiting for
+    /// video queue space while the audio queue ran dry, causing an audible
+    /// interruption despite plenty of compressed media on disk.
     private func enqueueInterleaved(audio: [CMSampleBuffer], video: [CMSampleBuffer],
                                     startMs: Int64) async throws {
+        if !usesDirectMP4 {
+            try await enqueueInterleavedLegacy(audio: audio, video: video, startMs: startMs)
+            return
+        }
+        // Both jobs are @MainActor-isolated for renderer state safety, but
+        // proceed independently whenever either awaits its ready callback.
+        // This is cooperative concurrency rather than two busy loops.
+        async let audioDelivery: Void = feedNativeAudio(audio, startMs: startMs)
+        async let videoDelivery: Void = feedNativeVideo(video, startMs: startMs)
+        try await audioDelivery
+        try await videoDelivery
+    }
+
+    private func feedNativeAudio(_ buffers: [CMSampleBuffer],
+                                 startMs: Int64) async throws {
+        for sample in buffers {
+            try Task.checkCancellation()
+            try await SabrNativeRendererReadiness.waitUntilReady(audioRenderer)
+            guard audioRenderer.status != .failed else {
+                throw SabrFailure.stalled("native audio renderer failed")
+            }
+            audioRenderer.enqueue(sample)
+            noteQueuedMedia(.audio, sample: sample)
+            hasQueuedFirstAudio = true
+            startDirectClockIfReady(at: startMs)
+        }
+    }
+
+    private func feedNativeVideo(_ buffers: [CMSampleBuffer],
+                                 startMs: Int64) async throws {
+        let renderer = videoLayer.sampleBufferRenderer
+        for sample in buffers {
+            try Task.checkCancellation()
+            #if DEBUG
+            let waitingSince = ProcessInfo.processInfo.systemUptime
+            #endif
+            try await SabrNativeRendererReadiness.waitUntilReady(renderer)
+            guard renderer.status != .failed else {
+                throw SabrFailure.stalled("native video renderer failed")
+            }
+            #if DEBUG
+            let waitedMS = Int(
+                (ProcessInfo.processInfo.systemUptime - waitingSince) * 1_000
+            )
+            if waitedMS > 0 {
+                maxVideoReadyWaitMs = max(maxVideoReadyWaitMs, waitedMS)
+                videoReadyWaits += 1
+            }
+            #endif
+            renderer.enqueue(sample)
+            if let endMs = SabrSampleTimingProbe.actualEndMs([sample]) {
+                noteQueuedTime(.video, seconds: Double(endMs) / 1_000)
+                hasQueuedFirstVideo = true
+            }
+            #if DEBUG
+            videoSamplesDelivered += CMSampleBufferGetNumSamples(sample)
+            #endif
+            startDirectClockIfReady(at: startMs)
+        }
+    }
+
+    private func startDirectClockIfReady(at startMs: Int64) {
+        guard !isInitialized, hasQueuedFirstAudio && hasQueuedFirstVideo else {
+            return
+        }
+        synchronizer.setRate(
+            prefersPause ? 0 : 1,
+            time: CMTime(value: startMs, timescale: 1_000)
+        )
+        isInitialized = true
+        isPlaying = !prefersPause
+        if let failedManualFormat, let selection {
+            let activeFormat = "\(SabrVideoCodecFamily(codec: selection.video.codec)?.title ?? selection.video.codec) \(selection.video.height ?? 0)p"
+            qualityFallbackNotice = String(
+                format: TVL10n.value("player.qualityFallback"),
+                failedManualFormat, activeFormat
+            )
+            postPlayerNotice(qualityFallbackNotice!)
+            self.failedManualFormat = nil
+        }
+        #if DEBUG
+        startRendererProbe()
+        #endif
+        state = TVL10n.value(
+            prefersPause ? "player.paused" : "player.playing"
+        )
+        if !presenceReported, let api = currentAPI, let video = currentVideo {
+            TVPlaybackPresenceReporter.shared.start(
+                owner: presenceOwner, api: api, video: video,
+                positionMs: max(0, Int64(playbackSeconds() * 1_000)),
+                paused: prefersPause
+            )
+            presenceReported = true
+        }
+        recordProgress(started: !hasRecordedHistory, force: true)
+        hasRecordedHistory = true
+        NSLog("TypeType SABR DIRECT-FEED independent audio/video started")
+    }
+
+    /// Legacy serial interleave remains for unsupported direct MP4 codecs.
+    /// Its explicit VideoToolbox decoder is deliberately left untouched.
+    private func enqueueInterleavedLegacy(audio: [CMSampleBuffer], video: [CMSampleBuffer],
+                                          startMs: Int64) async throws {
         var ai = 0
         var vi = 0
         while ai < audio.count || vi < video.count {
