@@ -13,6 +13,13 @@ struct TVSubscriptionsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var subscriptions: [TVSubscription] = []
+    // A nil membership list means "not checked", not "not subscribed".
+    @State private var knownMemberships: [TVSubscription]?
+    @State private var checkingMembership = false
+    @State private var changingSubscription = false
+    @State private var subscriptionErrorMessage: String?
+    @State private var membershipRequestID = UUID()
+    @State private var channelAvatarURL = ""
     @State private var selectedChannelURL: String?
     @State private var videos: [VideoItem] = []
     @State private var showingShorts = false
@@ -33,6 +40,15 @@ struct TVSubscriptionsView: View {
     @State private var railBrowsingVertically = false
     @FocusState private var focusedVideo: String?
     @FocusState private var loadingRailFocused: Bool
+    @FocusState private var subscriptionButtonFocused: Bool
+
+    private var currentSubscription: TVSubscription? {
+        guard let selectedChannelURL, let knownMemberships else { return nil }
+        return TVChannelSubscriptionMembership.entry(
+            for: selectedChannelURL, in: knownMemberships
+        )
+    }
+
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 22), count: 3)
     private var supportsShorts: Bool {
         guard let url = selectedChannelURL else { return false }
@@ -61,8 +77,23 @@ struct TVSubscriptionsView: View {
                             .font(.subheadline.bold())
                             .tracking(2)
                             .foregroundStyle(TTTheme.accent)
-                        Text(channelTitle.isEmpty ? TVL10n.value("subscriptions.title") : channelTitle)
-                            .font(.system(size: 39, weight: .bold))
+                        HStack(alignment: .center, spacing: 22) {
+                            Text(channelTitle.isEmpty
+                                 ? TVL10n.value("subscriptions.title") : channelTitle)
+                                .font(.system(size: 39, weight: .bold))
+                                .lineLimit(2)
+                            Spacer(minLength: 12)
+                            if let selectedChannelURL {
+                                subscriptionButton(channelURL: selectedChannelURL)
+                            }
+                        }
+                        if let subscriptionErrorMessage {
+                            Text(subscriptionErrorMessage)
+                                .font(.callout)
+                                .foregroundStyle(.orange)
+                                .lineLimit(3)
+                                .accessibilityIdentifier("channel-subscription-error")
+                        }
                         if !channelDescription.isEmpty {
                             Text(channelDescription)
                                 .font(.callout)
@@ -173,6 +204,9 @@ struct TVSubscriptionsView: View {
                 channelTitle = directChannelName ?? ""
                 enterGridAfterLoad = true
                 selectedChannelURL = directChannelURL
+                // A channel opened from a video's details has no subscription
+                // rail, so it must load account membership independently.
+                await refreshMembership()
             } else {
                 await reload()
             }
@@ -181,7 +215,8 @@ struct TVSubscriptionsView: View {
             guard focusRequest >= 0 else { return }
             await Task.yield()
             if directChannelURL != nil {
-                if let first = videos.first { focusedVideo = first.url }
+                // Give channel visitors immediate access to Subscribe.
+                subscriptionButtonFocused = true
             } else if let selectedChannelURL {
                 focusedSubscription = selectedChannelURL
             } else {
@@ -222,10 +257,176 @@ struct TVSubscriptionsView: View {
                 railBrowsingVertically = true
             }
         }
+        .onChange(of: selectedChannelURL) { _, _ in
+            subscriptionErrorMessage = nil
+        }
         .onChange(of: showingShorts) { _, _ in
             guard let selectedChannelURL else { return }
             Task { await loadChannel(selectedChannelURL) }
         }
+    }
+
+    /// This action stays focusable while a request is in flight, preventing
+    /// tvOS from jumping to a different video or navigation rail.
+    private func subscriptionButton(channelURL: String) -> some View {
+        Button {
+            guard !checkingMembership, !changingSubscription else { return }
+            Task {
+                if knownMemberships == nil {
+                    await refreshMembership()
+                } else {
+                    await toggleSubscription(channelURL: channelURL)
+                }
+            }
+        } label: {
+            HStack(spacing: 9) {
+                if checkingMembership || changingSubscription {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: currentSubscription != nil
+                          ? "checkmark.circle.fill" : "plus.circle.fill")
+                }
+                Text(
+                    changingSubscription ? TVL10n.value("channels.subscriptionSaving") :
+                    checkingMembership ? TVL10n.value("channels.subscriptionChecking") :
+                    knownMemberships == nil ? TVL10n.value("channels.subscriptionRetry") :
+                    currentSubscription != nil ? TVL10n.value("channels.unsubscribe") :
+                    TVL10n.value("channels.subscribe")
+                )
+                .lineLimit(1)
+            }
+            .frame(minHeight: 42)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(currentSubscription == nil ? TTTheme.accent : TTTheme.surface)
+        .focused($subscriptionButtonFocused)
+        .accessibilityIdentifier("channel-subscription-toggle")
+        .accessibilityHint(currentSubscription != nil
+                           ? TVL10n.value("channels.unsubscribeHint")
+                           : TVL10n.value("channels.subscribeHint"))
+    }
+
+    @MainActor
+    private func refreshMembership() async {
+        guard !checkingMembership, !changingSubscription else { return }
+        let id = UUID()
+        membershipRequestID = id
+        checkingMembership = true
+        subscriptionErrorMessage = nil
+        defer { if membershipRequestID == id { checkingMembership = false } }
+        #if DEBUG
+        if api.origin.host == "preview.invalid" {
+            knownMemberships = directChannelURL == nil ? subscriptions : []
+            return
+        }
+        #endif
+        do {
+            let received = try await api.subscriptions()
+            try Task.checkCancellation()
+            guard membershipRequestID == id else { return }
+            knownMemberships = received
+            // In the normal channel browser, the sidebar is the live list
+            // of memberships. Do not alter the currently opened channel.
+            if directChannelURL == nil {
+                subscriptions = received.sorted {
+                    $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                }
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            if membershipRequestID == id {
+                subscriptionErrorMessage = subscriptionErrorText(error)
+            }
+        }
+    }
+
+    @MainActor
+    private func toggleSubscription(channelURL: String) async {
+        guard !changingSubscription, !checkingMembership,
+              let knownMemberships else { return }
+        changingSubscription = true
+        subscriptionErrorMessage = nil
+        // Prevent an older GET from restoring a stale membership after POST/DELETE.
+        membershipRequestID = UUID()
+        defer { changingSubscription = false }
+        let existing = TVChannelSubscriptionMembership.entry(
+            for: channelURL, in: knownMemberships
+        )
+        do {
+            let updated: [TVSubscription]
+            #if DEBUG
+            if api.origin.host == "preview.invalid" {
+                if let existing {
+                    updated = TVChannelSubscriptionMembership.removing(
+                        channelURL: existing.channelUrl, from: knownMemberships
+                    )
+                } else {
+                    updated = TVChannelSubscriptionMembership.adding(
+                        TVSubscription(channelUrl: channelURL,
+                                       name: channelTitle,
+                                       avatarUrl: channelAvatarURL,
+                                       subscribedAt: nil),
+                        to: knownMemberships
+                    )
+                }
+            } else {
+                if let existing {
+                    try await api.unsubscribe(channelURL: existing.channelUrl)
+                    updated = TVChannelSubscriptionMembership.removing(
+                        channelURL: existing.channelUrl, from: knownMemberships
+                    )
+                } else {
+                    let added = try await api.subscribe(
+                        channelURL: channelURL,
+                        name: channelTitle.isEmpty ? channelURL : channelTitle,
+                        avatarURL: channelAvatarURL
+                    )
+                    updated = TVChannelSubscriptionMembership.adding(
+                        added, to: knownMemberships
+                    )
+                }
+            }
+            #else
+            if let existing {
+                try await api.unsubscribe(channelURL: existing.channelUrl)
+                updated = TVChannelSubscriptionMembership.removing(
+                    channelURL: existing.channelUrl, from: knownMemberships
+                )
+            } else {
+                let added = try await api.subscribe(
+                    channelURL: channelURL,
+                    name: channelTitle.isEmpty ? channelURL : channelTitle,
+                    avatarURL: channelAvatarURL
+                )
+                updated = TVChannelSubscriptionMembership.adding(
+                    added, to: knownMemberships
+                )
+            }
+            #endif
+            // Keep the channel currently on screen after unsubscribing;
+            // removing it from the subscription rail must not pop this view.
+            self.knownMemberships = updated
+            if directChannelURL == nil {
+                subscriptions = updated.sorted {
+                    $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                }
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            // On failure the button retains the server-confirmed old status.
+            if selectedChannelURL == channelURL {
+                subscriptionErrorMessage = subscriptionErrorText(error)
+            }
+        }
+    }
+
+    private func subscriptionErrorText(_ error: Error) -> String {
+        if case TypeTypeError.http(401, _) = error {
+            return TVL10n.value("channels.subscriptionRequiresLogin")
+        }
+        return error.localizedDescription
     }
 
     private var channelRail: some View {
@@ -349,6 +550,7 @@ struct TVSubscriptionsView: View {
                 TVSubscription(channelUrl: "https://preview.invalid/channel/b",
                                name: "Beispielkanal B", avatarUrl: "", subscribedAt: nil)
             ]
+            knownMemberships = subscriptions
             selectedChannelURL = subscriptions.first?.channelUrl
             await Task.yield()
             if focusRequest >= 0 { focusedSubscription = selectedChannelURL }
@@ -364,6 +566,7 @@ struct TVSubscriptionsView: View {
             subscriptions = received.sorted {
                 $0.name.localizedStandardCompare($1.name) == .orderedAscending
             }
+            knownMemberships = received
             if !subscriptions.contains(where: { $0.channelUrl == selectedChannelURL }) {
                 selectedChannelURL = subscriptions.first?.channelUrl
             }
@@ -429,6 +632,7 @@ struct TVSubscriptionsView: View {
             guard channelRequestID == identifier,
                   selectedChannelURL == channelURL, showingShorts == shorts else { return }
             channelTitle = response.name
+            channelAvatarURL = response.avatarUrl ?? ""
             channelDescription = response.description ?? ""
             videos = response.videos
             nextPage = response.nextpage
