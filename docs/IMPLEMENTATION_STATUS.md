@@ -22,40 +22,42 @@
 
 | ID | Code | Verified | Feature | Implementation commits | Notes |
 | --- | --- | --- | --- | --- | --- |
-| API-01 | [x] | [ ] | Robust API errors: optional codes, request IDs, Retry-After, stable classifications | `10662f66, af7e3158, fdc8baa9, 474e2d9c, d02dbef1` | Code integrated; CI pending. Includes bootstrap-vs-session classification and request IDs. |
-| SEARCH-01 | [x] | [ ] | `/search/filters`: content filters, grouped filters, sort | `e8400793, e634a0f2` | Code integrated; CI pending. Server-advertised filters and Siri Remote controls. |
-| SEARCH-02 | [x] | [ ] | Paginate search with `nextpage`; corrected search hints | `e8400793, e634a0f2` | Code integrated; CI pending. Opaque nextpage, correction and suggestion. |
-| SEARCH-03 | [x] | [ ] | Display/search channel and public playlist results | `e634a0f2` | Code integrated; CI pending. Channels and public playlists have navigable cards. |
-| CHANNEL-01 | [x] | [ ] | Channel video sorting: latest / popular / oldest | `36c1b554, a7219f6b` | Code integrated; CI pending. Sort not applied to Shorts tab. |
-| CHANNEL-02 | [x] | [ ] | Channel playlists and public playlist playback | `36c1b554, f5feb683, a7219f6b` | Code integrated; CI pending. Public playlists distinct from own /playlists. |
-| CHANNEL-03 | [x] | [ ] | Channel Community posts (text/images/polls/videos) | `36c1b554, f5feb683, a7219f6b` | Code integrated; CI pending. Read-only posts incl. images, poll choices and video links. |
-| CHANNEL-04 | [x] | [ ] | Channel podcasts and courses | `36c1b554, f5feb683, a7219f6b` | Code integrated; CI pending. Courses shown when hasCourses is true. |
-| BLOCK-01 | [x] | [ ] | View and remove blocked channels/videos in Settings | `db9f5e79` | Code integrated; CI pending. Global blocks intentionally read-only. |
-| BLOCK-02 | [x] | [ ] | Manage blocked title keywords in Settings | `db9f5e79` | Code integrated; CI pending. Adds, lists and removes user keywords. |
-| DETAIL-01 | [x] | [ ] | Related videos from `relatedStreams` on detail page | `7315e7f9, 4882e4c3` | Code integrated; CI pending. Honors hideRelatedVideos and filter preferences. |
-| CONTENT-01 | [x] | [ ] | Honor hideContinueWatching and hideHomeRecommendations | `443554bf, 744bf946` | Code integrated; CI pending. Existing saved history still visible in Library. |
-| CONTENT-02 | [x] | [ ] | Honor hideShorts, hideSubscriptionLiveStreams, hideMembersOnlyContent | `443554bf, 0931b730, 4882e4c3` | Code integrated; CI pending. Visibility metadata may be unavailable for some provider rows. |
-| CONTENT-03 | [ ] | [ ] | Honor hideRelatedVideos, hideEndScreens, hideComments | `7315e7f9, 4882e4c3` | PARTIAL: related videos obey setting; end screens and comments are not yet rendered at all. |
-| CONTENT-04 | [x] | [ ] | Visibly explain disabled watch-history recording at playback start | `7315e7f9` | Code integrated; CI pending. HLS/SABR notices; read old progress but suppress new writes. |
+| API-01 | [x] | [x] | Robust API errors: optional codes, request IDs, Retry-After, stable classifications | `10662f66, af7e3158, fdc8baa9, 474e2d9c, d02dbef1, 9fa5184b` | Corrected device-code error assertion and preserved SABR bootstrap-vs-session classification. |
+| SEARCH-01 | [x] | [x] | `/search/filters`: content filters, grouped filters, sort | `e8400793, e634a0f2` | Server-advertised filters and Siri Remote controls. |
+| SEARCH-02 | [x] | [x] | Paginate search with `nextpage`; corrected search hints | `e8400793, e634a0f2` | Opaque nextpage, correction and suggestion. |
+| SEARCH-03 | [x] | [x] | Display/search channel and public playlist results | `e634a0f2` | Channels and public playlists have navigable cards. |
+| CHANNEL-01 | [x] | [x] | Channel video sorting: latest / popular / oldest | `36c1b554, a7219f6b` | Sort not applied to Shorts tab. |
+| CHANNEL-02 | [x] | [x] | Channel playlists and public playlist playback | `36c1b554, f5feb683, a7219f6b` | Public playlists distinct from own /playlists. |
+| CHANNEL-03 | [x] | [x] | Channel Community posts (text/images/polls/videos) | `36c1b554, f5feb683, a7219f6b` | Read-only posts incl. images, poll choices and video links. |
+| CHANNEL-04 | [x] | [x] | Channel podcasts and courses | `36c1b554, f5feb683, a7219f6b` | Courses shown when hasCourses is true. |
+| BLOCK-01 | [x] | [x] | View and remove blocked channels/videos in Settings | `db9f5e79, a04f4937` | Encoded URL-tail routes tested; global blocks intentionally read-only. |
+| BLOCK-02 | [x] | [x] | Manage blocked title keywords in Settings | `db9f5e79` | Adds, lists and removes user keywords. |
+| DETAIL-01 | [x] | [x] | Related videos from `relatedStreams` on detail page | `7315e7f9, 4882e4c3` | Honors hideRelatedVideos and filter preferences. |
+| CONTENT-01 | [x] | [x] | Honor hideContinueWatching and hideHomeRecommendations | `443554bf, 744bf946` | Existing saved history still visible in Library. |
+| CONTENT-02 | [x] | [x] | Honor hideShorts, hideSubscriptionLiveStreams, hideMembersOnlyContent | `443554bf, 0931b730, 4882e4c3` | Visibility metadata may be unavailable for some provider rows. |
+| CONTENT-03 | [ ] | [ ] | Honor hideRelatedVideos, hideEndScreens, hideComments | `7315e7f9, 4882e4c3, fbc8450a` | PARTIAL: related videos and the comments tab obey settings; tvOS does not render end-screen elements yet. |
+| CONTENT-04 | [x] | [x] | Visibly explain disabled watch-history recording at playback start | `7315e7f9` | HLS/SABR notices; existing positions remain readable, but no new progress/history is recorded. |
 | CONTENT-05 | [ ] | [ ] | Startup landing, DeArrow, other content settings parity | — | Separate API/data pipeline |
+| SETTINGS-02 | [x] | [x] | Explain each of the nine content settings in German, English, French and Spanish | `9fa5184b, 04482478` | Each setting has an inline explanation of its actual behavior, including unchanged old history and positions when recording is disabled. |
 | SETTINGS-01 | [ ] | [ ] | Other account playback settings (autoplay, speed, audio only etc.) | — | Avoid destabilizing SABR |
 | PROFILE-01 | [ ] | [ ] | Integrate server account profiles under locally saved accounts | — | `/profiles` is user-scoped, not admin |
-| COMMENTS-01 | [ ] | [ ] | Comments/replies with images and voice replies on video detail | — | Keep in-player UI minimal |
+| COMMENTS-01 | [x] | [x] | Switch description / comments on video detail; read comments, replies, images and voice replies | `e1c00a4e, ef2c8b15, fbc8450a, 3b2a4fba` | Read-only view; replies paginated, voice audio fetched via authenticated TypeType endpoint. CI green; live-server/device QA useful. |
 | ACCOUNT-01 | [ ] | [ ] | Notification and recommender features, backup/imports | — | Lower priority |
 | API-02 | [ ] | [ ] | Capability gating via `/instance` and audit unused fields | — | OpenAPI is manually maintained |
 
 ## Automated verification
 
-- The combined source code has passed the Xcode 26.2 Debug simulator build,
-  Debug Apple TV device build and Release Apple TV device build on an earlier
-  run; new HTTP 401 handling was committed afterwards.
-- An end-to-end tvOS workflow including the final Auth changes is still
-  pending. Do not mark Verified until that workflow completes successfully.
-- Tests for HTTP error handling, search, channel extras and blocked routes:
-  `TVServerErrorMappingTests.swift`, `TVAPIWireTests.swift`.
-- The CI workflow performs Debug simulator build, Debug and Release device
-  compilation, and automated unit/UI tests. Do not infer device behavior solely
-  from simulator compilation.
+- **Confirmed passing:** [tvOS workflow #43915106174](https://github.com/bernhy/TypeType-tvOS/actions/runs/43915106174) on code commit `a04f4937c1abc4ccbb4bb936479a1991026cd736` (2026-11-16).
+- Xcode 26.2: Debug simulator, Debug unsigned Apple TV device and Release unsigned Apple TV device builds **passed**.
+- **239 unit/contract tests, 0 failures (6 skips)**; **38 UI tests, 0 failures**.
+  All new comment API wire/HTML tests, the two previously failing API assertions,
+  and the existing remote-scrollable description UI regression test passed.
+- CI passing means simulator/API test verification; authentication, audio routing
+  and comment-image behavior should additionally be checked against a real
+  TypeType instance on physical Apple TV.
+- No player media path changes were needed to render comments. The comments
+  area is read-only, and voice audio is downloaded from the server with the
+  existing account credential rather than leaking tokens to external URLs.
 
 ## Prior completed baseline work
 
