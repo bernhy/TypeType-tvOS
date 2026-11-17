@@ -201,6 +201,14 @@ private struct SabrSeekReuse {
     let selection: SabrSelection
 }
 
+/// Prepared on the network side while samples from the old SABR session
+/// remain queued in the native decoder. Never install this token before
+/// the consumer reaches its ordinary recovery handoff.
+private struct SabrPrewarmedRecoverySession {
+    let reply: SabrSessionReply
+    let startPositionMs: Int64
+}
+
 // Direct compressed fMP4 samples are synchronised by CoreMedia.
 @MainActor
 final class SabrPlayerController: ObservableObject {
@@ -274,6 +282,9 @@ final class SabrPlayerController: ObservableObject {
     private var segmentCache: SabrFragmentCache?
     private var windowProducerTask: Task<Void, Never>?
     private var activeMailbox: SabrWindowMailbox?
+    private var earlyRecoveryTask: Task<Void, Never>?
+    private var earlyRecoveryPrepared: SabrPrewarmedRecoverySession?
+    private var earlyRecoveryService: SabrService?
     private let progressWriter = TVPlaybackProgressWriter()
     // Main-actor handoff guarantees the stop checkpoint reaches the actor
     // before a fast seek/quality restart changes the history permission.
@@ -414,6 +425,7 @@ final class SabrPlayerController: ObservableObject {
 
     func stop(preservingSessionId: String? = nil) {
         playbackEpoch &+= 1
+        abandonEarlyRecovery()
         pendingSeekTask?.cancel()
         pendingSeekTask = nil
         pendingSeekTargetMs = nil
@@ -571,6 +583,7 @@ final class SabrPlayerController: ObservableObject {
     private func prepareFastSeek(api: TypeTypeAPI, video: VideoItem,
                                  targetMs: Int64, reusing: SabrSeekReuse) {
         playbackEpoch &+= 1
+        abandonEarlyRecovery()
         if isInitialized { recordProgress(force: true) }
         TVPlaybackPresenceReporter.shared.stop(owner: presenceOwner)
         presenceReported = false
@@ -1342,6 +1355,105 @@ final class SabrPlayerController: ObservableObject {
             isPlaying = false
             state = TVL10n.value("player.failed")
         }
+    }
+
+    /// Cancel speculative session work and release its token on Stop,
+    /// seek, or successful end of stream.
+    private func abandonEarlyRecovery() {
+        earlyRecoveryTask?.cancel()
+        earlyRecoveryTask = nil
+        let staged = earlyRecoveryPrepared
+        let service = earlyRecoveryService
+        earlyRecoveryPrepared = nil
+        earlyRecoveryService = nil
+        if let staged, let service {
+            Task { try? await service.release(sessionId: staged.reply.sessionId) }
+        }
+    }
+
+    /// Prepare a fresh SABR session concurrently with playback. A readiness
+    /// window request warms its first tracks on the server, but does not
+    /// submit them to the old renderer or alter its timeline.
+    private func beginEarlyRecovery(service: SabrService, videoId: String,
+                                    selection: SabrSelection,
+                                    buffer: SabrBufferSettings,
+                                    startMs: Int64) {
+        guard earlyRecoveryTask == nil else { return }
+        let epoch = playbackEpoch
+        earlyRecoveryService = service
+        earlyRecoveryTask = Task { [weak self] in
+            guard let self else { return }
+            let policy = SabrRecoveryPolicy()
+            let began = Date()
+            for attempt in 1...policy.maxAttempts {
+                guard !Task.isCancelled, self.playbackEpoch == epoch else { return }
+                var createdSessionID: String?
+                do {
+                    let reply = try await service.start(
+                        videoId: videoId, selection: selection,
+                        positionMs: startMs
+                    )
+                    guard !reply.sessionId.isEmpty else {
+                        throw SabrFailure.invalidResponse("sessionId")
+                    }
+                    createdSessionID = reply.sessionId
+                    _ = try await service.window(
+                        sessionId: reply.sessionId, selection: selection,
+                        generation: reply.generation, positionMs: startMs,
+                        buffer: buffer,
+                        requestedBufferGoalMs: min(20_000, buffer.forwardMilliseconds)
+                    )
+                    guard !Task.isCancelled, self.playbackEpoch == epoch else {
+                        try? await service.release(sessionId: reply.sessionId)
+                        return
+                    }
+                    self.earlyRecoveryPrepared = SabrPrewarmedRecoverySession(
+                        reply: reply, startPositionMs: startMs
+                    )
+                    NSLog("TypeType SABR EARLY session-ready attempt=%d targetMs=%lld",
+                          attempt, startMs)
+                    return
+                } catch {
+                    if let createdSessionID {
+                        try? await service.release(sessionId: createdSessionID)
+                    }
+                    guard !Task.isCancelled, self.playbackEpoch == epoch,
+                          policy.canRetry(
+                            error, completedAttempts: attempt,
+                            elapsedSeconds: Date().timeIntervalSince(began)
+                          ) else {
+                        NSLog("TypeType SABR EARLY session-unavailable attempt=%d", attempt)
+                        return
+                    }
+                    NSLog("TypeType SABR EARLY session-retry attempt=%d", attempt)
+                    do {
+                        try await Task.sleep(
+                            nanoseconds: policy.delayNanoseconds(
+                                for: error, attempt: attempt
+                            )
+                        )
+                    } catch { return }
+                }
+            }
+        }
+    }
+
+    /// Give an in-flight prewarm at most 1.2s at the handover boundary.
+    /// If it is not ready, fall back to the existing fresh-session recovery.
+    private func takeEarlyRecovery() async throws -> SabrPrewarmedRecoverySession? {
+        if earlyRecoveryTask != nil, earlyRecoveryPrepared == nil {
+            for _ in 0..<8 {
+                try Task.checkCancellation()
+                if earlyRecoveryPrepared != nil { break }
+                try await Task.sleep(nanoseconds: 150_000_000)
+            }
+        }
+        let prepared = earlyRecoveryPrepared
+        earlyRecoveryPrepared = nil
+        earlyRecoveryTask?.cancel()
+        earlyRecoveryTask = nil
+        earlyRecoveryService = nil
+        return prepared
     }
 
     /// The network stage runs independently of sample-buffer decoder pressure.
