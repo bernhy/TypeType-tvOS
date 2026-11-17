@@ -7,6 +7,9 @@ struct TypeTypeTVApp: App {
         WindowGroup {
             RootView()
                 .environment(\.locale, TVLanguages.locale(for: language))
+                // TypeType uses a consistently dark surface. Do not inherit
+                // tvOS Light/Automatic for the foreground text and controls.
+                .preferredColorScheme(.dark)
         }
     }
 }
