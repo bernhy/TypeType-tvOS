@@ -157,24 +157,18 @@ struct TVPlayerOSD: View {
                 Text(leftTime)
                     .frame(width: 136, alignment: .trailing)
                     .monospacedDigit()
-                ZStack {
-                    Slider(value: Binding(
-                        get: { position },
-                        set: { scrubSeconds = $0 }
-                    ), in: 0...max(1, duration), onEditingChanged: { editing in
-                        dragging = editing
-                        if !editing, let selected = scrubSeconds, duration > 0 {
-                            onSeek(Int64(selected * 1_000))
-                            scrubSeconds = nil
-                        }
-                    })
-                    .tint(.white)
-                    .focused($focusedItem, equals: .timeline)
-                    .accessibilityIdentifier("osd-timeline")
-                    .disabled(duration <= 0)
-                    sponsorMarks
-                        .allowsHitTesting(false)
-                }
+                TVOSSeekScrubber(
+                    duration: duration, current: playback,
+                    preview: $scrubSeconds,
+                    sponsorSegments: engine.sponsorSegments,
+                    onPreviewChange: { dragging = $0 },
+                    onCommit: { seconds in
+                        onSeek(Int64(seconds * 1_000))
+                        scrubSeconds = nil
+                        dragging = false
+                    }
+                )
+                .accessibilityIdentifier("osd-timeline")
                 Text(rightTime)
                     .frame(width: 136, alignment: .leading)
                     .monospacedDigit()
@@ -198,38 +192,6 @@ struct TVPlayerOSD: View {
                 .padding(.leading, 155)
             }
             }
-        }
-    }
-
-    /// Markers are drawn over the native tvOS Slider without stealing focus.
-    /// Uses real SponsorBlock timestamps from the active SABR bootstrap.
-    private var sponsorMarks: some View {
-        GeometryReader { geometry in
-            if duration > 0 {
-                ForEach(Array(engine.sponsorSegments.enumerated()), id: \.offset) { entry in
-                    if let range = TVSponsorBlock.bounds(entry.element, duration: duration) {
-                        let x = CGFloat(range.lowerBound / duration) * geometry.size.width
-                        let width = max(3, CGFloat((range.upperBound - range.lowerBound) / duration)
-                                        * geometry.size.width)
-                        Capsule()
-                            .fill(segmentColor(entry.element.category).opacity(0.88))
-                            .frame(width: width, height: 7)
-                            .offset(x: x)
-                    }
-                }
-            }
-        }
-        .frame(height: 7)
-    }
-
-    private func segmentColor(_ category: String) -> Color {
-        switch category {
-        case "sponsor": return .red
-        case "intro", "outro": return .orange
-        case "selfpromo": return .green
-        case "interaction", "poi_highlight": return .blue
-        case "chapter": return .purple
-        default: return .yellow
         }
     }
 
