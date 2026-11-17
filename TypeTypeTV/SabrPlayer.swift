@@ -322,6 +322,9 @@ final class SabrPlayerController: ObservableObject {
     }
 
     private func startStartupDisplayProbe() {
+        guard UserDefaults.standard.bool(forKey: "typetype.sabrVerboseDiagnostics") else {
+            return
+        }
         startupDisplayProbeTask?.cancel()
         let epoch = playbackEpoch
         startupDisplayProbeTask = Task { [weak self] in
@@ -600,6 +603,9 @@ final class SabrPlayerController: ObservableObject {
     /// logs identified missing segment numbers but could not detect 100-500ms
     /// frame starvation with perfectly continuous fMP4 timestamps.
     private func startRendererProbe() {
+        guard UserDefaults.standard.bool(forKey: "typetype.sabrVerboseDiagnostics") else {
+            return
+        }
         rendererProbeTask?.cancel()
         rendererProbeTask = Task { [weak self] in
             var lastSummary = ProcessInfo.processInfo.systemUptime
@@ -2096,12 +2102,16 @@ final class SabrPlayerController: ObservableObject {
             self.failedManualFormat = nil
         }
         #if DEBUG
-        if startupMetrics.elapsedMs(for: .clockStarted) == nil {
-            noteStartup(.clockStarted)
-            logStartup("clock-started")
-            startStartupDisplayProbe()
+        // The 100 ms renderer poll and 50 ms display poll are opt-in only.
+        // Ordinary Debug sessions retain failures without high-rate logging.
+        if UserDefaults.standard.bool(forKey: "typetype.sabrVerboseDiagnostics") {
+            if startupMetrics.elapsedMs(for: .clockStarted) == nil {
+                noteStartup(.clockStarted)
+                logStartup("clock-started")
+                startStartupDisplayProbe()
+            }
+            startRendererProbe()
         }
-        startRendererProbe()
         #endif
         state = TVL10n.value(
             prefersPause ? "player.paused" : "player.playing"

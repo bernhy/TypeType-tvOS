@@ -27,7 +27,7 @@ is developed in this project. Thanks to the upstream TypeType developers.
 
 ## Implemented so far
 
-- SwiftUI TV navigation and Android-inspired visual language: dark ink background, TypeType red accent, thumbnail-first recommendation grid, collapsible icon sidebar and tvOS focus navigation. Search, details and library remain independently navigable.
+- SwiftUI TV navigation and Android-inspired visual language: dark ink background, TypeType red accent, thumbnail-first recommendation grid, collapsible icon sidebar and tvOS focus navigation. Channel avatars appear in video details and the SABR OSD; channel banners (or a blurred avatar) sit behind the channel controls. Search, details and library remain independently navigable.
 - HTTPS by default; HTTP is offered explicitly for local/private hosts only. The connection screen uses the native URL keyboard and separates hostname from protocol.
 - Self-signed HTTPS certificates are rejected until the user reviews their subject, chain and SHA-256 fingerprint and explicitly pins that certificate to the exact origin in Keychain. Changing it prompts again.
 - Same-origin thumbnails use the same pinned server connection; a bounded in-memory thumbnail cache reduces redundant requests. External CDN images keep Apple's standard TLS checks.
@@ -42,7 +42,7 @@ is developed in this project. Thanks to the upstream TypeType developers.
 
 TypeType Server SABR session and segments → Swift SABR transport + cache → in-memory fMP4 box and sample parser (`moof`/`traf`/`trun`/`tfdt`) → compressed `CMSampleBuffer` → `AVSampleBufferVideoRenderer` + `AVSampleBufferAudioRenderer` → shared `AVSampleBufferRenderSynchronizer`.
 
-**Seeking:** For nonzero positions the server is asked for up to 20 seconds of bounded compressed preroll while playback and audio begin at the exact requested target. Video samples before that target are marked `DoNotDisplay` so reference frames can be decoded without flashing old pictures. This targets the reported 10–20-second post-seek video freeze. A November 17 hardware test reported immediate A/V sync after seeking; seek latency under different codecs, network conditions and hardware generations is not yet established.
+**Seeking:** For nonzero positions the server is asked for up to 5 seconds of bounded compressed preroll while playback and audio begin at the exact requested target. Video samples before that target are marked `DoNotDisplay` so reference frames can be decoded without flashing old pictures. This targets the reported 10–20-second post-seek video freeze. A November 17 hardware test reported immediate A/V sync after seeking; seek latency under different codecs, network conditions and hardware generations is not yet established.
 
 ## Still required for a production release
 
@@ -51,7 +51,7 @@ TypeType Server SABR session and segments → Swift SABR transport + cache → i
 - Interactive endscreens, live chat, expanded queue/shuffle/repeat controls, additional focus/accessibility refinement and broader Android feature parity. SponsorBlock categories, skip overlays and account settings are implemented; their behavior, as well as subtitle and audio/quality controls, still requires broader live-device validation. Writing to playlists and Watch Later is implemented.
 - Validate the implemented session refresh/resume, multi-window forward prefetch and cache-aware seeking against real SABR windows to achieve the larger configured buffer target when the server allows it; collect long-run resource measurements, then add signing/distribution.
 
-In Debug builds, `TypeType SABR STARTUP` logs elapsed milliseconds from a start/seek action: `bootstrapMs`, `sessionMs`, `audioQueuedMs`, `videoQueuedMs`, `clockMs` and `displayReadyMs`. A value of `-1` means that milestone was not reached. `clock-started` and `display-ready` appear separately (after ten seconds, `display-timeout` is reported). Queued audio is **not** first audible sound, and display-layer readiness is **not** a guaranteed first visible-frame timestamp. Routine selection, seeking, buffering and renderer logs remain Debug-only; actionable repair/failure/recovery records remain in Release. See [TESTING.md](TESTING.md) for the checklist.
+In Debug builds, `TypeType SABR STARTUP` logs elapsed milliseconds from a start/seek action: `bootstrapMs`, `sessionMs`, `audioQueuedMs`, `videoQueuedMs`, `clockMs` and `displayReadyMs`. A value of `-1` means that milestone was not reached. `clock-started` and `display-ready` appear separately (after ten seconds, `display-timeout` is reported). Queued audio is **not** first audible sound, and display-layer readiness is **not** a guaranteed first visible-frame timestamp. Routine selection, seeking and buffering logs remain Debug-only; actionable repair/failure/recovery records remain in Release. The high-frequency renderer probe and display-readiness polling are now opt-in even in Debug (`typetype.sabrVerboseDiagnostics` UserDefaults boolean, default off). Apple's `AudioFormatDescription` console warnings are system output and cannot be removed by deleting TypeType NSLog calls. See [TESTING.md](TESTING.md) for the checklist.
 
 ## Build on GitHub
 

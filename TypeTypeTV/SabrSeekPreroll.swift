@@ -10,9 +10,13 @@ import Foundation
 /// otherwise leave the tvOS renderer waiting 10-20 seconds for its first RAP.
 ///
 /// Keep this a bounded, deterministic look-behind: the server handles the
-/// exact sequence/segment mapping and the fMP4 reader finds real sync samples.
+/// exact sequence/segment mapping and the fMP4 reader marks pre-target frames
+/// invisible. Hardware validation remains important for unusually long GOPs.
 enum SabrSeekPreroll {
-    static let maximumMilliseconds: Int64 = 20_000
+    // Twenty seconds of hidden frames overwhelmed the paused video renderer:
+    // seeking started the A/V clock while the video queue was still far before
+    // the target. Bound preroll to one typical fMP4 keyframe interval instead.
+    static let maximumMilliseconds: Int64 = 5_000
 
     static func requestStart(targetMs: Int64, explicit: Bool) -> Int64 {
         let target = max(0, targetMs)

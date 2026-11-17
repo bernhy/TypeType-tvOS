@@ -32,7 +32,7 @@ Simulator and wire-contract tests do **not** prove reliable playback on a physic
 ## Known player limitations
 
 - Each SABR fragment is parsed directly from memory via ISO BMFF boxes and submitted as compressed samples; the former temporary-file AVAssetReader / explicit VT decoder pipeline has been removed. Additional server variants and codecs still require testing.
-- Seek can reuse the existing SABR session. A bounded 20-second decoder preroll supplies reference frames while hiding pre-target video and trimming pre-target AAC packets. The previously reported 10–20-second post-seek desynchronisation was no longer observed on November 17; repeat under other codecs/devices and measure objectively.
+- Seek can reuse the existing SABR session. A bounded 5-second decoder preroll supplies reference frames while hiding pre-target video and trimming pre-target AAC packets. The previously reported 10–20-second post-seek desynchronisation was no longer observed on November 17; repeat under other codecs/devices and measure objectively.
 - Hardware capability filtering remains, but AVSampleBufferVideoRenderer does not report its actual hardware/software execution mode. VP9/AV1 profiles, frame rate and HDR support require real-device validation.
 - This project does not require a server-side HLS bridge or any TypeType Server modifications.
 
@@ -79,6 +79,13 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 - Treat `audioQueuedMs` as first compressed audio submitted, **not** first audible sound. `displayReadyMs` is `AVSampleBufferDisplayLayer.isReadyForDisplay` observed by a 50 ms Debug-only poll, **not** an exact first-presented-frame timestamp. Use visual/audio observation for user-perceived latency.
 - Record Apple TV generation, tvOS version, codec/itag, resolution, whether session reuse occurred, and perceived time to synchronized picture/sound. Do not include tokens, media URLs or session IDs in logs.
 - Target improvements only after comparing bootstrap/session, queue and display-readiness stages. No faster clock start should sacrifice the now-correct A/V synchronisation.
+
+## Channel artwork and diagnostics
+
+- Open a video detail and the SABR OSD: the provider's channel avatar should appear beside its name. Artwork is loaded asynchronously through the existing verified thumbnail session and must not delay playback.
+- Open a channel: the server's banner image should fill the top header behind the Subscribe, Videos/Shorts and additional action buttons. Where no banner exists, use a softly blurred avatar. Check light artwork, focus and Siri Remote navigation.
+- Switching channels must remove stale artwork; unsubscribed channels opened from videos should work.
+- High-frequency renderer and display-probe logs are opt-in: set `typetype.sabrVerboseDiagnostics` to true in device UserDefaults if you need the `SABR STARTUP` milestones. Apple CoreMedia/AudioFormatDescription system diagnostics are separate and are not controlled by TypeType NSLog.
 
 ## Interface, language and network checklist
 
