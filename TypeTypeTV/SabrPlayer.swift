@@ -965,7 +965,8 @@ final class SabrPlayerController: ObservableObject {
             )
             // Finished playback should restart at 0:00 instead of
             // resuming near the credits. Match Home's shared 90% rule.
-            if TVWatchedState.isWatched(video, positionMs: positionMs) {
+            if explicitPositionMs == nil,
+               TVWatchedState.isWatched(video, positionMs: positionMs) {
                 positionMs = 0
             }
             playbackPositionMs = positionMs
