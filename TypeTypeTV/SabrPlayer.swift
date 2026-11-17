@@ -1512,6 +1512,23 @@ final class SabrPlayerController: ObservableObject {
                     NSLog("TypeType SABR PRODUCER failed reason=%@ playbackMs=%lld cachedMs=%lld",
                           reason, max(0, Int64(self.playbackSeconds() * 1_000)),
                           self.cachedThroughMs)
+                    let clock = self.playbackSeconds()
+                    if !Task.isCancelled, self.isInitialized,
+                       clock.isFinite, clock >= 0,
+                       SabrEarlySessionPrewarmPolicy.shouldPrepare(for: error),
+                       let anchor = SabrEarlySessionPrewarmPolicy.startPosition(
+                           playheadMs: Int64(clock * 1_000),
+                           audioQueuedEndMs: self.queuedAudioEndMs,
+                           videoQueuedEndMs: self.queuedVideoEndMs
+                       ) {
+                        NSLog("TypeType SABR EARLY producer-lost headroomMs=%lld",
+                              max(0, min(self.queuedAudioEndMs, self.queuedVideoEndMs)
+                                  - Int64(clock * 1_000)))
+                        self.beginEarlyRecovery(
+                            service: service, videoId: videoId,
+                            selection: choice, buffer: buffer, startMs: anchor
+                        )
+                    }
                     await mailbox.finish(error: error)
                 }
             }
@@ -1524,6 +1541,7 @@ final class SabrPlayerController: ObservableObject {
                 producer.cancel()
                 windowProducerTask = nil
                 activeMailbox = nil
+                abandonEarlyRecovery()
                 return
             } catch {
                 producer.cancel()
@@ -1554,7 +1572,10 @@ final class SabrPlayerController: ObservableObject {
                 // Never log the sessionId, bearer or media URL.
                 NSLog("TypeType SABR RECOVERY attempt=%d retry=%d playbackMs=%lld contiguousMs=%lld",
                       recoveryAttempt, allowed ? 1 : 0, lastPositionMs, positionMs)
-                guard allowed else { throw error }
+                guard allowed else {
+                    abandonEarlyRecovery()
+                    throw error
+                }
                 let refreshUpstream = SabrRecoveryRefreshPolicy.shouldRefresh(
                     attempt: recoveryAttempt,
                     currentFailurePositionMs: lastPositionMs,
@@ -1576,6 +1597,17 @@ final class SabrPlayerController: ObservableObject {
                     transportMs: restartPosition,
                     initialized: isInitialized
                 )
+                // The producer may already have started and warmed a new
+                // server session in parallel with the old renderer.
+                // A deliberate upstream-token refresh cannot reuse it.
+                if refreshUpstream { abandonEarlyRecovery() }
+                let prepared: SabrPrewarmedRecoverySession?
+                if refreshUpstream {
+                    prepared = nil
+                } else {
+                    prepared = try await takeEarlyRecovery()
+                }
+                try Task.checkCancellation()
                 recordProgress(force: true)
                 synchronizer.setRate(
                     0, time: CMTime(value: restartPosition, timescale: 1_000)
@@ -1583,11 +1615,13 @@ final class SabrPlayerController: ObservableObject {
                 isPlaying = false
                 state = TVL10n.value("player.connecting") +
                     " (\(recoveryAttempt))"
-                try await Task.sleep(
-                    nanoseconds: policy.delayNanoseconds(
-                        for: error, attempt: recoveryAttempt
+                if prepared == nil {
+                    try await Task.sleep(
+                        nanoseconds: policy.delayNanoseconds(
+                            for: error, attempt: recoveryAttempt
+                        )
                     )
-                )
+                }
                 try Task.checkCancellation()
                 if refreshUpstream {
                     // Request the local server's isolated metadata refresh
@@ -1598,11 +1632,42 @@ final class SabrPlayerController: ObservableObject {
                           recoveryAttempt, restartPosition)
                 }
                 let oldSession = sessionId
-                let renewed = try await retryTransient {
-                    try await service.start(
-                        videoId: videoId, selection: choice,
-                        positionMs: restartPosition, refreshUpstream: refreshUpstream
-                    )
+                let renewed: SabrSessionReply
+                if let prepared {
+                    // The speculative start was anchored near the previous
+                    // renderer frontier. The consumer's exact recovery target
+                    // can differ; seek only the NEW session to that target.
+                    do {
+                        renewed = try await service.seek(
+                            sessionId: prepared.reply.sessionId,
+                            selection: choice, positionMs: restartPosition
+                        )
+                        if renewed.sessionId != prepared.reply.sessionId {
+                            let unused = prepared.reply.sessionId
+                            Task { try? await service.release(sessionId: unused) }
+                        }
+                        NSLog("TypeType SABR EARLY handover prewarmed=1 offsetMs=%lld",
+                              restartPosition - prepared.startPositionMs)
+                    } catch {
+                        let unused = prepared.reply.sessionId
+                        Task { try? await service.release(sessionId: unused) }
+                        NSLog("TypeType SABR EARLY handover prewarmed=0 reason=seek-failed")
+                        renewed = try await retryTransient {
+                            try await service.start(
+                                videoId: videoId, selection: choice,
+                                positionMs: restartPosition,
+                                refreshUpstream: refreshUpstream
+                            )
+                        }
+                    }
+                } else {
+                    renewed = try await retryTransient {
+                        try await service.start(
+                            videoId: videoId, selection: choice,
+                            positionMs: restartPosition,
+                            refreshUpstream: refreshUpstream
+                        )
+                    }
                 }
                 if Task.isCancelled {
                     let abandoned = renewed.sessionId
