@@ -237,6 +237,10 @@ final class SabrPlayerController: ObservableObject {
     private let audioRenderer = AVSampleBufferAudioRenderer()
     private let synchronizer = AVSampleBufferRenderSynchronizer()
     private var running: Task<Void, Never>?
+    // Collapse a quick burst of Siri Remote presses into one server seek.
+    // The UI's configured skip distance is still applied per press.
+    private var pendingSeekTask: Task<Void, Never>?
+    private var pendingSeekTargetMs: Int64?
     // Incremented on every stop/start so late replies from previous playback
     // cannot overwrite the active video's state.
     private var playbackEpoch: UInt64 = 0
@@ -408,6 +412,9 @@ final class SabrPlayerController: ObservableObject {
 
     func stop(preservingSessionId: String? = nil) {
         playbackEpoch &+= 1
+        pendingSeekTask?.cancel()
+        pendingSeekTask = nil
+        pendingSeekTargetMs = nil
         if isInitialized { recordProgress(force: true) }
         TVPlaybackPresenceReporter.shared.stop(owner: presenceOwner)
         presenceReported = false
@@ -508,10 +515,29 @@ final class SabrPlayerController: ObservableObject {
 
     func seek(api: TypeTypeAPI, video: VideoItem, offsetMs: Int64) {
         let seconds = CMTimeGetSeconds(synchronizer.currentTime())
-        let anchor = isInitialized && seconds.isFinite ? Int64(seconds * 1000) : playbackPositionMs
-        let upper = durationMs > 0 ? max(0, durationMs - 1_000) : Int64.max
+        let liveAnchor = isInitialized && seconds.isFinite
+            ? Int64(seconds * 1_000) : playbackPositionMs
+        let anchor = pendingSeekTargetMs ?? liveAnchor
+        let target = SabrSeekTargetPolicy.target(
+            anchorMs: anchor, offsetMs: offsetMs, durationMs: durationMs
+        )
+        pendingSeekTargetMs = target
+        pendingSeekTask?.cancel()
+        // Coalesce fast consecutive remote presses before calling the stateful
+        // SABR /seek endpoint. This avoids overlapping generation changes.
+        pendingSeekTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: 120_000_000) }
+            catch { return }
+            guard let self, !Task.isCancelled else { return }
+            self.pendingSeekTask = nil
+            self.pendingSeekTargetMs = nil
+            self.performSeek(api: api, video: video, anchor: anchor, target: target)
+        }
+    }
+
+    private func performSeek(api: TypeTypeAPI, video: VideoItem,
+                             anchor: Int64, target: Int64) {
         let wasPaused = prefersPause
-        let target = min(upper, max(0, anchor + offsetMs))
         let reuse: SabrSeekReuse?
         if isInitialized && !bufferingClockPaused,
            !sessionId.isEmpty, let service = playbackService,
@@ -523,11 +549,138 @@ final class SabrPlayerController: ObservableObject {
             reuse = nil
         }
         #if DEBUG
-        NSLog("TypeType SABR SEEK fromMs=%lld toMs=%lld reuse=%d",
-              anchor, target, reuse == nil ? 0 : 1)
+        NSLog("TypeType SABR SEEK mode=%@ fromMs=%lld toMs=%lld",
+              reuse == nil ? "cold" : "fast", anchor, target)
         #endif
-        prepareStart(api: api, video: video, positionMs: target, reusing: reuse)
+        if let reuse {
+            prepareFastSeek(api: api, video: video,
+                            targetMs: target, reusing: reuse)
+        } else {
+            prepareStart(api: api, video: video,
+                         positionMs: target, reusing: nil)
+        }
         prefersPause = wasPaused
+    }
+
+    /// Fast seek on the SAME video/itag. Keep the existing display layer,
+    /// audio renderer, synchronizer, channel metadata and codec selection.
+    /// Reset old samples/generation, but do not re-bootstrap or reselect.
+    private func prepareFastSeek(api: TypeTypeAPI, video: VideoItem,
+                                 targetMs: Int64, reusing: SabrSeekReuse) {
+        playbackEpoch &+= 1
+        if isInitialized { recordProgress(force: true) }
+        TVPlaybackPresenceReporter.shared.stop(owner: presenceOwner)
+        presenceReported = false
+        running?.cancel()
+        running = nil
+        windowProducerTask?.cancel()
+        windowProducerTask = nil
+        if let mailbox = activeMailbox {
+            Task { await mailbox.finish(error: CancellationError()) }
+        }
+        activeMailbox = nil
+        if let previousCache = segmentCache {
+            Task { await previousCache.clear() }
+        }
+        let buffer = SabrBufferSettings.preferences(live: video.isLive == true)
+        segmentCache = SabrFragmentCache(maxMiB: buffer.cacheMiB)
+        cachedThroughMs = targetMs
+        diskCacheBytes = 0
+        playbackPositionMs = targetMs
+        positionMs = targetMs
+        failure = nil
+        playbackUnavailable = false
+        playbackFinished = false
+        // Hold the last frame as a still while the new generation arrives.
+        // Old compressed samples are flushed; they must not play after seeking.
+        synchronizer.setRate(0,
+            time: CMTime(value: targetMs, timescale: 1_000))
+        videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: false,
+                                              completionHandler: nil)
+        audioRenderer.flush()
+        isInitialized = false
+        hasQueuedFirstAudio = false
+        hasQueuedFirstVideo = false
+        resetBufferClock()
+        isPlaying = false
+        state = TVL10n.value("player.connecting")
+        currentAPI = api
+        currentVideo = video
+        playbackService = reusing.service
+        sessionId = reusing.sessionId
+        selection = reusing.selection
+        #if DEBUG
+        rendererProbeTask?.cancel()
+        rendererProbeTask = nil
+        startupDisplayProbeTask?.cancel()
+        startupDisplayProbeTask = nil
+        startupMetrics = SabrStartupMetrics()
+        startupStartedUptime = ProcessInfo.processInfo.systemUptime
+        startupMode = "fast-seek"
+        #endif
+        let epoch = playbackEpoch
+        running = Task { [weak self] in
+            await self?.runFastSeek(api: api, video: video, targetMs: targetMs,
+                                    buffer: buffer, epoch: epoch,
+                                    reusing: reusing)
+        }
+    }
+
+    private func runFastSeek(api: TypeTypeAPI, video: VideoItem,
+                             targetMs: Int64, buffer: SabrBufferSettings,
+                             epoch: UInt64, reusing: SabrSeekReuse) async {
+        guard playbackEpoch == epoch, !Task.isCancelled else { return }
+        guard let id = VideoAddress.youtubeID(video.url) else { return }
+        let transportMs = SabrSeekPreroll.requestStart(
+            targetMs: targetMs, explicit: targetMs > 0
+        )
+        do {
+            let reply = try await retryTransient {
+                try await reusing.service.seek(
+                    sessionId: reusing.sessionId, selection: reusing.selection,
+                    positionMs: transportMs
+                )
+            }
+            // A superseded seek may complete after a newer request. Never
+            // release the same reused ID behind the newer generation's back.
+            guard playbackEpoch == epoch, !Task.isCancelled else {
+                if reply.sessionId != reusing.sessionId {
+                    let abandoned = reply.sessionId
+                    Task.detached(priority: .utility) {
+                        try? await reusing.service.release(sessionId: abandoned)
+                    }
+                }
+                return
+            }
+            guard !reply.sessionId.isEmpty else {
+                throw SabrFailure.invalidResponse("fast seek sessionId")
+            }
+            if reply.sessionId != reusing.sessionId {
+                let stale = reusing.sessionId
+                Task.detached(priority: .utility) {
+                    try? await reusing.service.release(sessionId: stale)
+                }
+            }
+            sessionId = reply.sessionId
+            generation = reply.generation
+            #if DEBUG
+            noteStartup(.session)
+            #endif
+            try await consume(
+                service: reusing.service, videoId: id,
+                choice: reusing.selection, positionMs: transportMs,
+                presentationStartMs: targetMs, buffer: buffer
+            )
+        } catch is CancellationError {
+            return
+        } catch {
+            guard playbackEpoch == epoch, !Task.isCancelled else { return }
+            NSLog("TypeType SABR FAST-SEEK fallback targetMs=%lld", targetMs)
+            // Session expiry/attestation remains handled by the known cold
+            // path. Preserve the ORIGINAL target; never fall back to preroll.
+            prepareStart(api: api, video: video,
+                         positionMs: targetMs, reusing: nil)
+        }
     }
 
     func setSponsorMuted(_ muted: Bool) {
@@ -1294,9 +1447,14 @@ final class SabrPlayerController: ObservableObject {
                 let clockMs = max(0, Int64(playbackSeconds() * 1_000))
                 let confirmedMs = max(restartPosition, positionMs - 1_000)
                 restartPosition = min(clockMs, confirmedMs)
-                // A subsequent recovery resumes at its own position; the
-                // original seek target is no longer an active preroll barrier.
-                presentationStart = restartPosition
+                // A failed window during seek preroll has not shown the
+                // requested picture yet. Preserve the target on retry;
+                // otherwise the transport look-behind becomes playback time.
+                presentationStart = SabrSeekTargetPolicy.recoveryPresentation(
+                    desiredMs: presentationStart,
+                    transportMs: restartPosition,
+                    initialized: isInitialized
+                )
                 recordProgress(force: true)
                 synchronizer.setRate(
                     0, time: CMTime(value: restartPosition, timescale: 1_000)
