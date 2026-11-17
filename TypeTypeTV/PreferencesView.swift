@@ -20,6 +20,8 @@ struct PreferencesView: View {
     @AppStorage("typetype.maxHeight") private var maxHeight = 2160
     @AppStorage("typetype.skipSeconds") private var skipSeconds = 10
     @AppStorage("typetype.playerNoticeSeconds") private var playerNoticeSeconds = 10
+    @AppStorage("typetype.osdSeconds") private var osdSeconds = 5
+    @AppStorage("typetype.osdDebug") private var osdDebug = false
     @AppStorage("typetype.bufferForwardSeconds") private var bufferForwardSeconds = 180
     @AppStorage("typetype.bufferBackSeconds") private var bufferBackSeconds = 120
     @AppStorage("typetype.bufferCacheMiB") private var bufferCacheMiB = 512
@@ -461,6 +463,21 @@ struct PreferencesView: View {
                     }
                 }
             }
+            TVSettingsCard("settings.osdTitle", summary: "settings.osdHelp") {
+                TVSettingsMenuRow(
+                    "settings.osdDuration", selection: $osdSeconds,
+                    focus: $focusedControl, focusTarget: "device.osd",
+                    onMoveLeft: { returnFocusToGroup() }
+                ) {
+                    ForEach([0, 3, 5, 8, 10, 15], id: \.self) { seconds in
+                        Text(seconds == 0 ? TVL10n.value("player.optionsOff") :
+                             TVL10n.formatted("common.seconds", seconds))
+                            .tag(seconds)
+                    }
+                }
+                Toggle("settings.osdDebug", isOn: $osdDebug)
+                    .tint(TTTheme.accent)
+            }
             TVSettingsCard("settings.playerNoticeTitle",
                            summary: "settings.playerNoticeHelp") {
                 TVSettingsMenuRow(
@@ -597,6 +614,8 @@ struct PreferencesView: View {
                 maxHeight = 2160
                 skipSeconds = 10
                 playerNoticeSeconds = TVPlayerNoticePolicy.defaultSeconds
+                osdSeconds = 5
+                osdDebug = false
                 bufferForwardSeconds = 180
                 bufferBackSeconds = 120
                 bufferCacheMiB = 512
