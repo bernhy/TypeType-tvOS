@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// tvOS has no native SwiftUI Slider. This is a Siri-Remote-friendly transport
 /// focus target: left/right preview a position, Select commits it, and a touch
@@ -74,23 +75,25 @@ struct TVOSSeekScrubber: View {
                 }
                 .frame(height: 48)
                 .contentShape(Rectangle())
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 6)
-                        .onChanged { gesture in
+                .overlay {
+                    // SwiftUI DragGesture is unavailable on tvOS. UIKit's
+                    // UIPanGestureRecognizer handles the Siri Remote touch
+                    // surface while the SwiftUI Button owns focus/select.
+                    TVScrubTouchSurface(
+                        onChanged: { x, trackedWidth in
                             preview = TVOSSeekScrubPolicy.seconds(
-                                at: gesture.location.x, width: width,
-                                duration: duration
+                                at: x, width: trackedWidth, duration: duration
                             )
                             onPreviewChange(true)
-                        }
-                        .onEnded { gesture in
+                        },
+                        onEnded: { x, trackedWidth in
                             preview = TVOSSeekScrubPolicy.seconds(
-                                at: gesture.location.x, width: width,
-                                duration: duration
+                                at: x, width: trackedWidth, duration: duration
                             )
                             commit()
                         }
-                )
+                    )
+                }
             }
             .frame(height: 48)
         }
@@ -138,5 +141,51 @@ struct TVOSSeekScrubber: View {
         case "chapter": return .purple
         default: return .yellow
         }
+    }
+}
+
+private final class TVScrubTouchView: UIView {
+    var onChanged: ((CGFloat, CGFloat) -> Void)?
+    var onEnded: ((CGFloat, CGFloat) -> Void)?
+
+    override var canBecomeFocused: Bool { false }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(moved(_:)))
+        pan.cancelsTouchesInView = false
+        addGestureRecognizer(pan)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("TVScrubTouchView is programmatic")
+    }
+
+    @objc private func moved(_ gesture: UIPanGestureRecognizer) {
+        let x = gesture.location(in: self).x
+        switch gesture.state {
+        case .began, .changed: onChanged?(x, bounds.width)
+        case .ended: onEnded?(x, bounds.width)
+        default: break
+        }
+    }
+}
+
+private struct TVScrubTouchSurface: UIViewRepresentable {
+    let onChanged: (CGFloat, CGFloat) -> Void
+    let onEnded: (CGFloat, CGFloat) -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        let view = TVScrubTouchView()
+        view.onChanged = onChanged
+        view.onEnded = onEnded
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        guard let view = uiView as? TVScrubTouchView else { return }
+        view.onChanged = onChanged
+        view.onEnded = onEnded
     }
 }
