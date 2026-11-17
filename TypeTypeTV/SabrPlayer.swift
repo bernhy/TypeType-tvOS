@@ -2224,6 +2224,7 @@ struct SabrPlayerView: View {
     @State private var optionsSection: SabrPlayerOptions.Section = .quality
     @State private var clockMode = false
     @State private var channelArtwork: TVChannelArtwork?
+    @State private var osdStreamMetadata: StreamInfo?
     @State private var showingStartupPoster = true
     @State private var startupPosterProbe = 0
     @State private var extraEndScreenElements: [TVEndScreenElement] = []
@@ -2427,7 +2428,8 @@ struct SabrPlayerView: View {
                 )
             } else if controlsVisible {
                 TVPlayerOSD(
-                    api: api, video: video, artwork: channelArtwork,
+                    api: api, video: video,
+                    streamMetadata: osdStreamMetadata, artwork: channelArtwork,
                     engine: engine, skipSeconds: skipSeconds,
                     clockMode: clockMode, onClockMode: {
                         clockMode.toggle()
@@ -2451,6 +2453,7 @@ struct SabrPlayerView: View {
         }
         .task(id: video.url) {
             extraEndScreenElements = []
+            osdStreamMetadata = nil
             // Detail screens commonly have the same server metadata cached.
             // Never start a *second* SABR stream extraction at video startup:
             // it could compete with an active session for server resources.
@@ -2459,6 +2462,7 @@ struct SabrPlayerView: View {
             )
             if !Task.isCancelled {
                 extraEndScreenElements = cached?.endScreenElements ?? []
+                osdStreamMetadata = cached
             }
             // If the lightweight bootstrap has no cards, make one optional
             // lookup only when approaching the end (or after seeking there).
@@ -2481,6 +2485,7 @@ struct SabrPlayerView: View {
             )
             if !Task.isCancelled {
                 extraEndScreenElements = metadata?.endScreenElements ?? []
+                osdStreamMetadata = metadata
             }
         }
         .task(id: startupPosterProbe) {
