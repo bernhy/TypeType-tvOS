@@ -64,6 +64,29 @@ struct SabrEarlyTransportRetryPolicy {
     }
 }
 
+/// The network producer can prepare a new SABR session while media from the
+/// old session is still playing. Only the common queued A/V time is safe to
+/// use as an approximate prewarm anchor, never one track's high-water mark.
+enum SabrEarlySessionPrewarmPolicy {
+    static let minimumBufferedMs: Int64 = 3_000
+
+    static func startPosition(playheadMs: Int64,
+                              audioQueuedEndMs: Int64,
+                              videoQueuedEndMs: Int64) -> Int64? {
+        let end = min(audioQueuedEndMs, videoQueuedEndMs)
+        guard playheadMs >= 0, end - playheadMs >= minimumBufferedMs else {
+            return nil
+        }
+        return max(0, end - 2_000)
+    }
+
+    static func shouldPrepare(for error: Error) -> Bool {
+        SabrRecoveryPolicy().canRetry(
+            error, completedAttempts: 1, elapsedSeconds: 0
+        )
+    }
+}
+
 /// Bounded recovery patterned after Android's stream reconnect policy.
 /// HTTP client/credential failures and malformed media stay terminal;
 /// network outages, expired SABR sessions and renderer stalls are retried.

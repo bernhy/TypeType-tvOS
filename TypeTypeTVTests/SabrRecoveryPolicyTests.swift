@@ -3,6 +3,34 @@ import XCTest
 @testable import TypeTypeTV
 
 final class SabrRecoveryPolicyTests: XCTestCase {
+    func testEarlySessionPreparationUsesCommonAVBufferAndRetryableErrors() {
+        XCTAssertEqual(SabrEarlySessionPrewarmPolicy.startPosition(
+            playheadMs: 30_000, audioQueuedEndMs: 55_000,
+            videoQueuedEndMs: 42_000
+        ), 40_000)
+        XCTAssertNil(SabrEarlySessionPrewarmPolicy.startPosition(
+            playheadMs: 30_000, audioQueuedEndMs: 45_000,
+            videoQueuedEndMs: 32_999
+        ))
+        XCTAssertNil(SabrEarlySessionPrewarmPolicy.startPosition(
+            playheadMs: 0, audioQueuedEndMs: 0,
+            videoQueuedEndMs: 20_000
+        ))
+        XCTAssertTrue(SabrEarlySessionPrewarmPolicy.shouldPrepare(
+            for: SabrFailure.server(404, "sabr/playback/session/segments")
+        ))
+        XCTAssertTrue(SabrEarlySessionPrewarmPolicy.shouldPrepare(
+            for: URLError(.networkConnectionLost)
+        ))
+        XCTAssertFalse(SabrEarlySessionPrewarmPolicy.shouldPrepare(
+            for: SabrFailure.unavailable
+        ))
+        XCTAssertFalse(SabrEarlySessionPrewarmPolicy.shouldPrepare(
+            for: CancellationError()
+        ))
+    }
+
+
     func testEarlyTransportRetriesOnlySafePlaybackRoutesAndTransientFailures() {
         let policy = SabrEarlyTransportRetryPolicy(delaysMilliseconds: [1, 2])
         XCTAssertEqual(SabrEarlyTransportRetryPolicy.route(
