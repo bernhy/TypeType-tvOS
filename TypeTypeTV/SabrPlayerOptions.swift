@@ -1,17 +1,21 @@
 import SwiftUI
 
-/// tvOS focus-driven options, opened with Up/Down on the Siri Remote.
-/// The remote capture layer is hidden while this sheet is presented.
+/// Direct OSD popups. The quality/audio/subtitle engines are reused,
+/// while playback preferences use the exact keys of the Settings screen.
 struct SabrPlayerOptions: View {
     @ObservedObject var engine: SabrPlayerController
     let onQuality: (Int?) -> Void
     let onAudio: (SabrBootstrap.Audio) -> Void
     let onSubtitle: (SabrBootstrap.Subtitle?) -> Void
     let onClose: () -> Void
-
-    private enum Section: Hashable {
-        case quality, audio, subtitles
+    enum Section: Hashable {
+        case quality, audio, subtitles, settings
     }
+    var initialSection: Section = .quality
+    @AppStorage("typetype.skipSeconds") private var skipSeconds = 10
+    @AppStorage("typetype.playerNoticeSeconds") private var noticeSeconds = 10
+    @AppStorage("typetype.osdSeconds") private var osdSeconds = 5
+    @AppStorage("typetype.osdDebug") private var osdDebug = false
     @State private var section: Section = .quality
     @State private var qualityCodec: SabrVideoCodecFamily?
     @FocusState private var focusedSection: Section?
@@ -38,6 +42,10 @@ struct SabrPlayerOptions: View {
                     .buttonStyle(.bordered)
                     .tint(section == .subtitles ? TTTheme.accent : TTTheme.muted)
                     .focused($focusedSection, equals: .subtitles)
+                Button("Einstellungen") { section = .settings }
+                    .buttonStyle(.bordered)
+                    .tint(section == .settings ? TTTheme.accent : TTTheme.muted)
+                    .focused($focusedSection, equals: .settings)
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
@@ -104,7 +112,7 @@ struct SabrPlayerOptions: View {
                                     engine.currentAudioTrackId == track.audioTrackId
                             ) { onAudio(track) }
                         }
-                    } else {
+                    } else if section == .subtitles {
                         optionRow(
                             TVL10n.value("player.optionsOff"),
                             checked: engine.selectedSubtitleURL == nil
@@ -121,6 +129,8 @@ struct SabrPlayerOptions: View {
                                 .font(.callout)
                                 .foregroundStyle(.red)
                         }
+                    } else {
+                        playbackSettings
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -133,13 +143,60 @@ struct SabrPlayerOptions: View {
         }
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
         .onAppear {
-            focusedQualityRow = "quality.auto"
+            section = initialSection
+            Task { @MainActor in
+                await Task.yield()
+                focusedSection = initialSection
+                if initialSection == .quality {
+                    focusedQualityRow = "quality.auto"
+                }
+            }
         }
         .onExitCommand {
             if section == .quality, qualityCodec != nil {
                 showCodecList()
             } else {
                 onClose()
+            }
+        }
+    }
+
+    /// Settings shown directly beside playback; changes immediately apply to
+    /// the global Settings values without duplicating a second preference store.
+    private var playbackSettings: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            settingRow("settings.skipLength", values: [5, 10, 15, 20],
+                       selected: $skipSeconds)
+            settingRow("OSD automatisch ausblenden", values: [0, 3, 5, 8, 10, 15],
+                       selected: $osdSeconds)
+            settingRow("settings.playerNoticeDuration",
+                       values: TVPlayerNoticePolicy.choices,
+                       selected: $noticeSeconds)
+            Toggle("Codec und Buffer als Debug-Informationen", isOn: $osdDebug)
+                .font(.system(size: 20))
+                .tint(TTTheme.accent)
+            Text("0 Sekunden bei der OSD-Dauer bedeutet: nicht automatisch ausblenden.")
+                .font(.caption)
+                .foregroundStyle(TTTheme.muted)
+        }
+    }
+
+    private func settingRow(_ label: String, values: [Int],
+                            selected: Binding<Int>) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(TVL10n.value(label)).font(.headline)
+            HStack(spacing: 7) {
+                ForEach(values, id: \.self) { seconds in
+                    Button {
+                        selected.wrappedValue = seconds
+                    } label: {
+                        Text(seconds == 0 ? "Aus" : "\(seconds) s")
+                            .font(.system(size: 18, weight: .medium))
+                            .frame(minWidth: 57)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(selected.wrappedValue == seconds ? TTTheme.accent : TTTheme.muted)
+                }
             }
         }
     }
