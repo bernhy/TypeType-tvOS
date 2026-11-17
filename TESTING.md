@@ -1,6 +1,6 @@
 # TypeType tvOS — hardware test checklist
 
-Simulator and wire-contract tests do **not** prove reliable playback on a physical Apple TV. A November 17 hardware report confirms stable A/V on the direct renderer path and immediate synchronisation after seeks, with approximately one second to initial picture/sound estimated by observation. Long-run multi-device coverage, objective timings and codecs still require validation before a production-ready claim.
+Simulator and wire-contract tests do **not** prove reliable playback on a physical Apple TV. November 17 hardware reports confirm stable A/V on the direct renderer path, immediate picture after seeks **without a black frame**, correct startup-thumbnail fade and release, and the repaired focus/navigation and channel-tile behaviors through `6c1256b`. Initial picture/sound arrival was estimated at approximately one second, not instrumentally measured. The newer "Ansehen fortsetzen" Home filtering (`6be64f7`, `c02d0fb`) still needs its own hardware verification; long-run multi-device, codec and HDR testing remain open.
 
 ## Devices
 
@@ -82,10 +82,10 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 
 ## tvOS focus regression: block lists, channel tiles and Home
 
-- Settings → Blocked: navigate Refresh → video Unblock → channel Unblock → keyword input → keyword Unblock with Down, including keywords below the viewport. The entire focused row should brighten while the button keeps native focus.
-- Channel Playlists: focus a tile; the entire tile zooms and its information panel brightens, with no white outline. Video thumbnails use the established Home tile effect.
-- Home: move Right twice (or further), wait, scroll, paginate, open a video and return. No delayed focus task should restore recommendation 0 or select the collapsed global rail unexpectedly.
-- Search, Library, subscription feed and channel videos: after opening details and returning, keep the same card focused and preserve scroll. Only an explicit global navigation entry should request initial page focus; refresh remains manual.
+- **Hardware-confirmed:** Settings → Blocked: navigate Refresh → video Unblock → channel Unblock → first keyword Unblock with Down, including rows initially below the viewport. Press Up to reach the keyword entry field. The entire active row brightens while the button retains actual tvOS focus; globally blocked entries stay disabled.
+- **Hardware-confirmed:** Channel Playlists and public-playlist videos: the entire tile zooms and its lower information panel brightens, without any white focus outline. Video thumbnails retain the Home card effect.
+- **Hardware-confirmed:** Home: move Right repeatedly, wait, scroll, paginate, open a video and return. Delayed focus tasks must not restore recommendation 0 or select the collapsed global rail unexpectedly.
+- **Hardware-confirmed:** Search, Library, subscription feed and channel videos preserve the chosen card/scroll when returning from details. Only explicit navigation entries should request initial page focus; refresh remains manual.
 
 ## Startup poster image lifetime (SABR)
 
@@ -94,12 +94,11 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 - Re-test first-frame fade, repeated seek forward/backward, rapid Siri Remote seek bursts, retry after failure, no-image cases, and transitions. Normal seeks must never reload or redisplay the poster.
 - Confirm in Instruments that image-view memory is reclaimed after fade; UIKit/CoreAnimation may retain transient allocations until the OS collects them.
 
-## SABR stable startup poster experiment
+## SABR startup poster regression — resolved on hardware
 
-- Regression reference: `5e660c890b2d` had immediate picture after forward/backward seek. The first SABR startup-poster implementation introduced black flashes; removing it in `493334d30b19` restored fast-seek video on a real Apple TV.
-- This branch keeps the video surface and startup poster **always mounted**. Only the poster's opacity changes after display readiness. It must show the video thumbnail on the first cold startup, then fade without remounting the video surface.
-- Test ±10/20-second seeks repeatedly after the poster fades, including rapid sequential remote presses. There must be **no black flash and no thumbnail reappearance on seek**. A Debug console marker `TypeType SABR SURFACE makeUIView` should occur on first attachment, not for ordinary seeks.
-- Check initial startup, paused before first frame, retries, playback completion, channel/playlist launches, and videos with no thumbnail. If black flashes return, leave the stable main without SABR startup artwork and revisit the layer architecture.
+- Regression record: `5e660c890b2d` showed immediate picture during seeking. A later conditional SwiftUI poster produced black frames; removing it in `493334d` resolved the issue. Keeping the poster view permanently mounted while changing only its opacity (`86f0853`) restored the thumbnail **without** black seek frames, as verified on an Apple TV.
+- Final `main` additionally releases the decoded `UIImage` reference after the fade while preserving the stable UIKit view (`3f3ad7d`); this was also confirmed working on hardware. Immediate reclamation of all platform-managed texture allocations is not guaranteed.
+- Regression coverage remains: ±10/20-second rapid seeks, first-frame thumbnail fade, retry, videos without artwork. The Debug marker `TypeType SABR SURFACE makeUIView` should not recur merely due to ordinary seeking. These are checks against regression, **not** active implementation TODOs.
 
 ## Startup thumbnails (SABR / HLS)
 
@@ -115,6 +114,13 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 - Settings → Content → Show end screens must hide/show the cards based on the account's `hideEndScreens` server setting. Videos without end-screen metadata should never display fabricated recommendations. Websites are intentionally unsupported on tvOS (no browser).
 - Playback must not wait for end-screen metadata. Prefer SABR bootstrap, reuse already-cached details, and only attempt optional stream metadata lookup within 60 seconds of the end. Confirm frequent seek/recovery and A/V synchronization remain unchanged.
 
+## Home — "Ansehen fortsetzen"
+
+- The Home rail is **not** the full recently-watched history. Eligible cards must have a saved playback position greater than zero and a known positive duration, and must not have reached the shared **90% watched threshold**. Completed, never-started, live and duration-unknown entries do not qualify.
+- Test a history with at least eight completed videos followed by a partially watched video: Home must find the resumable entry in the newest 100 raw events rather than blindly taking the first eight. Maximum eight eligible cards on Home; Library → History remains a separate, complete history.
+- Seek, resume, reach 90%, then return to Home: the completed card should disappear from this rail without deleting its Library history. Switching "Ansehen fortsetzen anzeigen" OFF must hide this rail only, not erase saved history or playback positions.
+- The rail heading, empty state and settings explanation must be correct in German, English, French and Spanish. **Hardware confirmation remains pending for the new filter.**
+
 ## Channel artwork and diagnostics
 
 - Open a video detail and the SABR OSD: the provider's channel avatar should appear beside its name. Artwork is loaded asynchronously through the existing verified thumbnail session and must not delay playback.
@@ -124,7 +130,7 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 
 ## Interface, language and network checklist
 
-- 34 tvOS UI tests cover server setup, Home and deep-card focus, sidebar, search, account/settings navigation, video details and SponsorBlock. Screenshot fixtures are Debug-only and do not replace testing with a physical Siri Remote.
+- The tvOS UI test suite covers server setup, Home and deep-card focus, sidebar, search, account/settings navigation, video details and SponsorBlock; the latest completed successful combined run for the confirmed navigation fixes was [#44111404428](https://github.com/bernhy/TypeType-tvOS/actions/runs/44111404428) (`6c1256b`). Screenshot fixtures are Debug-only and do not replace testing with a physical Siri Remote.
 - Check remote left movement from a first-column thumbnail, menu expansion and collapse, native URL keyboard, HTTPS/HTTP selection and hostname shortcuts.
 - Check approved self-signed same-origin thumbnail downloads, external CDN HTTPS, and that bearer tokens never go to a third party.
 - German is the default locale; English, French and Spanish translations are maintained in the shared Xcode String Catalog and validated by CI.

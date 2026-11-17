@@ -2,7 +2,7 @@
 
 Native, GPL-3.0 Apple TV client for [TypeType](https://github.com/TypeType-Video/TypeType), based on the Android TV reference (dev branch, 2026-11-13).
 
-**Status (2026-11-17):** The direct fMP4 / compressed-sample renderer pipeline from PR #15 and codec/seek cleanup from PR #16 are on `main`. Hardware testing reports stable A/V playback and immediately synchronised picture after seeking (previously delayed 10–20 seconds). Initial picture/sound arrival was estimated at approximately one second, not yet instrumentally measured. Debug-only startup metrics now cover bootstrap, session, first audio/video sample enqueues, media clock and display-layer readiness. VP9/AV1, HDR and cross-device stability still need hardware validation; this is not a production-ready release.
+**Status (2026-11-17):** The direct fMP4 / compressed-sample renderer (PR #15), keyframe-fast seek and stable startup thumbnail are on `main`. Physical Apple TV feedback confirms stable A/V, immediate picture when seeking forward/back without a black intermediate screen, and correct thumbnail fade after startup. The thumbnail's decoded image reference is released after fade without dismantling the surface. Focus corrections for blocked-keyword actions, Home, channel/public playlist tiles and detail returns were also accepted on hardware; the combined CI for those corrections passed on `6c1256b`. Home now has a separate **"Ansehen fortsetzen"** rail for started, unfinished VODs rather than the full History (latest code pending its own hardware check). Initial picture/sound arrival was estimated at about one second, not instrumentally measured. VP9/AV1, HDR and cross-device stability still need validation; this is not a production-ready release.
 
 
 ## Attribution and third-party licenses
@@ -27,7 +27,7 @@ is developed in this project. Thanks to the upstream TypeType developers.
 
 ## Implemented so far
 
-- SwiftUI TV navigation and Android-inspired visual language: dark ink background, TypeType red accent, thumbnail-first recommendation grid, collapsible icon sidebar and tvOS focus navigation. Channel avatars appear in video details and the SABR OSD; channel banners (or a blurred avatar) sit behind the channel controls. Search, details and library remain independently navigable.
+- SwiftUI TV navigation and Android-inspired visual language: dark ink background, TypeType red accent, thumbnail-first recommendation grid, collapsible icon sidebar and stable tvOS focus navigation. The Home "Continue watching" rail is resume-only; the full History stays in Library. Blocked-content Unblock rows highlight as a whole and keyword buttons are reachable via Siri Remote. Channel/public playlist tiles zoom and brighten their lower info pane without white borders. Channel avatars appear in video details and the SABR OSD; channel banners (or a blurred avatar) sit behind the channel controls.
 - HTTPS by default; HTTP is offered explicitly for local/private hosts only. The connection screen uses the native URL keyboard and separates hostname from protocol.
 - Self-signed HTTPS certificates are rejected until the user reviews their subject, chain and SHA-256 fingerprint and explicitly pins that certificate to the exact origin in Keychain. Changing it prompts again.
 - Same-origin thumbnails use the same pinned server connection; a bounded in-memory thumbnail cache reduces redundant requests. External CDN images keep Apple's standard TLS checks.
@@ -36,13 +36,15 @@ is developed in this project. Thanks to the upstream TypeType developers.
 - **Native YouTube SABR player:** bootstrap/session/position/prefetch/windows/segments, direct in-memory ISO BMFF demux (`avc1`/`hvc1`/`vp09`/`av01`), compressed samples sent directly to Apple video/audio renderers with independently scheduled A/V feeding and a shared clock. Play/pause, quality/audio selection and seek with keyframe preroll are supported.
 - Native HLS AVPlayer path for compatible non-YouTube sources.
 - Multilingual interface using Apple's single Xcode String Catalog (TypeTypeTV/Localizable.xcstrings), with semantic keys, dynamic language discovery and an in-app language picker. German is the default; English, French and Spanish are included. See LOCALIZATION.md.
-- CI validates translation resources, builds unsigned simulator and Apple TV Debug/Release targets and runs native SABR/network tests plus 34 tvOS UI tests.
+- CI validates translation resources, builds unsigned simulator and Apple TV Debug/Release targets and runs native SABR/network tests plus the evolving tvOS UI test suite. The last completed passing combined workflow before the new Home filter was [#44111404428](https://github.com/bernhy/TypeType-tvOS/actions/runs/44111404428).
 
 ## Technical playback path
 
 TypeType Server SABR session and segments → Swift SABR transport + cache → in-memory fMP4 box and sample parser (`moof`/`traf`/`trun`/`tfdt`) → compressed `CMSampleBuffer` → `AVSampleBufferVideoRenderer` + `AVSampleBufferAudioRenderer` → shared `AVSampleBufferRenderSynchronizer`.
 
 **Seeking:** For nonzero positions the server is asked for up to 5 seconds of bounded compressed preroll while playback and audio begin at the exact requested target. Video samples before that target are marked `DoNotDisplay` so reference frames can be decoded without flashing old pictures. This targets the reported 10–20-second post-seek video freeze. A November 17 hardware test reported immediate A/V sync after seeking; seek latency under different codecs, network conditions and hardware generations is not yet established.
+
+**Separate review:** Liquid Glass OSD Concept B is still an unmerged, open [draft PR #18](https://github.com/bernhy/TypeType-tvOS/pull/18); it is not part of the stable Main interface.
 
 ## Still required for a production release
 

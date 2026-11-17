@@ -1,5 +1,39 @@
 # Architectural decisions (2026-11-13) — overrides older experiments
 
+## Current implementation checkpoint — 2026-11-17
+
+The chronological sections below preserve the original architectural research
+and early milestones. The status below supersedes historical TODOs:
+
+- **Confirmed on physical Apple TV:** Direct SABR VOD playback and immediate
+  picture on forward/backward keyframe-aware seeks (`49fcd5f`); stable startup
+  thumbnail with no black seek frame (`86f0853`); released thumbnail image
+  reference after fade without dismantling its UIKit surface (`3f3ad7d`).
+  This is hardware user feedback, not exhaustive codec/device certification.
+- **Confirmed navigation and presentation:** Blocked video/channel row highlight,
+  accessible keyword Unblock focus path, channel/public playlist tiles with
+  zoom plus brighter information panel and no white focus halo, and fixes to
+  delayed focus theft on Home and after returning from detail screens
+  (`195ffa5`, `6140f16`, `943c5a6`, `49b91dc`, `6c1256b`).
+  User approved these changes; [CI #44111404428](https://github.com/bernhy/TypeType-tvOS/actions/runs/44111404428)
+  passed on `6c1256b`.
+- **Home — "Ansehen fortsetzen":** Separate from the complete Library history.
+  The rail now filters to started, unfinished VODs with known duration and a
+  positive saved position, excluding videos marked watched by the common
+  90% progress threshold. It inspects up to 100 recent raw history events
+  before selecting up to eight candidates. Text, empty state and server-setting
+  explanations are localized in de/en/fr/es (`6be64f7`, `c02d0fb`).
+  Hardware confirmation and CI for these newer commits remain separate.
+- **Implemented, not necessarily hardware-validated:** Server-supplied creator
+  end-screen cards, multi-group YouTube search filters, server-backed search
+  history, subscription/channel actions, and blocked-keyword management.
+- **Still open:** The Liquid Glass OSD Concept B remains a distinct **draft
+  [PR #18](https://github.com/bernhy/TypeType-tvOS/pull/18)** with unmerged
+  work pending review. Do not record it as shipped or delete its branch.
+  Broader device/codec/HDR/live tests and sustained streaming QA remain open.
+
+
+
 - Support **Apple TV 4K (2017) and newer**; not Apple TV HD. Target tvOS 26.0 minimum, including hardware verification on the Apple TV 4K (2017).
 - **No server changes:** use TypeType Server API v1 exactly as the Android client does; no tvOS-specific HLS bridge or server-side transcoding.
 - **Direct SABR playback on tvOS for YouTube:** implement native Swift session manager, segment transport, demux/timestamps, buffering, seeking, and audio/video synchronization. Feed compressed samples to public CoreMedia/AVFoundation/VideoToolbox hardware decoders/renderers. Other video services can still use native HLS as appropriate.
@@ -93,10 +127,10 @@ not an Android-TV release tag currently visible there.
 | Typed video-unavailable (1.17.1) | Map no_playable_streams/sabr_content_unavailable to permanent error | Verify additional upstream failure codes |
 | Upstream Retry-After (1.17.0 and earlier) | Implemented in SABR and HLS lookups/renewal | Check real outage durations on hardware |
 | Bilibili/NicoNico renewed HLS URLs (1.16.0) | AVPlayer stall refresh, bounded retries and position resume | Test discontinuities, expired URLs and pause/seek |
-| End screens (Android 0.6.0-beta.1, server 1.17.0) | Not implemented | Read endScreenElements API, add focusable overlay |
+| End screens (Android 0.6.0-beta.1, server 1.17.0) | Implemented: creator-placed SABR VOD cards and server hideEndScreens setting | Verify varied creator timelines, focus and device behavior |
 | Custom seekbar icon (Android 0.5.0) | Not implemented | Account settings and tvOS overlay |
 | Subscriptions/feed channel avatar filters (Android 0.4.x) | Channel browser and newest-first subscription feed implemented | Validate group/avatar filters, paging and device focus in real accounts |
-| Search filters videos/playlists/channels/music (Android 0.4.1) | Not implemented | Adapt search UI/API |
+| Search filters videos/playlists/channels/music (Android 0.4.1) | Implemented: server-advertised content, grouping and sorting filters; channel/playlist hits | Test edge cases and service-specific availability |
 | Skip unavailable videos in playlist (1.17.1) | Sequential Watch Later/playlist player implemented; skips permanent errors with countdown | Verify navigation and playback completion on device |
 | Playback queue, repeat/shuffle, playlist next (web 1.15–1.17) | Not implemented | Separate queue state machine |
 | SponsorBlock, chapters, richer subtitle formats | SponsorBlock category settings, skip overlays and chapter markers implemented; subtitles are experimental | Validate segment timing/remote focus on hardware; extend subtitle formats |
@@ -111,5 +145,5 @@ upstream behavior still need physical Apple TV and the user's TypeType server.
 - Existing account credentials must **never** be replaced by an automatic SABR guest-login fallback (including a response arriving after device-code pairing).
 - SABR startup now accumulates a bounded amount of first audio/video compressed samples across independent track-segment indices and windows; no identical index pairing is required. A stream that never offers both tracks is a proper failure, not a false completion.
 - An end-of-stream renderer clock that stops progressing while *playing* is classified as stalled after a bounded deadline. Explicit pause resets the clock watchdog.
-- Last verified green CI baseline: `d2c976bc` (2026-11-16); 184 native tests (3 skipped) and all 34 UI tests passed, together with Debug/Release Apple TV builds. Re-run CI after subsequent changes.
+- This historical milestone used the `d2c976bc` CI baseline (2026-11-16). The later **confirmed passing** combined CI is `6c1256b` ([run #44111404428](https://github.com/bernhy/TypeType-tvOS/actions/runs/44111404428)); see the current checkpoint above for changes after that run.
 - **Physical Apple TV playback has been demonstrated**, but extended A/V sync, rare AAC dropouts, 4K/HDR, multi-minute buffering, subtitles and the full remote-interaction matrix remain under investigation. Audio-specific experimental changes stay on their separate branch.

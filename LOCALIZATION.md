@@ -24,6 +24,12 @@ Xcode can also Export Localizations and Import Localizations for translators wor
 - German is the default for this project, and a System language option follows the Apple TV language setting.
 - Missing translations may fall back to German; complete human review and plural rules are still needed before publication.
 
+## Continue-watching terminology
+
+- On Home, the semantic key `home.continueWatching` displays **"Ansehen fortsetzen"** in German; English, French and Spanish equivalents are maintained in the same String Catalog. `home.continueWatchingEmpty` describes an empty *resume* rail, not an empty server history.
+- `settings.remoteContinue` and `settings.explain.continueWatching` refer to the same server-backed visibility preference. They must explain that only started, unfinished videos with saved playback positions appear, while the full History stays in Library and is never erased by hiding this rail.
+- German labels and all other translations are checked by `scripts/check_localizations.py`, but live tvOS visual/focus checks remain advisable for long translated strings.
+
 ## Verification
 
 CI validates source translations, missing referenced keys and matching printf placeholders. The tvOS Simulator UI tests include English Settings, French Home and Spanish Search snapshots.
