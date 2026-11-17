@@ -1987,12 +1987,28 @@ final class SabrPlayerController: ObservableObject {
                 #if DEBUG
                 let readStarted = ProcessInfo.processInfo.systemUptime
                 #endif
-                let rawSamples = try await SabrDirectMP4Reader.compressedSamples(
+                let videoBatch = try await SabrDirectMP4Reader.compressedSeekVideo(
                     initialization: videoInit, fragment: bytes,
-                    mediaType: .video,
                     presentationStartMs: presentationStartMs > start
                         ? presentationStartMs : nil
                 )
+                let rawSamples = videoBatch.buffers
+                if let rapMs = videoBatch.selectedRAPMs,
+                   !isInitialized, !hasQueuedFirstVideo,
+                   let pendingEnd = SabrSampleTimingProbe.actualEndMs(pendingVideo),
+                   pendingEnd <= presentationStartMs,
+                   pendingEnd <= rapMs {
+                    // A newer RAP supersedes older unsubmitted preroll GOPs.
+                    // Never touch samples that the renderer already owns.
+                    pendingVideo.removeAll()
+                }
+                #if DEBUG
+                if let rapMs = videoBatch.selectedRAPMs,
+                   UserDefaults.standard.bool(forKey: "typetype.sabrVerboseDiagnostics") {
+                    NSLog("TypeType SABR SEEK-RAP candidateMs=%lld targetMs=%lld",
+                          rapMs, presentationStartMs)
+                }
+                #endif
                 #if DEBUG
                 let readMs = Int((ProcessInfo.processInfo.systemUptime - readStarted) * 1_000)
                 #endif
@@ -2026,12 +2042,15 @@ final class SabrPlayerController: ObservableObject {
                     decodeStartMs: nativeStart
                 )
                 let nativeSampleStartMs = SabrSampleTimingProbe.actualStartMs(rawSamples)
-                let keepNative = SabrDirectTimestampPolicy.preserveNative(
-                    nativeStartMs: nativeSampleStartMs,
-                    expectedStartMs: resolved.startMs,
-                    previousActualEndMs: previousSampleEnd,
-                    previousSequence: previousVideoSequence, sequence: sequence
-                )
+                // Trimming to a later RAP in the fragment must retain its
+                // native tfdt/trun times, not get snapped back to moof start.
+                let keepNative = videoBatch.selectedRAPMs != nil ||
+                    SabrDirectTimestampPolicy.preserveNative(
+                        nativeStartMs: nativeSampleStartMs,
+                        expectedStartMs: resolved.startMs,
+                        previousActualEndMs: previousSampleEnd,
+                        previousSequence: previousVideoSequence, sequence: sequence
+                    )
                 let samples = keepNative ? rawSamples : try SabrSampleTimeline.aligned(
                     rawSamples, segmentStartMs: resolved.startMs
                 )
