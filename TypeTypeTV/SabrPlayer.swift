@@ -1404,7 +1404,12 @@ final class SabrPlayerController: ObservableObject {
                         requestedBufferGoalMs: min(20_000, buffer.forwardMilliseconds)
                     )
                     guard !Task.isCancelled, self.playbackEpoch == epoch else {
-                        try? await service.release(sessionId: reply.sessionId)
+                        let abandoned = reply.sessionId
+                        // The parent was cancelled by Stop/Seek. Release
+                        // from an independent task, not its cancelled context.
+                        Task.detached(priority: .utility) {
+                            try? await service.release(sessionId: abandoned)
+                        }
                         return
                     }
                     self.earlyRecoveryPrepared = SabrPrewarmedRecoverySession(
@@ -1415,7 +1420,9 @@ final class SabrPlayerController: ObservableObject {
                     return
                 } catch {
                     if let createdSessionID {
-                        try? await service.release(sessionId: createdSessionID)
+                        Task.detached(priority: .utility) {
+                            try? await service.release(sessionId: createdSessionID)
+                        }
                     }
                     guard !Task.isCancelled, self.playbackEpoch == epoch,
                           policy.canRetry(
