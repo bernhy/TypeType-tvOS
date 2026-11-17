@@ -3,15 +3,16 @@ import SwiftUI
 /// Direct OSD popups. The quality/audio/subtitle engines are reused,
 /// while playback preferences use the exact keys of the Settings screen.
 struct SabrPlayerOptions: View {
+    enum Section: Hashable {
+        case quality, audio, subtitles, settings
+    }
+
     @ObservedObject var engine: SabrPlayerController
+    var initialSection: Section = .quality
     let onQuality: (Int?) -> Void
     let onAudio: (SabrBootstrap.Audio) -> Void
     let onSubtitle: (SabrBootstrap.Subtitle?) -> Void
     let onClose: () -> Void
-    enum Section: Hashable {
-        case quality, audio, subtitles, settings
-    }
-    var initialSection: Section = .quality
     @AppStorage("typetype.skipSeconds") private var skipSeconds = 10
     @AppStorage("typetype.playerNoticeSeconds") private var noticeSeconds = 10
     @AppStorage("typetype.osdSeconds") private var osdSeconds = 5
