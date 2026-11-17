@@ -161,6 +161,7 @@ struct TVPlayerOSD: View {
                     duration: duration, current: playback,
                     preview: $scrubSeconds,
                     sponsorSegments: engine.sponsorSegments,
+                    skipSeconds: skipSeconds,
                     onPreviewChange: { dragging = $0 },
                     onCommit: { seconds in
                         onSeek(Int64(seconds * 1_000))
