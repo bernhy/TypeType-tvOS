@@ -541,6 +541,10 @@ struct HomeView: View {
     @State private var pendingHomeFocus: Task<Void, Never>?
     @State private var homeFocusGeneration = 0
     @State private var didLoadHomeOnce = false
+    // Scroll the horizontal resume rail only for explicit focus restoration,
+    // not on every native Siri Remote Right/Left movement.
+    @State private var resumeScrollTarget: String?
+    @State private var resumeScrollRequest = 0
 
     private func homeCardID(_ video: VideoItem, recommended: Bool) -> String {
         (recommended ? "recommendation-" : "recent-") + video.url
@@ -554,6 +558,10 @@ struct HomeView: View {
     @State private var recentNeedsLogin = false
     @State private var loading: Bool
     @State private var loadingRecent: Bool
+    @State private var historyOffset = 0
+    @State private var historyHasMore = false
+    @State private var historyLoadingMore = false
+    @State private var historyRequestID = UUID()
     @State private var nextCursor: String?
     @State private var hasMoreRecommendations = false
     @State private var loadingMore = false
@@ -568,7 +576,7 @@ struct HomeView: View {
             TVContinueWatchingPolicy.isEligible(
                 $0, positionMs: localProgress.position(for: $0.url) ?? $0.watchPositionMs
             )
-        }.prefix(8).map { $0 }
+        }
     }
     private var visibleRecommendations: [VideoItem] { contentPreferences.displayed(videos) }
     private var showRecent: Bool { contentPreferences.settings?.hideContinueWatching != true }
@@ -596,9 +604,7 @@ struct HomeView: View {
         _preferredHomeCardID = State(
             initialValue: previewVideos?.first.map { "recommendation-" + $0.url }
         )
-        _recentVideos = State(initialValue: previewVideos.map {
-            Array($0.prefix(4))
-        } ?? [])
+        _recentVideos = State(initialValue: previewVideos ?? [])
         _loading = State(initialValue: previewVideos == nil)
         _loadingRecent = State(initialValue: previewVideos == nil)
     }
@@ -637,8 +643,7 @@ struct HomeView: View {
                         TVPulsingPlaceholder()
                             .frame(maxWidth: .infinity, minHeight: 135)
                     } else if !visibleRecent.isEmpty {
-                        videoGrid(visibleRecent, scroll: scroll,
-                                  lookupHistoryMetadata: true)
+                        continueWatchingRail(visibleRecent, scroll: scroll)
                     } else if recentNeedsLogin {
                         VStack(alignment: .leading, spacing: 15) {
                             Text("home.signInForHistory")
@@ -778,6 +783,10 @@ struct HomeView: View {
         // Keep the preferred target stable even while FocusState is cleared
         // for NavigationStack's pop animation.
         preferredHomeCardID = target
+        if target.hasPrefix("recent-") {
+            resumeScrollTarget = target
+            resumeScrollRequest &+= 1
+        }
         pendingHomeFocus = Task { @MainActor in
             defer {
                 if homeFocusGeneration == generation { pendingHomeFocus = nil }
@@ -793,7 +802,8 @@ struct HomeView: View {
             }
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.18)) {
-                scroll.scrollTo(target, anchor: .center)
+                scroll.scrollTo(target.hasPrefix("recent-")
+                    ? "home-continue-watching-row" : target, anchor: .center)
             }
             try? await Task.sleep(for: .milliseconds(returningFromDetails ? 220 : 140))
             guard !Task.isCancelled, homeFocusGeneration == generation else { return }
@@ -808,7 +818,12 @@ struct HomeView: View {
                 guard !Task.isCancelled else { return }
                 if focusedHomeVideo != target {
                     withAnimation(.easeOut(duration: 0.18)) {
-                        scroll.scrollTo(target, anchor: .center)
+                        scroll.scrollTo(target.hasPrefix("recent-")
+                            ? "home-continue-watching-row" : target, anchor: .center)
+                    }
+                    if target.hasPrefix("recent-") {
+                        resumeScrollTarget = target
+                        resumeScrollRequest &+= 1
                     }
                     try? await Task.sleep(for: .milliseconds(180))
                     guard !Task.isCancelled else { return }
@@ -838,6 +853,88 @@ struct HomeView: View {
         let target = homeCardID(first.video, recommended: first.recommendation)
         needsHomeFocus = false
         focusHomeCard(target, scroll: scroll)
+    }
+
+    /// A single Siri Remote-scrollable horizontal shelf. containerRelativeFrame
+    /// gives exactly four full-size card slots across the available page width,
+    /// while the LazyHStack preserves more server results beyond the viewport.
+    /// Do not use a four-column LazyVGrid here: that wraps the fifth resume
+    /// video onto a second line and makes directional focus unpredictable.
+    private func continueWatchingRail(_ items: [VideoItem],
+                                      scroll: ScrollViewProxy) -> some View {
+        ScrollViewReader { railScroll in
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .center, spacing: 26) {
+                    ForEach(items.enumerated().map {
+                        TVHomeGridEntry(index: $0.offset, video: $0.element)
+                    }) { entry in
+                        let index = entry.index
+                        let video = entry.video
+                        let focusID = homeCardID(video, recommended: false)
+                        NavigationLink {
+                            VideoDetailView(
+                                api: api, video: video,
+                                onReturnToList: {
+                                    focusHomeCard(
+                                        focusID, scroll: scroll,
+                                        returningFromDetails: true
+                                    )
+                                }
+                            )
+                        } label: {
+                            VideoCard(
+                                api: api, video: video,
+                                lookupMissingMetadata: true
+                            )
+                        }
+                        .buttonStyle(TVRailButtonStyle())
+                        .focusEffectDisabled(true)
+                        .containerRelativeFrame(.horizontal, count: 4, spacing: 26)
+                        .zIndex(focusedHomeVideo == focusID ? 5 : 0)
+                        .videoActions(
+                            api: api, video: video,
+                            onChanged: { Task { await refresh() } },
+                            focus: $focusedHomeVideo, focusID: focusID
+                        )
+                        .prefersDefaultFocus(
+                            preferredHomeCardID == focusID, in: homeFocusScope
+                        )
+                        .onMoveCommand { direction in
+                            userMovedWithinHome()
+                            if direction == .left && index == 0 {
+                                onRevealMenu()
+                            }
+                        }
+                        .accessibilityLabel(TTTheme.accessibilityText(for: video))
+                        .accessibilityIdentifier("home-video-recent-\(index)")
+                        .id(focusID)
+                        .onExitCommand { handleHomeBack(scroll: scroll) }
+                        .onAppear {
+                            // Request older history only when approaching
+                            // the far right of the current resume shelf.
+                            if index >= items.count - 2, historyHasMore,
+                               !loadingRecent, !historyLoadingMore {
+                                Task { await loadMoreHistory() }
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 20)
+                .scrollTargetLayout()
+            }
+            .scrollIndicators(.hidden)
+            .scrollClipDisabled()
+            .scrollTargetBehavior(.viewAligned)
+            .frame(height: 445)
+            .onChange(of: resumeScrollRequest) { _, _ in
+                guard let target = resumeScrollTarget else { return }
+                withAnimation(.easeOut(duration: 0.18)) {
+                    railScroll.scrollTo(target, anchor: .center)
+                }
+            }
+        }
+        .id("home-continue-watching-row")
+        .focusSection()
     }
 
     @ViewBuilder
@@ -968,30 +1065,75 @@ struct HomeView: View {
         }
     }
 
+    private let historyPageSize = 100
+
     @MainActor
     private func loadHistory() async {
         guard previewVideos == nil else { return }
+        let request = UUID()
+        historyRequestID = request
         loadingRecent = true
-        defer { loadingRecent = false }
+        historyHasMore = false
+        historyLoadingMore = false
+        defer {
+            if historyRequestID == request { loadingRecent = false }
+        }
         do {
-            // The first eight history records may all be finished. Fetch a
-            // bounded recent history page, enrich saved positions, and then
-            // choose up to eight eligible resumable items for Home.
-            let raw = try await api.historyPage(offset: 0, limit: 100)
-            guard !Task.isCancelled else { return }
+            let raw = try await api.historyPage(offset: 0, limit: historyPageSize)
+            guard !Task.isCancelled, historyRequestID == request else { return }
             let latest = TVHistoryDeduplicator.unique(raw)
             let enriched = await api.withProgress(latest)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, historyRequestID == request else { return }
             recentVideos = enriched
+            historyOffset = raw.count  // API offsets refer to raw events
+            historyHasMore = raw.count == historyPageSize
             recentNeedsLogin = false
             recentError = nil
         } catch is CancellationError {
             return
         } catch {
+            guard historyRequestID == request else { return }
             recentVideos = []
+            historyOffset = 0
+            historyHasMore = false
             let status = TVServerErrorMapping.httpStatus(error)
             recentNeedsLogin = status == 401 || status == 403
             recentError = recentNeedsLogin ? nil : error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func loadMoreHistory() async {
+        guard previewVideos == nil, historyHasMore, !loadingRecent,
+              !historyLoadingMore else { return }
+        let request = historyRequestID
+        let offset = historyOffset
+        historyLoadingMore = true
+        defer {
+            if historyRequestID == request { historyLoadingMore = false }
+        }
+        do {
+            let raw = try await api.historyPage(
+                offset: offset, limit: historyPageSize
+            )
+            guard !Task.isCancelled, historyRequestID == request,
+                  historyOffset == offset else { return }
+            historyOffset += raw.count
+            historyHasMore = raw.count == historyPageSize
+            let additional = TVHistoryDeduplicator.appendUnique(
+                raw, to: recentVideos
+            )
+            guard !additional.isEmpty else { return }
+            let enriched = await api.withProgress(additional)
+            guard !Task.isCancelled, historyRequestID == request else { return }
+            recentVideos.append(contentsOf: enriched)
+        } catch is CancellationError {
+            return
+        } catch {
+            // Keep the already visible resume shelf stable if an older
+            // page fails. A subsequent Refresh can retry the full history.
+            guard historyRequestID == request else { return }
+            historyHasMore = false
         }
     }
 }

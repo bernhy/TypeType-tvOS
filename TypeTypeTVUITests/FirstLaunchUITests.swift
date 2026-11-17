@@ -120,6 +120,31 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertFalse(app.buttons["main-nav-home"].hasFocus)
     }
 
+    func testContinueWatchingIsOneScrollableShelfWithMoreThanFourCards() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Ansehen fortsetzen"]
+            .waitForExistence(timeout: 20))
+        let recommendation = app.buttons["home-video-recommendation-0"]
+        XCTAssertTrue(waitForFocus(recommendation, timeout: 8))
+        // The preview contains five partially watched videos separated
+        // by completed and never-started history entries.
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(app.buttons["home-video-recent-0"]),
+                      "Up from recommendations should enter the resume shelf")
+        for index in 1...4 {
+            XCUIRemote.shared.press(.right)
+            XCTAssertTrue(waitForFocus(app.buttons["home-video-recent-\(index)"]),
+                          "Right should reach resume item \(index) in the same row")
+        }
+        XCTAssertFalse(app.buttons["main-nav-home"].hasFocus)
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(app.buttons["home-video-recent-3"]))
+    }
+
     func testExpandedSidebarLayoutWithoutServer() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-TypeTypeTVPreview", "home-expanded", "-typetype.uiLanguage", "de"]
