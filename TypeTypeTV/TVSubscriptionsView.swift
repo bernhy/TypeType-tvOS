@@ -34,6 +34,9 @@ struct TVSubscriptionsView: View {
     @State private var loadingVideos = false
     @State private var channelRequestID = UUID()
     @State private var pageRequestID = UUID()
+    @State private var initializedOnce = false
+    @State private var handledFocusRequest: Int?
+    @State private var lastLoadedChannelURL: String?
     @State private var loadingMore = false
     @State private var enterGridAfterLoad = false
     @State private var error: String?
@@ -307,22 +310,26 @@ struct TVSubscriptionsView: View {
         }
         .background(TTTheme.ink)
         .task {
+            guard !initializedOnce else { return }
+            initializedOnce = true
             if let directChannelURL {
                 channelTitle = directChannelName ?? ""
                 enterGridAfterLoad = true
                 selectedChannelURL = directChannelURL
-                // A channel opened from a video's details has no subscription
-                // rail, so it must load account membership independently.
+                // This one-time membership check must not repeat when
+                // navigating back from a video's details.
                 await refreshMembership()
             } else {
                 await reload()
             }
         }
         .task(id: focusRequest) {
-            guard focusRequest >= 0 else { return }
+            guard focusRequest >= 0,
+                  handledFocusRequest != focusRequest else { return }
+            handledFocusRequest = focusRequest
             await Task.yield()
+            guard !Task.isCancelled else { return }
             if directChannelURL != nil {
-                // Give channel visitors immediate access to Subscribe.
                 subscriptionButtonFocused = true
             } else if let selectedChannelURL {
                 focusedSubscription = selectedChannelURL
@@ -343,9 +350,10 @@ struct TVSubscriptionsView: View {
         }
         .task { await contentPreferences.ensureLoaded(api: api) }
         .task(id: selectedChannelURL) {
-            if let selectedChannelURL {
-                await loadChannel(selectedChannelURL)
-            }
+            guard let selectedChannelURL,
+                  lastLoadedChannelURL != selectedChannelURL else { return }
+            lastLoadedChannelURL = selectedChannelURL
+            await loadChannel(selectedChannelURL)
         }
         .onChange(of: focusedSubscription) { previous, next in
             if next == nil {
@@ -698,7 +706,9 @@ struct TVSubscriptionsView: View {
             await Task.yield()
             // In global-menu preview mode (focusRequest == -1) this screen
             // may load data but must never take focus from the main rail.
-            if focusRequest >= 0 {
+            if focusRequest >= 0, focusedVideo == nil,
+               focusedAction == nil, focusedChannelTab == nil,
+               !subscriptionButtonFocused {
                 focusedSubscription = selectedChannelURL
             }
         } catch is CancellationError {

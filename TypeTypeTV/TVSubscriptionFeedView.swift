@@ -2,6 +2,14 @@ import SwiftUI
 
 /// Newest-first account feed. TypeType's stable cursor snapshot avoids
 /// querying every subscribed channel on the Apple TV.
+/// Stable video identities across progress updates and blocked-content
+/// filtering. Grid offsets are presentation metadata, not view identity.
+private struct TVSubscriptionFeedGridEntry: Identifiable {
+    let index: Int
+    let video: VideoItem
+    var id: String { video.url }
+}
+
 struct TVSubscriptionFeedView: View {
     let api: TypeTypeAPI
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
@@ -19,6 +27,9 @@ struct TVSubscriptionFeedView: View {
     @State private var error: String?
     @State private var pageError: String?
     @State private var requestID = UUID()
+    @State private var loadedOnce = false
+    @State private var handledFocusRequest: Int?
+    @State private var initialGridFocusPending = false
     @FocusState private var focusedVideo: String?
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 4)
 
@@ -62,7 +73,11 @@ struct TVSubscriptionFeedView: View {
                     )
                 } else {
                     LazyVGrid(columns: columns, spacing: 32) {
-                        ForEach(Array(visibleVideos.enumerated()), id: \.offset) { index, video in
+                        ForEach(visibleVideos.enumerated().map {
+                            TVSubscriptionFeedGridEntry(index: $0.offset, video: $0.element)
+                        }) { entry in
+                            let index = entry.index
+                            let video = entry.video
                             NavigationLink {
                                 VideoDetailView(
                                     api: api, video: video,
@@ -117,19 +132,30 @@ struct TVSubscriptionFeedView: View {
         .background(TTTheme.ink)
         .task {
             await contentPreferences.ensureLoaded(api: api)
+            guard !loadedOnce else { return }
+            loadedOnce = true
             await reload()
         }
         .task(id: focusRequest) {
-            guard focusRequest > 0 else { return }
+            guard focusRequest > 0,
+                  handledFocusRequest != focusRequest else { return }
+            handledFocusRequest = focusRequest
+            initialGridFocusPending = true
             await Task.yield()
-            focusedVideo = visibleVideos.first?.url
+            if let first = visibleVideos.first {
+                initialGridFocusPending = false
+                focusedVideo = first.url
+            }
         }
-        .onChange(of: videos.map(\.url)) { _, urls in
-            guard !urls.isEmpty, focusRequest > 0,
-                  !urls.contains(focusedVideo ?? "") else { return }
-            Task { @MainActor in
-                await Task.yield()
-                focusedVideo = videos.first?.url
+        .onChange(of: visibleVideos.map(\.url)) { _, urls in
+            guard !urls.isEmpty, focusRequest > 0 else { return }
+            if initialGridFocusPending {
+                initialGridFocusPending = false
+                focusedVideo = urls.first
+            } else if let focusedVideo, !urls.contains(focusedVideo) {
+                // Only recover a focus target which was actually removed,
+                // not a transient nil during NavigationStack pop.
+                self.focusedVideo = urls.first
             }
         }
         .onExitCommand { onRevealMenu() }

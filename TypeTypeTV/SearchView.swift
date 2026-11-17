@@ -28,6 +28,7 @@ struct SearchView: View {
     @State private var paging = false
     @State private var requestID = UUID()
     var focusRequest = 0
+    @State private var handledFocusRequest: Int?
     @FocusState private var focusedVideoURL: String?
     @FocusState private var searchFieldFocused: Bool
     @FocusState private var focusedRecent: String?
@@ -306,12 +307,18 @@ struct SearchView: View {
                     searchFieldFocused = false
                     return
                 }
-                if focusRequest > 0 {
+                // Returning from a result detail must not repeatedly jump
+                // back to the search input unless the global rail explicitly
+                // issued a new focus request.
+                guard handledFocusRequest != focusRequest else { return }
+                handledFocusRequest = focusRequest
+                let requested = focusRequest
+                if requested > 0 {
                     try? await Task.sleep(for: .milliseconds(220))
                 } else {
                     await Task.yield()
                 }
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, focusRequest == requested else { return }
                 searchFieldFocused = true
             }
         }

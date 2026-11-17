@@ -14,6 +14,8 @@ struct LibraryView: View {
     var focusRequest = 0
     var onRevealMenu: () -> Void = {}
 
+    @State private var handledFocusRequest: Int?
+    @State private var lastLoadedDestination: TVLibraryDestination?
     @State private var selected: TVLibraryDestination = .standard(.watchLater)
     @FocusState private var focusedDestination: TVLibraryDestination?
     // Only Up/Down moves already within this rail may visually follow the
@@ -219,12 +221,20 @@ struct LibraryView: View {
             }
         }
         .task(id: focusRequest) {
-            guard focusRequest >= 0 else { return }
-            // Take focus before the asynchronous library requests complete.
+            guard focusRequest >= 0, handledFocusRequest != focusRequest else { return }
+            handledFocusRequest = focusRequest
             await Task.yield()
+            guard !Task.isCancelled else { return }
             focusedDestination = selected
         }
-        .task(id: selected) { await loadSelected() }
+        .task(id: selected) {
+            // NavigationStack can rerun .task on popping a video detail.
+            // A page already loaded for this destination retains its grid
+            // identity, scroll position and last focused tile.
+            guard lastLoadedDestination != selected else { return }
+            lastLoadedDestination = selected
+            await loadSelected()
+        }
         .onExitCommand {
             if focusedDestination != nil {
                 onRevealMenu()

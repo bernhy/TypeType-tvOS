@@ -80,6 +80,13 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 - Record Apple TV generation, tvOS version, codec/itag, resolution, whether session reuse occurred, and perceived time to synchronized picture/sound. Do not include tokens, media URLs or session IDs in logs.
 - Target improvements only after comparing bootstrap/session, queue and display-readiness stages. No faster clock start should sacrifice the now-correct A/V synchronisation.
 
+## tvOS focus regression: block lists, channel tiles and Home
+
+- Settings → Blocked: navigate Refresh → video Unblock → channel Unblock → keyword input → keyword Unblock with Down, including keywords below the viewport. The entire focused row should brighten while the button keeps native focus.
+- Channel Playlists: focus a tile; the entire tile zooms and its information panel brightens, with no white outline. Video thumbnails use the established Home tile effect.
+- Home: move Right twice (or further), wait, scroll, paginate, open a video and return. No delayed focus task should restore recommendation 0 or select the collapsed global rail unexpectedly.
+- Search, Library, subscription feed and channel videos: after opening details and returning, keep the same card focused and preserve scroll. Only an explicit global navigation entry should request initial page focus; refresh remains manual.
+
 ## Startup poster image lifetime (SABR)
 
 - The verified stable SABR thumbnail overlay stays mounted throughout playback and seeks. The child is a permanent UIKit `UIImageView`; **only** its image reference is released after the 200 ms fade (plus a small margin) once the renderer displays actual video.
