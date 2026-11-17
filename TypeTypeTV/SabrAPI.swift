@@ -624,10 +624,9 @@ final class SabrService: @unchecked Sendable {
         var didRefreshAuth = false
         while true {
             try Task.checkCancellation()
-            let data: Data
-            let response: URLResponse
+            let result: (Data, URLResponse)
             do {
-                (data, response) = try await session.data(for: req)
+                result = try await session.data(for: req)
             } catch {
                 if let delay = transportRetry.delayNanoseconds(
                     method: method, path: pathForError,
@@ -643,6 +642,7 @@ final class SabrService: @unchecked Sendable {
                 }
                 throw error
             }
+            let (data, response) = result
             guard let http = response as? HTTPURLResponse else {
                 throw SabrFailure.invalidResponse("HTTP response")
             }
