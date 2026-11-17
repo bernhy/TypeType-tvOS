@@ -18,6 +18,7 @@ struct TVChannelExtrasView: View {
     @State private var episodes: [VideoItem] = []
     @State private var posts: [TVCommunityPost] = []
     @State private var nextPage: String?
+    @State private var loadedExtraKey: String?
     @State private var loading = false
     @State private var error: String?
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 3)
@@ -95,6 +96,11 @@ struct TVChannelExtrasView: View {
         }
         .background(TTTheme.ink)
         .task(id: channelURL + kind.rawValue) {
+            let key = channelURL + "|" + kind.rawValue
+            // NavigationStack can re-enter this task after popping details.
+            // Leave the playlist/video tiles and their focus where they were.
+            guard loadedExtraKey != key else { return }
+            loadedExtraKey = key
             focusedBack = true
             await fetch(append: false)
         }

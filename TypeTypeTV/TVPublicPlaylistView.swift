@@ -11,6 +11,7 @@ struct TVPublicPlaylistView: View {
     @State private var videos: [VideoItem] = []
     @State private var title = ""
     @State private var nextPage: String?
+    @State private var loadedPlaylistURL: String?
     @State private var loading = false
     @State private var loadingMore = false
     @State private var error: String?
@@ -61,7 +62,6 @@ struct TVPublicPlaylistView: View {
                                 )
                             } label: {
                                 VideoCard(api: api, video: video)
-                                    .modifier(TVCardFocusHalo(focused: focusedVideo == video.url))
                             }
                             .buttonStyle(TVRailButtonStyle())
                             .focusEffectDisabled(true)
@@ -86,6 +86,10 @@ struct TVPublicPlaylistView: View {
             }
             .background(TTTheme.ink)
             .task(id: playlistURL) {
+                // A pushed video detail returning to its playlist must not
+                // re-fetch the grid and focus the Back button again.
+                guard loadedPlaylistURL != playlistURL else { return }
+                loadedPlaylistURL = playlistURL
                 focusedBack = true
                 await load()
             }
