@@ -80,6 +80,13 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 - Record Apple TV generation, tvOS version, codec/itag, resolution, whether session reuse occurred, and perceived time to synchronized picture/sound. Do not include tokens, media URLs or session IDs in logs.
 - Target improvements only after comparing bootstrap/session, queue and display-readiness stages. No faster clock start should sacrifice the now-correct A/V synchronisation.
 
+## End-screen cards (SABR VOD)
+
+- Test a YouTube VOD with creator-supplied end screens. Verify the cards appear only within their server-provided start/end times and remain aligned to the actual video picture at 1080p and 4K, including letterboxing.
+- Use the Siri Remote to focus and open video, channel and playlist cards. A video starts in a new player; Back returns to the original detail/playlist flow. Closing end screens without choosing a card restores normal left/right seeking.
+- Settings → Content → Show end screens must hide/show the cards based on the account's `hideEndScreens` server setting. Videos without end-screen metadata should never display fabricated recommendations. Websites are intentionally unsupported on tvOS (no browser).
+- Playback must not wait for end-screen metadata. Prefer SABR bootstrap, reuse already-cached details, and only attempt optional stream metadata lookup within 60 seconds of the end. Confirm frequent seek/recovery and A/V synchronization remain unchanged.
+
 ## Channel artwork and diagnostics
 
 - Open a video detail and the SABR OSD: the provider's channel avatar should appear beside its name. Artwork is loaded asynchronously through the existing verified thumbnail session and must not delay playback.

@@ -2469,10 +2469,29 @@ struct SabrPlayerView: View {
         }
         .task(id: video.url) {
             extraEndScreenElements = []
-            // SABR bootstrap is authoritative when it includes creator
-            // cards. Older bootstrap endpoints may omit them; reuse the
-            // bounded stream-metadata cache without delaying startup.
-            try? await Task.sleep(for: .seconds(3))
+            // Detail screens commonly have the same server metadata cached.
+            // Never start a *second* SABR stream extraction at video startup:
+            // it could compete with an active session for server resources.
+            let cached = await TVStreamMetadataCache.shared.cachedDetails(
+                for: video, api: api
+            )
+            if !Task.isCancelled {
+                extraEndScreenElements = cached?.endScreenElements ?? []
+            }
+            // If the lightweight bootstrap has no cards, make one optional
+            // lookup only when approaching the end (or after seeking there).
+            while !Task.isCancelled {
+                if !engine.endScreenElements.isEmpty ||
+                   !extraEndScreenElements.isEmpty ||
+                   engine.sponsorSettings?.hideEndScreens == true { return }
+                if engine.durationMs > 0 {
+                    let remainingMs = Double(engine.durationMs) -
+                        engine.playbackSeconds() * 1_000
+                    if remainingMs <= 60_000 { break }
+                }
+                do { try await Task.sleep(for: .seconds(5)) }
+                catch { return }
+            }
             guard !Task.isCancelled, engine.endScreenElements.isEmpty,
                   engine.sponsorSettings?.hideEndScreens != true else { return }
             let metadata = await TVStreamMetadataCache.shared.details(
