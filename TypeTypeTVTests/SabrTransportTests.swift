@@ -67,6 +67,66 @@ final class SabrTransportTests: XCTestCase {
         )
     }
 
+    func testFreshSessionCanWarmMediaWindowThenSeekOnHandover() async throws {
+        let lock = NSLock()
+        var requests: [String] = []
+        MockSabrProtocol.use { req in
+            let path = req.url?.path ?? ""
+            lock.lock()
+            requests.append(path)
+            lock.unlock()
+            if path == "/api/sabr/playback/abc123def45" {
+                return (202, Data(
+                    #"{"sessionId":"fresh","generation":8,"ready":false,"status":"IDLE"}"#.utf8
+                ))
+            }
+            if path == "/api/sabr/playback/fresh/position" {
+                return (204, Data())
+            }
+            if path == "/api/sabr/playback/fresh/prefetch" {
+                return (202, Data())
+            }
+            if path == "/api/sabr/playback/fresh/segments" {
+                return (200, Data("""
+                {
+                  "sessionId":"fresh","generation":8,"ready":true,
+                  "audio":{"initUrl":"sabr/playback/fresh/140/init?generation=8","segments":[]},
+                  "video":{"initUrl":"sabr/playback/fresh/137/init?generation=8","segments":[]}
+                }
+                """.utf8))
+            }
+            if path == "/api/sabr/playback/fresh/seek" {
+                return (202, Data(
+                    #"{"sessionId":"fresh","generation":9,"ready":false,"status":"REPOSITIONING"}"#.utf8
+                ))
+            }
+            return (404, Data())
+        }
+        let svc = try fixtureService()
+        let selected = fixtureSelection()
+        let prepared = try await svc.start(
+            videoId: "abc123def45", selection: selected, positionMs: 40_000
+        )
+        let window = try await svc.window(
+            sessionId: prepared.sessionId, selection: selected,
+            generation: prepared.generation, positionMs: 40_000
+        )
+        XCTAssertTrue(window.ready)
+        let handoff = try await svc.seek(
+            sessionId: prepared.sessionId, selection: selected, positionMs: 53_000
+        )
+        XCTAssertEqual(handoff.sessionId, prepared.sessionId)
+        XCTAssertEqual(handoff.generation, 9)
+        let trace = lock.withLock { requests }
+        XCTAssertEqual(trace, [
+            "/api/sabr/playback/abc123def45",
+            "/api/sabr/playback/fresh/position",
+            "/api/sabr/playback/fresh/prefetch",
+            "/api/sabr/playback/fresh/segments",
+            "/api/sabr/playback/fresh/seek"
+        ])
+    }
+
     func testHealthProbeRequiresRealServerJSONAndDetectsOutage() async throws {
         MockSabrProtocol.use { request in
             XCTAssertEqual(request.url?.path, "/api/health")
