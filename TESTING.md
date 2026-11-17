@@ -80,6 +80,13 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 - Record Apple TV generation, tvOS version, codec/itag, resolution, whether session reuse occurred, and perceived time to synchronized picture/sound. Do not include tokens, media URLs or session IDs in logs.
 - Target improvements only after comparing bootstrap/session, queue and display-readiness stages. No faster clock start should sacrifice the now-correct A/V synchronisation.
 
+## Startup thumbnails (SABR / HLS)
+
+- At video startup show the already-known `VideoItem.thumbnailUrl` as a non-focusable full-screen backdrop over the initially black renderer; no second stream-metadata request is made to obtain the picture.
+- For SABR, fade away the image only after `AVSampleBufferDisplayLayer.isReadyForDisplay` and the playback clock is running. Loading/queued samples alone must not dismiss it.
+- For non-YouTube HLS, keep the poster until AVPlayer has started and its time is actually progressing (AVPlayerViewController does not expose a precise first-presented-frame callback).
+- Repeat with cached/uncached artwork, a failed/retried stream, a pause during buffering, and initial resume. Confirm that the poster does not intercept Siri Remote presses or reappear on normal seeks.
+
 ## End-screen cards (SABR VOD)
 
 - Test a YouTube VOD with creator-supplied end screens. Verify the cards appear only within their server-provided start/end times and remain aligned to the actual video picture at 1080p and 4K, including letterboxing.
