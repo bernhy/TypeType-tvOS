@@ -22,7 +22,22 @@ struct TVBlockedSettingsView: View {
                 Button("common.refresh") { Task { await reload() } }
                     .buttonStyle(.bordered)
                     .focused(focus, equals: "blocked.refresh")
-                    .onMoveCommand { if $0 == .left { onMoveLeft() } }
+                    .accessibilityIdentifier("blocked.refresh")
+                    .onMoveCommand { direction in
+                        if direction == .left {
+                            onMoveLeft()
+                        } else if direction == .down {
+                            // In a long ScrollView, jump to the first enabled
+                            // Unblock action rather than an unrelated rail.
+                            if let first = videos.first(where: { $0.global != true }) {
+                                focus.wrappedValue = unblockFocusID(.videos, first.id)
+                            } else if let first = channels.first(where: { $0.global != true }) {
+                                focus.wrappedValue = unblockFocusID(.channels, first.id)
+                            } else {
+                                focus.wrappedValue = "blocked.newKeyword"
+                            }
+                        }
+                    }
                 if loading { ProgressView("settings.remoteLoading") }
                 if let error { Text(error).foregroundStyle(.orange) }
                 if let status { Text(status).foregroundStyle(.green) }
@@ -139,7 +154,10 @@ struct TVBlockedSettingsView: View {
                 if direction == .left {
                     onMoveLeft()
                 } else if direction == .down {
-                    if category == .channels, id == channels.last?.id {
+                    if category == .videos, id == videos.last?.id,
+                       let first = channels.first(where: { $0.global != true }) {
+                        focus.wrappedValue = unblockFocusID(.channels, first.id)
+                    } else if category == .channels, id == channels.last?.id {
                         focus.wrappedValue = "blocked.newKeyword"
                     } else if category == .keywords,
                               let next = nextUserKeyword(after: id, movingDown: true) {
