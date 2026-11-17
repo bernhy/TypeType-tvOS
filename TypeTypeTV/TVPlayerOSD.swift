@@ -5,6 +5,7 @@ import SwiftUI
 struct TVPlayerOSD: View {
     let api: TypeTypeAPI
     let video: VideoItem
+    let streamMetadata: StreamInfo?
     let artwork: TVChannelArtwork?
     @ObservedObject var engine: SabrPlayerController
     let skipSeconds: Int
@@ -43,9 +44,15 @@ struct TVPlayerOSD: View {
     private var rendererAhead: Int {
         max(0, Int(Double(engine.rendererReadyThroughMs) / 1_000 - playback))
     }
+    private var displayVideo: VideoItem {
+        TVVideoMetadata.merged(video, stream: streamMetadata)
+    }
     private var channel: String? {
-        let name = video.uploaderName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return name?.isEmpty == false ? name : nil
+        for value in [video.uploaderName, streamMetadata?.uploaderName] {
+            let name = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let name, !name.isEmpty { return name }
+        }
+        return nil
     }
 
     var body: some View {
@@ -116,14 +123,14 @@ struct TVPlayerOSD: View {
                         Text(channel)
                             .font(.system(size: 23, weight: .semibold))
                     }
-                    if let details = TVVideoMetadata.subtitle(for: video) {
+                    if let details = TVVideoMetadata.subtitle(for: displayVideo) {
                         Text("· " + details)
                             .font(.system(size: 21))
                             .foregroundStyle(.white.opacity(0.80))
                             .lineLimit(1)
                     }
                 }
-                if let date = TVVideoMetadata.publicationDate(for: video) {
+                if let date = TVVideoMetadata.publicationDate(for: displayVideo) {
                     Text(date, format: .dateTime.day().month(.wide).year())
                         .font(.system(size: 17))
                         .foregroundStyle(.white.opacity(0.66))
