@@ -100,6 +100,26 @@ final class TypeTypeTVUITests: XCTestCase {
         add(attachment)
     }
 
+    func testHomeFocusFollowsRepeatedRemoteMovesRatherThanReturningToFirstCard() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let first = app.buttons["home-video-recommendation-0"]
+        let second = app.buttons["home-video-recommendation-1"]
+        let third = app.buttons["home-video-recommendation-2"]
+        XCTAssertTrue(waitForFocus(first, timeout: 8))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(second), "First Right must focus recommendation 1")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(third), "Second Right must focus recommendation 2")
+        Thread.sleep(forTimeInterval: 0.9)
+        XCTAssertTrue(third.hasFocus,
+                      "Delayed startup/scroll restoration must not move focus to item 0")
+        XCTAssertFalse(app.buttons["main-nav-home"].hasFocus)
+    }
+
     func testExpandedSidebarLayoutWithoutServer() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-TypeTypeTVPreview", "home-expanded", "-typetype.uiLanguage", "de"]
@@ -191,6 +211,33 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Empfehlungen"].waitForExistence(timeout: 8))
         XCUIRemote.shared.press(.menu)
         XCTAssertTrue(app.staticTexts["Empfehlungen"].waitForExistence(timeout: 5))
+    }
+
+    func testBlockedKeywordUnblockButtonReachableFromInput() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-blocked", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let group = app.buttons["settings-group-blocked"]
+        let keywordInput = app.textFields["blocked-keyword-input"]
+        let keywordUnblock = app.buttons["blocked-unblock-keywords|Beispielwort Eins"]
+        XCTAssertTrue(group.waitForExistence(timeout: 20))
+        XCTAssertTrue(keywordInput.waitForExistence(timeout: 10))
+        XCTAssertTrue(keywordUnblock.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(group))
+        XCUIRemote.shared.press(.right)
+        let refresh = app.buttons["blocked.refresh"]
+        XCTAssertTrue(waitForFocus(refresh))
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(app.buttons["blocked-unblock-videos|https://youtu.be/ABCDEFGHIJK"]))
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(app.buttons["blocked-unblock-channels|https://www.youtube.com/channel/UC-preview"]))
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(keywordInput))
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(keywordUnblock),
+                      "Keyword Unblock must be reachable even below the initial viewport")
     }
 
     func testSettingsPlaybackRightOpensControlColumn() throws {

@@ -24,7 +24,7 @@ struct RootView: View {
             if preview == "player-error" {
                 SabrPlaybackErrorPreview()
             } else if ["home", "home-expanded", "search", "library", "subscriptions", "channels", "account",
-                "settings", "settings-sponsor", "settings-content", "settings-performance", "settings-device",
+                "settings", "settings-sponsor", "settings-content", "settings-blocked", "settings-performance", "settings-device",
                 "settings-language", "settings-account", "settings-instance",
                 "settings-about"].contains(preview) {
                 BrowseView(
@@ -42,6 +42,7 @@ struct RootView: View {
                         switch preview {
                         case "settings-sponsor": return .sponsor
                         case "settings-content": return .content
+                        case "settings-blocked": return .blocked
                         case "settings-performance", "settings-device": return .device
                         case "settings-language": return .language
                         case "settings-account": return .account

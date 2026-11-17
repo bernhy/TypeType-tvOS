@@ -107,7 +107,12 @@ struct BrowseView: View {
                 HStack(spacing: 0) {
                     if !playbackVisibility.isVisible {
                         sidebar
-                            .disabled(homeStartupFocusPending)
+                            // Home's first-column Left/Back handlers reveal
+                            // the menu explicitly. While collapsed, its
+                            // focusable icons must never steal focus during
+                            // lazy-grid updates or scroll changes.
+                            .disabled(homeStartupFocusPending ||
+                                      (section == .home && !expanded))
                             .zIndex(1)
                     }
                 NavigationStack {
@@ -503,6 +508,15 @@ struct BrowseView: View {
     }
 }
 
+/// Stable identity survives history/recommendation enrichment, filtering,
+/// and pagination. Index-based ForEach identity remounts the wrong card when
+/// a preceding video disappears, which can reset focus to item zero.
+private struct TVHomeGridEntry: Identifiable {
+    let index: Int
+    let video: VideoItem
+    var id: String { video.url }
+}
+
 struct HomeView: View {
     let api: TypeTypeAPI
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
@@ -524,6 +538,8 @@ struct HomeView: View {
     // overwrite the card-specific focus restoration with recommendation 0.
     @State private var processedHomeFocusRequest = 0
     @State private var pendingHomeFocus: Task<Void, Never>?
+    @State private var homeFocusGeneration = 0
+    @State private var didLoadHomeOnce = false
 
     private func homeCardID(_ video: VideoItem, recommended: Bool) -> String {
         (recommended ? "recommendation-" : "recent-") + video.url
@@ -685,7 +701,13 @@ struct HomeView: View {
             .focusScope(homeFocusScope)
             .task {
                 await contentPreferences.ensureLoaded(api: api)
-                if previewVideos == nil { await refresh() }
+                // A detail push/pop can restart .task while the user is on
+                // a deep recommendation. Reloading the entire grid there
+                // invalidates focus and often selects tile zero or the rail.
+                if previewVideos == nil && !didLoadHomeOnce {
+                    didLoadHomeOnce = true
+                    await refresh()
+                }
             }
             .onExitCommand { handleHomeBack(scroll: scroll) }
             .task(id: focusRequest) {
@@ -703,9 +725,15 @@ struct HomeView: View {
                 focusFirstHomeVideo(scroll: scroll)
             }
             .onChange(of: focusedHomeVideo) { _, current in
+                guard let current else { return }
+                // Never mistake a transient wrong tile selected during a
+                // programmatic scroll/return for user navigation. User remote
+                // moves cancel the pending restore in videoGrid below.
+                if pendingHomeFocus == nil && preferredHomeCardID != current {
+                    preferredHomeCardID = current
+                }
                 if let first = firstVisible,
                    current == homeCardID(first.video, recommended: first.recommendation) {
-                    // The first recommendation, not the rail, owns startup focus.
                     onInitialFocusReady()
                 }
             }
@@ -735,10 +763,15 @@ struct HomeView: View {
     private func focusHomeCard(_ target: String, scroll: ScrollViewProxy,
                                returningFromDetails: Bool = false) {
         pendingHomeFocus?.cancel()
+        homeFocusGeneration &+= 1
+        let generation = homeFocusGeneration
         // Keep the preferred target stable even while FocusState is cleared
         // for NavigationStack's pop animation.
         preferredHomeCardID = target
         pendingHomeFocus = Task { @MainActor in
+            defer {
+                if homeFocusGeneration == generation { pendingHomeFocus = nil }
+            }
             // The pushed detail temporarily owns UIKit focus. Clearing our
             // old FocusState is necessary even when returning to the exact
             // same tile, otherwise assigning the same value does nothing.
@@ -753,7 +786,7 @@ struct HomeView: View {
                 scroll.scrollTo(target, anchor: .center)
             }
             try? await Task.sleep(for: .milliseconds(returningFromDetails ? 220 : 140))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, homeFocusGeneration == generation else { return }
             focusedHomeVideo = target
             resetFocus(in: homeFocusScope)
             if returningFromDetails {
@@ -777,6 +810,16 @@ struct HomeView: View {
     }
 
     @MainActor
+    private func userMovedWithinHome() {
+        // Explicit directional input takes precedence over delayed startup
+        // and post-detail focus restoration. Otherwise the pending timer
+        // can send the cursor back to the first tile mid-navigation.
+        homeFocusGeneration &+= 1
+        pendingHomeFocus?.cancel()
+        pendingHomeFocus = nil
+    }
+
+    @MainActor
     private func focusFirstHomeVideo(scroll: ScrollViewProxy) {
         guard needsHomeFocus else { return }
         // Wait for recommendations to arrive. Recent history may load first
@@ -792,7 +835,11 @@ struct HomeView: View {
                            paginate: Bool = false,
                            lookupHistoryMetadata: Bool = false) -> some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 34) {
-            ForEach(Array(items.enumerated()), id: \.offset) { index, video in
+            ForEach(items.enumerated().map {
+                TVHomeGridEntry(index: $0.offset, video: $0.element)
+            }) { row in
+                let index = row.index
+                let video = row.video
                 NavigationLink {
                     VideoDetailView(
                         api: api, video: video,
@@ -824,6 +871,7 @@ struct HomeView: View {
                     in: homeFocusScope
                 )
                 .onMoveCommand { direction in
+                    userMovedWithinHome()
                     if direction == .left && index % columns.count == 0 {
                         onRevealMenu()
                     }

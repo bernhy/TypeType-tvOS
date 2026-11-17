@@ -54,12 +54,10 @@ struct TVChannelExtrasView: View {
                                 isPodcast: kind == .podcasts
                             )
                         } label: {
-                            TVSearchNamedCard(
-                                title: playlist.title, subtitle: playlist.uploaderName,
-                                image: api.relativeMediaURL(playlist.thumbnailUrl),
-                                origin: api.origin, symbol: "list.bullet.rectangle"
+                            TVChannelPlaylistTile(
+                                api: api, playlist: playlist,
+                                focused: focusedCard == playlist.url
                             )
-                            .modifier(TVCardFocusHalo(focused: focusedCard == playlist.url))
                         }
                         .buttonStyle(TVRailButtonStyle())
                         .focusEffectDisabled(true)
@@ -71,7 +69,6 @@ struct TVChannelExtrasView: View {
                             VideoDetailView(api: api, video: video)
                         } label: {
                             VideoCard(api: api, video: video)
-                                .modifier(TVCardFocusHalo(focused: focusedCard == video.url))
                         }
                         .buttonStyle(TVRailButtonStyle())
                         .focusEffectDisabled(true)
@@ -146,6 +143,57 @@ struct TVChannelExtrasView: View {
                 self.error = error.localizedDescription
             }
         }
+    }
+}
+
+/// Match the Home video cards: scale the whole tile and brighten only its
+/// lower information panel. No white focus border or outline.
+private struct TVChannelPlaylistTile: View {
+    let api: TypeTypeAPI
+    let playlist: TVPublicPlaylistSummary
+    let focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack {
+                TVThumbnail(
+                    url: api.relativeMediaURL(playlist.thumbnailUrl),
+                    origin: api.origin, contentMode: .fit
+                )
+                Image(systemName: "list.bullet.rectangle")
+                    .font(.system(size: 37, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(15)
+                    .background(.black.opacity(0.68),
+                                in: RoundedRectangle(cornerRadius: 16))
+            }
+            .aspectRatio(16.0 / 9.0, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 7) {
+                Text(playlist.title)
+                    .font(.system(size: 21, weight: .semibold))
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, minHeight: 54, alignment: .topLeading)
+                Text(playlist.uploaderName ?? " ")
+                    .font(.system(size: 17))
+                    .foregroundStyle(TTTheme.muted)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, minHeight: 23, alignment: .topLeading)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 11)
+            .padding(.bottom, 13)
+            .background(focused
+                ? Color(red: 0.15, green: 0.15, blue: 0.165)
+                : TTTheme.surface)
+        }
+        .background(TTTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .scaleEffect(focused ? 1.065 : 1)
+        .shadow(color: focused ? Color.black.opacity(0.55) : .clear,
+                radius: 19, y: 10)
+        .animation(.easeOut(duration: 0.13), value: focused)
+        .foregroundStyle(.white)
     }
 }
 

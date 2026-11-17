@@ -56,12 +56,29 @@ struct TVBlockedSettingsView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .focused(focus, equals: "blocked.newKeyword")
+                        .accessibilityIdentifier("blocked-keyword-input")
                         .onSubmit { Task { await addKeyword() } }
+                        // tvOS otherwise sometimes searches sideways into
+                        // the settings rail rather than continuing into the
+                        // lower, offscreen keyword unblock rows.
+                        .onMoveCommand { direction in
+                            if direction == .down, let target = firstKeywordUnblockID {
+                                focus.wrappedValue = target
+                            } else if direction == .left {
+                                onMoveLeft()
+                            }
+                        }
                     Button("settings.blockedAdd") { Task { await addKeyword() } }
                         .buttonStyle(.borderedProminent)
                         .disabled(saving || newKeyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .focused(focus, equals: "blocked.addKeyword")
-                        .onMoveCommand { if $0 == .left { onMoveLeft() } }
+                        .onMoveCommand { direction in
+                            if direction == .down, let target = firstKeywordUnblockID {
+                                focus.wrappedValue = target
+                            } else if direction == .left {
+                                focus.wrappedValue = "blocked.newKeyword"
+                            }
+                        }
                 }
                 if keywords.isEmpty {
                     Text("settings.blockedEmpty").foregroundStyle(TTTheme.muted)
@@ -75,9 +92,29 @@ struct TVBlockedSettingsView: View {
         .task(id: api.metadataCacheScope) { await reload() }
     }
 
+    private func unblockFocusID(_ category: TVBlockedCategory, _ id: String) -> String {
+        "blocked." + category.rawValue + "." + id
+    }
+
+    private var firstKeywordUnblockID: String? {
+        keywords.first(where: { $0.global != true }).map {
+            unblockFocusID(.keywords, $0.id)
+        }
+    }
+
+    private func nextUserKeyword(after id: String, movingDown: Bool) -> String? {
+        let candidates = keywords.filter { $0.global != true }.map(\.id)
+        guard let index = candidates.firstIndex(of: id) else { return nil }
+        let next = movingDown ? index + 1 : index - 1
+        guard candidates.indices.contains(next) else { return nil }
+        return unblockFocusID(.keywords, candidates[next])
+    }
+
     private func entry(_ label: String, id: String, globallyBlocked: Bool,
                        category: TVBlockedCategory) -> some View {
         let token = category.rawValue + "|" + id
+        let target = unblockFocusID(category, id)
+        let rowFocused = focus.wrappedValue == target
         return HStack(spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(label).font(.callout).lineLimit(3)
@@ -96,10 +133,33 @@ struct TVBlockedSettingsView: View {
             }
             .buttonStyle(.bordered)
             .disabled(globallyBlocked)
-            .focused(focus, equals: "blocked." + category.rawValue + "." + id)
-            .onMoveCommand { if $0 == .left { onMoveLeft() } }
+            .focused(focus, equals: target)
+            .accessibilityIdentifier("blocked-unblock-" + token)
+            .onMoveCommand { direction in
+                if direction == .left {
+                    onMoveLeft()
+                } else if direction == .down {
+                    if category == .channels, id == channels.last?.id {
+                        focus.wrappedValue = "blocked.newKeyword"
+                    } else if category == .keywords,
+                              let next = nextUserKeyword(after: id, movingDown: true) {
+                        focus.wrappedValue = next
+                    }
+                } else if direction == .up, category == .keywords {
+                    focus.wrappedValue = nextUserKeyword(after: id, movingDown: false)
+                        ?? "blocked.newKeyword"
+                }
+            }
         }
-        .padding(.vertical, 7)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 11)
+        // Highlight the entire record, but keep the actual tvOS focus on
+        // its Unblock button (the row is not an additional focus target).
+        .background(
+            Color.white.opacity(rowFocused ? 0.13 : 0),
+            in: RoundedRectangle(cornerRadius: 12)
+        )
+        .animation(.easeOut(duration: 0.14), value: rowFocused)
         .overlay {
             if removedOverlay.contains(token) {
                 ZStack {
@@ -119,6 +179,27 @@ struct TVBlockedSettingsView: View {
     @MainActor
     private func reload() async {
         guard !loading, !saving else { return }
+        #if DEBUG
+        if api.origin.host == "preview.invalid" {
+            videos = [TVBlockedItem(
+                url: "https://youtu.be/ABCDEFGHIJK",
+                name: "Gesperrtes Beispielvideo",
+                thumbnailUrl: nil, blockedAt: nil, global: false
+            )]
+            channels = [TVBlockedItem(
+                url: "https://www.youtube.com/channel/UC-preview",
+                name: "Gesperrter Beispielkanal",
+                thumbnailUrl: nil, blockedAt: nil, global: false
+            )]
+            keywords = [
+                TVBlockedKeyword(keyword: "Beispielwort Eins",
+                                 blockedAt: nil, global: false),
+                TVBlockedKeyword(keyword: "Beispielwort Zwei",
+                                 blockedAt: nil, global: false)
+            ]
+            return
+        }
+        #endif
         loading = true
         error = nil
         defer { loading = false }
