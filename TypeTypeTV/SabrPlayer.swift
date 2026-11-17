@@ -232,6 +232,8 @@ final class SabrPlayerController: ObservableObject {
     @Published private(set) var sponsorSegments: [TVSponsorBlockSegment] = []
     @Published private(set) var sponsorSettings: TVServerSettings?
     @Published private(set) var sponsorStreamCategory: String?
+    @Published private(set) var endScreenElements: [TVEndScreenElement] = []
+    @Published private(set) var endScreenVideoAspectRatio: CGFloat = 16.0 / 9.0
 
     let videoLayer = AVSampleBufferDisplayLayer()
     private let audioRenderer = AVSampleBufferAudioRenderer()
@@ -424,6 +426,7 @@ final class SabrPlayerController: ObservableObject {
         sponsorLookupTask = nil
         subtitleCues = []
         sponsorSegments = []
+        endScreenElements = []
         sponsorSettings = nil
         sponsorStreamCategory = nil
         audioRenderer.isMuted = false
@@ -841,6 +844,7 @@ final class SabrPlayerController: ObservableObject {
             noteStartup(.bootstrap)
             #endif
             sponsorSegments = bootstrap.sponsorBlockSegments ?? []
+            endScreenElements = bootstrap.endScreenElements ?? []
             sponsorStreamCategory = bootstrap.category
             if sponsorSegments.isEmpty, let settings,
                settings.sponsorBlockMode != "disabled" {
@@ -967,6 +971,10 @@ final class SabrPlayerController: ObservableObject {
                     )
                 }
                 selection = choice
+                if let width = choice.video.width, let height = choice.video.height,
+                   width > 0, height > 0 {
+                    endScreenVideoAspectRatio = CGFloat(width) / CGFloat(height)
+                }
                 currentVideoItag = choice.video.itag
                 currentAudioItag = choice.audio.itag
                 currentAudioTrackId = choice.audio.audioTrackId
@@ -2213,8 +2221,34 @@ struct SabrPlayerView: View {
     @State private var revealIndex = 0
     @State private var optionsVisible = false
     @State private var channelArtwork: TVChannelArtwork?
+    @State private var extraEndScreenElements: [TVEndScreenElement] = []
+    @State private var visibleEndScreens: [TVEndScreenElement] = []
+    @State private var dismissedEndScreens = false
+    @State private var chosenEndScreen: TVEndScreenElement?
     @State private var sponsorSkipCooldown: Date = .distantPast
     @State private var dismissedSponsorSegmentID: String?
+
+    private func updateEndScreens() {
+        let all = engine.endScreenElements.isEmpty
+            ? extraEndScreenElements : engine.endScreenElements
+        let at = Int64(max(0, engine.playbackSeconds() * 1_000))
+        let candidates = all.filter { $0.visible(at: at) }
+        if candidates.isEmpty { dismissedEndScreens = false }
+        let enabled = engine.sponsorSettings?.hideEndScreens != true &&
+            !optionsVisible && engine.failure == nil && !dismissedEndScreens
+        let next = enabled ? Array(candidates.prefix(8)) : []
+        if next != visibleEndScreens {
+            visibleEndScreens = next
+            if !next.isEmpty { controlsVisible = false }
+        }
+    }
+
+    private func activateEndScreen(_ element: TVEndScreenElement) {
+        guard element.isUsable else { return }
+        // Free the decoder and SABR session before opening another video.
+        engine.stop()
+        chosenEndScreen = element
+    }
 
     private func currentSponsorSegment() -> TVSponsorBlockActive? {
         guard let settings = engine.sponsorSettings else { return nil }
@@ -2282,7 +2316,8 @@ struct SabrPlayerView: View {
             }
             .allowsHitTesting(false)
 
-            if !optionsVisible && engine.failure == nil {
+            if !optionsVisible && engine.failure == nil &&
+               visibleEndScreens.isEmpty {
                 SiriRemotePlayerInput(
                     onTouch: reveal,
                     onDirection: skip,
@@ -2317,6 +2352,19 @@ struct SabrPlayerView: View {
                 .accessibilityLabel("player.remoteAccessibility")
                 .accessibilityHint("player.remoteAccessibilityHint")
                 .ignoresSafeArea()
+            }
+
+            if !visibleEndScreens.isEmpty && engine.failure == nil {
+                TVEndScreenOverlay(
+                    api: api, elements: visibleEndScreens,
+                    videoAspectRatio: engine.endScreenVideoAspectRatio,
+                    onSelect: activateEndScreen,
+                    onDismiss: {
+                        dismissedEndScreens = true
+                        visibleEndScreens = []
+                        reveal()
+                    }
+                )
             }
 
             if let failure = engine.failure {
@@ -2420,6 +2468,21 @@ struct SabrPlayerView: View {
             }
         }
         .task(id: video.url) {
+            extraEndScreenElements = []
+            // SABR bootstrap is authoritative when it includes creator
+            // cards. Older bootstrap endpoints may omit them; reuse the
+            // bounded stream-metadata cache without delaying startup.
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, engine.endScreenElements.isEmpty,
+                  engine.sponsorSettings?.hideEndScreens != true else { return }
+            let metadata = await TVStreamMetadataCache.shared.details(
+                for: video, api: api
+            )
+            if !Task.isCancelled {
+                extraEndScreenElements = metadata?.endScreenElements ?? []
+            }
+        }
+        .task(id: video.url) {
             channelArtwork = nil
             guard let url = TVVideoMetadata.channelURL(for: video, stream: nil) else {
                 return
@@ -2498,6 +2561,11 @@ struct SabrPlayerView: View {
         }
         .animation(TVStableMotion.noticeAnimation(reduceMotion: reduceMotion),
                    value: optionsVisible)
+        .fullScreenCover(item: $chosenEndScreen, onDismiss: {
+            dismiss()
+        }) { element in
+            TVEndScreenDestination(api: api, element: element)
+        }
         .task {
             engine.start(api: api, video: video)
             TVSabrNowPlayingCenter.shared.activate(for: engine, video: video)
@@ -2516,6 +2584,7 @@ struct SabrPlayerView: View {
             while !Task.isCancelled {
                 do { try await Task.sleep(nanoseconds: 350_000_000) }
                 catch { return }
+                updateEndScreens()
                 guard engine.failure == nil, let settings = engine.sponsorSettings else {
                     engine.setSponsorMuted(false)
                     continue
@@ -2582,6 +2651,10 @@ struct SabrPlayerView: View {
             if let segment = currentSponsorSegment(),
                sponsorNoticeVisible(segment) {
                 dismissSponsorNotice()
+            } else if !visibleEndScreens.isEmpty {
+                dismissedEndScreens = true
+                visibleEndScreens = []
+                reveal()
             } else if optionsVisible {
                 optionsVisible = false
                 reveal()

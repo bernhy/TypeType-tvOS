@@ -31,6 +31,7 @@ struct SabrBootstrap: Decodable {
     let videoOnlyStreams: [Video]?
     let audioStreams: [Audio]?
     var sponsorBlockSegments: [TVSponsorBlockSegment]? = nil
+    var endScreenElements: [TVEndScreenElement]? = nil
     var category: String? = nil
     var subtitles: [Subtitle]? = nil
 

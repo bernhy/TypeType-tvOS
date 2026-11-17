@@ -35,7 +35,7 @@
 | DETAIL-01 | [x] | [x] | Related videos from `relatedStreams` on detail page | `7315e7f9, 4882e4c3` | Honors hideRelatedVideos and filter preferences. |
 | CONTENT-01 | [x] | [x] | Honor hideContinueWatching and hideHomeRecommendations | `443554bf, 744bf946` | Existing saved history still visible in Library. |
 | CONTENT-02 | [x] | [x] | Honor hideShorts, hideSubscriptionLiveStreams, hideMembersOnlyContent | `443554bf, 0931b730, 4882e4c3` | Visibility metadata may be unavailable for some provider rows. |
-| CONTENT-03 | [ ] | [ ] | Honor hideRelatedVideos, hideEndScreens, hideComments | `7315e7f9, 4882e4c3, fbc8450a` | PARTIAL: related videos and the comments tab obey settings; tvOS does not render end-screen elements yet. |
+| CONTENT-03 | [x] | [ ] | Honor hideRelatedVideos, hideEndScreens, hideComments | `7315e7f9, 4882e4c3, fbc8450a` | Creator-placed YouTube end-screen cards now display over SABR VOD video with remote focus. hideEndScreens is respected; physical Apple TV confirmation pending. |
 | CONTENT-04 | [x] | [x] | Visibly explain disabled watch-history recording at playback start | `7315e7f9` | HLS/SABR notices; existing positions remain readable, but no new progress/history is recorded. |
 | CONTENT-05 | [ ] | [ ] | Startup landing, DeArrow, other content settings parity | — | Separate API/data pipeline |
 | SETTINGS-02 | [x] | [x] | Explain each of the nine content settings in German, English, French and Spanish | `9fa5184b, 04482478` | Each setting has an inline explanation of its actual behavior, including unchanged old history and positions when recording is disabled. |
@@ -60,7 +60,7 @@ Xcode 26.2 CI run completes. Hardware revalidation is still recommended.
 | QA-CHANNEL-03 | [x] | [ ] | Friendly Community 404/501 explanation | `1db3a6b6`, `1de2d71d` | **Server diagnostic open**: `/channel/posts` is in upstream `v1.17.1`; deployed endpoint or reverse proxy should be checked |
 | QA-DETAIL-01 | [x] | [ ] | Description excerpt opens full text in a Liquid Glass popup | `f79642d1`, `f46642c1` | Prevent outer scrolling from skipping to related videos; focus and Back regression tests |
 | QA-COMMENTS-01 | [x] | [ ] | Preserve pagination button focus while loading comments/replies | `f79642d1` | Confirm on hardware, particularly last page |
-| QA-CONTENT-01 | [x] | [ ] | Disable unavailable End Screens setting | `934fbcf7` | Underlying server value left unchanged |
+| QA-CONTENT-01 | [x] | [ ] | Enable End Screens setting once implemented | `934fbcf7` | Setting now controls visible end-screen cards; hardware validation pending. |
 | QA-BLOCK-01 | [x] | [ ] | Visible video/channel name in blocking confirmation | `75f65f2e`, `63ec7695` | System confirmation title explicitly visible |
 | QA-BLOCK-02 | [x] | [ ] | Blocked name and short ID instead of full URL | `75f65f2e`, `1c1833c6` | TypeType 1.17.1 does not persist video titles; locally remembered for new Apple TV blocks, ID fallback for old/remote blocks |
 | QA-BLOCK-03 | [x] | [ ] | Glass unblock acknowledgement on the row before delayed removal | `1c1833c6` | Entry remains visible ~1.8s before disappearing |
