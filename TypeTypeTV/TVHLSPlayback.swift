@@ -550,8 +550,7 @@ enum TVHLSResumePolicy {
         guard !isLive, let saved = savedPositionMs, saved > 0 else { return 0 }
         let seconds = Double(saved) / 1_000
         if let durationSeconds, durationSeconds > 0 {
-            let nearEnd = max(0, Double(durationSeconds) - 3)
-            if seconds >= nearEnd { return 0 }
+            if seconds >= Double(durationSeconds) * 0.9 { return 0 }
         }
         return seconds
     }

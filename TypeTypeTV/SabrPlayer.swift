@@ -963,9 +963,10 @@ final class SabrPlayerController: ObservableObject {
                 video: video, explicitPositionMs: explicitPositionMs,
                 savedPositionMs: recordedPosition
             )
-            // Do not resume after the credits of a nearly completed video.
-            if let duration = video.duration, duration > 0,
-               positionMs >= Int64(duration) * 1_000 - 3_000 {
+            // Finished playback should restart at 0:00 instead of
+            // resuming near the credits. Match Home's shared 90% rule.
+            if explicitPositionMs == nil,
+               TVWatchedState.isWatched(video, positionMs: positionMs) {
                 positionMs = 0
             }
             playbackPositionMs = positionMs
@@ -1797,6 +1798,49 @@ final class SabrPlayerController: ObservableObject {
         }
     }
 
+    /// The server can occasionally deliver a truncated/invalid compressed
+    /// fMP4 fragment. Re-fetch just this fragment once rather than treating
+    /// corrupt media bytes as an unsupported hardware codec. All requests
+    /// still pass SabrService's same-origin/session/generation checks.
+    private func loadDecodedFragment<T>(
+        cache: SabrFragmentCache, service: SabrService, url: String,
+        sessionId: String, itag: Int, generation: Int64,
+        decode: (Data) async throws -> T
+    ) async throws -> (bytes: Data, value: T) {
+        let first = try await cache.data(for: url) {
+            try await service.fragmentData(
+                url, sessionId: sessionId, itag: itag, generation: generation
+            )
+        }
+        do {
+            return (first, try await decode(first))
+        } catch is SabrMalformedCompressedMedia {
+            let seq = SabrSequenceOrder.sequence(url) ?? -1
+            NSLog("TypeType SABR MEDIA repair trackItag=%d seq=%d step=redownload",
+                  itag, seq)
+            await cache.discard(url)
+            try Task.checkCancellation()
+            let second = try await cache.data(for: url) {
+                try await service.fragmentData(
+                    url, sessionId: sessionId, itag: itag, generation: generation
+                )
+            }
+            do {
+                let value = try await decode(second)
+                NSLog("TypeType SABR MEDIA repair trackItag=%d seq=%d outcome=verified",
+                      itag, seq)
+                return (second, value)
+            } catch is SabrMalformedCompressedMedia {
+                await cache.discard(url)
+                NSLog("TypeType SABR MEDIA repair trackItag=%d seq=%d outcome=failed",
+                      itag, seq)
+                // Use the existing bounded fresh-session recovery. Never
+                // loop indefinitely on identical broken bytes.
+                throw SabrFailure.stalled("SABR media fragment invalid after redownload")
+            }
+        }
+    }
+
     /// Audio and video are rendered in media-time order from the queued window.
     /// This path never calls /position, /prefetch or /segments and therefore
     /// cannot hold up the next server window while the renderer is busy.
@@ -1863,19 +1907,20 @@ final class SabrPlayerController: ObservableObject {
                 let key = "a:\(segment.url)"
                 guard !seen.contains(key) else { continue }
                 let sid = sessionId, gen = generation
-                let bytes = try await cache.data(for: segment.url) {
-                    try await service.fragmentData(segment.url, sessionId: sid,
-                                                   itag: choice.audio.itag, generation: gen)
-                }
                 #if DEBUG
                 let readStarted = ProcessInfo.processInfo.systemUptime
                 #endif
-                let rawSamples = try await SabrDirectMP4Reader.compressedSamples(
-                    initialization: audioInit, fragment: bytes,
-                    mediaType: .audio,
-                    presentationStartMs: presentationStartMs > start
-                        ? presentationStartMs : nil
-                )
+                let (bytes, rawSamples) = try await loadDecodedFragment(
+                    cache: cache, service: service, url: segment.url,
+                    sessionId: sid, itag: choice.audio.itag, generation: gen
+                ) { bytes in
+                    try await SabrDirectMP4Reader.compressedSamples(
+                        initialization: audioInit, fragment: bytes,
+                        mediaType: .audio,
+                        presentationStartMs: presentationStartMs > start
+                            ? presentationStartMs : nil
+                    )
+                }
                 #if DEBUG
                 let readMs = Int((ProcessInfo.processInfo.systemUptime - readStarted) * 1_000)
                 #endif
@@ -1988,18 +2033,19 @@ final class SabrPlayerController: ObservableObject {
                 let key = "v:\(segment.url)"
                 guard !seen.contains(key) else { continue }
                 let sid = sessionId, gen = generation
-                let bytes = try await cache.data(for: segment.url) {
-                    try await service.fragmentData(segment.url, sessionId: sid,
-                                                   itag: choice.video.itag, generation: gen)
-                }
                 #if DEBUG
                 let readStarted = ProcessInfo.processInfo.systemUptime
                 #endif
-                let videoBatch = try await SabrDirectMP4Reader.compressedSeekVideo(
-                    initialization: videoInit, fragment: bytes,
-                    presentationStartMs: presentationStartMs > start
-                        ? presentationStartMs : nil
-                )
+                let (bytes, videoBatch) = try await loadDecodedFragment(
+                    cache: cache, service: service, url: segment.url,
+                    sessionId: sid, itag: choice.video.itag, generation: gen
+                ) { bytes in
+                    try await SabrDirectMP4Reader.compressedSeekVideo(
+                        initialization: videoInit, fragment: bytes,
+                        presentationStartMs: presentationStartMs > start
+                            ? presentationStartMs : nil
+                    )
+                }
                 let rawSamples = videoBatch.buffers
                 if let rapMs = videoBatch.selectedRAPMs,
                    !isInitialized, !hasQueuedFirstVideo,

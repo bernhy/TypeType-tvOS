@@ -28,6 +28,15 @@ final class TVHLSResumePolicyTests: XCTestCase {
         ))
     }
 
+    func testNearlyCompletedVideoStartsFromZeroAtNinetyPercent() {
+        XCTAssertEqual(TVHLSResumePolicy.startSeconds(
+            savedPositionMs: 269_999, durationSeconds: 300, isLive: false
+        ), 269.999)
+        XCTAssertEqual(TVHLSResumePolicy.startSeconds(
+            savedPositionMs: 270_000, durationSeconds: 300, isLive: false
+        ), 0)
+    }
+
     func testNeverResumeAfterEndOrForLiveStreams() {
         XCTAssertEqual(TVHLSResumePolicy.startSeconds(
             savedPositionMs: 297_500, durationSeconds: 300, isLive: false

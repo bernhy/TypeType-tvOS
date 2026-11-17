@@ -159,6 +159,15 @@ actor SabrFragmentCache {
         }
     }
 
+    /// A structurally malformed fragment must not be served again from the
+    /// verified-on-disk cache. Hash matching only verifies byte stability,
+    /// not whether the upstream fragment is playable.
+    func discard(_ key: String) {
+        guard let entry = entries.removeValue(forKey: key) else { return }
+        try? FileManager.default.removeItem(at: entry.file)
+        used = max(0, used - entry.count)
+    }
+
     /// Bounded two-download media prefetch, *before* advancing the next
     /// server window. A failed or cancelled segment never counts as buffered.
     func preloadFully(
