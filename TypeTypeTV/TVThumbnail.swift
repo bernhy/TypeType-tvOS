@@ -131,3 +131,103 @@ struct TVThumbnail: View {
         }
     }
 }
+
+
+/// A stable UIKit thumbnail surface reserved for the SABR startup poster.
+/// Unlike regular video-card thumbnails, its decoded image is never added to
+/// the shared cache. Once the fade completes we clear UIImageView.image,
+/// cancel any unfinished fetch, and release the entry if already cached.
+/// makeUIView is never conditional on playback/seek state.
+struct TVTransientStartupImage: UIViewRepresentable {
+    let url: URL?
+    let origin: URL
+    let retainsImage: Bool
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var requestKey: String?
+        var task: Task<Void, Never>?
+
+        func release(_ view: UIImageView, evictCachedImage: Bool = true) {
+            task?.cancel()
+            task = nil
+            let key = requestKey
+            requestKey = nil
+            view.image = nil
+            if evictCachedImage, let key {
+                // Evict only this poster image, not the entire shared
+                // thumbnail cache used by rails and recommendations.
+                TVThumbnailMemory.shared.configuredCache()
+                    .removeObject(forKey: key as NSString)
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIImageView {
+        let view = UIImageView()
+        view.backgroundColor = .clear
+        view.contentMode = .scaleAspectFill
+        view.clipsToBounds = true
+        return view
+    }
+
+    func updateUIView(_ view: UIImageView, context: Context) {
+        let coordinator = context.coordinator
+        guard retainsImage, let url else {
+            if coordinator.requestKey != nil || view.image != nil {
+                coordinator.release(view)
+            }
+            return
+        }
+
+        let firstParty = url.host?.lowercased() == origin.host?.lowercased() &&
+            url.scheme == origin.scheme && url.port == origin.port
+        let token = firstParty ? TypeTypeCredentials.shared.token(for: origin) : nil
+        let key = url.absoluteString +
+            (firstParty ? "|account:" + (token ?? "guest") : "")
+        guard coordinator.requestKey != key else { return }
+
+        coordinator.release(view, evictCachedImage: false)
+        coordinator.requestKey = key
+        if let cached = TVThumbnailMemory.shared.configuredCache()
+            .object(forKey: key as NSString) {
+            view.image = cached
+            return
+        }
+        guard url.scheme == "https" || (firstParty && url.scheme == "http") else {
+            coordinator.requestKey = nil
+            return
+        }
+
+        coordinator.task = Task { @MainActor [weak view, weak coordinator] in
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 20
+            request.setValue("image/avif,image/webp,image/png,image/jpeg,*/*",
+                             forHTTPHeaderField: "Accept")
+            if firstParty, let token {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            do {
+                let session = firstParty ? TVNetwork.session(for: origin) : URLSession.shared
+                let (bytes, response) = try await session.data(for: request)
+                guard !Task.isCancelled,
+                      let http = response as? HTTPURLResponse,
+                      http.statusCode == 200, bytes.count <= 8_000_000,
+                      let bitmap = TVThumbnailDecoder.decode(bytes),
+                      !Task.isCancelled,
+                      coordinator?.requestKey == key else { return }
+                // No insertion into NSCache: this UIImage is owned by the
+                // poster surface and discarded after its fade completes.
+                view?.image = bitmap
+            } catch {
+                // The existing black backdrop still works without artwork.
+            }
+        }
+    }
+
+    static func dismantleUIView(_ view: UIImageView, coordinator: Coordinator) {
+        coordinator.release(view, evictCachedImage: false)
+    }
+}

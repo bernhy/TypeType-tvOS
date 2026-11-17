@@ -2405,6 +2405,7 @@ struct SabrPlayerView: View {
     @State private var optionsVisible = false
     @State private var channelArtwork: TVChannelArtwork?
     @State private var showingStartupPoster = true
+    @State private var retainsStartupPosterImage = true
     @State private var startupPosterProbe = 0
     @State private var extraEndScreenElements: [TVEndScreenElement] = []
     @State private var visibleEndScreens: [TVEndScreenElement] = []
@@ -2427,6 +2428,14 @@ struct SabrPlayerView: View {
                 withAnimation(reduceMotion ? nil : .easeOut(duration: 0.20)) {
                     showingStartupPoster = false
                 }
+                // Keep UIImage until after the fade to avoid a black flash.
+                // Afterwards only the fixed, transparent UIKit surface stays.
+                if !reduceMotion {
+                    do { try await Task.sleep(for: .milliseconds(280)) }
+                    catch { return }
+                }
+                guard !Task.isCancelled, !showingStartupPoster else { return }
+                retainsStartupPosterImage = false
                 return
             }
             do { try await Task.sleep(for: .milliseconds(100)) }
@@ -2506,7 +2515,11 @@ struct SabrPlayerView: View {
             SabrVideoSurface(displayLayer: engine.videoLayer)
                 .ignoresSafeArea()
                 .overlay {
-                    TVPlaybackStartupPoster(api: api, video: video)
+                    TVPlaybackStartupPoster(
+                        api: api, video: video,
+                        transientImage: true,
+                        retainsImage: retainsStartupPosterImage
+                    )
                         .opacity(showingStartupPoster ? 1 : 0)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
@@ -2588,6 +2601,7 @@ struct SabrPlayerView: View {
                     unavailable: engine.playbackUnavailable,
                     failure: failure,
                     onRetry: {
+                        retainsStartupPosterImage = true
                         showingStartupPoster = true
                         startupPosterProbe &+= 1
                         engine.start(api: api, video: video)

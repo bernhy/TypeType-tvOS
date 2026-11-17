@@ -80,6 +80,13 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 - Record Apple TV generation, tvOS version, codec/itag, resolution, whether session reuse occurred, and perceived time to synchronized picture/sound. Do not include tokens, media URLs or session IDs in logs.
 - Target improvements only after comparing bootstrap/session, queue and display-readiness stages. No faster clock start should sacrifice the now-correct A/V synchronisation.
 
+## Startup poster image lifetime (SABR)
+
+- The verified stable SABR thumbnail overlay stays mounted throughout playback and seeks. The child is a permanent UIKit `UIImageView`; **only** its image reference is released after the 200 ms fade (plus a small margin) once the renderer displays actual video.
+- Startup pictures are not inserted into the shared image cache. If the picture was previously cached by a listing, the corresponding entry is evicted when the poster releases it; other cached thumbnails remain intact.
+- Re-test first-frame fade, repeated seek forward/backward, rapid Siri Remote seek bursts, retry after failure, no-image cases, and transitions. Normal seeks must never reload or redisplay the poster.
+- Confirm in Instruments that image-view memory is reclaimed after fade; UIKit/CoreAnimation may retain transient allocations until the OS collects them.
+
 ## SABR stable startup poster experiment
 
 - Regression reference: `5e660c890b2d` had immediate picture after forward/backward seek. The first SABR startup-poster implementation introduced black flashes; removing it in `493334d30b19` restored fast-seek video on a real Apple TV.

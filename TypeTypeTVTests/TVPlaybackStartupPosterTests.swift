@@ -2,6 +2,17 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVPlaybackStartupPosterTests: XCTestCase {
+    @MainActor
+    func testTransientPosterImageReleaseClearsImageAndIdentity() {
+        let coordinator = TVTransientStartupImage.Coordinator()
+        let surface = UIImageView(image: UIImage())
+        coordinator.requestKey = "test-video"
+        coordinator.release(surface, evictCachedImage: false)
+        XCTAssertNil(surface.image)
+        XCTAssertNil(coordinator.requestKey)
+        XCTAssertNil(coordinator.task)
+    }
+
     func testSabrRequiresClockAndDisplayReady() {
         XCTAssertFalse(TVPlaybackStartupPosterPolicy.sabrReady(
             displayReady: false, clockRunning: false

@@ -6,17 +6,30 @@ import SwiftUI
 struct TVPlaybackStartupPoster: View {
     let api: TypeTypeAPI
     let video: VideoItem
+    // SABR keeps the same UIKit view mounted for the whole session. HLS keeps
+    // its existing thumbnail path unchanged.
+    var transientImage = false
+    var retainsImage = true
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
                 Color.black
-                TVThumbnail(
-                    url: api.relativeMediaURL(video.thumbnailUrl),
-                    origin: api.origin, contentMode: .fill
-                )
-                .frame(width: geometry.size.width,
-                       height: geometry.size.height)
+                if transientImage {
+                    TVTransientStartupImage(
+                        url: api.relativeMediaURL(video.thumbnailUrl),
+                        origin: api.origin, retainsImage: retainsImage
+                    )
+                    .frame(width: geometry.size.width,
+                           height: geometry.size.height)
+                } else {
+                    TVThumbnail(
+                        url: api.relativeMediaURL(video.thumbnailUrl),
+                        origin: api.origin, contentMode: .fill
+                    )
+                    .frame(width: geometry.size.width,
+                           height: geometry.size.height)
+                }
                 LinearGradient(
                     colors: [.black.opacity(0.15), .clear, .black.opacity(0.22)],
                     startPoint: .top, endPoint: .bottom
