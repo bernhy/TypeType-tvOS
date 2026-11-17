@@ -43,7 +43,7 @@ struct SabrPlayerOptions: View {
                     .buttonStyle(.bordered)
                     .tint(section == .subtitles ? TTTheme.accent : TTTheme.muted)
                     .focused($focusedSection, equals: .subtitles)
-                Button("Einstellungen") { section = .settings }
+                Button("player.osdSettings") { section = .settings }
                     .buttonStyle(.bordered)
                     .tint(section == .settings ? TTTheme.accent : TTTheme.muted)
                     .focused($focusedSection, equals: .settings)
@@ -168,15 +168,15 @@ struct SabrPlayerOptions: View {
         VStack(alignment: .leading, spacing: 24) {
             settingRow("settings.skipLength", values: [5, 10, 15, 20],
                        selected: $skipSeconds)
-            settingRow("OSD automatisch ausblenden", values: [0, 3, 5, 8, 10, 15],
+            settingRow("settings.osdDuration", values: [0, 3, 5, 8, 10, 15],
                        selected: $osdSeconds)
             settingRow("settings.playerNoticeDuration",
                        values: TVPlayerNoticePolicy.choices,
                        selected: $noticeSeconds)
-            Toggle("Codec und Buffer als Debug-Informationen", isOn: $osdDebug)
+            Toggle("settings.osdDebug", isOn: $osdDebug)
                 .font(.system(size: 20))
                 .tint(TTTheme.accent)
-            Text("0 Sekunden bei der OSD-Dauer bedeutet: nicht automatisch ausblenden.")
+            Text("settings.osdOffHelp")
                 .font(.caption)
                 .foregroundStyle(TTTheme.muted)
         }
@@ -191,7 +191,7 @@ struct SabrPlayerOptions: View {
                     Button {
                         selected.wrappedValue = seconds
                     } label: {
-                        Text(seconds == 0 ? "Aus" : "\(seconds) s")
+                        Text(seconds == 0 ? TVL10n.value("player.optionsOff") : "\(seconds) s")
                             .font(.system(size: 18, weight: .medium))
                             .frame(minWidth: 57)
                     }
