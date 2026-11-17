@@ -23,7 +23,11 @@ struct TVHLSPlaybackView: View {
     private func hideStartupPosterWhenPlaying() async {
         var lastTime: Double?
         while !Task.isCancelled && showingStartupPoster {
-            let playing = playback.player.timeControlStatus == .playing
+            // A reused view must never reveal the previous AVPlayerItem
+            // while the new video's account settings/resume are still loading.
+            let itemURL = (playback.player.currentItem?.asset as? AVURLAsset)?.url
+            let playing = itemURL == url &&
+                playback.player.timeControlStatus == .playing
             let current = CMTimeGetSeconds(playback.player.currentTime())
             if TVPlaybackStartupPosterPolicy.hlsAdvanced(
                 previous: lastTime, current: current, playing: playing
