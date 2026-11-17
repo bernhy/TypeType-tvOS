@@ -125,13 +125,13 @@ struct TVPlayerOSD: View {
             }
             Spacer(minLength: 32)
             Button(action: onClockMode) {
-                Label(clockMode ? "Uhrzeit" : "Laufzeit",
+                Label(TVL10n.value(clockMode ? "player.osdClock" : "player.osdElapsed"),
                       systemImage: clockMode ? "clock" : "timer")
                     .font(.system(size: 18, weight: .medium))
             }
             .buttonStyle(.bordered)
             .tint(.white.opacity(0.22))
-            .accessibilityLabel("Zeitmodus wechseln")
+            .accessibilityLabel(TVL10n.value("player.osdClockToggle"))
         }
     }
 
@@ -140,10 +140,10 @@ struct TVPlayerOSD: View {
             if dragging {
                 HStack(spacing: 10) {
                     Image(systemName: "hand.point.up.left.fill")
-                    Text("Vorschau")
+                    Text("player.osdScrubbing")
                     Text(TTTheme.time(Int(position))).monospacedDigit()
                     Spacer()
-                    Text("Loslassen zum Spulen")
+                    Text("player.osdSeekRelease")
                 }
                 .font(.system(size: 18))
                 .foregroundStyle(.white.opacity(0.86))
@@ -249,20 +249,20 @@ struct TVPlayerOSD: View {
             control("−\(skipSeconds) s", icon: "gobackward", focus: .backward) {
                 onSkip(-1)
             }
-            control(engine.isPlaying ? "Pause" : "Play",
+            control(TVL10n.value(engine.isPlaying ? "player.osdPause" : "player.osdPlay"),
                     icon: engine.isPlaying ? "pause.fill" : "play.fill",
                     focus: .playPause, primary: true, action: onToggle)
             control("+\(skipSeconds) s", icon: "goforward", focus: .forward) {
                 onSkip(1)
             }
             Spacer(minLength: 18)
-            control(TVL10n.value("player.optionsQuality"), icon: "tv",
+            control(TVL10n.value("player.osdVideo"), icon: "tv",
                     focus: .video, action: onVideo)
             control(TVL10n.value("player.optionsAudio"), icon: "speaker.wave.2",
                     focus: .audio, action: onAudio)
             control(TVL10n.value("player.optionsSubtitles"), icon: "captions.bubble",
                     focus: .subtitles, action: onSubtitle)
-            control("Einstellungen", icon: "gearshape",
+            control(TVL10n.value("player.osdSettings"), icon: "gearshape",
                     focus: .settings, action: onSettings)
         }
     }
