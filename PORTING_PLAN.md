@@ -20,10 +20,13 @@ and early milestones. The status below supersedes historical TODOs:
 - **Home — "Ansehen fortsetzen":** Separate from the complete Library history.
   The rail now filters to started, unfinished VODs with known duration and a
   positive saved position, excluding videos marked watched by the common
-  90% progress threshold. It inspects up to 100 recent raw history events
-  before selecting up to eight candidates. Text, empty state and server-setting
-  explanations are localized in de/en/fr/es (`6be64f7`, `c02d0fb`).
-  Hardware confirmation and CI for these newer commits remain separate.
+  90% progress threshold. The first page inspects 100 raw history events;
+  additional pages load when the user navigates towards the end of the
+  horizontal shelf. Exactly **one row** is visible, with four card slots and
+  further videos reachable to the right. No eight-card cap remains
+  (`a7e08d1`). Text, empty state and server-setting explanations are localized
+  in de/en/fr/es (`6be64f7`, `c02d0fb`).
+  Hardware confirmation and combined CI for these newer commits remain separate.
 - **Implemented, not necessarily hardware-validated:** Server-supplied creator
   end-screen cards, multi-group YouTube search filters, server-backed search
   history, subscription/channel actions, and blocked-keyword management.
