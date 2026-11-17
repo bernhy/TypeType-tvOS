@@ -2531,7 +2531,7 @@ struct SabrPlayerView: View {
             .animation(TVStableMotion.noticeAnimation(reduceMotion: reduceMotion),
                        value: engine.playerNotices.items.map(\.id))
         }
-        .overlay {
+        .overlay(alignment: .trailing) {
             if optionsVisible {
                 SabrPlayerOptions(
                     engine: engine, initialSection: optionsSection,
@@ -2558,6 +2558,7 @@ struct SabrPlayerView: View {
                         reveal()
                     }
                 )
+                .padding(.trailing, 72)
                 .transition(TVStableMotion.noticeTransition(reduceMotion: reduceMotion))
             }
         }
