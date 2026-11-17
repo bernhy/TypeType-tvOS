@@ -80,6 +80,13 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 - Record Apple TV generation, tvOS version, codec/itag, resolution, whether session reuse occurred, and perceived time to synchronized picture/sound. Do not include tokens, media URLs or session IDs in logs.
 - Target improvements only after comparing bootstrap/session, queue and display-readiness stages. No faster clock start should sacrifice the now-correct A/V synchronisation.
 
+## SABR stable startup poster experiment
+
+- Regression reference: `5e660c890b2d` had immediate picture after forward/backward seek. The first SABR startup-poster implementation introduced black flashes; removing it in `493334d30b19` restored fast-seek video on a real Apple TV.
+- This branch keeps the video surface and startup poster **always mounted**. Only the poster's opacity changes after display readiness. It must show the video thumbnail on the first cold startup, then fade without remounting the video surface.
+- Test ±10/20-second seeks repeatedly after the poster fades, including rapid sequential remote presses. There must be **no black flash and no thumbnail reappearance on seek**. A Debug console marker `TypeType SABR SURFACE makeUIView` should occur on first attachment, not for ordinary seeks.
+- Check initial startup, paused before first frame, retries, playback completion, channel/playlist launches, and videos with no thumbnail. If black flashes return, leave the stable main without SABR startup artwork and revisit the layer architecture.
+
 ## Startup thumbnails (SABR / HLS)
 
 - At video startup show the already-known `VideoItem.thumbnailUrl` as a non-focusable full-screen backdrop over the initially black renderer; no second stream-metadata request is made to obtain the picture.
