@@ -2,7 +2,7 @@
 
 Native, GPL-3.0 Apple TV client for [TypeType](https://github.com/TypeType-Video/TypeType), based on the Android TV reference (dev branch, 2026-11-13).
 
-**Status (2026-11-16):** The direct fMP4 / compressed sample renderer pipeline from PR #15 was confirmed on physical Apple TV 4K (2017) to resolve the earlier reproducible A/V stutters. Development continues on `main`. The new VP9/AV1 sample-entry support and decoder-preroll seeking changes have automated tests, but still require validation on suitable Apple TV hardware. Release-readiness, HDR profiles and sustained seek latency are not yet guaranteed.
+**Status (2026-11-17):** The direct fMP4 / compressed-sample renderer pipeline from PR #15 and codec/seek cleanup from PR #16 are on `main`. Hardware testing reports stable A/V playback and immediately synchronised picture after seeking (previously delayed 10–20 seconds). Initial picture/sound arrival was estimated at approximately one second, not yet instrumentally measured. Debug-only startup metrics now cover bootstrap, session, first audio/video sample enqueues, media clock and display-layer readiness. VP9/AV1, HDR and cross-device stability still need hardware validation; this is not a production-ready release.
 
 
 ## Attribution and third-party licenses
@@ -42,16 +42,16 @@ is developed in this project. Thanks to the upstream TypeType developers.
 
 TypeType Server SABR session and segments → Swift SABR transport + cache → in-memory fMP4 box and sample parser (`moof`/`traf`/`trun`/`tfdt`) → compressed `CMSampleBuffer` → `AVSampleBufferVideoRenderer` + `AVSampleBufferAudioRenderer` → shared `AVSampleBufferRenderSynchronizer`.
 
-**Seeking:** For nonzero positions the server is asked for up to 20 seconds of bounded compressed preroll while playback and audio begin at the exact requested target. Video samples before that target are marked `DoNotDisplay` so reference frames can be decoded without flashing old pictures. This targets the reported 10–20-second post-seek video freeze. Hardware verification is still necessary; the parser alone cannot guarantee every codec/profile or frame-accurate seeking in all upstream SABR fragments.
+**Seeking:** For nonzero positions the server is asked for up to 20 seconds of bounded compressed preroll while playback and audio begin at the exact requested target. Video samples before that target are marked `DoNotDisplay` so reference frames can be decoded without flashing old pictures. This targets the reported 10–20-second post-seek video freeze. A November 17 hardware test reported immediate A/V sync after seeking; seek latency under different codecs, network conditions and hardware generations is not yet established.
 
 ## Still required for a production release
 
-- Real Apple TV 4K (2017+) testing of VOD, Siri Remote touch and directional press handling, seek, audio/video synchronization, *actual filled* buffer depth, offline resilience and error recovery.
+- Broader Apple TV 4K (2017+) testing of long VOD sessions, Siri Remote touch/directional presses, seek across fragment boundaries, *actual filled* buffer depth, offline resilience and error recovery. Basic A/V stability and prompt post-seek sync have been observed on hardware.
 - VP9/AV1, HEVC/HDR, 4K/60 and decoder profile/frame-rate validation on the appropriate real hardware.
 - Interactive endscreens, live chat, expanded queue/shuffle/repeat controls, additional focus/accessibility refinement and broader Android feature parity. SponsorBlock categories, skip overlays and account settings are implemented; their behavior, as well as subtitle and audio/quality controls, still requires broader live-device validation. Writing to playlists and Watch Later is implemented.
 - Validate the implemented session refresh/resume, multi-window forward prefetch and cache-aware seeking against real SABR windows to achieve the larger configured buffer target when the server allows it; collect long-run resource measurements, then add signing/distribution.
 
-See [TESTING.md](TESTING.md) for the device and live-stream test checklist.
+In Debug builds, `TypeType SABR STARTUP` logs elapsed milliseconds from a start/seek action: `bootstrapMs`, `sessionMs`, `audioQueuedMs`, `videoQueuedMs`, `clockMs` and `displayReadyMs`. A value of `-1` means that milestone was not reached. `clock-started` and `display-ready` appear separately (after ten seconds, `display-timeout` is reported). Queued audio is **not** first audible sound, and display-layer readiness is **not** a guaranteed first visible-frame timestamp. Routine selection, seeking, buffering and renderer logs remain Debug-only; actionable repair/failure/recovery records remain in Release. See [TESTING.md](TESTING.md) for the checklist.
 
 ## Build on GitHub
 

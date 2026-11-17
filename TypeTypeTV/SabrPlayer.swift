@@ -253,6 +253,10 @@ final class SabrPlayerController: ObservableObject {
     private var queuedAudioEndMs: Int64 = 0
     private var queuedVideoEndMs: Int64 = 0
     #if DEBUG
+    private var startupMetrics = SabrStartupMetrics()
+    private var startupStartedUptime: TimeInterval = 0
+    private var startupMode = "start"
+    private var startupDisplayProbeTask: Task<Void, Never>?
     private var rendererProbeTask: Task<Void, Never>?
     private var maxVideoDeliveryMs = 0
     private var lateVideoSamples = 0
@@ -288,15 +292,56 @@ final class SabrPlayerController: ObservableObject {
         // Explicitly select the tvOS media playback audio route.
         try? AVAudioSession.sharedInstance().setCategory(.playback)
         try? AVAudioSession.sharedInstance().setActive(true)
-        // Attach the same video renderer that receives the decoded frames.
-        // The display layer owns this renderer, but enqueuing on a different
-        // legacy layer queue would bypass our shared A/V media timeline.
+        // Use the display layer's own renderer in the shared synchronizer
+        // so both compressed-media tracks follow the same A/V clock.
         synchronizer.addRenderer(videoLayer.sampleBufferRenderer)
         synchronizer.addRenderer(audioRenderer)
         // A/V startup is gated by the actual first samples below.
         // Avoid a second implicit rate gate on tvOS after a seek.
         synchronizer.delaysRateChangeUntilHasSufficientMediaData = false
     }
+
+    #if DEBUG
+    /// Records time from the start/seek action to media readiness; these are
+    /// not timestamps of audible sound or the first actually displayed frame.
+    private func noteStartup(_ stage: SabrStartupMetrics.Stage) {
+        let elapsed = max(0, Int(
+            (ProcessInfo.processInfo.systemUptime - startupStartedUptime) * 1_000
+        ))
+        startupMetrics.record(stage, elapsedMs: elapsed)
+    }
+
+    private func logStartup(_ status: String) {
+        func elapsed(_ stage: SabrStartupMetrics.Stage) -> Int {
+            startupMetrics.elapsedMs(for: stage) ?? -1
+        }
+        NSLog("TypeType SABR STARTUP mode=%@ status=%@ bootstrapMs=%d sessionMs=%d audioQueuedMs=%d videoQueuedMs=%d clockMs=%d displayReadyMs=%d",
+              startupMode, status, elapsed(.bootstrap), elapsed(.session),
+              elapsed(.audioQueued), elapsed(.videoQueued),
+              elapsed(.clockStarted), elapsed(.displayReady))
+    }
+
+    private func startStartupDisplayProbe() {
+        startupDisplayProbeTask?.cancel()
+        let epoch = playbackEpoch
+        startupDisplayProbeTask = Task { [weak self] in
+            // Readiness is a proxy, not a first-frame-presented callback.
+            // The 50 ms polling is Debug-only and ends after ten seconds.
+            for _ in 0..<200 {
+                guard let self, !Task.isCancelled, self.playbackEpoch == epoch else { return }
+                if self.videoLayer.isReadyForDisplay {
+                    self.noteStartup(.displayReady)
+                    self.logStartup("display-ready")
+                    return
+                }
+                do { try await Task.sleep(nanoseconds: 50_000_000) }
+                catch { return }
+            }
+            guard let self, !Task.isCancelled, self.playbackEpoch == epoch else { return }
+            self.logStartup("display-timeout")
+        }
+    }
+    #endif
 
     /// Each message has its own expiry. New messages appear at the top and
     /// push older ones downward; deleting one never affects its neighbors.
@@ -328,6 +373,13 @@ final class SabrPlayerController: ObservableObject {
     private func prepareStart(api: TypeTypeAPI, video: VideoItem,
                               positionMs: Int64?, reusing: SabrSeekReuse?) {
         stop(preservingSessionId: reusing?.sessionId)
+        #if DEBUG
+        startupStartedUptime = ProcessInfo.processInfo.systemUptime
+        startupMetrics = SabrStartupMetrics()
+        startupMode = reusing != nil ? "seek-reuse" :
+            (positionMs == nil ? "start-or-resume" :
+             positionMs == 0 ? "restart-at-zero" : "seek-new-session")
+        #endif
         currentAPI = api
         currentVideo = video
         historyEnabled = false
@@ -391,6 +443,8 @@ final class SabrPlayerController: ObservableObject {
         #if DEBUG
         rendererProbeTask?.cancel()
         rendererProbeTask = nil
+        startupDisplayProbeTask?.cancel()
+        startupDisplayProbeTask = nil
         #endif
         synchronizer.setRate(0, time: synchronizer.currentTime())
         videoLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
@@ -465,8 +519,10 @@ final class SabrPlayerController: ObservableObject {
         } else {
             reuse = nil
         }
+        #if DEBUG
         NSLog("TypeType SABR SEEK fromMs=%lld toMs=%lld reuse=%d",
               anchor, target, reuse == nil ? 0 : 1)
+        #endif
         prepareStart(api: api, video: video, positionMs: target, reusing: reuse)
         prefersPause = wasPaused
     }
@@ -609,8 +665,10 @@ final class SabrPlayerController: ObservableObject {
         bufferingNeedsAudio = queuedAudioEndMs <= now + 450
         bufferingNeedsVideo = queuedVideoEndMs <= now + 450
         bufferingClockPaused = true
+        #if DEBUG
         NSLog("TypeType SABR BUFFER paused at %lldms audioQueued=%lldms videoQueued=%lldms",
               now, queuedAudioEndMs, queuedVideoEndMs)
+        #endif
         synchronizer.setRate(0, time: synchronizer.currentTime())
         isPlaying = false
         state = TVL10n.value("player.buffering")
@@ -648,8 +706,10 @@ final class SabrPlayerController: ObservableObject {
         }
         guard !bufferingNeedsAudio && !bufferingNeedsVideo else { return }
         bufferingClockPaused = false
+        #if DEBUG
         NSLog("TypeType SABR BUFFER resumed audioQueued=%lldms videoQueued=%lldms",
               queuedAudioEndMs, queuedVideoEndMs)
+        #endif
         if !prefersPause {
             synchronizer.setRate(1, time: synchronizer.currentTime())
             isPlaying = true
@@ -771,6 +831,9 @@ final class SabrPlayerController: ObservableObject {
                 }
             }
             guard playbackEpoch == epoch, !Task.isCancelled else { return }
+            #if DEBUG
+            noteStartup(.bootstrap)
+            #endif
             sponsorSegments = bootstrap.sponsorBlockSegments ?? []
             sponsorStreamCategory = bootstrap.category
             if sponsorSegments.isEmpty, let settings,
@@ -861,9 +924,8 @@ final class SabrPlayerController: ObservableObject {
             guard !orderedOptions.isEmpty else {
                 throw SabrFailure.unsupported(TVL10n.value("player.noHardwareFormat"))
             }
-            // This must not change when the first failed manual format is
-            // unselected. Otherwise the legacy automatic resume rule stops
-            // the second attempt before reaching 1080p.
+            // Keep manual-format fallback active across candidates;
+            // otherwise a viable candidate can be skipped after failure.
             let manualFallbackActive = requestedVideoItag != nil &&
                 orderedOptions.first?.video.itag == requestedVideoItag
             var playbackStart = positionMs
@@ -886,11 +948,13 @@ final class SabrPlayerController: ObservableObject {
                 // hardware decoder. If AV1 appears in a log while software
                 // is OFF, the exact runtime codec/setting mismatch is now
                 // visible instead of merely inferred from a menu label.
+                #if DEBUG
                 NSLog("TypeType SABR SELECT itag=%d codec=%@ resolution=%dp fps=%d hwProbe=%d softwareAllowed=%d manual=%d",
                       choice.video.itag, choice.video.codec,
                       choice.video.height ?? 0, choice.video.fps ?? 0,
                       hardwareReported ? 1 : 0, allowSoftware ? 1 : 0,
                       requestedVideoItag == choice.video.itag ? 1 : 0)
+                #endif
                 guard hardwareReported || allowSoftware else {
                     throw SabrFailure.unsupported(
                         "Selected SABR stream has no hardware decoder while software decoding is disabled"
@@ -908,8 +972,10 @@ final class SabrPlayerController: ObservableObject {
                 ) else {
                     throw SabrFailure.unsupported("Native fMP4 codec not supported")
                 }
+                #if DEBUG
                 NSLog("TypeType SABR PIPELINE native=1 codec=%@",
                       choice.video.codec)
+                #endif
                 state = TVL10n.value("player.session")
                 // Request earlier compressed media for decoder/keyframe
                 // preroll while keeping the presentation clock at the exact
@@ -918,10 +984,12 @@ final class SabrPlayerController: ObservableObject {
                     targetMs: playbackStart,
                     explicit: playbackStart > 0
                 )
+                #if DEBUG
                 if transportStart != playbackStart {
                     NSLog("TypeType SABR SEEK-PREROLL transportMs=%lld targetMs=%lld",
                           transportStart, playbackStart)
                 }
+                #endif
                 do {
                     let reuseSession = reusing.flatMap { prior in
                         SabrSessionReusePolicy.matches(
@@ -948,11 +1016,13 @@ final class SabrPlayerController: ObservableObject {
                        reusing.sessionId != session.sessionId {
                         Task { try? await service.release(sessionId: reusing.sessionId) }
                     }
+                    #if DEBUG
                     if reuseSession != nil {
                         NSLog("TypeType SABR SEEK session-reused=%d generation=%lld",
                               session.sessionId == reusing?.sessionId ? 1 : 0,
                               session.generation)
                     }
+                    #endif
                     guard !session.sessionId.isEmpty else {
                         throw SabrFailure.invalidResponse("sessionId")
                     }
@@ -968,6 +1038,9 @@ final class SabrPlayerController: ObservableObject {
                     }
                     sessionId = session.sessionId
                     generation = session.generation
+                    #if DEBUG
+                    noteStartup(.session)
+                    #endif
                     try await consume(
                         service: service, videoId: id, choice: choice,
                         positionMs: transportStart, presentationStartMs: playbackStart,
@@ -1935,10 +2008,8 @@ final class SabrPlayerController: ObservableObject {
         pendingVideo.removeFirst(videoCount)
     }
 
-    /// In the native compressed path, audio and video MUST NOT wait on each
-    /// other's renderer. The old single feed loop could be stuck waiting for
-    /// video queue space while the audio queue ran dry, causing an audible
-    /// interruption despite plenty of compressed media on disk.
+    /// Feed audio/video independently: video renderer backpressure must not
+    /// starve audio when compressed media is already available.
     private func enqueueInterleaved(audio: [CMSampleBuffer], video: [CMSampleBuffer],
                                     startMs: Int64) async throws {
         // Both jobs are @MainActor-isolated for renderer state safety, but
@@ -1959,6 +2030,9 @@ final class SabrPlayerController: ObservableObject {
                 throw SabrFailure.stalled("native audio renderer failed")
             }
             audioRenderer.enqueue(sample)
+            #if DEBUG
+            if !hasQueuedFirstAudio { noteStartup(.audioQueued) }
+            #endif
             noteQueuedMedia(.audio, sample: sample)
             hasQueuedFirstAudio = true
             startDirectClockIfReady(at: startMs)
@@ -1987,6 +2061,9 @@ final class SabrPlayerController: ObservableObject {
             }
             #endif
             renderer.enqueue(sample)
+            #if DEBUG
+            if !hasQueuedFirstVideo { noteStartup(.videoQueued) }
+            #endif
             TVHardwareDiagnostics.shared.recordNativeRendererSample(sample)
             if let endMs = SabrSampleTimingProbe.actualEndMs([sample]) {
                 noteQueuedTime(.video, seconds: Double(endMs) / 1_000)
@@ -2019,6 +2096,11 @@ final class SabrPlayerController: ObservableObject {
             self.failedManualFormat = nil
         }
         #if DEBUG
+        if startupMetrics.elapsedMs(for: .clockStarted) == nil {
+            noteStartup(.clockStarted)
+            logStartup("clock-started")
+            startStartupDisplayProbe()
+        }
         startRendererProbe()
         #endif
         state = TVL10n.value(
@@ -2034,7 +2116,9 @@ final class SabrPlayerController: ObservableObject {
         }
         recordProgress(started: !hasRecordedHistory, force: true)
         hasRecordedHistory = true
+        #if DEBUG
         NSLog("TypeType SABR DIRECT-FEED independent audio/video started")
+        #endif
     }
 
 

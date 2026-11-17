@@ -1,6 +1,6 @@
 # TypeType tvOS — hardware test checklist
 
-Simulator and wire-contract tests do **not** prove reliable playback on a physical Apple TV. Initial hardware playback has succeeded, but extended sessions, audio stability and codec coverage must pass the checklist before a production-ready claim.
+Simulator and wire-contract tests do **not** prove reliable playback on a physical Apple TV. A November 17 hardware report confirms stable A/V on the direct renderer path and immediate synchronisation after seeks, with approximately one second to initial picture/sound estimated by observation. Long-run multi-device coverage, objective timings and codecs still require validation before a production-ready claim.
 
 ## Devices
 
@@ -32,7 +32,7 @@ Simulator and wire-contract tests do **not** prove reliable playback on a physic
 ## Known player limitations
 
 - Each SABR fragment is parsed directly from memory via ISO BMFF boxes and submitted as compressed samples; the former temporary-file AVAssetReader / explicit VT decoder pipeline has been removed. Additional server variants and codecs still require testing.
-- Seek can reuse the existing SABR session. A bounded 20-second decoder preroll now supplies earlier reference frames while hiding pre-target video and trimming pre-target AAC packets; seek-to-first-visible-frame latency needs physical device confirmation.
+- Seek can reuse the existing SABR session. A bounded 20-second decoder preroll supplies reference frames while hiding pre-target video and trimming pre-target AAC packets. The previously reported 10–20-second post-seek desynchronisation was no longer observed on November 17; repeat under other codecs/devices and measure objectively.
 - Hardware capability filtering remains, but AVSampleBufferVideoRenderer does not report its actual hardware/software execution mode. VP9/AV1 profiles, frame rate and HDR support require real-device validation.
 - This project does not require a server-side HLS bridge or any TypeType Server modifications.
 
@@ -44,7 +44,9 @@ Simulator and wire-contract tests do **not** prove reliable playback on a physic
 Long-session playback has been tested; occasional audio glitches can also
 appear as video stutters. Do not assume AAC priming is the sole cause.
 In a Debug build, inspect these **sanitized** log markers near the reported
-playback second:
+playback second. High-frequency renderer/demux probes and routine selection,
+seek and buffering records are disabled in Release; significant recovery,
+repair and failure events remain logged:
 
 - `TypeType SABR MEDIA-INTEGRITY` (stage=demux): invalid compressed bytes
   or timestamps, or a gap *inside* a fragment. A `correlated` marker means
@@ -69,6 +71,14 @@ previously reproducible audio/video glitches (merged PR #15). New diagnostics:
 dropout time, then seek ±10/20/60 seconds and across video segment
 boundaries. Record elapsed time until the **first correctly moving frame**
 (not just a still-picture refresh).
+
+## Startup and seek latency measurements (Debug)
+
+- For each Apple TV and codec, start a VOD from zero and seek at least three times to 10/20/60 seconds, including across fragment boundaries. Compare network, cached and resumed cases.
+- Filter Xcode's console on `TypeType SABR STARTUP`. The `clock-started` record reports elapsed milliseconds since start/seek for `bootstrapMs`, `sessionMs`, `audioQueuedMs`, `videoQueuedMs` and `clockMs`. The subsequent `display-ready` record adds `displayReadyMs`; `display-timeout` means the display layer was not ready within ten seconds. `-1` denotes a milestone not reached.
+- Treat `audioQueuedMs` as first compressed audio submitted, **not** first audible sound. `displayReadyMs` is `AVSampleBufferDisplayLayer.isReadyForDisplay` observed by a 50 ms Debug-only poll, **not** an exact first-presented-frame timestamp. Use visual/audio observation for user-perceived latency.
+- Record Apple TV generation, tvOS version, codec/itag, resolution, whether session reuse occurred, and perceived time to synchronized picture/sound. Do not include tokens, media URLs or session IDs in logs.
+- Target improvements only after comparing bootstrap/session, queue and display-readiness stages. No faster clock start should sacrifice the now-correct A/V synchronisation.
 
 ## Interface, language and network checklist
 
