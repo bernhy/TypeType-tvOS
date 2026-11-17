@@ -8513,6 +8513,34 @@
         }
       }
     },
+    "home.continueWatchingEmpty": {
+  "localizations": {
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Noch keine Videos zum Fortsetzen."
+      }
+    },
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "No videos to continue watching yet."
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Aucune vidéo à reprendre pour le moment."
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Todavía no hay vídeos para seguir viendo."
+      }
+    }
+  }
+},
     "home.continueWatching": {
       "localizations": {
         "de": {

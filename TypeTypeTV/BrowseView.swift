@@ -651,7 +651,7 @@ struct HomeView: View {
                             .buttonStyle(.borderedProminent)
                         }
                     } else {
-                        Text(recentError ?? TVL10n.value("library.historyEmpty"))
+                        Text(recentError ?? TVL10n.value("home.continueWatchingEmpty"))
                             .foregroundStyle(TTTheme.muted)
                             .font(.callout)
                     }
