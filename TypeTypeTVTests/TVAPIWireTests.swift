@@ -208,6 +208,49 @@ final class TVAPIWireTests: XCTestCase {
         XCTAssertEqual(refreshCalls, 1)
     }
 
+    func testSearchHistoryReadsPostsAndDeletesAccountRoutes() async throws {
+        let host = "search-history-contract.example"
+        let lock = NSLock()
+        var methods: [String] = []
+        TVAPIWireProtocol.install(host: host) { request in
+            XCTAssertEqual(request.url?.path, "/api/search-history")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"),
+                           "Bearer fixture-token")
+            let method = request.httpMethod ?? ""
+            lock.withLock { methods.append(method) }
+            switch method {
+            case "GET":
+                let parts = URLComponents(url: request.url!,
+                                          resolvingAgainstBaseURL: false)
+                XCTAssertEqual(parts?.queryItems?.first(where: { $0.name == "page" })?.value, "1")
+                XCTAssertEqual(parts?.queryItems?.first(where: { $0.name == "limit" })?.value, "8")
+                return (200, Data(
+                    #"[{"id":"server-1","term":"Original","searchedAt":1234}]"#.utf8
+                ))
+            case "POST":
+                let json = (try? JSONSerialization.jsonObject(
+                    with: request.httpBody ?? Data()
+                )) as? [String: String]
+                XCTAssertEqual(json?["term"], "Next search")
+                return (201, Data(
+                    #"{"id":"server-2","term":"Next search","searchedAt":1235}"#.utf8
+                ))
+            case "DELETE": return (204, Data())
+            default:
+                XCTFail("Unexpected search-history method \(method)")
+                return (405, Data())
+            }
+        }
+        let api = try fixtureAPI(host: host)
+        let entries = try await api.searchHistory(limit: 8)
+        XCTAssertEqual(entries.map(\.term), ["Original"])
+        XCTAssertEqual(entries.first?.id, "server-1")
+        let stored = try await api.addSearchHistory("  Next search  ")
+        XCTAssertEqual(stored.term, "Next search")
+        try await api.clearSearchHistory()
+        XCTAssertEqual(lock.withLock { methods }, ["GET", "POST", "DELETE"])
+    }
+
     func testSponsorBlockGlobalModeSavesBothFieldsInOneAtomicPut() async throws {
         let host = "sponsor-settings-atomic.example"
         TVAPIWireProtocol.install(host: host) { request in

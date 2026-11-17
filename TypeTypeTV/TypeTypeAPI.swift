@@ -903,6 +903,29 @@ struct TypeTypeAPI {
         }
     }
 
+    /// Account-owned server history, newest first. Never use device UserDefaults.
+    func searchHistory(limit: Int = 100) async throws -> [TVSearchHistoryItem] {
+        guard let token = accountToken, !token.isEmpty else {
+            throw TypeTypeError.http(401, "search-history")
+        }
+        return try await get("search-history", query: [
+            URLQueryItem(name: "page", value: "1"),
+            URLQueryItem(name: "limit", value: String(min(100, max(1, limit))))
+        ])
+    }
+
+    func addSearchHistory(_ query: String) async throws -> TVSearchHistoryItem {
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { throw TypeTypeError.unexpectedResponse }
+        return try await postJSON("search-history",
+                                  payload: TVSearchHistoryWrite(term: term))
+    }
+
+    func clearSearchHistory() async throws {
+        try await writeLibrary(base.appendingPathComponent("search-history"),
+                               method: "DELETE", body: nil)
+    }
+
     /// Dynamic search capabilities and opaque continuation values belong to
     /// the Server. Repeat the 'filter' query parameter for grouped filters.
     func searchFilters(contentFilter: String? = nil) async throws -> TVSearchFiltersResponse {

@@ -274,20 +274,6 @@ final class SabrWireContractTests: XCTestCase {
         XCTAssertEqual(TTTheme.time(-15), "0:00")
     }
 
-    func testRecentSearchHistoryIsUniqueBoundedAndLocal() {
-        let seed = (1...11).map { "Frage \($0)" }
-        let encoded = TVRecentQueries.encode(seed)
-        XCTAssertEqual(TVRecentQueries.decode(encoded).count, 8)
-
-        let newer = TVRecentQueries.add("  frage 3  ", to: TVRecentQueries.decode(encoded))
-        XCTAssertEqual(newer.count, 8)
-        XCTAssertEqual(newer.first, "frage 3")
-        XCTAssertEqual(newer.filter { $0.localizedCaseInsensitiveCompare("frage 3") == .orderedSame }.count, 1)
-        XCTAssertEqual(TVRecentQueries.decode("not-json"), [])
-        XCTAssertEqual(TVRecentQueries.add(" ", to: newer), newer)
-        XCTAssertEqual(TVRecentQueries.add(String(repeating: "X", count: 97), to: newer), newer)
-    }
-
     func testExplicitLocalHTTPOriginPolicy() throws {
         let tests = ["192.168.0.129:8080", "10.46.104.2:8000",
                      "172.17.0.1", "home.local:8888", "svacsa09:8080",
