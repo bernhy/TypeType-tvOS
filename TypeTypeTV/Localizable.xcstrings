@@ -5662,7 +5662,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "„Weiter ansehen“ anzeigen"
+            "value": "„Ansehen fortsetzen“ anzeigen"
           }
         },
         "en": {
@@ -8513,30 +8513,30 @@
         }
       }
     },
-    "home.recentlyWatched": {
+    "home.continueWatching": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zuletzt angesehen"
+            "value": "Ansehen fortsetzen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recently watched"
+            "value": "Continue watching"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Regardé récemment"
+            "value": "Reprendre la lecture"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vistos recientemente"
+            "value": "Seguir viendo"
           }
         }
       }
@@ -13250,25 +13250,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt zuletzt angesehene Videos auf der Startseite. Ausblenden löscht weder den bestehenden Verlauf noch gespeicherte Wiedergabepositionen. Der Verlauf bleibt in der Bibliothek verfügbar."
+            "value": "Zeigt auf der Startseite nur bereits begonnene, noch nicht abgeschlossene Videos mit gespeicherter Wiedergabeposition. Ausblenden löscht weder den Verlauf noch gespeicherte Positionen. Der vollständige Verlauf bleibt in der Bibliothek verfügbar."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows recently watched videos on Home. Hiding this section does not delete existing history or saved playback positions. History remains available in Library."
+            "value": "Shows only started, unfinished videos with saved playback positions on Home. Hiding this section does not delete history or saved positions. Full history remains available in Library."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche les vidéos regardées récemment sur l’accueil. Masquer cette rubrique ne supprime ni l’historique existant ni les positions enregistrées, qui restent dans la bibliothèque."
+            "value": "Affiche sur l’accueil uniquement les vidéos commencées et non terminées ayant une position de lecture enregistrée. Masquer cette rubrique ne supprime ni l’historique ni les positions enregistrées. L’historique complet reste dans la bibliothèque."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra los vídeos vistos recientemente en Inicio. Ocultar esta sección no borra el historial existente ni las posiciones guardadas; siguen en la biblioteca."
+            "value": "Muestra en Inicio solo los vídeos empezados y sin terminar que tienen una posición de reproducción guardada. Ocultar esta sección no borra el historial ni las posiciones guardadas. El historial completo sigue disponible en Biblioteca."
           }
         }
       }

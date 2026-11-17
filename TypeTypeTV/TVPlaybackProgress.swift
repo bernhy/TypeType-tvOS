@@ -103,3 +103,17 @@ enum TVWatchedState {
         return video.watched == true
     }
 }
+
+
+/// The Home "Continue watching" rail shows started, not-yet-completed VODs.
+/// This is intentionally distinct from the full Library → History list.
+/// Progress is always in milliseconds; video.duration is in seconds.
+enum TVContinueWatchingPolicy {
+    static func isEligible(_ video: VideoItem, positionMs: Int64?) -> Bool {
+        guard video.isLive != true, let positionMs, positionMs > 0,
+              let duration = video.duration, duration > 0 else {
+            return false
+        }
+        return !TVWatchedState.isWatched(video, positionMs: positionMs)
+    }
+}

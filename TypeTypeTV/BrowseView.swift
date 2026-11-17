@@ -520,6 +520,7 @@ private struct TVHomeGridEntry: Identifiable {
 struct HomeView: View {
     let api: TypeTypeAPI
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
+    @ObservedObject private var localProgress = TVLocalProgress.shared
     let onRevealMenu: () -> Void
     let onOpenAccount: () -> Void
     let onInitialFocusReady: () -> Void
@@ -559,7 +560,16 @@ struct HomeView: View {
     @State private var loadMoreError: String?
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 4)
-    private var visibleRecent: [VideoItem] { contentPreferences.displayed(recentVideos) }
+    private var visibleRecent: [VideoItem] {
+        // Home is resume-only; the complete watch history remains in Library.
+        // Local playback updates may already be newer than the server list
+        // when returning from a video without reloading the entire grid.
+        contentPreferences.displayed(recentVideos).filter {
+            TVContinueWatchingPolicy.isEligible(
+                $0, positionMs: localProgress.position(for: $0.url) ?? $0.watchPositionMs
+            )
+        }.prefix(8).map { $0 }
+    }
     private var visibleRecommendations: [VideoItem] { contentPreferences.displayed(videos) }
     private var showRecent: Bool { contentPreferences.settings?.hideContinueWatching != true }
     private var showRecommendations: Bool { contentPreferences.settings?.hideHomeRecommendations != true }
@@ -621,7 +631,7 @@ struct HomeView: View {
 
                 if showRecent {
                 VStack(alignment: .leading, spacing: 19) {
-                    Text("home.recentlyWatched")
+                    Text("home.continueWatching")
                         .font(.system(size: 35, weight: .bold))
                     if loadingRecent && recentVideos.isEmpty {
                         TVPulsingPlaceholder()
@@ -964,14 +974,17 @@ struct HomeView: View {
         loadingRecent = true
         defer { loadingRecent = false }
         do {
-            let latest = Array(try await api.library(.history).prefix(8))
+            // The first eight history records may all be finished. Fetch a
+            // bounded recent history page, enrich saved positions, and then
+            // choose up to eight eligible resumable items for Home.
+            let raw = try await api.historyPage(offset: 0, limit: 100)
             guard !Task.isCancelled else { return }
-            recentVideos = latest
-            recentNeedsLogin = false
-            recentError = nil
+            let latest = TVHistoryDeduplicator.unique(raw)
             let enriched = await api.withProgress(latest)
             guard !Task.isCancelled else { return }
             recentVideos = enriched
+            recentNeedsLogin = false
+            recentError = nil
         } catch is CancellationError {
             return
         } catch {

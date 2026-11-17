@@ -89,7 +89,7 @@ final class TypeTypeTVUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["FÜR DICH"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["Empfehlungen"].exists)
-        XCTAssertTrue(app.staticTexts["Zuletzt angesehen"].exists)
+        XCTAssertTrue(app.staticTexts["Ansehen fortsetzen"].exists)
         XCTAssertTrue(app.buttons["Konto"].exists)
         XCTAssertTrue(waitForFocus(app.buttons["home-video-recommendation-0"], timeout: 8),
                       "Home must initially focus the first recommendation, not the rail or history")
