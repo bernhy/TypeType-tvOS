@@ -392,11 +392,14 @@ final class SabrService: @unchecked Sendable {
     private let base: URL
     private let session: URLSession
     private let prefetchInterval: TimeInterval
+    private let transportRetry: SabrEarlyTransportRetryPolicy
     private let json = JSONDecoder()
     private let encoder = JSONEncoder()
 
     init(api: TypeTypeAPI, session injectedSession: URLSession? = nil,
-         prefetchInterval: TimeInterval = SabrWindowPrefetchPolicy.minimumInterval) {
+         prefetchInterval: TimeInterval = SabrWindowPrefetchPolicy.minimumInterval,
+         transportRetry: SabrEarlyTransportRetryPolicy = SabrEarlyTransportRetryPolicy()) {
+        self.transportRetry = transportRetry
         origin = api.origin
         base = api.origin.appendingPathComponent("api", isDirectory: true)
         session = injectedSession ?? TVNetwork.session(for: origin)
@@ -617,10 +620,29 @@ final class SabrService: @unchecked Sendable {
         let segmentSequence = isMediaSegment
             ? Int(address.lastPathComponent) ?? -1 : -1
         var segmentPolls = 0
+        var transportRetries = 0
         var didRefreshAuth = false
         while true {
             try Task.checkCancellation()
-            let (data, response) = try await session.data(for: req)
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: req)
+            } catch {
+                if let delay = transportRetry.delayNanoseconds(
+                    method: method, path: pathForError,
+                    retries: transportRetries, error: error
+                ) {
+                    transportRetries += 1
+                    NSLog("TypeType SABR TRANSPORT retry route=%@ attempt=%d reason=connection",
+                          SabrEarlyTransportRetryPolicy.route(
+                            method: method, path: pathForError) ?? "other",
+                          transportRetries)
+                    try await Task.sleep(nanoseconds: delay)
+                    continue
+                }
+                throw error
+            }
             guard let http = response as? HTTPURLResponse else {
                 throw SabrFailure.invalidResponse("HTTP response")
             }
@@ -660,6 +682,19 @@ final class SabrService: @unchecked Sendable {
                     throw SabrFailure.stalled("SABR segment still preparing after retries")
                 }
                 try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
+                continue
+            }
+            if !allowedStatuses.contains(http.statusCode),
+               let delay = transportRetry.delayNanoseconds(
+                   method: method, path: pathForError,
+                   retries: transportRetries, status: http.statusCode
+               ) {
+                transportRetries += 1
+                NSLog("TypeType SABR TRANSPORT retry route=%@ attempt=%d http=%d",
+                      SabrEarlyTransportRetryPolicy.route(
+                        method: method, path: pathForError) ?? "other",
+                      transportRetries, http.statusCode)
+                try await Task.sleep(nanoseconds: delay)
                 continue
             }
             guard allowedStatuses.contains(http.statusCode) else {

@@ -94,6 +94,14 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 - Re-test first-frame fade, repeated seek forward/backward, rapid Siri Remote seek bursts, retry after failure, no-image cases, and transitions. Normal seeks must never reload or redisplay the poster.
 - Confirm in Instruments that image-view memory is reclaimed after fade; UIKit/CoreAnimation may retain transient allocations until the OS collects them.
 
+## SABR early-network recovery experiment (TypeType 1.18.0)
+
+- **Main** includes the approved damaged-fragment re-download and >90%-watched replay changes (PR #21, merge `2a0db04`). The user confirmed fast seeks, normal A/V and replay on physical Apple TV.
+- **Separate experiment:** `experiment/sabr-early-network-reconnect-20261117` retries transient network failures and HTTP 502/503/504 on playback-window and media GET routes immediately in the producer, while the current A/V renderers keep playing buffered samples. It does not recreate or change the SABR session or seek target.
+- Test a controlled short outage (several seconds) with sufficient buffered video: look for `TypeType SABR TRANSPORT retry route=…` and verify continuous sound/picture without `TypeType SABR RECOVERY session-start` if the original session survives.
+- Restarting the TypeType server may **invalidate** its in-memory SABR session. An eventual 404 still requires the existing full fresh-session recovery, which can occur only after buffered samples drain. This experiment does *not* yet offer guaranteed gapless recovery from a server restart.
+- Confirm prolonged outages, 401 auth refresh and manual seek are unchanged. Never put private session IDs, bearer tokens or full media URLs in pasted diagnostics.
+
 ## SABR startup poster regression — resolved on hardware
 
 - Regression record: `5e660c890b2d` showed immediate picture during seeking. A later conditional SwiftUI poster produced black frames; removing it in `493334d` resolved the issue. Keeping the poster view permanently mounted while changing only its opacity (`86f0853`) restored the thumbnail **without** black seek frames, as verified on an Apple TV.

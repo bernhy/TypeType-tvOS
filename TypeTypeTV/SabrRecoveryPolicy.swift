@@ -17,6 +17,53 @@ enum SabrRetryAfter {
     }
 }
 
+/// Retry a transient transport error immediately in the network producer,
+/// while the native A/V renderer continues consuming its existing buffer.
+/// Only replay requests that are idempotent under the SABR server protocol:
+/// media GET, position, prefetch and segment-window polling. A fresh playback
+/// POST, a seek or a release must never be replayed here.
+struct SabrEarlyTransportRetryPolicy {
+    let delaysMilliseconds: [UInt64]
+
+    init(delaysMilliseconds: [UInt64] = [350, 700, 1_400, 2_800, 4_000]) {
+        self.delaysMilliseconds = delaysMilliseconds
+    }
+
+    static func route(method: String, path: String) -> String? {
+        if method == "GET", path == "segment" { return "segment" }
+        let parts = path.split(separator: "/")
+        guard method == "POST", parts.count == 4,
+              parts[0] == "sabr", parts[1] == "playback",
+              !parts[2].isEmpty else { return nil }
+        switch parts[3] {
+        case "position": return "position"
+        case "prefetch": return "prefetch"
+        case "segments": return "segments"
+        default: return nil
+        }
+    }
+
+    func delayNanoseconds(method: String, path: String, retries: Int,
+                          status: Int? = nil, error: Error? = nil) -> UInt64? {
+        guard Self.route(method: method, path: path) != nil,
+              delaysMilliseconds.indices.contains(retries) else { return nil }
+        if let status {
+            guard status == 408 || status == 425 ||
+                    [502, 503, 504].contains(status) else { return nil }
+        } else if let url = error as? URLError {
+            switch url.code {
+            case .timedOut, .networkConnectionLost, .notConnectedToInternet,
+                 .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+                break
+            default: return nil
+            }
+        } else {
+            return nil
+        }
+        return delaysMilliseconds[retries] * 1_000_000
+    }
+}
+
 /// Bounded recovery patterned after Android's stream reconnect policy.
 /// HTTP client/credential failures and malformed media stay terminal;
 /// network outages, expired SABR sessions and renderer stalls are retried.

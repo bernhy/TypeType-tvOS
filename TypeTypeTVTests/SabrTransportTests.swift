@@ -40,12 +40,16 @@ private final class MockSabrProtocol: URLProtocol {
 }
 
 final class SabrTransportTests: XCTestCase {
-    private func fixtureService() throws -> SabrService {
+    private func fixtureService(
+        retry: SabrEarlyTransportRetryPolicy = SabrEarlyTransportRetryPolicy(
+            delaysMilliseconds: [1, 1]
+        )
+    ) throws -> SabrService {
         let api = try TypeTypeAPI(address: "https://mock.local")
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockSabrProtocol.self]
         let session = URLSession(configuration: configuration)
-        return SabrService(api: api, session: session)
+        return SabrService(api: api, session: session, transportRetry: retry)
     }
 
     private func fixtureSelection() -> SabrSelection {
@@ -61,6 +65,87 @@ final class SabrTransportTests: XCTestCase {
                 isOriginal: true, deliveryMethod: "sabr"
             )
         )
+    }
+
+    func testTransientHTTP503IsRetriedBeforeDecoderMailboxRunsDry() async throws {
+        let lock = NSLock()
+        var received = 0
+        MockSabrProtocol.use { req in
+            lock.lock()
+            received += 1
+            let attempt = received
+            lock.unlock()
+            guard req.httpMethod == "GET",
+                  req.url?.path.hasSuffix("/137/segment/1") == true else {
+                return (400, Data())
+            }
+            if attempt <= 2 { return (503, Data()) }
+            return (200, Data([0x01, 0x02, 0x03]))
+        }
+        let bytes = try await fixtureService().fragmentData(
+            "sabr/playback/example/137/segment/1?generation=7",
+            sessionId: "example", itag: 137, generation: 7
+        )
+        XCTAssertEqual(bytes, Data([0x01, 0x02, 0x03]))
+        XCTAssertEqual(lock.withLock { received }, 3)
+    }
+
+    func testTransientWindowFailureIsRetriedWithoutCreatingNewSession() async throws {
+        let lock = NSLock()
+        var windowRequests = 0
+        var startRequests = 0
+        MockSabrProtocol.use { req in
+            let path = req.url?.path ?? ""
+            if path.hasSuffix("/position") { return (204, Data()) }
+            if path.hasSuffix("/prefetch") { return (202, Data()) }
+            if path.hasSuffix("/segments") {
+                lock.lock()
+                windowRequests += 1
+                let attempt = windowRequests
+                lock.unlock()
+                if attempt == 1 { return (503, Data()) }
+                return (200, Data("""
+                {
+                  "sessionId":"example","generation":7,"ready":true,
+                  "audio":{"initUrl":"sabr/playback/example/140/init?generation=7","segments":[]},
+                  "video":{"initUrl":"sabr/playback/example/137/init?generation=7","segments":[]}
+                }
+                """.utf8))
+            }
+            lock.lock()
+            startRequests += 1
+            lock.unlock()
+            return (400, Data())
+        }
+        let response = try await fixtureService().window(
+            sessionId: "example", selection: fixtureSelection(),
+            generation: 7, positionMs: 0
+        )
+        XCTAssertTrue(response.ready)
+        XCTAssertEqual(lock.withLock { windowRequests }, 2)
+        XCTAssertEqual(lock.withLock { startRequests }, 0,
+                       "Short network outages must not restart playback")
+    }
+
+    func testVanishedSession404IsNotRepeatedByEarlyTransportRetry() async throws {
+        let lock = NSLock()
+        var attempts = 0
+        MockSabrProtocol.use { _ in
+            lock.lock()
+            attempts += 1
+            lock.unlock()
+            return (404, Data(#"{"error":"Session not found"}"#.utf8))
+        }
+        do {
+            _ = try await fixtureService().fragmentData(
+                "sabr/playback/example/137/segment/1?generation=7",
+                sessionId: "example", itag: 137, generation: 7
+            )
+            XCTFail("A lost session must be handed off to fresh-session recovery")
+        } catch SabrFailure.server(let code, _) {
+            XCTAssertEqual(code, 404)
+        }
+        XCTAssertEqual(lock.withLock { attempts }, 1)
     }
 
     func testActualSabrPositionPrefetchSegmentsSequence() async throws {

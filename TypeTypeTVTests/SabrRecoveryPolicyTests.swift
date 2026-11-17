@@ -3,6 +3,47 @@ import XCTest
 @testable import TypeTypeTV
 
 final class SabrRecoveryPolicyTests: XCTestCase {
+    func testEarlyTransportRetriesOnlySafePlaybackRoutesAndTransientFailures() {
+        let policy = SabrEarlyTransportRetryPolicy(delaysMilliseconds: [1, 2])
+        XCTAssertEqual(SabrEarlyTransportRetryPolicy.route(
+            method: "POST", path: "sabr/playback/opaque-session/prefetch"
+        ), "prefetch")
+        XCTAssertEqual(policy.delayNanoseconds(
+            method: "POST", path: "sabr/playback/opaque-session/segments",
+            retries: 0, status: 503
+        ), 1_000_000)
+        XCTAssertEqual(policy.delayNanoseconds(
+            method: "GET", path: "segment", retries: 1,
+            error: URLError(.networkConnectionLost)
+        ), 2_000_000)
+        XCTAssertNil(policy.delayNanoseconds(
+            method: "POST", path: "sabr/playback/videoId",
+            retries: 0, status: 503
+        ), "Starting a session is not idempotent")
+        XCTAssertNil(policy.delayNanoseconds(
+            method: "POST", path: "sabr/playback/opaque-session/seek",
+            retries: 0, status: 503
+        ), "A user seek must not be replayed after failure")
+        XCTAssertNil(policy.delayNanoseconds(
+            method: "DELETE", path: "sabr/playback/opaque-session",
+            retries: 0, status: 503
+        ))
+        XCTAssertNil(policy.delayNanoseconds(
+            method: "GET", path: "segment", retries: 0, status: 404
+        ), "A vanished SABR session requires fresh-session recovery")
+        XCTAssertNil(policy.delayNanoseconds(
+            method: "GET", path: "segment", retries: 0, status: 401
+        ), "401 belongs to token refresh, not early transport retries")
+        XCTAssertNil(policy.delayNanoseconds(
+            method: "POST", path: "sabr/playback/s/segments", retries: 0,
+            error: URLError(.cancelled)
+        ))
+        XCTAssertNil(policy.delayNanoseconds(
+            method: "GET", path: "segment", retries: 2, status: 503
+        ), "Retries must remain bounded")
+    }
+
+
     let policy = SabrRecoveryPolicy()
 
     func testServerFreshSessionRecoveryDiagnosesAttestationWithoutLoggingSecrets() {
