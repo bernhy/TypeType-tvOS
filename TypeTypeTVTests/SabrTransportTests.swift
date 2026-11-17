@@ -90,6 +90,28 @@ final class SabrTransportTests: XCTestCase {
         XCTAssertEqual(lock.withLock { received }, 3)
     }
 
+    func testExplicitRetryAfterFromServerIsNotOverriddenByFastRetries() async throws {
+        let lock = NSLock()
+        var count = 0
+        MockSabrProtocol.use { _ in
+            lock.lock()
+            count += 1
+            lock.unlock()
+            return (503, Data(#"{"error":"busy","retryAfterMs":15000}"#.utf8))
+        }
+        do {
+            _ = try await fixtureService().fragmentData(
+                "sabr/playback/example/137/segment/1?generation=7",
+                sessionId: "example", itag: 137, generation: 7
+            )
+            XCTFail("Throttled response must be returned to the existing bounded recovery")
+        } catch SabrFailure.throttled(let status, _, let delay) {
+            XCTAssertEqual(status, 503)
+            XCTAssertEqual(delay, 15)
+        }
+        XCTAssertEqual(lock.withLock { count }, 1)
+    }
+
     func testTransientWindowFailureIsRetriedWithoutCreatingNewSession() async throws {
         let lock = NSLock()
         var windowRequests = 0

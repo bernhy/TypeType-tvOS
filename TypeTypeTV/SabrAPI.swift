@@ -684,7 +684,13 @@ final class SabrService: @unchecked Sendable {
                 try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
                 continue
             }
-            if !allowedStatuses.contains(http.statusCode),
+            // Respect explicit server throttling instead of polling
+            // aggressively through an upstream Retry-After directive.
+            let serverBackoff = [503, 504].contains(http.statusCode) &&
+                TVServerErrorMapping.retrySeconds(
+                    http, problem: TVServerErrorMapping.decoded(data)
+                ) != nil
+            if !allowedStatuses.contains(http.statusCode), !serverBackoff,
                let delay = transportRetry.delayNanoseconds(
                    method: method, path: pathForError,
                    retries: transportRetries, status: http.statusCode
