@@ -2216,10 +2216,13 @@ struct SabrPlayerView: View {
     var onPlaybackEvent: ((TVPlaybackEvent) -> Void)? = nil
     @StateObject private var engine = SabrPlayerController()
     @AppStorage("typetype.skipSeconds") private var skipSeconds = 10
+    @AppStorage("typetype.osdSeconds") private var osdSeconds = 5
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var controlsVisible = true
     @State private var revealIndex = 0
     @State private var optionsVisible = false
+    @State private var optionsSection: SabrPlayerOptions.Section = .quality
+    @State private var clockMode = false
     @State private var channelArtwork: TVChannelArtwork?
     @State private var showingStartupPoster = true
     @State private var startupPosterProbe = 0
@@ -2302,8 +2305,22 @@ struct SabrPlayerView: View {
 
 
     private func reveal() {
-        controlsVisible = true
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.24)) {
+            controlsVisible = true
+        }
         revealIndex &+= 1
+    }
+
+    private func openOptions(_ section: SabrPlayerOptions.Section) {
+        optionsSection = section
+        optionsVisible = true
+        controlsVisible = false
+    }
+
+    private func seekTo(_ absoluteMilliseconds: Int64) {
+        let current = Int64(max(0, engine.playbackSeconds() * 1_000))
+        engine.seek(api: api, video: video, offsetMs: absoluteMilliseconds - current)
+        reveal()
     }
 
     private func skip(_ direction: Int) {
@@ -2344,29 +2361,27 @@ struct SabrPlayerView: View {
             }
             .allowsHitTesting(false)
 
-            if !optionsVisible && engine.failure == nil &&
+            if !optionsVisible && !controlsVisible && engine.failure == nil &&
                visibleEndScreens.isEmpty {
                 SiriRemotePlayerInput(
-                    onTouch: reveal,
+                    onTouch: {
+                        clockMode = false
+                        reveal()
+                    },
                     onDirection: skip,
                     onTogglePlayback: {
                         TVSabrNowPlayingCenter.shared.localToggle(for: engine)
                         reveal()
                     },
                     onSelect: {
-                        // Fallback when the native remote capture retains focus.
                         if let segment = currentSponsorSegment(),
                            sponsorNoticeVisible(segment) {
                             skipSponsorNotice()
                         } else {
-                            TVSabrNowPlayingCenter.shared.localToggle(for: engine)
                             reveal()
                         }
                     },
-                    onOptions: {
-                        controlsVisible = true
-                        optionsVisible = true
-                    },
+                    onOptions: reveal,
                     onExit: {
                         if let segment = currentSponsorSegment(),
                            sponsorNoticeVisible(segment) {
@@ -2411,90 +2426,25 @@ struct SabrPlayerView: View {
                     }
                 )
             } else if controlsVisible {
-                VStack {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 9) {
-                            Text(video.title).font(.title.bold()).lineLimit(2)
-                            if let channel = video.uploaderName, !channel.isEmpty {
-                                HStack(spacing: 10) {
-                                    TVChannelAvatar(
-                                        api: api, imageURL: channelArtwork?.avatarURL,
-                                        size: 34
-                                    )
-                                    Text(channel)
-                                }
-                                .font(.callout).foregroundStyle(.white.opacity(0.8))
-                            }
-                            if let metadata = TVVideoMetadata.subtitle(for: video) {
-                                Text(metadata)
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(.white.opacity(0.65))
-                                    .lineLimit(1)
-                            }
-                        }
-                        Spacer()
-                        Text(engine.selectionDescription)
-                            .font(.caption).foregroundStyle(.white.opacity(0.8))
-                    }
-                    Spacer()
-                    VStack(spacing: 20) {
-                        HStack(spacing: 18) {
-                            Text(engine.state).font(.callout)
-                            Spacer()
-                            if engine.diskCacheBytes > 0 {
-                                Text(TVL10n.formatted("player.cache", engine.diskCacheBytes / 1_048_576))
-                                    .font(.caption).foregroundStyle(.white.opacity(0.8))
-                                let aheadSeconds = max(0, Double(engine.cachedThroughMs) / 1_000
-                                                       - engine.playbackSeconds())
-                                Text(TVL10n.formatted("player.ahead", Int(aheadSeconds)))
-                                    .font(.caption).foregroundStyle(.white.opacity(0.8))
-                                let readyAhead = max(0, Double(engine.rendererReadyThroughMs) / 1_000
-                                                     - engine.playbackSeconds())
-                                Text(TVL10n.formatted("player.rendererAhead", Int(readyAhead)))
-                                    .font(.caption).foregroundStyle(.white.opacity(0.8))
-                            }
-                        }
-                        TimelineView(.periodic(from: .now, by: 1)) { _ in
-                            HStack(spacing: 20) {
-                                Text(engine.timeLabel())
-                                    .monospacedDigit()
-                                    .frame(width: engine.durationMs >= 3_600_000 ? 140 : 105)
-                                ProgressView(
-                                    value: SabrProgressDisplay.value(
-                                        engine.playbackSeconds(), durationMs: engine.durationMs),
-                                    total: SabrProgressDisplay.total(durationMs: engine.durationMs)
-                                )
-                                Text(engine.totalTimeLabel())
-                                    .monospacedDigit()
-                                    .frame(width: engine.durationMs >= 3_600_000 ? 140 : 105)
-                            }
-                        }
-                        // Only the full-screen remote capture view should receive
-                        // directional presses. Focusable HUD buttons would cause the
-                        // Siri Remote to navigate between buttons instead of seeking.
-                        HStack(spacing: 48) {
-                            Label("−\(skipSeconds) s", systemImage: "gobackward")
-                            Label(TVL10n.value(engine.isPlaying ? "player.playPause" : "player.resume"),
-                                  systemImage: engine.isPlaying ? "pause.fill" : "play.fill")
-                            Label("+\(skipSeconds) s", systemImage: "goforward")
-                        }
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.9))
-                        Text("player.remoteHelp")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.65))
-                    }
-                }
-                .padding(.horizontal, 80)
-                .padding(.top, 70)
-                .padding(.bottom, 65)
-                .background(
-                    LinearGradient(
-                        colors: [.black.opacity(0.8), .clear, .clear, .black.opacity(0.9)],
-                        startPoint: .top, endPoint: .bottom
-                    )
+                TVPlayerOSD(
+                    api: api, video: video, artwork: channelArtwork,
+                    engine: engine, skipSeconds: skipSeconds,
+                    clockMode: clockMode, onClockMode: {
+                        clockMode.toggle()
+                        reveal()
+                    }, onSkip: skip, onToggle: {
+                        TVSabrNowPlayingCenter.shared.localToggle(for: engine)
+                        reveal()
+                    }, onSeek: seekTo,
+                    onVideo: { openOptions(.quality) },
+                    onAudio: { openOptions(.audio) },
+                    onSubtitle: { openOptions(.subtitles) },
+                    onSettings: { openOptions(.settings) }
                 )
-                .transition(.opacity)
+                .onPlayPauseCommand {
+                    TVSabrNowPlayingCenter.shared.localToggle(for: engine)
+                    reveal()
+                }
             }
         }
         .task(id: video.url) {
@@ -2584,7 +2534,7 @@ struct SabrPlayerView: View {
         .overlay {
             if optionsVisible {
                 SabrPlayerOptions(
-                    engine: engine,
+                    engine: engine, initialSection: optionsSection,
                     onQuality: { itag in
                         engine.selectQuality(api: api, video: video, itag: itag)
                         optionsVisible = false
@@ -2664,9 +2614,15 @@ struct SabrPlayerView: View {
             }
         }
         .task(id: revealIndex) {
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            // Zero means persistent OSD; all other values are seconds.
+            let duration = max(0, osdSeconds)
+            guard duration > 0 else { return }
+            do { try await Task.sleep(for: .seconds(duration)) }
+            catch { return }
             if !Task.isCancelled && !optionsVisible && engine.failure == nil && engine.isPlaying {
-                withAnimation(.easeOut(duration: 0.25)) { controlsVisible = false }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.26)) {
+                    controlsVisible = false
+                }
             }
         }
         .onChange(of: engine.isPlaying) {
@@ -2710,6 +2666,11 @@ struct SabrPlayerView: View {
             } else if optionsVisible {
                 optionsVisible = false
                 reveal()
+            } else if controlsVisible {
+                // First Back always closes the visible OSD, not the video.
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.24)) {
+                    controlsVisible = false
+                }
             } else {
                 engine.stop()
                 dismiss()
