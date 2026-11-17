@@ -33,3 +33,23 @@ enum SabrSeekPreroll {
         return Double(last) * 1_000 / Double(timescale) <= Double(targetMs)
     }
 }
+
+/// Pure MP4 sample-table keyframe choice; no media bytes or renderer state.
+/// Missing/ambiguous sync flags leave samples untouched rather than
+/// pretending every sample is independently decodable.
+extension SabrSeekPreroll {
+    static func lastReliableSyncBeforeTarget(samples: [MP4Sample],
+                                             timescale: UInt32,
+                                             targetMs: Int64) -> Int? {
+        guard timescale > 0, targetMs > 0,
+              // Some fMP4 streams omit explicit dependency flags; the
+              // parser then marks everything as sync. Do not trust that.
+              samples.contains(where: { !$0.isSync }) else { return nil }
+        return samples.indices.last { index in
+            let sample = samples[index]
+            return sample.isSync && sample.presentationTime >= 0 &&
+                Double(sample.presentationTime) * 1_000 /
+                    Double(timescale) <= Double(targetMs)
+        }
+    }
+}
