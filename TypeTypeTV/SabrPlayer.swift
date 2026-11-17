@@ -2432,6 +2432,8 @@ struct SabrPlayerView: View {
                     clockMode: clockMode, onClockMode: {
                         clockMode.toggle()
                         reveal()
+                    }, onActivity: {
+                        revealIndex &+= 1
                     }, onSkip: skip, onToggle: {
                         TVSabrNowPlayingCenter.shared.localToggle(for: engine)
                         reveal()
