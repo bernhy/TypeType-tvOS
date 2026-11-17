@@ -16,6 +16,13 @@ enum SabrNativePlaybackPolicy {
     }
 }
 
+/// Only malformed *media fragment bytes* use this marker; an unsupported
+/// codec, bad initialization segment or CoreMedia setup error must not
+/// trigger pointless segment redownloads.
+enum SabrMalformedCompressedMedia: Error {
+    case mediaFragment
+}
+
 struct SabrCompressedSampleBatch {
     let buffers: [CMSampleBuffer]
     /// Last *reliably flagged* random access frame not after the seek target.
@@ -85,6 +92,8 @@ enum SabrDirectMP4Reader {
                     ))
                 } catch is CancellationError {
                     continuation.resume(throwing: CancellationError())
+                } catch let error as SabrMalformedCompressedMedia {
+                    continuation.resume(throwing: error)
                 } catch {
                     continuation.resume(throwing: SabrFailure.unsupported(
                         "Native fMP4 sample format unavailable"
@@ -111,6 +120,22 @@ enum SabrDirectMP4Reader {
         return cached
     }
 
+    /// Validate that an fMP4 media fragment actually contains a coherent
+    /// sample run for the selected track. A failed box read is distinct
+    /// from a hardware codec/format-creation failure in preparedTrack().
+    static func mediaSamples(fragment: Data, track: MP4TrackInfo) throws -> [MP4Sample] {
+        do {
+            guard let samples = try MP4Fragment.samples(
+                in: fragment, tracks: [track]
+            )[track.trackID], !samples.isEmpty, samples.count <= 50_000 else {
+                throw SabrMalformedCompressedMedia.mediaFragment
+            }
+            return samples
+        } catch {
+            throw SabrMalformedCompressedMedia.mediaFragment
+        }
+    }
+
     private static func decode(initialization: Data, fragment: Data,
                                mediaType: AVMediaType,
                                presentationStartMs: Int64?) throws -> SabrCompressedSampleBatch {
@@ -122,11 +147,7 @@ enum SabrDirectMP4Reader {
         }
         let prepared = try preparedTrack(initialization: initialization, kind: kind)
         let track = prepared.track
-        guard let source = try MP4Fragment.samples(
-            in: fragment, tracks: [track]
-        )[track.trackID], !source.isEmpty, source.count <= 50_000 else {
-            throw MP4Error.invalidBox("empty or oversized media fragment")
-        }
+        let source = try mediaSamples(fragment: fragment, track: track)
 
         let samples: [MP4Sample]
         var selectedRAPMs: Int64?
@@ -168,7 +189,7 @@ enum SabrDirectMP4Reader {
             )
             guard let bytes = CMSampleBufferGetDataBuffer(buffer),
                   CMBlockBufferGetDataLength(bytes) > 0 else {
-                throw MP4Error.invalidBox("empty compressed payload")
+                throw SabrMalformedCompressedMedia.mediaFragment
             }
             buffers.append(buffer)
         }

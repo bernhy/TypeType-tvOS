@@ -2,6 +2,27 @@ import XCTest
 @testable import TypeTypeTV
 
 final class SabrCacheCoverageTests: XCTestCase {
+    func testDiscardMalformedFragmentRemovesCachedBytesAndCoverage() async throws {
+        let cache = SabrFragmentCache(maxMiB: 64)
+        let key = "https://example.invalid/segment/1"
+        let first = try await cache.data(for: key) { Data([0x00, 0x11]) }
+        XCTAssertEqual(first, Data([0x00, 0x11]))
+        await cache.recordCachedMedia(SabrMediaReference(
+            url: key, itag: 137, startMs: 0, durationMs: 1_000
+        ))
+        let initialCoverage = await cache.cachedRanges(retainFromMs: 0)
+        XCTAssertEqual(initialCoverage.count, 1)
+        await cache.discard(key)
+        let emptyCoverage = await cache.cachedRanges(retainFromMs: 0)
+        XCTAssertTrue(emptyCoverage.isEmpty)
+        let second = try await cache.data(for: key) { Data([0x22, 0x33]) }
+        XCTAssertEqual(second, Data([0x22, 0x33]))
+        let count = await cache.itemCount
+        XCTAssertEqual(count, 1)
+        await cache.clear()
+    }
+
+
     private func fragment(_ itag: Int, _ start: Int64, _ duration: Int64, _ url: String) -> SabrMediaReference {
         SabrMediaReference(url: url, itag: itag, startMs: start, durationMs: duration)
     }

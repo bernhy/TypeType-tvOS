@@ -4,6 +4,22 @@ import XCTest
 @testable import TypeTypeTV
 
 final class MP4FragmentTests: XCTestCase {
+  func testMalformedMediaFragmentIsClassifiedSeparatelyFromCodecFailure() throws {
+    let track = try XCTUnwrap(
+      MP4InitSegment.tracks(in: Data(MP4TestBoxes.initSegment(video: true)))
+        .first
+    )
+    XCTAssertThrowsError(
+      try SabrDirectMP4Reader.mediaSamples(
+        fragment: Data([0, 0, 0, 16, 0x6d, 0x6f, 0x6f, 0x66]),
+        track: track
+      )
+    ) { error in
+      XCTAssertTrue(error is SabrMalformedCompressedMedia)
+    }
+  }
+
+
   private typealias B = MP4TestBoxes
 
   private func track(defaultDuration: UInt32 = 0) throws -> MP4TrackInfo {
