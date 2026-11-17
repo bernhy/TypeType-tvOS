@@ -2398,12 +2398,32 @@ struct SabrPlayerView: View {
     @State private var revealIndex = 0
     @State private var optionsVisible = false
     @State private var channelArtwork: TVChannelArtwork?
+    @State private var showingStartupPoster = true
+    @State private var startupPosterProbe = 0
     @State private var extraEndScreenElements: [TVEndScreenElement] = []
     @State private var visibleEndScreens: [TVEndScreenElement] = []
     @State private var dismissedEndScreens = false
     @State private var chosenEndScreen: TVEndScreenElement?
     @State private var sponsorSkipCooldown: Date = .distantPast
     @State private var dismissedSponsorSegmentID: String?
+
+    /// Only dismiss artwork when the display layer actually has a picture
+    /// and the shared media clock is running. No SABR or metadata requests.
+    private func hideStartupPosterWhenReady() async {
+        while !Task.isCancelled && showingStartupPoster {
+            if TVPlaybackStartupPosterPolicy.sabrReady(
+                displayReady: engine.videoLayer.isReadyForDisplay,
+                clockRunning: engine.isPlaying
+            ) {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.24)) {
+                    showingStartupPoster = false
+                }
+                return
+            }
+            do { try await Task.sleep(for: .milliseconds(100)) }
+            catch { return }
+        }
+    }
 
     private func updateEndScreens() {
         let all = engine.endScreenElements.isEmpty
@@ -2471,6 +2491,11 @@ struct SabrPlayerView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             SabrVideoSurface(displayLayer: engine.videoLayer).ignoresSafeArea()
+
+            if showingStartupPoster {
+                TVPlaybackStartupPoster(api: api, video: video)
+                    .transition(.opacity)
+            }
 
             TimelineView(.periodic(from: .now, by: 0.25)) { _ in
                 if let caption = engine.caption(
@@ -2548,6 +2573,8 @@ struct SabrPlayerView: View {
                     unavailable: engine.playbackUnavailable,
                     failure: failure,
                     onRetry: {
+                        showingStartupPoster = true
+                        startupPosterProbe &+= 1
                         engine.start(api: api, video: video)
                         reveal()
                     },
@@ -2673,6 +2700,9 @@ struct SabrPlayerView: View {
             if !Task.isCancelled {
                 extraEndScreenElements = metadata?.endScreenElements ?? []
             }
+        }
+        .task(id: startupPosterProbe) {
+            await hideStartupPosterWhenReady()
         }
         .task(id: video.url) {
             channelArtwork = nil

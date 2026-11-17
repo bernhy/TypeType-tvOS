@@ -15,10 +15,37 @@ struct TVHLSPlaybackView: View {
     @StateObject private var playback = TVHLSPlaybackController()
     @State private var dismissedSponsorSegmentID: String?
     @State private var historyNotices = TVPlayerNoticeStack()
+    @State private var showingStartupPoster = true
+    @State private var startupPosterProbe = 0
+
+    /// The system player has no exposed first-frame callback. Wait until its
+    /// playback clock actually advances rather than just reporting ready.
+    private func hideStartupPosterWhenPlaying() async {
+        var lastTime: Double?
+        while !Task.isCancelled && showingStartupPoster {
+            let playing = playback.player.timeControlStatus == .playing
+            let current = CMTimeGetSeconds(playback.player.currentTime())
+            if TVPlaybackStartupPosterPolicy.hlsAdvanced(
+                previous: lastTime, current: current, playing: playing
+            ) {
+                withAnimation(.easeOut(duration: 0.24)) {
+                    showingStartupPoster = false
+                }
+                return
+            }
+            lastTime = playing && current.isFinite ? current : nil
+            do { try await Task.sleep(for: .milliseconds(100)) }
+            catch { return }
+        }
+    }
 
     var body: some View {
         ZStack {
             SystemVideoPlayer(player: playback.player)
+            if showingStartupPoster {
+                TVPlaybackStartupPoster(api: api, video: video)
+                    .transition(.opacity)
+            }
             if let segment = playback.sponsorCurrent,
                dismissedSponsorSegmentID != segment.id,
                playback.errorMessage == nil {
@@ -41,6 +68,8 @@ struct TVHLSPlaybackView: View {
                     Text("player.unavailable").font(.title.bold())
                     Text(error).font(.callout)
                     Button("common.retry") {
+                        showingStartupPoster = true
+                        startupPosterProbe &+= 1
                         Task { await playback.restartAfterFailure(userInitiated: true) }
                     }
                     .buttonStyle(.borderedProminent)
@@ -66,7 +95,12 @@ struct TVHLSPlaybackView: View {
                 historyNotices.dismiss(id)
             }
         }
+        .task(id: startupPosterProbe) {
+            await hideStartupPosterWhenPlaying()
+        }
         .task(id: url.absoluteString) {
+            showingStartupPoster = true
+            startupPosterProbe &+= 1
             dismissedSponsorSegmentID = nil
             await playback.prepare(api: api, video: video, url: url,
                                    streamMetadata: streamMetadata)
