@@ -14,6 +14,7 @@ struct VideoDetailView: View {
     @State private var activitySaving = false
     @State private var activityError: String?
     @State private var streamMetadata: StreamInfo?
+    @State private var channelArtwork: TVChannelArtwork?
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
     @State private var savedPositionMs: Int64?
     @State private var progressSaving = false
@@ -103,14 +104,14 @@ struct VideoDetailView: View {
                                         directChannelName: channel
                                     )
                                 } label: {
-                                    Label {
-                                        HStack(spacing: 10) {
-                                            Text(channel)
-                                            Image(systemName: "chevron.right")
-                                                .font(.caption.bold())
-                                        }
-                                    } icon: {
-                                        Image(systemName: "person.crop.circle")
+                                    HStack(spacing: 10) {
+                                        TVChannelAvatar(
+                                            api: api, imageURL: channelArtwork?.avatarURL,
+                                            size: 38
+                                        )
+                                        Text(channel)
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption.bold())
                                     }
                                 }
                                 .buttonStyle(.bordered)
@@ -118,9 +119,15 @@ struct VideoDetailView: View {
                                 .accessibilityIdentifier("video-open-channel")
                                 .focused($focusedDetail, equals: .channel)
                             } else {
-                                Label(channel, systemImage: "person.crop.circle")
-                                    .font(.title3)
-                                    .foregroundStyle(.white.opacity(0.8))
+                                HStack(spacing: 10) {
+                                    TVChannelAvatar(
+                                        api: api, imageURL: channelArtwork?.avatarURL,
+                                        size: 38
+                                    )
+                                    Text(channel)
+                                }
+                                .font(.title3)
+                                .foregroundStyle(.white.opacity(0.8))
                             }
                         }
                         if let metadata = TVVideoMetadata.subtitle(for: detailedVideo) {
@@ -466,6 +473,14 @@ struct VideoDetailView: View {
                 async let enrichment: Void = loadMetadata()
                 _ = await (activity, enrichment)
                 await contentPreferences.ensureLoaded(api: api)
+            }
+            .task(id: channelURL) {
+                channelArtwork = nil
+                guard let channelURL else { return }
+                let artwork = await TVChannelArtworkCache.shared.artwork(
+                    for: channelURL, api: api
+                )
+                if !Task.isCancelled { channelArtwork = artwork }
             }
             .onChange(of: contentPreferences.settings?.hideComments) { _, hidden in
                 if hidden == true && selectedPane == .comments {

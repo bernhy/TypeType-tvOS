@@ -52,6 +52,7 @@ struct TVThumbnail: View {
     // Default to cover for hero artwork. Card artwork instead uses .fit so
     // focusing it never cuts off faces/text along the edges.
     var contentMode: ContentMode = .fill
+    var placeholderSymbol = "play.rectangle.fill"
     @State private var bitmap: UIImage?
 
     var body: some View {
@@ -70,7 +71,7 @@ struct TVThumbnail: View {
                         colors: [TTTheme.surface, TTTheme.accent.opacity(0.19)],
                         startPoint: .topLeading, endPoint: .bottomTrailing
                     )
-                    Image(systemName: "play.rectangle.fill")
+                    Image(systemName: placeholderSymbol)
                         .font(.system(size: 55))
                         .foregroundStyle(TTTheme.accent.opacity(0.5))
                 }

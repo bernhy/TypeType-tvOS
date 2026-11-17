@@ -21,6 +21,7 @@ struct TVSubscriptionsView: View {
     @State private var subscriptionErrorMessage: String?
     @State private var membershipRequestID = UUID()
     @State private var channelAvatarURL = ""
+    @State private var channelBannerURL = ""
     @State private var selectedChannelURL: String?
     @State private var videos: [VideoItem] = []
     @State private var showingShorts = false
@@ -81,6 +82,7 @@ struct TVSubscriptionsView: View {
             ScrollViewReader { scroll in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 28) {
+                    VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 9) {
                         Text(directChannelURL == nil
                              ? "subscriptions.kicker" : "channels.videos")
@@ -107,7 +109,7 @@ struct TVSubscriptionsView: View {
                         if !channelDescription.isEmpty {
                             Text(channelDescription)
                                 .font(.callout)
-                                .foregroundStyle(TTTheme.muted)
+                                .foregroundStyle(.white.opacity(0.82))
                                 .lineLimit(3)
                         }
                     }
@@ -201,6 +203,18 @@ struct TVSubscriptionsView: View {
                             }
                         }
                     }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 26)
+                    .background {
+                        TVChannelHeroBackdrop(
+                            api: api,
+                            avatarURL: channelAvatarURL,
+                            bannerURL: channelBannerURL
+                        )
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
                     if loadingVideos {
                         ProgressView("settings.remoteLoading")
                             .frame(maxWidth: .infinity, minHeight: 160)
@@ -703,6 +717,8 @@ struct TVSubscriptionsView: View {
             channelTitle = subscriptions.first(where: { $0.channelUrl == channelURL })?.name
                 ?? (directChannelURL == channelURL ? directChannelName ?? "" : "")
             channelDescription = ""
+            channelAvatarURL = ""
+            channelBannerURL = ""
             videos = (0..<9).map { index in
                 var video = VideoItem(
                     id: "subscription-preview-\(index)",
@@ -735,6 +751,8 @@ struct TVSubscriptionsView: View {
         channelTitle = subscriptions.first(where: { $0.channelUrl == channelURL })?.name
             ?? (directChannelURL == channelURL ? directChannelName ?? "" : "")
         channelDescription = ""
+        channelAvatarURL = subscriptions.first(where: { $0.channelUrl == channelURL })?.avatarUrl ?? ""
+        channelBannerURL = ""
         hasCourses = false
         error = nil
         pageError = nil
@@ -748,6 +766,8 @@ struct TVSubscriptionsView: View {
                   videoSort == sort else { return }
             channelTitle = response.name
             channelAvatarURL = response.avatarUrl ?? ""
+            channelBannerURL = response.bannerUrl ?? ""
+            await TVChannelArtworkCache.shared.remember(response, for: channelURL, api: api)
             channelDescription = response.description ?? ""
             hasCourses = response.hasCourses == true
             videos = response.videos

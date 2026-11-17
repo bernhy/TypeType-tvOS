@@ -2202,6 +2202,7 @@ struct SabrPlayerView: View {
     @State private var controlsVisible = true
     @State private var revealIndex = 0
     @State private var optionsVisible = false
+    @State private var channelArtwork: TVChannelArtwork?
     @State private var sponsorSkipCooldown: Date = .distantPast
     @State private var dismissedSponsorSegmentID: String?
 
@@ -2326,8 +2327,16 @@ struct SabrPlayerView: View {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 9) {
                             Text(video.title).font(.title.bold()).lineLimit(2)
-                            Text(video.uploaderName ?? "")
+                            if let channel = video.uploaderName, !channel.isEmpty {
+                                HStack(spacing: 10) {
+                                    TVChannelAvatar(
+                                        api: api, imageURL: channelArtwork?.avatarURL,
+                                        size: 34
+                                    )
+                                    Text(channel)
+                                }
                                 .font(.callout).foregroundStyle(.white.opacity(0.8))
+                            }
                             if let metadata = TVVideoMetadata.subtitle(for: video) {
                                 Text(metadata)
                                     .font(.system(size: 14))
@@ -2399,6 +2408,17 @@ struct SabrPlayerView: View {
                 )
                 .transition(.opacity)
             }
+        }
+        .task(id: video.url) {
+            channelArtwork = nil
+            guard let url = TVVideoMetadata.channelURL(for: video, stream: nil) else {
+                return
+            }
+            // Do not compete with the initial SABR network window.
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            let artwork = await TVChannelArtworkCache.shared.artwork(for: url, api: api)
+            if !Task.isCancelled { channelArtwork = artwork }
         }
         .overlay(alignment: .topTrailing) {
             VStack(alignment: .trailing, spacing: 12) {
