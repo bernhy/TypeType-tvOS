@@ -74,13 +74,17 @@ final class SabrTransportTests: XCTestCase {
             return (200, Data(#"{"status":"ok"}"#.utf8))
         }
         let service = try fixtureService()
-        XCTAssertEqual(await service.serverHealth(), true)
+        let healthy = await service.serverHealth()
+        XCTAssertEqual(healthy, true)
         MockSabrProtocol.use { _ in (503, Data()) }
-        XCTAssertEqual(await service.serverHealth(), false)
+        let unavailable = await service.serverHealth()
+        XCTAssertEqual(unavailable, false)
         MockSabrProtocol.use { _ in (404, Data()) }
-        XCTAssertNil(await service.serverHealth())
+        let unsupported = await service.serverHealth()
+        XCTAssertNil(unsupported)
         MockSabrProtocol.use { _ in (200, Data("<html>SPA</html>".utf8)) }
-        XCTAssertNil(await service.serverHealth())
+        let wrongBackend = await service.serverHealth()
+        XCTAssertNil(wrongBackend)
     }
 
     func testTransientHTTP503IsRetriedBeforeDecoderMailboxRunsDry() async throws {

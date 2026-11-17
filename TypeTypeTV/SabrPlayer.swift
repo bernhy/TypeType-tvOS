@@ -1484,7 +1484,8 @@ final class SabrPlayerController: ObservableObject {
                 }
                 do {
                     try await self.downloadWindows(
-                        service: service, sessionId: currentSession,
+                        service: service, videoId: videoId,
+                        sessionId: currentSession,
                         generation: currentGeneration, choice: choice,
                         start: producerStart, buffer: buffer,
                         cache: cache, mailbox: mailbox
@@ -1713,8 +1714,9 @@ final class SabrPlayerController: ObservableObject {
     /// Uses the *actual playback clock* for the server's position updates.
     /// The bufferedRanges fields, rather than a fake forward seek, tell the
     /// server which completed audio/video intervals are already stored.
-    private func downloadWindows(service: SabrService, sessionId: String,
-                                 generation: Int64, choice: SabrSelection,
+    private func downloadWindows(service: SabrService, videoId: String,
+                                 sessionId: String, generation: Int64,
+                                 choice: SabrSelection,
                                  start: Int64, buffer: SabrBufferSettings,
                                  cache: SabrFragmentCache,
                                  mailbox: SabrWindowMailbox) async throws {
@@ -1765,9 +1767,8 @@ final class SabrPlayerController: ObservableObject {
                             NSLog("TypeType SABR EARLY health-outage detections=%d",
                                   consecutiveHealthFailures)
                             beginEarlyRecovery(
-                                service: service, videoId: VideoAddress.youtubeID(
-                                    currentVideo?.url ?? ""
-                                ) ?? "", selection: choice, buffer: buffer, startMs: anchor
+                                service: service, videoId: videoId,
+                                selection: choice, buffer: buffer, startMs: anchor
                             )
                         }
                     } else {
