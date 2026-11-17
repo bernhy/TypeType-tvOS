@@ -13306,25 +13306,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steuert YouTube-Endbildschirm-Elemente am Ende eines Videos. Der tvOS-Player zeigt solche Elemente derzeit noch nicht an; dieser Schalter hat deshalb momentan keine sichtbare Wirkung."
+            "value": "Zeigt vom Videoersteller platzierte Endbildschirm-Karten für Videos, Kanäle und Wiedergabelisten während der letzten Videosekunden. Webseiten-Links können auf Apple TV nicht geöffnet werden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controls YouTube end-screen elements at the end of videos. The tvOS player does not currently display these elements, so this setting has no visible effect yet."
+            "value": "Shows creator-placed end-screen cards for videos, channels, and playlists near the end of a video. Website links cannot be opened on Apple TV."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contrôle les éléments de fin des vidéos YouTube. Le lecteur tvOS ne les affiche pas encore ; ce réglage n’a donc pas d’effet visible pour l’instant."
+            "value": "Affiche les cartes de fin de vidéo ajoutées par le créateur pour les vidéos, chaînes et playlists pendant les dernières secondes. Les liens Web ne peuvent pas être ouverts sur Apple TV."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controla los elementos finales de los vídeos de YouTube. El reproductor de tvOS todavía no los muestra, así que este ajuste aún no tiene efecto visible."
+            "value": "Muestra tarjetas de pantalla final añadidas por el creador para vídeos, canales y listas de reproducción durante los últimos segundos. Los enlaces web no se pueden abrir en Apple TV."
           }
         }
       }

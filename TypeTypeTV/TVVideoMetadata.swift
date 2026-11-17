@@ -107,6 +107,12 @@ actor TVStreamMetadataCache {
     private var active = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
+    /// Return only already-cached details; end screens must not initiate an
+    /// additional stream extraction while SABR is starting.
+    func cachedDetails(for video: VideoItem, api: TypeTypeAPI) -> StreamInfo? {
+        completed[api.metadataCacheScope + "|" + video.url]
+    }
+
     func details(for video: VideoItem, api: TypeTypeAPI) async -> StreamInfo? {
         let key = api.metadataCacheScope + "|" + video.url
         if let value = completed[key] { return value }
