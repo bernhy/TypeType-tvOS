@@ -2,7 +2,6 @@ import Foundation
 import UIKit
 import Combine
 import CoreMedia
-import VideoToolbox
 import Darwin
 
 /// Public tvOS APIs only. A codec-type capability check is not a test of
@@ -18,13 +17,10 @@ struct TVCodecProbe: Identifiable, Equatable {
 struct TVDecoderAttempt: Equatable {
     let codec: String
     let resolution: String
-    let status: Int32
-    let hardwareUsed: Bool?
-    let decodedFrame: Bool
     let timestamp: Date
 }
 
-/// Shared diagnostics from the same decoder paths actually used by playback.
+/// Native renderer diagnostics; hardware probe is not proof of actual decode mode.
 /// This deliberately does not guess a marketed SoC name from the model ID.
 @MainActor
 final class TVHardwareDiagnostics: ObservableObject {
@@ -66,31 +62,21 @@ final class TVHardwareDiagnostics: ObservableObject {
         ]
     }
 
-    func recordDecoderSession(
-        codec: CMVideoCodecType, width: Int32, height: Int32,
-        status: OSStatus, hardwareUsed: Bool?
-    ) {
+    /// Only records compressed media submitted to Apple's video renderer.
+    /// Public AVSampleBufferVideoRenderer does not disclose whether a specific
+    /// frame was decoded in hardware; do not guess from VTIsHardwareDecodeSupported.
+    func recordNativeRendererSample(_ sample: CMSampleBuffer) {
+        guard let format = CMSampleBufferGetFormatDescription(sample),
+              CMFormatDescriptionGetMediaType(format) == kCMMediaType_Video
+        else { return }
+        let dimensions = CMVideoFormatDescriptionGetDimensions(format)
+        let codec = Self.fourCCName(CMFormatDescriptionGetMediaSubType(format))
+        let resolution = "\(dimensions.width) × \(dimensions.height)"
+        guard lastAttempt?.codec != codec ||
+              lastAttempt?.resolution != resolution else { return }
         lastAttempt = TVDecoderAttempt(
-            codec: Self.fourCCName(codec),
-            resolution: "\(width) × \(height)",
-            status: status,
-            hardwareUsed: hardwareUsed,
-            decodedFrame: false,
-            timestamp: Date()
+            codec: codec, resolution: resolution, timestamp: Date()
         )
-    }
-
-    func recordDecodedFrame() {
-        guard var previous = lastAttempt else { return }
-        previous = TVDecoderAttempt(
-            codec: previous.codec,
-            resolution: previous.resolution,
-            status: previous.status,
-            hardwareUsed: previous.hardwareUsed,
-            decodedFrame: true,
-            timestamp: previous.timestamp
-        )
-        lastAttempt = previous
     }
 
     private static func machineIdentifier() -> String {

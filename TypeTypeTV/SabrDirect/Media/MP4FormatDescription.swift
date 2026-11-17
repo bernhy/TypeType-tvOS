@@ -30,6 +30,12 @@ public enum MP4FormatDescription {
     case MP4FourCC("hvc1"), MP4FourCC("hev1"):
       codecType = kCMVideoCodecType_HEVC
       atom = "hvcC"
+    case MP4FourCC("vp09"):
+      codecType = kCMVideoCodecType_VP9
+      atom = "vpcC"
+    case MP4FourCC("av01"):
+      codecType = kCMVideoCodecType_AV1
+      atom = "av1C"
     default:
       throw MP4Error.unsupportedCodec(track.codec.description)
     }

@@ -6,21 +6,18 @@ import Foundation
 /// Unlike AVAssetReader, this reads moof/traf/trun/tfdt and copies only the
 /// referenced mdat sample bytes into CoreMedia buffers without touching disk.
 /// The MP4 parser is maintained under MPL-2.0 in SabrDirect/.
+/// Native sample-buffer renderers are the only SABR decode path. Unsupported
+/// sample entries trigger the existing quality/codec selection fallback,
+/// rather than reviving the old temporary-file AVAssetReader pipeline.
 enum SabrNativePlaybackPolicy {
-    static let defaultsKey = "typetype.sabrDirectMP4Enabled"
-
-    static func usesDirectRenderer(videoCodec: String, audioCodec: String?,
-                                   audioMIME: String?,
-                                   defaults: UserDefaults = .standard) -> Bool {
-        // Enabled for this experimental branch. Setting false explicitly
-        // leaves the preexisting AVAssetReader + VideoToolbox path intact.
-        if defaults.object(forKey: defaultsKey) as? Bool == false { return false }
-        let video = videoCodec.lowercased()
-        let h26x = video.hasPrefix("avc1") || video.hasPrefix("avc3")
-            || video.hasPrefix("hvc1") || video.hasPrefix("hev1")
+    static func supports(videoCodec: String, audioCodec: String?,
+                         audioMIME: String?) -> Bool {
+        let codec = videoCodec.lowercased()
+        let video = ["avc1", "avc3", "hvc1", "hev1", "vp09", "vp9", "av01"]
+            .contains(where: { codec.hasPrefix($0) })
         let audio = (audioCodec ?? "").lowercased()
         let mime = (audioMIME ?? "").lowercased()
-        return h26x && (audio.hasPrefix("mp4a") || mime.contains("audio/mp4"))
+        return video && (audio.hasPrefix("mp4a") || mime.contains("audio/mp4"))
     }
 }
 
@@ -36,7 +33,8 @@ enum SabrDirectMP4Reader {
     }
 
     static func compressedSamples(initialization: Data, fragment: Data,
-                                  mediaType: AVMediaType) async throws -> [CMSampleBuffer] {
+                                  mediaType: AVMediaType,
+                                  presentationStartMs: Int64? = nil) async throws -> [CMSampleBuffer] {
         // The controller is @MainActor. Parsing and copying fMP4 payloads
         // must not block the tvOS UI thread while the playback clock runs.
         try await withCheckedThrowingContinuation {
@@ -45,17 +43,26 @@ enum SabrDirectMP4Reader {
                 do {
                     continuation.resume(returning: try decode(
                         initialization: initialization, fragment: fragment,
-                        mediaType: mediaType
+                        mediaType: mediaType,
+                        presentationStartMs: presentationStartMs
                     ))
+                } catch is CancellationError {
+                    continuation.resume(throwing: CancellationError())
                 } catch {
-                    continuation.resume(throwing: error)
+                    // Native parser / CoreMedia format errors are a codec
+                    // compatibility failure, so automatic selection can try
+                    // a different representation. Never expose media URLs.
+                    continuation.resume(throwing: SabrFailure.unsupported(
+                        "Native fMP4 sample format unavailable"
+                    ))
                 }
             }
         }
     }
 
     private static func decode(initialization: Data, fragment: Data,
-                               mediaType: AVMediaType) throws -> [CMSampleBuffer] {
+                               mediaType: AVMediaType,
+                               presentationStartMs: Int64?) throws -> [CMSampleBuffer] {
         let kind: MP4TrackKind
         switch mediaType {
         case .video: kind = .video
@@ -68,10 +75,26 @@ enum SabrDirectMP4Reader {
             throw MP4Error.missingBox("trak")
         }
         let format = try MP4FormatDescription.make(for: track)
-        guard let samples = try MP4Fragment.samples(
+        guard let sourceSamples = try MP4Fragment.samples(
             in: fragment, tracks: [track]
-        )[track.trackID], !samples.isEmpty, samples.count <= 50_000 else {
+        )[track.trackID], !sourceSamples.isEmpty, sourceSamples.count <= 50_000 else {
             throw MP4Error.invalidBox("empty or oversized media fragment")
+        }
+        // Only audio packets that overlap the actual seek target should play.
+        // The decoder still receives older video samples for reference-frame
+        // preroll, but they are marked DoNotDisplay below.
+        let samples: [MP4Sample]
+        if kind == .audio, let presentationStartMs, presentationStartMs > 0 {
+            samples = sourceSamples.filter {
+                !SabrSeekPreroll.isBeforePresentation(
+                    sampleStartTicks: $0.presentationTime,
+                    durationTicks: $0.duration,
+                    timescale: track.timescale,
+                    targetMs: presentationStartMs
+                )
+            }
+        } else {
+            samples = sourceSamples
         }
 
         var result: [CMSampleBuffer] = []
@@ -81,7 +104,10 @@ enum SabrDirectMP4Reader {
             let end = min(samples.count, position + chunk)
             let buffer = try MP4SampleBuffers.make(
                 samples: Array(samples[position..<end]),
-                data: fragment, timescale: track.timescale, format: format
+                data: fragment, timescale: track.timescale, format: format,
+                hiddenBefore: kind == .video ? presentationStartMs.map {
+                    CMTime(value: $0, timescale: 1_000)
+                } : nil
             )
             // A zero-byte compressed payload must never reach the renderer.
             guard let data = CMSampleBufferGetDataBuffer(buffer),
@@ -94,36 +120,3 @@ enum SabrDirectMP4Reader {
     }
 }
 
-/// A direct-parser failure is non-terminal: use the proven AVAssetReader
-/// demuxer for this particular segment, without changing session generation
-/// or losing the old SABR recovery, timestamp and AAC trim logic.
-enum SabrMediaDemux {
-    static func samples(initialization: Data, fragment: Data,
-                        mediaType: AVMediaType, direct: Bool) async throws -> [CMSampleBuffer] {
-        guard direct else {
-            return try await FragmentedMP4Reader.compressedSamples(
-                initialization: initialization, fragment: fragment, mediaType: mediaType
-            )
-        }
-        do {
-            return try await SabrDirectMP4Reader.compressedSamples(
-                initialization: initialization, fragment: fragment, mediaType: mediaType
-            )
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            // No URLs, session IDs, bearer tokens or private media bytes in logs.
-            let family: String
-            switch error {
-            case is MP4Error: family = "box"
-            case is MP4MediaError: family = "sample"
-            default: family = "other"
-            }
-            NSLog("TypeType SABR DIRECT demux-fallback track=%@ family=%@ initBytes=%d mediaBytes=%d",
-                  mediaType.rawValue, family, initialization.count, fragment.count)
-            return try await FragmentedMP4Reader.compressedSamples(
-                initialization: initialization, fragment: fragment, mediaType: mediaType
-            )
-        }
-    }
-}

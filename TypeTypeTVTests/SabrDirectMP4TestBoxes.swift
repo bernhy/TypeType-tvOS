@@ -32,6 +32,7 @@ enum MP4TestBoxes {
     trackID: UInt32 = 1,
     timescale: UInt32 = 90_000,
     configuration: [UInt8] = [1, 0x64, 0, 0x28],
+    codec: String = "avc1",
     defaultDuration: UInt32 = 0
   ) -> [UInt8] {
     let tkhd = fullBox("tkhd", u32(0) + u32(0) + u32(trackID) + zeros(68))
@@ -40,9 +41,9 @@ enum MP4TestBoxes {
     let entry: [UInt8]
     if video {
       entry = box(
-        "avc1",
+        codec,
         zeros(6) + u16(1) + zeros(16) + u16(1920) + u16(1080) + zeros(50)
-          + box("avcC", configuration)
+          + box(codec == "vp09" ? "vpcC" : (codec == "av01" ? "av1C" : "avcC"), configuration)
       )
     } else {
       entry = box(

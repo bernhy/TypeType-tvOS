@@ -2,13 +2,27 @@
 
 Native, GPL-3.0 Apple TV client for [TypeType](https://github.com/TypeType-Video/TypeType), based on the Android TV reference (dev branch, 2026-11-13).
 
-**Status (2026-11-16):** Xcode 26.2 successfully builds Debug and Release for Apple TV, and the last verified CI baseline (`d2c976bc`) passed 184 native tests (3 skipped) and 34 tvOS UI tests. Native YouTube SABR playback has been exercised in long sessions on physical Apple TV hardware; rare audio dropouts sometimes coincide with video stutters. Their media-data versus renderer origin is still under investigation, and 4K/HDR/AV1 behavior needs broader validation. The audio-lead experiment remains separate from `main`; this is not a production-ready, feature-complete port.
+**Status (2026-11-16):** The direct fMP4 / compressed sample renderer pipeline from PR #15 was confirmed on physical Apple TV 4K (2017) to resolve the earlier reproducible A/V stutters. Development continues on `main`. The new VP9/AV1 sample-entry support and decoder-preroll seeking changes have automated tests, but still require validation on suitable Apple TV hardware. Release-readiness, HDR profiles and sustained seek latency are not yet guaranteed.
+
+
+## Attribution and third-party licenses
+
+This application's original code is GPL-3.0 (see [LICENSE](LICENSE)).
+The direct fMP4 parser and CoreMedia sample construction in
+[`TypeTypeTV/SabrDirect/`](TypeTypeTV/SabrDirect/) were adapted from
+[`TypeType-Video/TypeType-tvOS`](https://github.com/TypeType-Video/TypeType-tvOS)
+(`TypeTypePlayerKit`) under the **Mozilla Public License 2.0**.
+The upstream-derived source files retain MPL-2.0 SPDX headers and source
+attribution; their source-level changes remain subject to MPL-2.0.
+The original MPL text is included at [`LICENSES/MPL-2.0.txt`](LICENSES/MPL-2.0.txt).
+The rest of the player (SABR session, track coordination, seeking, UI)
+is developed in this project. Thanks to the upstream TypeType developers.
 
 ## Device and architecture decisions
 
 - Support **Apple TV 4K first generation (2017) or newer**; Apple TV HD is out of scope. Minimum deployment target: **tvOS 26.0**.
 - **No modifications to TypeType Server**. YouTube uses the existing TypeType **SABR API v1** directly. No HLS-bridge changes or server-side transcoding.
-- Default **hardware-only decoding**: codec discovery uses VideoToolbox and the video pipeline creates a decoder with `kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder`. Unsupported combinations fail rather than silently falling back to software. Explicit software-decoding opt-in is **OFF** by default.
+- **Hardware-aware codec selection:** `VTIsHardwareDecodeSupported` filters automatic representations, and software-allowed selection is OFF by default. Actual decoding is managed by `AVSampleBufferVideoRenderer`; its public API does **not** certify whether a particular frame was decoded in hardware. This is not the former explicit VT session hardware requirement.
 - Use public Apple APIs (SwiftUI, CoreMedia, AVFoundation, VideoToolbox, URLSession, Keychain).
 
 ## Implemented so far
@@ -19,16 +33,16 @@ Native, GPL-3.0 Apple TV client for [TypeType](https://github.com/TypeType-Video
 - Same-origin thumbnails use the same pinned server connection; a bounded in-memory thumbnail cache reduces redundant requests. External CDN images keep Apple's standard TLS checks.
 - Guest login when supported, device-code account pairing, and per-origin Keychain token storage.
 - Hardware codec indicators for H.264, HEVC, VP9 and AV1; maximum resolution setting; software-decoding override.
-- **Experimental YouTube player**: SABR bootstrap/session/position/prefetch/windows/segments, fMP4 sample extraction using `AVAssetReader`, explicit VideoToolbox hardware decoding, synchronized audio/video renderers, pause and ±seek buttons.
+- **Native YouTube SABR player:** bootstrap/session/position/prefetch/windows/segments, direct in-memory ISO BMFF demux (`avc1`/`hvc1`/`vp09`/`av01`), compressed samples sent directly to Apple video/audio renderers with independently scheduled A/V feeding and a shared clock. Play/pause, quality/audio selection and seek with keyframe preroll are supported.
 - Native HLS AVPlayer path for compatible non-YouTube sources.
 - Multilingual interface using Apple's single Xcode String Catalog (TypeTypeTV/Localizable.xcstrings), with semantic keys, dynamic language discovery and an in-app language picker. German is the default; English, French and Spanish are included. See LOCALIZATION.md.
 - CI validates translation resources, builds unsigned simulator and Apple TV Debug/Release targets and runs native SABR/network tests plus 34 tvOS UI tests.
 
 ## Technical playback path
 
-TypeType Server SABR session and segments → Swift SABR transport → fMP4 init/fragment → AVAssetReader compressed samples → VideoToolbox (required hardware decoder) → AVSampleBufferDisplayLayer + AVSampleBufferAudioRenderer → AVSampleBufferRenderSynchronizer.
+TypeType Server SABR session and segments → Swift SABR transport + cache → in-memory fMP4 box and sample parser (`moof`/`traf`/`trun`/`tfdt`) → compressed `CMSampleBuffer` → `AVSampleBufferVideoRenderer` + `AVSampleBufferAudioRenderer` → shared `AVSampleBufferRenderSynchronizer`.
 
-**Caution:** Each segment is temporarily assembled into `init + fragment` for AVAssetReader. Physical Apple TV playback has been demonstrated, but this approach has not been validated against all real TypeType SABR fragment variants and may require further resilience work. Successful playback of individual videos is not a guarantee of uninterrupted playback across codecs or long sessions.
+**Seeking:** For nonzero positions the server is asked for up to 20 seconds of bounded compressed preroll while playback and audio begin at the exact requested target. Video samples before that target are marked `DoNotDisplay` so reference frames can be decoded without flashing old pictures. This targets the reported 10–20-second post-seek video freeze. Hardware verification is still necessary; the parser alone cannot guarantee every codec/profile or frame-accurate seeking in all upstream SABR fragments.
 
 ## Still required for a production release
 
@@ -53,7 +67,7 @@ For a physical Apple TV, set a unique `PRODUCT_BUNDLE_IDENTIFIER` in `project.ym
 
 ## License and upstream reference
 
-GNU GPL v3; see LICENSE. Upstream client: https://github.com/TypeType-Video/TypeType-TV. The tvOS code is a native implementation of the public API, not a cross-compilation of Android Kotlin/Media3.
+The application's own code is GNU GPL v3 (LICENSE). Direct fMP4 parser files adapted from the official TypeType-tvOS client are MPL-2.0; see the attribution section above and LICENSES/MPL-2.0.txt. The tvOS code is a native API implementation, not a cross-compilation of Android Kotlin/Media3.
 
 ### SABR buffer boundaries and accurate reporting
 

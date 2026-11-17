@@ -16,19 +16,25 @@ final class TVHardwareDiagnosticsTests: XCTestCase {
         }
     }
 
-    func testActualDecoderResultIsSeparateFromCodecCapability() {
-        let info = TVHardwareDiagnostics.shared
-        info.recordDecoderSession(
-            codec: CMVideoCodecType(0x61766331),
-            width: 1920, height: 1080,
-            status: OSStatus(-12900), hardwareUsed: nil
+    func testDirectRendererReportsFormatButNotUndocumentedHardwareUse() throws {
+        var description: CMVideoFormatDescription?
+        let status = CMVideoFormatDescriptionCreate(
+            allocator: kCFAllocatorDefault,
+            codecType: kCMVideoCodecType_H264,
+            width: 1920, height: 1080, extensions: nil,
+            formatDescriptionOut: &description
         )
-        XCTAssertEqual(info.lastAttempt?.codec, "avc1")
-        XCTAssertEqual(info.lastAttempt?.resolution, "1920 × 1080")
-        XCTAssertEqual(info.lastAttempt?.status, -12900)
-        XCTAssertNil(info.lastAttempt?.hardwareUsed)
-        XCTAssertEqual(info.lastAttempt?.decodedFrame, false)
-        info.recordDecodedFrame()
-        XCTAssertEqual(info.lastAttempt?.decodedFrame, true)
+        XCTAssertEqual(status, noErr)
+        let format = try XCTUnwrap(description)
+        let sample = try MP4SampleBuffers.make(
+            samples: [MP4Sample(
+                offset: 0, size: 4, decodeTime: 0,
+                duration: 3_000, compositionOffset: 0, isSync: true
+            )],
+            data: Data([0, 0, 0, 1]), timescale: 90_000, format: format
+        )
+        TVHardwareDiagnostics.shared.recordNativeRendererSample(sample)
+        XCTAssertEqual(TVHardwareDiagnostics.shared.lastAttempt?.codec, "avc1")
+        XCTAssertEqual(TVHardwareDiagnostics.shared.lastAttempt?.resolution, "1920 × 1080")
     }
 }

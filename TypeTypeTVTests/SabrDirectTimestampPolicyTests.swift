@@ -41,4 +41,16 @@ final class SabrDirectTimestampPolicyTests: XCTestCase {
             previousSequence: nil, sequence: nil
         ))
     }
+    func testSeekTrimmedAACMustNotRebaseFirstRetainedPacketToOldFragment() {
+        XCTAssertTrue(SabrDirectTimestampPolicy.preserveNative(
+            nativeStartMs: 120_016, expectedStartMs: 111_000,
+            previousActualEndMs: nil, previousSequence: nil, sequence: 22,
+            seekTargetMs: 120_000
+        ))
+        XCTAssertFalse(SabrDirectTimestampPolicy.preserveNative(
+            nativeStartMs: 0, expectedStartMs: 111_000,
+            previousActualEndMs: nil, previousSequence: nil, sequence: 22,
+            seekTargetMs: 120_000
+        ))
+    }
 }

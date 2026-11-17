@@ -30,13 +30,13 @@ final class TVPlayerNoticesTests: XCTestCase {
         )
         XCTAssertEqual(
             SabrManualQualityFallbackPolicy.diagnosticCode(
-                for: SabrFailure.invalidResponse("SABR compressed sample has no data buffer")),
-            "compressed-no-data"
+                for: SabrFailure.unsupported("Native fMP4 sample format unavailable")),
+            "compressed-unsupported"
         )
         XCTAssertEqual(
             SabrManualQualityFallbackPolicy.diagnosticCode(
-                for: SabrFailure.unsupported("AVAssetReader cannot demux this video representation")),
-            "reader-unsupported"
+                for: SabrFailure.unsupported("compressed codec not supported")),
+            "compressed-unsupported"
         )
     }
 
