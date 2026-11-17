@@ -5,7 +5,11 @@ import SwiftUI
 struct SearchView: View {
     let api: TypeTypeAPI
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
-    @AppStorage("typetype.recentSearches") private var recentJSON = "[]"
+    @State private var recentEntries: [TVSearchHistoryItem] = []
+    @State private var historyError: String?
+    @State private var clearingHistory = false
+    @State private var savingHistoryCount = 0
+    @State private var historyRequestID = UUID()
     @State private var term = ""
     @State private var searchedTerm = ""
     @State private var videos: [VideoItem] = []
@@ -30,7 +34,9 @@ struct SearchView: View {
     @FocusState private var clearHistoryFocused: Bool
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 30), count: 4)
-    private var history: [String] { TVRecentQueries.decode(recentJSON) }
+    private var history: [TVSearchHistoryItem] {
+        TVSearchHistoryPresentation.visible(recentEntries)
+    }
     private var visibleVideos: [VideoItem] { contentPreferences.displayed(videos) }
     private var allEmpty: Bool { visibleVideos.isEmpty && channels.isEmpty && playlists.isEmpty }
     private var selectedFilters: [String] {
@@ -84,27 +90,30 @@ struct SearchView: View {
                                 Text("search.recents").font(.subheadline.bold())
                                     .tracking(1.7).foregroundStyle(TTTheme.muted)
                                 Spacer()
-                                Button("search.clearHistory") { recentJSON = "[]" }
+                                Button("search.clearHistory") {
+                                    Task { await clearSearchHistory() }
+                                }
                                     .buttonStyle(.bordered)
+                                    .disabled(clearingHistory || searching || savingHistoryCount > 0)
                                     .focused($clearHistoryFocused)
                                     .onMoveCommand { direction in
                                         if direction == .down || direction == .left {
-                                            focusedRecent = history.first
+                                            focusedRecent = history.first?.term
                                         }
                                     }
                             }
                             ScrollView(.horizontal) {
                                 LazyHStack(spacing: 20) {
-                                    ForEach(history, id: \.self) { query in
+                                    ForEach(history) { entry in
                                         Button {
-                                            term = query
-                                            Task { await execute(query) }
+                                            term = entry.term
+                                            Task { await execute(entry.term) }
                                         } label: {
-                                            Label(query, systemImage: "clock.arrow.circlepath")
+                                            Label(entry.term, systemImage: "clock.arrow.circlepath")
                                                 .lineLimit(1)
                                         }
                                         .buttonStyle(.bordered)
-                                        .focused($focusedRecent, equals: query)
+                                        .focused($focusedRecent, equals: entry.term)
                                         .onMoveCommand { direction in
                                             if direction == .up {
                                                 clearHistoryFocused = true
@@ -117,6 +126,17 @@ struct SearchView: View {
                             .focusSection()
                         }
                         .focusSection()
+                    }
+
+                    if let historyError {
+                        HStack(spacing: 15) {
+                            Text(historyError).font(.caption)
+                                .foregroundStyle(.orange).lineLimit(2)
+                            Button("common.retry") {
+                                Task { await loadSearchHistory() }
+                            }
+                            .buttonStyle(.bordered)
+                        }
                     }
 
                     if searching && allEmpty {
@@ -218,7 +238,7 @@ struct SearchView: View {
                                         .buttonStyle(TVRailButtonStyle())
                                         .focusEffectDisabled(true)
                                         .videoActions(api: api, video: video, onChanged: {
-                                            Task { await execute(searchedTerm) }
+                                            Task { await execute(searchedTerm, recordHistory: false) }
                                         }, focus: $focusedVideoURL, focusID: video.url)
                                         .accessibilityLabel(TTTheme.accessibilityText(for: video))
                                         .id(video.url)
@@ -257,18 +277,29 @@ struct SearchView: View {
                 await contentPreferences.ensureLoaded(api: api)
                 await loadFilterCapabilities()
             }
+            .task {
+                // Do not upload stale device-local searches into any account.
+                UserDefaults.standard.removeObject(forKey: "typetype.recentSearches")
+                await loadSearchHistory()
+            }
             .onChange(of: contentFilter) { _, _ in
                 groupSelections = [:]
                 Task {
                     await loadFilterCapabilities()
-                    if !searchedTerm.isEmpty { await execute(searchedTerm) }
+                    if !searchedTerm.isEmpty {
+                        await execute(searchedTerm, recordHistory: false)
+                    }
                 }
             }
             .onChange(of: sortFilter) { _, _ in
-                if !searchedTerm.isEmpty { Task { await execute(searchedTerm) } }
+                if !searchedTerm.isEmpty {
+                    Task { await execute(searchedTerm, recordHistory: false) }
+                }
             }
             .onChange(of: groupSelections) { _, _ in
-                if !searchedTerm.isEmpty { Task { await execute(searchedTerm) } }
+                if !searchedTerm.isEmpty {
+                    Task { await execute(searchedTerm, recordHistory: false) }
+                }
             }
             .task(id: focusRequest) {
                 guard focusRequest >= 0 else {
@@ -287,6 +318,73 @@ struct SearchView: View {
     }
 
     @MainActor
+    private func loadSearchHistory() async {
+        let request = UUID()
+        historyRequestID = request
+        let scope = api.metadataCacheScope
+        do {
+            let entries = try await api.searchHistory()
+            guard !Task.isCancelled, historyRequestID == request,
+                  api.metadataCacheScope == scope else { return }
+            recentEntries = entries
+            historyError = nil
+        } catch {
+            guard !Task.isCancelled, historyRequestID == request,
+                  api.metadataCacheScope == scope else { return }
+            if Self.unauthorizedHistory(error) {
+                recentEntries = []
+                historyError = nil // guest users have no account search history
+            } else {
+                historyError = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor
+    private func saveSearchHistory(_ query: String) async {
+        let scope = api.metadataCacheScope
+        guard !Task.isCancelled else { return }
+        savingHistoryCount += 1
+        defer { savingHistoryCount -= 1 }
+        do {
+            _ = try await api.addSearchHistory(query)
+            guard !Task.isCancelled, api.metadataCacheScope == scope else { return }
+            await loadSearchHistory()
+        } catch {
+            guard !Task.isCancelled, api.metadataCacheScope == scope else { return }
+            if !Self.unauthorizedHistory(error) {
+                historyError = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor
+    private func clearSearchHistory() async {
+        guard !clearingHistory, savingHistoryCount == 0 else { return }
+        clearingHistory = true
+        historyRequestID = UUID()
+        let scope = api.metadataCacheScope
+        defer { clearingHistory = false }
+        do {
+            try await api.clearSearchHistory()
+            guard !Task.isCancelled, api.metadataCacheScope == scope else { return }
+            recentEntries = []
+            historyError = nil
+            focusedRecent = nil
+            searchFieldFocused = true
+        } catch {
+            guard !Task.isCancelled, api.metadataCacheScope == scope else { return }
+            historyError = error.localizedDescription
+        }
+    }
+
+    private static func unauthorizedHistory(_ error: Error) -> Bool {
+        if case TypeTypeError.http(401, _) = error { return true }
+        if case TypeTypeError.serverDetails(401, _, _) = error { return true }
+        return false
+    }
+
+    @MainActor
     private func loadFilterCapabilities() async {
         do {
             capabilities = try await api.searchFilters(
@@ -299,7 +397,7 @@ struct SearchView: View {
     }
 
     @MainActor
-    private func execute(_ query: String) async {
+    private func execute(_ query: String, recordHistory: Bool = true) async {
         let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
         term = value
@@ -329,7 +427,10 @@ struct SearchView: View {
             nextPage = result.nextpage
             suggestion = result.searchSuggestion
             corrected = result.isCorrectedSearch == true
-            recentJSON = TVRecentQueries.encode(TVRecentQueries.add(value, to: history))
+            if recordHistory {
+                // The history write is independent of result enrichment.
+                Task { await saveSearchHistory(value) }
+            }
             let enriched = await api.withProgress(result.items)
             guard requestID == identifier && !Task.isCancelled else { return }
             videos = enriched
