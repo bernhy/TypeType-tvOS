@@ -1727,6 +1727,9 @@ final class SabrPlayerController: ObservableObject {
         var stalled = 0
         var lastAudioSequence: Int?
         var lastVideoSequence: Int?
+        var lastHealthCheck = Date.distantPast
+        var consecutiveHealthFailures = 0
+        var healthEndpointSupported = true
         let target = SabrLookaheadPolicy.targetMilliseconds(
             buffer, videoBitrate: choice.video.bitrate
         )
@@ -1742,6 +1745,37 @@ final class SabrPlayerController: ObservableObject {
             if !first && !SabrLookaheadPolicy.shouldRequestMore(
                 cachedThroughMs: retainedEnd, playheadMs: playhead, targetMs: target
             ) {
+                // With enough compressed media on disk the producer issues
+                // no SABR requests. Poll the public health endpoint at most
+                // once per five seconds so a server reboot can be noticed
+                // before the current playback buffer is almost exhausted.
+                if healthEndpointSupported,
+                   Date().timeIntervalSince(lastHealthCheck) >= 5 {
+                    lastHealthCheck = Date()
+                    if let healthy = await service.serverHealth() {
+                        consecutiveHealthFailures = healthy ? 0
+                            : consecutiveHealthFailures + 1
+                        if consecutiveHealthFailures >= 2,
+                           isInitialized, earlyRecoveryTask == nil,
+                           let anchor = SabrEarlySessionPrewarmPolicy.startPosition(
+                               playheadMs: playhead,
+                               audioQueuedEndMs: queuedAudioEndMs,
+                               videoQueuedEndMs: queuedVideoEndMs
+                           ) {
+                            NSLog("TypeType SABR EARLY health-outage detections=%d",
+                                  consecutiveHealthFailures)
+                            beginEarlyRecovery(
+                                service: service, videoId: VideoAddress.youtubeID(
+                                    currentVideo?.url ?? ""
+                                ) ?? "", selection: choice, buffer: buffer, startMs: anchor
+                            )
+                        }
+                    } else {
+                        // Older/proxied deployments without /api/health
+                        // continue to rely on genuine producer errors.
+                        healthEndpointSupported = false
+                    }
+                }
                 try await Task.sleep(nanoseconds: 250_000_000)
                 continue
             }

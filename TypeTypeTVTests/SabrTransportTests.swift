@@ -67,6 +67,22 @@ final class SabrTransportTests: XCTestCase {
         )
     }
 
+    func testHealthProbeRequiresRealServerJSONAndDetectsOutage() async throws {
+        MockSabrProtocol.use { request in
+            XCTAssertEqual(request.url?.path, "/api/health")
+            XCTAssertEqual(request.httpMethod, "GET")
+            return (200, Data(#"{"status":"ok"}"#.utf8))
+        }
+        let service = try fixtureService()
+        XCTAssertEqual(await service.serverHealth(), true)
+        MockSabrProtocol.use { _ in (503, Data()) }
+        XCTAssertEqual(await service.serverHealth(), false)
+        MockSabrProtocol.use { _ in (404, Data()) }
+        XCTAssertNil(await service.serverHealth())
+        MockSabrProtocol.use { _ in (200, Data("<html>SPA</html>".utf8)) }
+        XCTAssertNil(await service.serverHealth())
+    }
+
     func testTransientHTTP503IsRetriedBeforeDecoderMailboxRunsDry() async throws {
         let lock = NSLock()
         var received = 0
