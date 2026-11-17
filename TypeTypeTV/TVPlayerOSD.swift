@@ -136,7 +136,10 @@ struct TVPlayerOSD: View {
     }
 
     private var timeline: some View {
-        VStack(spacing: 12) {
+        // The playback clock advances independently of @Published state.
+        // Re-evaluate slider/time labels without polling the SABR transport.
+        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            VStack(spacing: 12) {
             if dragging {
                 HStack(spacing: 10) {
                     Image(systemName: "hand.point.up.left.fill")
@@ -193,6 +196,7 @@ struct TVPlayerOSD: View {
                 .font(.system(size: 15))
                 .foregroundStyle(.white.opacity(0.72))
                 .padding(.leading, 155)
+            }
             }
         }
     }
