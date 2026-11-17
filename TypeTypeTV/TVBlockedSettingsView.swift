@@ -158,7 +158,11 @@ struct TVBlockedSettingsView: View {
                        let first = channels.first(where: { $0.global != true }) {
                         focus.wrappedValue = unblockFocusID(.channels, first.id)
                     } else if category == .channels, id == channels.last?.id {
-                        focus.wrappedValue = "blocked.newKeyword"
+                        // Bypass tvOS's editable TextField when moving into
+                        // lower keyword entries; the field can consume Down
+                        // itself and make the offscreen Unblock buttons
+                        // unreachable. Up from a keyword returns to the field.
+                        focus.wrappedValue = firstKeywordUnblockID ?? "blocked.newKeyword"
                     } else if category == .keywords,
                               let next = nextUserKeyword(after: id, movingDown: true) {
                         focus.wrappedValue = next

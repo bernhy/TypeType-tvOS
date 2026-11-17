@@ -234,10 +234,11 @@ final class TypeTypeTVUITests: XCTestCase {
         XCUIRemote.shared.press(.down)
         XCTAssertTrue(waitForFocus(app.buttons["blocked-unblock-channels|https://www.youtube.com/channel/UC-preview"]))
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(waitForFocus(keywordInput))
-        XCUIRemote.shared.press(.down)
         XCTAssertTrue(waitForFocus(keywordUnblock),
-                      "Keyword Unblock must be reachable even below the initial viewport")
+                      "Keyword Unblock must be directly reachable below the viewport")
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(keywordInput),
+                      "Up from the first keyword should reach the Add keyword field")
     }
 
     func testSettingsPlaybackRightOpensControlColumn() throws {
