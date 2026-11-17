@@ -10,6 +10,7 @@ struct TVPlayerOSD: View {
     let skipSeconds: Int
     let clockMode: Bool
     let onClockMode: () -> Void
+    let onActivity: () -> Void
     let onSkip: (Int) -> Void
     let onToggle: () -> Void
     let onSeek: (Int64) -> Void
@@ -95,6 +96,11 @@ struct TVPlayerOSD: View {
                 focusedItem = .playPause
             }
         }
+        .onChange(of: focusedItem) { _, _ in
+            // Browsing controls must postpone auto-hide even when playback
+            // is running and the user has not clicked an option yet.
+            onActivity()
+        }
     }
 
     private var header: some View {
@@ -162,7 +168,10 @@ struct TVPlayerOSD: View {
                     preview: $scrubSeconds,
                     sponsorSegments: engine.sponsorSegments,
                     skipSeconds: skipSeconds,
-                    onPreviewChange: { dragging = $0 },
+                    onPreviewChange: {
+                        dragging = $0
+                        if $0 { onActivity() }
+                    },
                     onCommit: { seconds in
                         onSeek(Int64(seconds * 1_000))
                         scrubSeconds = nil
