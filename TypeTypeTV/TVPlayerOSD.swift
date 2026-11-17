@@ -202,13 +202,13 @@ struct TVPlayerOSD: View {
     private var sponsorMarks: some View {
         GeometryReader { geometry in
             if duration > 0 {
-                ForEach(Array(engine.sponsorSegments.enumerated()), id: \.offset) { _, item in
-                    if let range = TVSponsorBlock.bounds(item, duration: duration) {
+                ForEach(Array(engine.sponsorSegments.enumerated()), id: \.offset) { entry in
+                    if let range = TVSponsorBlock.bounds(entry.element, duration: duration) {
                         let x = CGFloat(range.lowerBound / duration) * geometry.size.width
                         let width = max(3, CGFloat((range.upperBound - range.lowerBound) / duration)
                                         * geometry.size.width)
                         Capsule()
-                            .fill(segmentColor(item.category).opacity(0.88))
+                            .fill(segmentColor(entry.element.category).opacity(0.88))
                             .frame(width: width, height: 7)
                             .offset(x: x)
                     }
