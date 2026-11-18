@@ -76,7 +76,7 @@ public enum MP4FormatDescription {
       var isoFormat: CMAudioFormatDescription?
       let isoStatus = track.verbatimAudioSampleEntry.withUnsafeBytes { bytes -> OSStatus in
         guard let pointer = bytes.bindMemory(to: UInt8.self).baseAddress else {
-          return paramErr
+          return OSStatus(-50) // Standard parameter error; not exported as paramErr in tvOS Swift.
         }
         return CMAudioFormatDescriptionCreateFromBigEndianSoundDescriptionData(
           allocator: kCFAllocatorDefault,
