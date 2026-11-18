@@ -1521,17 +1521,51 @@ final class SabrPlayerController: ObservableObject {
                           reason, max(0, Int64(self.playbackSeconds() * 1_000)),
                           self.cachedThroughMs)
                     let clock = self.playbackSeconds()
-                    if !Task.isCancelled, self.isInitialized,
-                       clock.isFinite, clock >= 0,
-                       SabrEarlySessionPrewarmPolicy.shouldPrepare(for: error),
-                       let anchor = SabrEarlySessionPrewarmPolicy.startPosition(
-                           playheadMs: Int64(clock * 1_000),
-                           audioQueuedEndMs: self.queuedAudioEndMs,
-                           videoQueuedEndMs: self.queuedVideoEndMs
-                       ) {
-                        NSLog("TypeType SABR EARLY producer-lost headroomMs=%lld",
-                              max(0, min(self.queuedAudioEndMs, self.queuedVideoEndMs)
-                                  - Int64(clock * 1_000)))
+                    let validClock = clock.isFinite && clock >= 0 &&
+                        clock < Double(Int64.max) / 1_000
+                    let playheadMs = validClock ? Int64(clock * 1_000) : 0
+                    // Inspect the actual contiguous disk coverage for BOTH
+                    // selected tracks. The decoder's queued sample frontier
+                    // can be much shorter than the compressed-media cache.
+                    let cacheEndMs = validClock
+                        ? await cache.cachedThroughMs(
+                            audioItag: choice.audio.itag,
+                            videoItag: choice.video.itag,
+                            positionMs: playheadMs
+                        ) : 0
+                    let rendererEndMs = min(self.queuedAudioEndMs,
+                                            self.queuedVideoEndMs)
+                    let recoverable = SabrEarlySessionPrewarmPolicy.shouldPrepare(
+                        for: error
+                    )
+                    let anchor = validClock
+                        ? SabrEarlySessionPrewarmPolicy.startPosition(
+                            playheadMs: playheadMs,
+                            audioQueuedEndMs: self.queuedAudioEndMs,
+                            videoQueuedEndMs: self.queuedVideoEndMs,
+                            cachedThroughMs: cacheEndMs
+                        ) : nil
+                    let httpCode: Int
+                    if let failure = error as? SabrFailure {
+                        switch failure {
+                        case .server(let code, _), .throttled(let code, _, _):
+                            httpCode = code
+                        default: httpCode = 0
+                        }
+                    } else {
+                        httpCode = 0
+                    }
+                    // Always record the trigger decision, including skips.
+                    // No session identifiers, auth, or media URLs are logged.
+                    NSLog("TypeType SABR EARLY decision recoverable=%d initialized=%d http=%d cacheAheadMs=%lld rendererAheadMs=%lld eligible=%d",
+                          recoverable ? 1 : 0, self.isInitialized ? 1 : 0,
+                          httpCode, max(0, cacheEndMs - playheadMs),
+                          max(0, rendererEndMs - playheadMs),
+                          anchor == nil ? 0 : 1)
+                    if !Task.isCancelled, self.isInitialized, validClock,
+                       recoverable, let anchor {
+                        NSLog("TypeType SABR EARLY producer-lost startMs=%lld",
+                              anchor)
                         self.beginEarlyRecovery(
                             service: service, videoId: videoId,
                             selection: choice, buffer: buffer, startMs: anchor
@@ -1769,7 +1803,8 @@ final class SabrPlayerController: ObservableObject {
                            let anchor = SabrEarlySessionPrewarmPolicy.startPosition(
                                playheadMs: playhead,
                                audioQueuedEndMs: queuedAudioEndMs,
-                               videoQueuedEndMs: queuedVideoEndMs
+                               videoQueuedEndMs: queuedVideoEndMs,
+                               cachedThroughMs: retainedEnd
                            ) {
                             NSLog("TypeType SABR EARLY health-outage detections=%d",
                                   consecutiveHealthFailures)
