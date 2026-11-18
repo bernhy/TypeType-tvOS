@@ -1402,7 +1402,7 @@ final class SabrPlayerController: ObservableObject {
     /// The replacement may need several fresh-session/attestation retries
     /// while playback continues from old compressed A/V. Re-evaluate the
     /// ACTUAL shared disk-cache coverage every 200ms, not a stale snapshot
-    /// from the failure. Preserve eight seconds for the original fallback,
+    /// from the failure. Preserve eighteen seconds for the original fallback,
     /// and cap any single wait at 45 seconds. No change to native renderers.
     private func awaitEarlySessionForSplice(cache: SabrFragmentCache,
                                              choice: SabrSelection) async throws
@@ -2205,10 +2205,11 @@ final class SabrPlayerController: ObservableObject {
             ) {
                 // With enough compressed media on disk the producer issues
                 // no SABR requests. Poll the public health endpoint at most
-                // once per five seconds so a server reboot can be noticed
-                // before the current playback buffer is almost exhausted.
+                // every two seconds. Two failed checks detect a server restart
+                // well before the large compressed cache needs refilling.
+                // The health prewarm is speculative and never resets the decoder.
                 if healthEndpointSupported,
-                   Date().timeIntervalSince(lastHealthCheck) >= 5 {
+                   Date().timeIntervalSince(lastHealthCheck) >= 2 {
                     lastHealthCheck = Date()
                     if let healthy = await service.serverHealth() {
                         consecutiveHealthFailures = healthy ? 0
@@ -2225,7 +2226,8 @@ final class SabrPlayerController: ObservableObject {
                                   consecutiveHealthFailures)
                             beginEarlyRecovery(
                                 service: service, videoId: videoId,
-                                selection: choice, buffer: buffer, startMs: anchor
+                                selection: choice, buffer: buffer, startMs: anchor,
+                                forwardBoundaryMs: retainedEnd
                             )
                         }
                     } else {
