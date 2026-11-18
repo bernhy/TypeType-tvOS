@@ -2991,7 +2991,28 @@ final class SabrPlayerController: ObservableObject {
             guard audioRenderer.status != .failed else {
                 throw SabrFailure.stalled("native audio renderer failed")
             }
+            #if DEBUG
+            // Correlate CoreMedia's ~four -12710 warnings every ~1.27s
+            // with the only real audio renderer submission boundary.
+            // These two markers are intentionally adjacent: a warning
+            // BETWEEN them would implicate synchronous enqueue; warnings
+            // AFTER them may be asynchronous CoreMedia renderer work.
+            // This diagnostic adds no extra network/YouTube activity and
+            // does not change the audio payload or sample timing.
+            let tracePTS = CMTimeGetSeconds(
+                CMSampleBufferGetPresentationTimeStamp(sample)
+            )
+            let tracePTSInMs = tracePTS.isFinite
+                ? Int64(tracePTS * 1_000) : -1
+            let traceSampleCount = CMSampleBufferGetNumSamples(sample)
+            NSLog("TypeType AUDIO-TRACE phase=enqueue-before ptsMs=%lld samples=%d", 
+                  tracePTSInMs, traceSampleCount)
+            #endif
             audioRenderer.enqueue(sample)
+            #if DEBUG
+            NSLog("TypeType AUDIO-TRACE phase=enqueue-after ptsMs=%lld samples=%d",
+                  tracePTSInMs, traceSampleCount)
+            #endif
             if let cutoff = spliceAwaitingAudioAfterMs,
                let end = SabrSampleTimingProbe.actualEndMs([sample]),
                end > cutoff {
