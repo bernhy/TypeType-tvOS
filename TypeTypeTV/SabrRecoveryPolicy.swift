@@ -188,6 +188,68 @@ enum SabrRecoverySplicePolicy {
 /// verifies compressed sample timestamps and a real video RAP below.
 enum SabrSplicePreflightPolicy {
     static let minimumForwardMs: Int64 = 250
+    // Real forward media, not the two-second overlap with the old session.
+    // The producer must have enough verified frames for the native renderer
+    // to survive the first new-session window and its keyframe preroll.
+    static let minimumNewMediaMs: Int64 = 4_000
+    static let maximumFirstGapMs: Int64 = 250
+    static let maximumInterFragmentGapMs: Int64 = 120
+    static let maximumMetadataFragments = 6
+
+    /// Select only media which *extends* the previous A/V disk frontier.
+    /// Returns nil rather than claiming continuity from stale/overlapping
+    /// first-window data or a hole in the server's segment descriptors.
+    static func forwardSegments(_ segments: [SabrFragment],
+                                boundaryMs: Int64) -> [SabrFragment]? {
+        guard boundaryMs >= 0,
+              boundaryMs <= Int64.max - minimumNewMediaMs else { return nil }
+        let target = boundaryMs + minimumNewMediaMs
+        let candidates = segments.filter { part in
+            part.startMs >= 0 && part.durationMs > 0 &&
+            part.startMs <= Int64.max - part.durationMs &&
+            part.startMs + part.durationMs > boundaryMs
+        }.sorted { $0.startMs < $1.startMs }
+        var coveredThrough = boundaryMs
+        var result: [SabrFragment] = []
+        for part in candidates {
+            if part.startMs + part.durationMs <= coveredThrough { continue }
+            guard part.startMs <= coveredThrough + maximumFirstGapMs else {
+                return nil
+            }
+            result.append(part)
+            coveredThrough = part.startMs + part.durationMs
+            if coveredThrough >= target { return result }
+            if result.count == maximumMetadataFragments { return nil }
+        }
+        return nil
+    }
+
+    /// The very first *new* video GOP must begin at the old boundary, not
+    /// replay a keyframe from several seconds before it. Both A/V tracks
+    /// must contain at least 4 seconds of strictly new native sample time.
+    static func acceptsForwardBoundary(boundaryMs: Int64,
+                                       audioFirstMs: Int64?,
+                                       audioEndMs: Int64?,
+                                       videoRAPMs: Int64?,
+                                       videoEndMs: Int64?) -> Bool {
+        guard boundaryMs >= 0,
+              boundaryMs <= Int64.max - minimumNewMediaMs,
+              let audioFirstMs, let audioEndMs,
+              let videoRAPMs, let videoEndMs else { return false }
+        return audioFirstMs >= boundaryMs - min(boundaryMs, maximumFirstGapMs) &&
+            audioFirstMs <= boundaryMs + maximumFirstGapMs &&
+            audioEndMs >= boundaryMs + minimumNewMediaMs &&
+            videoRAPMs >= boundaryMs - min(boundaryMs, maximumFirstGapMs) &&
+            videoRAPMs <= boundaryMs + maximumFirstGapMs &&
+            videoEndMs >= boundaryMs + minimumNewMediaMs
+    }
+
+    /// Actual native PTS/DTS may differ by a few milliseconds from rounded
+    /// segment metadata; larger discontinuities cannot enter the live clock.
+    static func continues(previousEndMs: Int64, nextStartMs: Int64) -> Bool {
+        nextStartMs >= previousEndMs - maximumInterFragmentGapMs &&
+            nextStartMs <= previousEndMs + maximumInterFragmentGapMs
+    }
     static let maximumAudioStartDelayMs: Int64 = 250
     static let maximumRAPLookbehindMs: Int64 = 10_000
 
