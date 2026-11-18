@@ -108,7 +108,8 @@ enum SabrRecoverySplicePolicy {
         }
         if let failure = error as? SabrFailure {
             switch failure {
-            case .expired: return true
+            // The unrelated ~one-minute attestation/expired condition
+            // stays on the original recovery path, not this experiment.
             case .server(let status, _):
                 return [404, 410, 502, 503, 504].contains(status)
             default: return false
