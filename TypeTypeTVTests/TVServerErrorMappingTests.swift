@@ -44,6 +44,22 @@ final class TVServerErrorMappingTests: XCTestCase {
         )
         XCTAssertTrue(detailed.localizedDescription.contains("api-A1"))
     }
+    func testVeryLargeServerRetryDelayIsClampedWithoutOverflow() {
+        // A server's JSON integer is untrusted. Int.max previously overflowed
+        // when the client calculated (milliseconds + 999) / 1000.
+        let body = Data("{\"retryAfterMs\":\(Int.max)}".utf8)
+        let problem = TVServerErrorMapping.decoded(body)
+        XCTAssertEqual(problem?.retryAfterMs, Int.max)
+        XCTAssertEqual(
+            TVServerErrorMapping.retrySeconds(response(503), problem: problem),
+            3_600
+        )
+        let small = TVServerErrorMapping.decoded(Data(#"{\"retryAfterMs\":1}"#.utf8))
+        XCTAssertEqual(
+            TVServerErrorMapping.retrySeconds(response(429), problem: small), 1
+        )
+    }
+
     func testStructuredAndPlainAuthorizationStatus() {
         let plain = TypeTypeError.http(401, "auth/me")
         let detailed = TypeTypeError.serverDetails(401, "auth/me", "Expired (ID: auth-1)")
