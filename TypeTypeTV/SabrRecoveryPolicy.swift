@@ -138,6 +138,15 @@ enum SabrRecoverySplicePolicy {
         }
     }
 
+    static func canReSplice(error: Error, initialized: Bool,
+                            playheadMs: Int64, cachedThroughMs: Int64,
+                            sessionsSoFar: Int) -> Bool {
+        sessionsSoFar >= 1 &&
+            sessionsSoFar < maximumSessionsPerIncident &&
+            shouldSwitch(error: error, initialized: initialized,
+                         playheadMs: playheadMs, cachedThroughMs: cachedThroughMs)
+    }
+
     static func shouldSwitch(error: Error, initialized: Bool,
                              playheadMs: Int64, cachedThroughMs: Int64) -> Bool {
         guard initialized, playheadMs >= 0, cachedThroughMs >= playheadMs,
