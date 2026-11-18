@@ -57,7 +57,7 @@ struct MP4TrackFragment {
     var dataCursor = base
     for trun in try reader.boxes(in: traf.content) where trun.type == MP4FourCC("trun") {
       let run = try MP4TrackRun.parse(reader, trun: trun, base: base, continuingAt: dataCursor)
-      dataCursor = run.dataEnd(fragment)
+      dataCursor = try run.dataEnd(fragment)
       fragment.runs.append(run)
     }
     return fragment
@@ -85,7 +85,10 @@ struct MP4TrackRun {
     var offset = start + 8
     var run = MP4TrackRun(dataOffset: cursor, count: count)
     if flags & 0x000001 != 0 {
-      run.dataOffset = base + Int(Int32(bitPattern: try reader.uint32(at: offset)))
+      let signedOffset = Int(Int32(bitPattern: try reader.uint32(at: offset)))
+      let (absolute, overflow) = base.addingReportingOverflow(signedOffset)
+      guard !overflow else { throw MP4Error.invalidBox("trun data offset") }
+      run.dataOffset = absolute
       offset += 4
     }
     if flags & 0x000004 != 0 {
@@ -97,7 +100,11 @@ struct MP4TrackRun {
     let hasFlags = flags & 0x000400 != 0
     let hasComposition = flags & 0x000800 != 0
     let fieldCount = [hasDuration, hasSize, hasFlags, hasComposition].filter { $0 }.count
-    guard count >= 0, offset + count * fieldCount * 4 <= trun.end else {
+    // A malicious trun count must not force a billion-iteration parse
+    // before the higher-level media-sample limit can reject the fragment.
+    guard count <= 50_000 else { throw MP4Error.invalidBox("trun sample count") }
+    guard offset <= trun.end,
+          fieldCount == 0 || count <= (trun.end - offset) / (fieldCount * 4) else {
       throw MP4Error.truncated
     }
     var durations: [UInt32] = []
@@ -129,8 +136,16 @@ struct MP4TrackRun {
     return run
   }
 
-  func dataEnd(_ fragment: MP4TrackFragment) -> Int {
-    dataOffset + (0..<count).reduce(0) { $0 + Int(sizes?[$1] ?? fragment.defaultSize) }
+  func dataEnd(_ fragment: MP4TrackFragment) throws -> Int {
+    var end = dataOffset
+    for index in 0..<count {
+      let (next, overflow) = end.addingReportingOverflow(
+        Int(sizes?[index] ?? fragment.defaultSize)
+      )
+      guard !overflow else { throw MP4Error.truncated }
+      end = next
+    }
+    return end
   }
 
   func appendSamples(
@@ -147,20 +162,27 @@ struct MP4TrackRun {
       let sampleFlags = flags?[index]
         ?? (index == 0 ? firstSampleFlags : nil)
         ?? fragment.defaultFlags
-      guard offset >= 0, size >= 0, offset + size <= dataSize else { throw MP4Error.truncated }
+      guard offset >= 0, offset <= dataSize, size <= dataSize - offset else {
+        throw MP4Error.truncated
+      }
+      let composition = compositionOffsets?[index] ?? 0
+      let (_, presentationOverflow) = decodeTime.addingReportingOverflow(Int64(composition))
+      guard !presentationOverflow else { throw MP4Error.invalidBox("trun presentation time") }
+      let (nextDecodeTime, decodeOverflow) = decodeTime.addingReportingOverflow(Int64(duration))
+      guard !decodeOverflow else { throw MP4Error.invalidBox("trun decode time") }
       samples.append(
         MP4Sample(
           offset: offset,
           size: size,
           decodeTime: decodeTime,
           duration: duration,
-          compositionOffset: compositionOffsets?[index] ?? 0,
+          compositionOffset: composition,
           // sample_is_non_sync_sample
           isSync: sampleFlags & 0x0001_0000 == 0
         )
       )
       offset += size
-      decodeTime += Int64(duration)
+      decodeTime = nextDecodeTime
     }
   }
 }
