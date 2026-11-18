@@ -67,7 +67,11 @@ public enum MP4FormatDescription {
     var asbd = AudioStreamBasicDescription(
       mSampleRate: config.sampleRate > 0 ? config.sampleRate : track.sampleRate,
       mFormatID: formatID,
-      mFormatFlags: 0,
+      // MPEG-4 AAC ASBD format flags encode the audio object type.
+      // A/B test: previous CoreMedia format used 0 for AAC-LC even though
+      // AudioSpecificConfig identifies object type 2. Keep other profiles
+      // unchanged while investigating repeated nonfatal -12710 warnings.
+      mFormatFlags: config.objectType == 2 ? AudioFormatFlags(config.objectType) : 0,
       mBytesPerPacket: 0,
       mFramesPerPacket: 1_024,
       mBytesPerFrame: 0,
@@ -76,32 +80,12 @@ public enum MP4FormatDescription {
       mReserved: 0
     )
     var description: CMFormatDescription?
-    // A/B experiment for the frequent CoreMedia -12710 messages: the original
-    // AAC-LC stereo description had a valid ASBD and ESDS cookie, but no
-    // channel layout. Supply a concrete standard stereo tag ONLY for the
-    // confirmed AAC-LC 2-channel case. Preserve the original path for other
-    // AAC profiles/channel configurations; do not change sample timing, data
-    // or the native renderer.
-    let usesExplicitStereo = config.objectType == 2 && asbd.mChannelsPerFrame == 2
+    // The preceding stereo-channel-layout experiment was disproved by
+    // real Apple TV playback (same ~3.3 warnings/second despite hasLayout=1).
+    // Revert it: retain the original no-layout/ESDS cookie path so that
+    // mFormatFlags is the ONLY change relative to the verified baseline.
     let status = track.configuration.withUnsafeBytes { cookie -> OSStatus in
-      if usesExplicitStereo {
-        var stereo = AudioChannelLayout()
-        stereo.mChannelLayoutTag = kAudioChannelLayoutTag_Stereo
-        stereo.mNumberChannelDescriptions = 0
-        return withUnsafePointer(to: &stereo) { channelLayout in
-          CMAudioFormatDescriptionCreate(
-            allocator: kCFAllocatorDefault,
-            asbd: &asbd,
-            layoutSize: MemoryLayout<AudioChannelLayout>.size,
-            layout: channelLayout,
-            magicCookieSize: cookie.count,
-            magicCookie: cookie.baseAddress,
-            extensions: nil,
-            formatDescriptionOut: &description
-          )
-        }
-      }
-      return CMAudioFormatDescriptionCreate(
+      CMAudioFormatDescriptionCreate(
         allocator: kCFAllocatorDefault,
         asbd: &asbd,
         layoutSize: 0,
@@ -126,12 +110,12 @@ public enum MP4FormatDescription {
     let hasCookie = CMAudioFormatDescriptionGetMagicCookie(
       description, sizeOut: &outputCookieBytes
     ) != nil
-    NSLog("TypeType AUDIO-FORMAT source=esds experiment=stereo-layout-v1 explicitStereo=%d objectType=%d inputRate=%.0f inputChannels=%d inputCookieBytes=%d actualRate=%.0f actualChannels=%d framesPerPacket=%d actualCookieBytes=%d hasCookie=%d channelLayoutBytes=%d hasLayout=%d",
-          usesExplicitStereo ? 1 : 0,
+    NSLog("TypeType AUDIO-FORMAT source=esds experiment=aac-object-flags-v2 objectType=%d inputRate=%.0f inputChannels=%d inputFlags=%u inputCookieBytes=%d actualRate=%.0f actualChannels=%d actualFlags=%u framesPerPacket=%d actualCookieBytes=%d hasCookie=%d channelLayoutBytes=%d hasLayout=%d",
           config.objectType, asbd.mSampleRate, Int(asbd.mChannelsPerFrame),
-          track.configuration.count,
+          asbd.mFormatFlags, track.configuration.count,
           actual?.mSampleRate ?? -1,
           Int(actual?.mChannelsPerFrame ?? 0),
+          actual?.mFormatFlags ?? 0,
           Int(actual?.mFramesPerPacket ?? 0),
           outputCookieBytes, hasCookie ? 1 : 0,
           channelLayoutBytes, hasLayout ? 1 : 0)
