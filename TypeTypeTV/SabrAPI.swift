@@ -387,6 +387,40 @@ enum SabrWindowPrefetchPolicy {
     }
 }
 
+/// Only stable endpoint categories enter diagnostics. Playback session IDs,
+/// signed media URLs, query parameters, tokens and upstream error bodies must
+/// never appear in the device log. This is intentionally separate from the
+/// user-visible SabrFailure message.
+enum SabrHTTPFailureStage {
+    static func classify(method: String, path: String,
+                         mediaResource: String? = nil) -> String {
+        if path == "segment" {
+            let component = mediaResource?.lowercased() ?? ""
+            return component == "init" || component.hasPrefix("init.")
+                ? "media-init" : "media-fragment"
+        }
+        let parts = path.split(separator: "/")
+        guard parts.count >= 3, parts[0] == "sabr",
+              parts[1] == "playback", !parts[2].isEmpty else {
+            return "other"
+        }
+        if parts.count == 3 {
+            if method == "POST" { return "session-start" }
+            if method == "DELETE" { return "session-release" }
+        }
+        if parts.count == 4, method == "POST" {
+            switch parts[3] {
+            case "seek": return "session-seek"
+            case "position": return "position"
+            case "prefetch": return "prefetch"
+            case "segments": return "segments"
+            default: break
+            }
+        }
+        return "other"
+    }
+}
+
 final class SabrService: @unchecked Sendable {
     private let origin: URL
     private let base: URL
