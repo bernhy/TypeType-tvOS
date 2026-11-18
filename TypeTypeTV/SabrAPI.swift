@@ -683,11 +683,18 @@ final class SabrService: @unchecked Sendable {
         let isMediaSegment = pathForError == "segment"
         let mediaStarted = Date()
         let mediaDeadline = mediaStarted.addingTimeInterval(25)
-        // The URL contains a private playback session token. Extract only
-        // numeric itag/sequence diagnostics, never log the URL or token.
+        // Never log URL, query parameters, session token or response body.
+        // Media init is /<itag>/init; fragments are /<itag>/segment/<seq>.
+        let mediaResource = isMediaSegment ? address.lastPathComponent : nil
+        let mediaIsInit = mediaResource == "init" ||
+            (mediaResource?.lowercased().hasPrefix("init.") ?? false)
+        let endpointStage = SabrHTTPFailureStage.classify(
+            method: method, path: pathForError, mediaResource: mediaResource
+        )
         let segmentItag = isMediaSegment
-            ? Int(address.pathComponents.dropLast(2).last ?? "") ?? -1 : -1
-        let segmentSequence = isMediaSegment
+            ? Int(address.pathComponents.dropLast(mediaIsInit ? 1 : 2).last ?? "") ?? -1
+            : -1
+        let segmentSequence = isMediaSegment && !mediaIsInit
             ? Int(address.lastPathComponent) ?? -1 : -1
         var segmentPolls = 0
         var transportRetries = 0
@@ -709,6 +716,11 @@ final class SabrService: @unchecked Sendable {
                           transportRetries)
                     try await Task.sleep(nanoseconds: delay)
                     continue
+                }
+                if !(error is CancellationError) {
+                    NSLog("TypeType SABR HTTP failure stage=%@ method=%@ status=0 kind=transport itag=%d seq=%d retries=%d polls=%d",
+                          endpointStage, method, segmentItag, segmentSequence,
+                          transportRetries, segmentPolls)
                 }
                 throw error
             }
@@ -774,6 +786,13 @@ final class SabrService: @unchecked Sendable {
                 continue
             }
             guard allowedStatuses.contains(http.statusCode) else {
+                // The request was *not* recovered by the allowed transport
+                // retries or auth refresh. A 404 here distinguishes a dead
+                // session from a missing init/fragment without exposing the
+                // signed URL or any upstream server payload.
+                NSLog("TypeType SABR HTTP failure stage=%@ method=%@ status=%d itag=%d seq=%d retries=%d polls=%d",
+                      endpointStage, method, http.statusCode, segmentItag,
+                      segmentSequence, transportRetries, segmentPolls)
                 throw TVServerErrorMapping.sabrError(
                     data: data, response: http, route: pathForError
                 )
