@@ -316,8 +316,13 @@ struct TVSubscriptionsView: View {
                 channelTitle = directChannelName ?? ""
                 enterGridAfterLoad = true
                 selectedChannelURL = directChannelURL
-                // This one-time membership check must not repeat when
-                // navigating back from a video's details.
+                // A pushed channel must load its videos on first appearance.
+                // Relying on .task(id: selectedChannelURL) races with this
+                // initial @State assignment and can leave the grid empty
+                // until the Videos/Shorts tab changes.
+                await loadChannel(directChannelURL)
+                // Membership is independent of the video feed. Check it only
+                // once, without making it a prerequisite for the first load.
                 await refreshMembership()
             } else {
                 await reload()
@@ -350,7 +355,10 @@ struct TVSubscriptionsView: View {
         }
         .task { await contentPreferences.ensureLoaded(api: api) }
         .task(id: selectedChannelURL) {
-            guard let selectedChannelURL,
+            // Direct links are loaded by the first-appearance task above,
+            // avoiding a second request and the initial selection race.
+            guard directChannelURL == nil,
+                  let selectedChannelURL,
                   lastLoadedChannelURL != selectedChannelURL else { return }
             lastLoadedChannelURL = selectedChannelURL
             await loadChannel(selectedChannelURL)
