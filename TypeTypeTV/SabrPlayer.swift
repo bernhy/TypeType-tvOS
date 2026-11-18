@@ -207,6 +207,9 @@ private struct SabrSeekReuse {
 private struct SabrPrewarmedRecoverySession {
     let reply: SabrSessionReply
     let startPositionMs: Int64
+    /// True only after both actual fMP4 tracks and a reliable video RAP
+    /// have been checked. A metadata-only session is fallback-only.
+    let verifiedForSplice: Bool
 }
 
 // Direct compressed fMP4 samples are synchronised by CoreMedia.
@@ -1377,6 +1380,10 @@ final class SabrPlayerController: ObservableObject {
         for _ in 0..<50 {
             try Task.checkCancellation()
             if let prepared = earlyRecoveryPrepared {
+                guard prepared.verifiedForSplice else {
+                    NSLog("TypeType SABR EARLY splice-deferred reason=unverified-media")
+                    return nil
+                }
                 earlyRecoveryPrepared = nil
                 earlyRecoveryTask?.cancel()
                 earlyRecoveryTask = nil
