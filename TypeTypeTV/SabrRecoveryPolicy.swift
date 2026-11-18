@@ -212,7 +212,15 @@ enum SabrSplicePreflightPolicy {
         var coveredThrough = boundaryMs
         var result: [SabrFragment] = []
         for part in candidates {
-            if part.startMs + part.durationMs <= coveredThrough { continue }
+            let endMs = part.startMs + part.durationMs
+            if endMs <= coveredThrough { continue }
+            // The previous window can end 20-60ms inside a server-rounded
+            // GOP. Do not decode that old multi-second GOP merely to gain
+            // its last few milliseconds: advance to the next *new* RAP.
+            if result.isEmpty, part.startMs < boundaryMs - min(boundaryMs, maximumFirstGapMs),
+               endMs <= boundaryMs + maximumFirstGapMs {
+                continue
+            }
             guard part.startMs <= coveredThrough + maximumFirstGapMs else {
                 return nil
             }
