@@ -43,8 +43,13 @@ final class TVHardwareDiagnostics: ObservableObject {
         totalMemoryMiB = ProcessInfo.processInfo.physicalMemory / (1024 * 1024)
         // tvOS 26 no longer exposes a reliable global UIScreen.main.
         // Read the currently attached window scene's actual display instead.
-        if let screen = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene }).first?.screen {
+        let windowScenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+        // A disconnected/background scene should not win if the user is
+        // currently interacting with a different, foreground-active scene.
+        // UIScreen.main was deprecated in tvOS 26.
+        let activeScene = windowScenes.first { $0.activationState == .foregroundActive }
+        if let screen = (activeScene ?? windowScenes.first)?.screen {
             let bounds = screen.nativeBounds
             outputSize = "\(Int(bounds.width)) × \(Int(bounds.height))"
         } else {
