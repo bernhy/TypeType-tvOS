@@ -76,8 +76,32 @@ public enum MP4FormatDescription {
       mReserved: 0
     )
     var description: CMFormatDescription?
-    let status = track.configuration.withUnsafeBytes { cookie in
-      CMAudioFormatDescriptionCreate(
+    // A/B experiment for the frequent CoreMedia -12710 messages: the original
+    // AAC-LC stereo description had a valid ASBD and ESDS cookie, but no
+    // channel layout. Supply a concrete standard stereo tag ONLY for the
+    // confirmed AAC-LC 2-channel case. Preserve the original path for other
+    // AAC profiles/channel configurations; do not change sample timing, data
+    // or the native renderer.
+    let usesExplicitStereo = config.objectType == 2 && asbd.mChannelsPerFrame == 2
+    let status = track.configuration.withUnsafeBytes { cookie -> OSStatus in
+      if usesExplicitStereo {
+        var stereo = AudioChannelLayout()
+        stereo.mChannelLayoutTag = kAudioChannelLayoutTag_Stereo
+        stereo.mNumberChannelDescriptions = 0
+        return withUnsafePointer(to: &stereo) { channelLayout in
+          CMAudioFormatDescriptionCreate(
+            allocator: kCFAllocatorDefault,
+            asbd: &asbd,
+            layoutSize: MemoryLayout<AudioChannelLayout>.size,
+            layout: channelLayout,
+            magicCookieSize: cookie.count,
+            magicCookie: cookie.baseAddress,
+            extensions: nil,
+            formatDescriptionOut: &description
+          )
+        }
+      }
+      return CMAudioFormatDescriptionCreate(
         allocator: kCFAllocatorDefault,
         asbd: &asbd,
         layoutSize: 0,
@@ -102,7 +126,8 @@ public enum MP4FormatDescription {
     let hasCookie = CMAudioFormatDescriptionGetMagicCookie(
       description, sizeOut: &outputCookieBytes
     ) != nil
-    NSLog("TypeType AUDIO-FORMAT source=esds objectType=%d inputRate=%.0f inputChannels=%d inputCookieBytes=%d actualRate=%.0f actualChannels=%d framesPerPacket=%d actualCookieBytes=%d hasCookie=%d channelLayoutBytes=%d hasLayout=%d",
+    NSLog("TypeType AUDIO-FORMAT source=esds experiment=stereo-layout-v1 explicitStereo=%d objectType=%d inputRate=%.0f inputChannels=%d inputCookieBytes=%d actualRate=%.0f actualChannels=%d framesPerPacket=%d actualCookieBytes=%d hasCookie=%d channelLayoutBytes=%d hasLayout=%d",
+          usesExplicitStereo ? 1 : 0,
           config.objectType, asbd.mSampleRate, Int(asbd.mChannelsPerFrame),
           track.configuration.count,
           actual?.mSampleRate ?? -1,
