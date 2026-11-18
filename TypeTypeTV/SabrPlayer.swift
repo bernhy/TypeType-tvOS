@@ -1525,28 +1525,30 @@ final class SabrPlayerController: ObservableObject {
         }
     }
 
-    /// Verify real *compressed* media before admitting a session to the live
-    /// CoreMedia mailbox. Server window metadata or a successful HTTP response
-    /// is not enough: both A/V fragments must cover the splice position,
-    /// and the video fragment must contain a reliably flagged RAP at/before it.
-    /// This runs on the speculative network path; it never flushes or touches
-    /// the currently playing native renderer or its shared clock.
+    /// Prewarm the *future* media beyond the old session's verified A/V
+    /// disk boundary, never just the two-second overlap. A replacement
+    /// is decoder-splice-safe only if at least 4s of new, contiguous native
+    /// AAC/video samples are cached and the new video begins with a true RAP
+    /// at the boundary. Preflight never enqueues samples or changes the clock.
     private func verifyPrewarmedSplice(
         service: SabrService, reply: SabrSessionReply,
-        selection: SabrSelection, window: SabrWindow, targetMs: Int64
+        selection: SabrSelection, window: SabrWindow, boundaryMs: Int64
     ) async throws -> Bool {
         guard let audio = window.audio, let video = window.video,
-              let audioPart = SabrSplicePreflightPolicy.segment(
-                audio.segments, covering: targetMs
+              let audioParts = SabrSplicePreflightPolicy.forwardSegments(
+                audio.segments, boundaryMs: boundaryMs
               ),
-              let videoPart = SabrSplicePreflightPolicy.segment(
-                video.segments, covering: targetMs
+              let videoParts = SabrSplicePreflightPolicy.forwardSegments(
+                video.segments, boundaryMs: boundaryMs
               ),
               let cache = segmentCache else {
-            NSLog("TypeType SABR EARLY preflight result=0 reason=missing-av-metadata")
+            NSLog("TypeType SABR EARLY preflight result=0 reason=no-forward-av boundaryMs=%lld",
+                  boundaryMs)
             return false
         }
-        let sid = reply.sessionId, gen = reply.generation
+
+        let sid = reply.sessionId
+        let gen = reply.generation
         let audioInit = try await service.fragmentData(
             audio.initUrl, sessionId: sid,
             itag: selection.audio.itag, generation: gen
@@ -1555,50 +1557,106 @@ final class SabrPlayerController: ObservableObject {
             video.initUrl, sessionId: sid,
             itag: selection.video.itag, generation: gen
         )
-        // Save verified downloads in the SAME bounded cache used by the
-        // playing producer; session URLs are distinct keys, not summed
-        // extra seconds in the on-screen buffer calculation.
-        let audioBytes = try await cache.data(for: audioPart.url) {
-            try await service.fragmentData(
-                audioPart.url, sessionId: sid,
-                itag: selection.audio.itag, generation: gen
+        var audioFirstMs: Int64?
+        var audioEndMs: Int64?
+        var videoRAPMs: Int64?
+        var videoEndMs: Int64?
+        var staged: [SabrMediaReference] = []
+
+        for part in audioParts {
+            try Task.checkCancellation()
+            let bytes = try await cache.data(for: part.url) {
+                try await service.fragmentData(
+                    part.url, sessionId: sid,
+                    itag: selection.audio.itag, generation: gen
+                )
+            }
+            let samples = try await SabrDirectMP4Reader.compressedSamples(
+                initialization: audioInit, fragment: bytes,
+                mediaType: .audio, presentationStartMs: boundaryMs
             )
+            guard let start = SabrSampleTimingProbe.actualStartMs(samples),
+                  let end = SabrSampleTimingProbe.actualEndMs(samples),
+                  end > start else {
+                NSLog("TypeType SABR EARLY preflight result=0 reason=empty-new-audio boundaryMs=%lld",
+                      boundaryMs)
+                return false
+            }
+            if let prior = audioEndMs,
+               !SabrSplicePreflightPolicy.continues(
+                previousEndMs: prior, nextStartMs: start
+               ) {
+                NSLog("TypeType SABR EARLY preflight result=0 reason=audio-gap gapMs=%lld",
+                      start - prior)
+                return false
+            }
+            if audioFirstMs == nil { audioFirstMs = start }
+            audioEndMs = end
+            staged.append(SabrMediaReference(
+                url: part.url, itag: selection.audio.itag,
+                startMs: part.startMs, durationMs: part.durationMs
+            ))
         }
-        let videoBytes = try await cache.data(for: videoPart.url) {
-            try await service.fragmentData(
-                videoPart.url, sessionId: sid,
-                itag: selection.video.itag, generation: gen
-            )
+
+        for (index, part) in videoParts.enumerated() {
+            try Task.checkCancellation()
+            let bytes = try await cache.data(for: part.url) {
+                try await service.fragmentData(
+                    part.url, sessionId: sid,
+                    itag: selection.video.itag, generation: gen
+                )
+            }
+            let samples: [CMSampleBuffer]
+            if index == 0 {
+                // YouTube native PTS is frequently 20ms ahead of rounded
+                // SABR metadata. Probe just after the metadata boundary to
+                // discover the NEXT GOP's actual RAP, not the old GOP.
+                let batch = try await SabrDirectMP4Reader.compressedSeekVideo(
+                    initialization: videoInit, fragment: bytes,
+                    presentationStartMs: boundaryMs + 200
+                )
+                videoRAPMs = batch.selectedRAPMs
+                samples = batch.buffers
+            } else {
+                samples = try await SabrDirectMP4Reader.compressedSamples(
+                    initialization: videoInit, fragment: bytes,
+                    mediaType: .video
+                )
+            }
+            guard let start = SabrSampleTimingProbe.actualStartMs(samples),
+                  let end = SabrSampleTimingProbe.actualEndMs(samples),
+                  end > start else {
+                NSLog("TypeType SABR EARLY preflight result=0 reason=empty-new-video boundaryMs=%lld",
+                      boundaryMs)
+                return false
+            }
+            if let prior = videoEndMs,
+               !SabrSplicePreflightPolicy.continues(
+                previousEndMs: prior, nextStartMs: start
+               ) {
+                NSLog("TypeType SABR EARLY preflight result=0 reason=video-gap gapMs=%lld",
+                      start - prior)
+                return false
+            }
+            videoEndMs = end
+            staged.append(SabrMediaReference(
+                url: part.url, itag: selection.video.itag,
+                startMs: part.startMs, durationMs: part.durationMs
+            ))
         }
-        try Task.checkCancellation()
-        let audioSamples = try await SabrDirectMP4Reader.compressedSamples(
-            initialization: audioInit, fragment: audioBytes,
-            mediaType: .audio, presentationStartMs: targetMs
+
+        let valid = SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: boundaryMs, audioFirstMs: audioFirstMs,
+            audioEndMs: audioEndMs, videoRAPMs: videoRAPMs,
+            videoEndMs: videoEndMs
         )
-        let videoBatch = try await SabrDirectMP4Reader.compressedSeekVideo(
-            initialization: videoInit, fragment: videoBytes,
-            presentationStartMs: targetMs
-        )
-        let audioStart = SabrSampleTimingProbe.actualStartMs(audioSamples)
-        let audioEnd = SabrSampleTimingProbe.actualEndMs(audioSamples)
-        let videoEnd = SabrSampleTimingProbe.actualEndMs(videoBatch.buffers)
-        let valid = SabrSplicePreflightPolicy.accepts(
-            targetMs: targetMs, audioFirstMs: audioStart,
-            audioEndMs: audioEnd, videoRAPMs: videoBatch.selectedRAPMs,
-            videoEndMs: videoEnd
-        )
-        NSLog("TypeType SABR EARLY preflight result=%d targetMs=%lld audioStartMs=%lld audioEndMs=%lld videoRapMs=%lld videoEndMs=%lld",
-              valid ? 1 : 0, targetMs, audioStart ?? -1, audioEnd ?? -1,
-              videoBatch.selectedRAPMs ?? -1, videoEnd ?? -1)
+        NSLog("TypeType SABR EARLY preflight result=%d boundaryMs=%lld audioFirstMs=%lld audioEndMs=%lld videoRapMs=%lld videoEndMs=%lld newAudioMs=%lld newVideoMs=%lld",
+              valid ? 1 : 0, boundaryMs, audioFirstMs ?? -1,
+              audioEndMs ?? -1, videoRAPMs ?? -1, videoEndMs ?? -1,
+              max(0, (audioEndMs ?? 0) - boundaryMs),
+              max(0, (videoEndMs ?? 0) - boundaryMs))
         if valid {
-            await cache.recordCachedMedia(SabrMediaReference(
-                url: audioPart.url, itag: selection.audio.itag,
-                startMs: audioPart.startMs, durationMs: audioPart.durationMs
-            ))
-            await cache.recordCachedMedia(SabrMediaReference(
-                url: videoPart.url, itag: selection.video.itag,
-                startMs: videoPart.startMs, durationMs: videoPart.durationMs
-            ))
+            for reference in staged { await cache.recordCachedMedia(reference) }
         }
         return valid
     }
