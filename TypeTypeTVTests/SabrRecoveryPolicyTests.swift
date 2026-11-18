@@ -101,6 +101,49 @@ final class SabrRecoveryPolicyTests: XCTestCase {
         ), "Media integrity problems need full recovery")
     }
 
+    func testSuccessiveServerRestartsCanReSpliceWithinBoundedBudget() {
+        let networkLoss = SabrFailure.server(404, "opaque")
+        // We have already switched once. A second and third server restart
+        // can replace the producer without resetting native A/V renderers.
+        for previousSessions in 1..<SabrRecoverySplicePolicy.maximumSessionsPerIncident {
+            XCTAssertTrue(SabrRecoverySplicePolicy.canReSplice(
+                error: networkLoss, initialized: true,
+                playheadMs: 324_545, cachedThroughMs: 345_400,
+                sessionsSoFar: previousSessions
+            ))
+        }
+        XCTAssertFalse(SabrRecoverySplicePolicy.canReSplice(
+            error: networkLoss, initialized: true,
+            playheadMs: 324_545, cachedThroughMs: 345_400,
+            sessionsSoFar: SabrRecoverySplicePolicy.maximumSessionsPerIncident
+        ), "The number of speculative server sessions must be bounded")
+        XCTAssertFalse(SabrRecoverySplicePolicy.canReSplice(
+            error: networkLoss, initialized: true,
+            playheadMs: 215_338, cachedThroughMs: 217_320,
+            sessionsSoFar: 1
+        ), "Near-empty cache must use the existing decoder fallback")
+        XCTAssertFalse(SabrRecoverySplicePolicy.canReSplice(
+            error: SabrFailure.expired, initialized: true,
+            playheadMs: 324_545, cachedThroughMs: 345_400,
+            sessionsSoFar: 1
+        ), "Keep the separate attestation/expiry investigation untouched")
+        XCTAssertFalse(SabrRecoverySplicePolicy.canReSplice(
+            error: SabrFailure.server(401, "opaque"), initialized: true,
+            playheadMs: 324_545, cachedThroughMs: 345_400,
+            sessionsSoFar: 1
+        ))
+        XCTAssertEqual(SabrRecoverySplicePolicy.errorKind(
+            SabrFailure.server(404, "/api/sabr/private/session-id")
+        ), "http")
+        XCTAssertEqual(SabrRecoverySplicePolicy.httpStatus(networkLoss), 404)
+        XCTAssertEqual(SabrRecoverySplicePolicy.errorKind(
+            SabrFailure.invalidResponse("SABR segment gap before next media sample")
+        ), "segment-gap")
+        XCTAssertEqual(SabrRecoverySplicePolicy.errorKind(
+            SabrFailure.invalidResponse("private-id-or-token")
+        ), "invalid-response")
+    }
+
     func testSpliceCutsAudioAndVideoAtIndependentSubmittedFrontiers() {
         XCTAssertEqual(SabrRecoverySplicePolicy.clipBeforeMs(
             queuedEndMs: 159_753, parsedEndMs: 160_100,
