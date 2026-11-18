@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import CoreMedia
 import CryptoKit
 import Foundation
@@ -193,6 +194,22 @@ enum SabrDirectMP4Reader {
             }
             buffers.append(buffer)
         }
+        #if DEBUG
+        if kind == .audio, let firstBuffer = buffers.first,
+           CMFormatDescriptionGetMediaSubType(prepared.format) == kAudioFormatMPEG4AAC {
+            var packetPointer: UnsafePointer<AudioStreamPacketDescription>?
+            var packetBytes = 0
+            let packetStatus = CMSampleBufferGetAudioStreamPacketDescriptionsPtr(
+                firstBuffer,
+                packetDescriptionsPointerOut: &packetPointer,
+                sizeOut: &packetBytes
+            )
+            NSLog("TypeType AUDIO-PACKET-AB mode=packet-descriptions-v4 inputPackets=%d outputBuffers=%d firstBufferPackets=%d packetDescriptionBytes=%d packetStatus=%d packetPointer=%d",
+                  samples.count, buffers.count,
+                  CMSampleBufferGetNumSamples(firstBuffer),
+                  packetBytes, packetStatus, packetPointer == nil ? 0 : 1)
+        }
+        #endif
         return SabrCompressedSampleBatch(buffers: buffers,
                                          selectedRAPMs: selectedRAPMs)
     }
