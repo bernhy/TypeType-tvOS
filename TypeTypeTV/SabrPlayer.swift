@@ -1609,12 +1609,29 @@ final class SabrPlayerController: ObservableObject {
                         throw SabrFailure.invalidResponse("sessionId")
                     }
                     createdSessionID = reply.sessionId
-                    _ = try await service.window(
+                    let firstWindow = try await service.window(
                         sessionId: reply.sessionId, selection: selection,
                         generation: reply.generation, positionMs: startMs,
                         buffer: buffer,
                         requestedBufferGoalMs: min(20_000, buffer.forwardMilliseconds)
                     )
+                    // A ready server token is NOT a ready native decoder
+                    // splice. The fallback may still use metadata-only
+                    // sessions; the in-place producer may not.
+                    let verified: Bool
+                    do {
+                        verified = try await self.verifyPrewarmedSplice(
+                            service: service, reply: reply,
+                            selection: selection, window: firstWindow,
+                            targetMs: startMs
+                        )
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        NSLog("TypeType SABR EARLY preflight result=0 kind=%@",
+                              SabrRecoverySplicePolicy.errorKind(error))
+                        verified = false
+                    }
                     guard !Task.isCancelled, self.playbackEpoch == epoch else {
                         let abandoned = reply.sessionId
                         // The parent was cancelled by Stop/Seek. Release
@@ -1625,10 +1642,11 @@ final class SabrPlayerController: ObservableObject {
                         return
                     }
                     self.earlyRecoveryPrepared = SabrPrewarmedRecoverySession(
-                        reply: reply, startPositionMs: startMs
+                        reply: reply, startPositionMs: startMs,
+                        verifiedForSplice: verified
                     )
-                    NSLog("TypeType SABR EARLY session-ready attempt=%d targetMs=%lld",
-                          attempt, startMs)
+                    NSLog("TypeType SABR EARLY session-ready attempt=%d targetMs=%lld spliceVerified=%d",
+                          attempt, startMs, verified ? 1 : 0)
                     return
                 } catch {
                     if let createdSessionID {
