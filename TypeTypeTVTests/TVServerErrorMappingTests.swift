@@ -54,7 +54,7 @@ final class TVServerErrorMappingTests: XCTestCase {
             TVServerErrorMapping.retrySeconds(response(503), problem: problem),
             3_600
         )
-        let small = TVServerErrorMapping.decoded(Data(#"{\"retryAfterMs\":1}"#.utf8))
+        let small = TVServerErrorMapping.decoded(Data(#"{"retryAfterMs":1}"#.utf8))
         XCTAssertEqual(
             TVServerErrorMapping.retrySeconds(response(429), problem: small), 1
         )
