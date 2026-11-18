@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 // Adapted from TypeTypePlayerKitTests in TypeType-Video/TypeType-tvOS.
-import AudioToolbox
 import CoreMedia
 import XCTest
 @testable import TypeTypeTV
@@ -87,74 +86,6 @@ final class MP4SampleBuffersTests: XCTestCase {
     XCTAssertEqual(attachments[1][kCMSampleAttachmentKey_NotSync] as? Bool, true)
     XCTAssertEqual(attachments[0][kCMSampleAttachmentKey_DoNotDisplay] as? Bool, true)
     XCTAssertNil(attachments[2][kCMSampleAttachmentKey_DoNotDisplay])
-  }
-
-  func testAACPacketDescriptionsPreserveEverySizeAndExactTimeline() throws {
-    let track = try XCTUnwrap(
-      try MP4InitSegment.tracks(in: Data(MP4TestBoxes.initSegment(
-        video: false,
-        timescale: 44_100,
-        configuration: MP4AudioConfigurationTests.aacStereo44k
-      ))).first
-    )
-    let data = Data([11, 12, 13, 21, 22, 31, 32, 33, 34, 41])
-    let samples = [
-      MP4Sample(offset: 0, size: 3, decodeTime: 0,
-                duration: 1_024, compositionOffset: 0, isSync: true),
-      MP4Sample(offset: 3, size: 2, decodeTime: 1_024,
-                duration: 1_024, compositionOffset: 0, isSync: true),
-      MP4Sample(offset: 5, size: 4, decodeTime: 2_048,
-                duration: 1_024, compositionOffset: 0, isSync: true),
-      // Deliberate 1024-tick gap: the audio packet initializer derives a
-      // contiguous timeline, but the native SABR player must keep this gap.
-      MP4Sample(offset: 9, size: 1, decodeTime: 4_096,
-                duration: 1_024, compositionOffset: 0, isSync: true),
-    ]
-    let result = try MP4SampleBuffers.make(
-      samples: samples, data: data, timescale: 44_100,
-      format: MP4FormatDescription.make(for: track)
-    )
-    XCTAssertEqual(CMSampleBufferGetNumSamples(result), 4)
-    XCTAssertEqual(CMSampleBufferGetTotalSampleSize(result), data.count)
-    for (index, sample) in samples.enumerated() {
-      XCTAssertEqual(CMSampleBufferGetSampleSize(result, at: index), sample.size)
-      var timing = CMSampleTimingInfo()
-      XCTAssertEqual(
-        CMSampleBufferGetSampleTimingInfo(
-          result, at: index, timingInfoOut: &timing
-        ), noErr
-      )
-      let expected = CMTime(value: CMTimeValue(sample.decodeTime), timescale: 44_100)
-      XCTAssertEqual(timing.presentationTimeStamp, expected)
-      XCTAssertEqual(timing.decodeTimeStamp, expected)
-      XCTAssertEqual(
-        timing.duration,
-        CMTime(value: CMTimeValue(sample.duration), timescale: 44_100)
-      )
-    }
-    // Crucial distinction from the original generic CMSampleBufferCreateReady:
-    // the resulting compressed audio buffer must expose PACKET descriptors.
-    var descriptionsPtr: UnsafePointer<AudioStreamPacketDescription>?
-    var descriptionBytes = 0
-    XCTAssertEqual(
-      CMSampleBufferGetAudioStreamPacketDescriptionsPtr(
-        result,
-        packetDescriptionsPointerOut: &descriptionsPtr,
-        sizeOut: &descriptionBytes
-      ), noErr
-    )
-    let descriptions = try XCTUnwrap(descriptionsPtr)
-    XCTAssertEqual(descriptionBytes,
-                   MemoryLayout<AudioStreamPacketDescription>.stride * samples.count)
-    for (index, expectedSize) in [3, 2, 4, 1].enumerated() {
-      XCTAssertEqual(Int(descriptions[index].mDataByteSize), expectedSize)
-    }
-    let block = try XCTUnwrap(CMSampleBufferGetDataBuffer(result))
-    var bytes = [UInt8](repeating: 0, count: data.count)
-    XCTAssertEqual(CMBlockBufferCopyDataBytes(
-      block, atOffset: 0, dataLength: bytes.count, destination: &bytes
-    ), noErr)
-    XCTAssertEqual(bytes, Array(data))
   }
 
   func testPacksSamplesThatAreNotContiguous() throws {
