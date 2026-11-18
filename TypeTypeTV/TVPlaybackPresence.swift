@@ -58,7 +58,14 @@ struct TVPlaybackPresenceVideo: Encodable {
         thumbnail = video.thumbnailUrl
         channelName = video.uploaderName
         self.positionMs = max(0, positionMs)
-        durationMs = video.duration.map { Int64(max(0, $0)) * 1_000 }
+        // Malformed server durations must not overflow during ms conversion.
+        // A missing duration is preferable to crashing the now-playing flow.
+        if let seconds = video.duration, seconds >= 0,
+           seconds <= Int64.max / 1_000 {
+            durationMs = Int64(seconds) * 1_000
+        } else {
+            durationMs = nil
+        }
         self.paused = paused
     }
 }

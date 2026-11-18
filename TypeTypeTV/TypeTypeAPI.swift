@@ -68,7 +68,9 @@ struct VideoItem: Decodable, Hashable, Identifiable {
     func withProgress(_ position: Int64) -> VideoItem {
         var result = self
         result.watchPositionMs = max(0, position)
-        if let duration, duration > 0 {
+        if let duration, duration > 0, duration <= Int64.max / 900 {
+            // Server-provided duration is untrusted. Match TVWatchedState's
+            // overflow guard before converting the 90% boundary to ms.
             result.watched = position >= Int64(duration) * 900
         }
         return result

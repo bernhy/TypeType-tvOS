@@ -22,6 +22,12 @@ struct TVStreamRecoveryPolicy {
                 where status == 408 || status == 425 || status == 429 ||
                     (500...599).contains(status):
                 seconds = fallback
+            case .serverDetails(let status, _, _)
+                where status == 408 || status == 425 || status == 429 ||
+                    (500...599).contains(status):
+                // A structured error code or request ID must not disable the
+                // same transient-HTTP recovery used for an unstructured reply.
+                seconds = fallback
             default:
                 return nil
             }
