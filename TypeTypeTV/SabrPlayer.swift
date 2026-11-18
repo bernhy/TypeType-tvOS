@@ -2996,7 +2996,7 @@ final class SabrPlayerController: ObservableObject {
             // Once this establishes whether -12710 depends on audio enqueue,
             // restore normal audio and investigate the specific cause.
             if !hasQueuedFirstAudio {
-                NSLog("TypeType AUDIO-ISOLATION mode=drop-audio-enqueue-v9 submitted=0 audioSilent=1 videoUnaffected=1")
+                NSLog("TypeType AUDIO-ISOLATION mode=drop-audio-enqueue-v9 submitted=0 audioSilent=1 videoEnqueuePathUnmodified=1")
                 noteStartup(.audioQueued)
             }
             noteQueuedMedia(.audio, sample: sample)
