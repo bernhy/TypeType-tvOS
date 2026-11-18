@@ -32,7 +32,9 @@ extension MP4ByteReader {
       default:
         size = Int(size32)
       }
-      guard size >= header, offset + size <= range.upperBound else {
+      // A large extended-size atom after preceding boxes can overflow
+      // offset + size before the normal bounds check runs.
+      guard size >= header, size <= range.upperBound - offset else {
         throw MP4Error.truncated
       }
       boxes.append(MP4Box(type: type, start: offset, content: (offset + header)..<(offset + size)))
