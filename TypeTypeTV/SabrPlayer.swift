@@ -2993,7 +2993,7 @@ final class SabrPlayerController: ObservableObject {
             guard audioRenderer.status != .failed else {
                 throw SabrFailure.stalled("native audio renderer failed")
             }
-            #if DEBUG
+            #if DEBUG && COREMEDIA_12710_TRACE
             // Correlate CoreMedia's ~four -12710 warnings every ~1.27s
             // with the only real audio renderer submission boundary.
             // These two markers are intentionally adjacent: a warning
@@ -3011,7 +3011,7 @@ final class SabrPlayerController: ObservableObject {
                   tracePTSInMs, traceSampleCount)
             #endif
             audioRenderer.enqueue(sample)
-            #if DEBUG
+            #if DEBUG && COREMEDIA_12710_TRACE
             NSLog("TypeType AUDIO-TRACE phase=enqueue-after ptsMs=%lld samples=%d",
                   tracePTSInMs, traceSampleCount)
             #endif
@@ -3055,7 +3055,7 @@ final class SabrPlayerController: ObservableObject {
                 videoReadyWaits += 1
             }
             #endif
-            #if DEBUG
+            #if DEBUG && COREMEDIA_12710_TRACE
             // v12 call-site trace: v10 showed -12710 without an attached
             // audio renderer; v11 showed no warnings during AAC construction.
             // Keep the native video renderer, sample order and synchronizer
@@ -3070,7 +3070,7 @@ final class SabrPlayerController: ObservableObject {
                   videoTracePTSMS, videoTraceCount)
             #endif
             renderer.enqueue(sample)
-            #if DEBUG
+            #if DEBUG && COREMEDIA_12710_TRACE
             NSLog("TypeType VIDEO-TRACE phase=enqueue-after ptsMs=%lld samples=%d",
                   videoTracePTSMS, videoTraceCount)
             #endif
