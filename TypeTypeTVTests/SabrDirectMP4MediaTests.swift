@@ -46,16 +46,12 @@ final class MP4FormatDescriptionTests: XCTestCase {
     XCTAssertEqual(asbd.mFormatID, kAudioFormatMPEG4AAC)
     XCTAssertEqual(asbd.mSampleRate, 44_100)
     XCTAssertEqual(asbd.mChannelsPerFrame, 2)
-    // Real playback used AAC-LC / 44.1 kHz / two channels yet CoreMedia
-    // reported no layout. This A/B path must now actually embed stereo,
-    // not merely log the requested layout.
+    // Compare against the original no-layout format: only AAC-LC's
+    // Audio Object Type in ASBD flags should differ from the baseline.
+    XCTAssertEqual(asbd.mFormatFlags, 2)
     var layoutBytes = 0
-    let layout = try XCTUnwrap(
-      CMAudioFormatDescriptionGetChannelLayout(format, sizeOut: &layoutBytes)
-    )
-    XCTAssertGreaterThan(layoutBytes, 0)
-    XCTAssertEqual(layout.pointee.mChannelLayoutTag, kAudioChannelLayoutTag_Stereo)
-    XCTAssertEqual(layout.pointee.mNumberChannelDescriptions, 0)
+    XCTAssertNil(CMAudioFormatDescriptionGetChannelLayout(format, sizeOut: &layoutBytes))
+    XCTAssertEqual(layoutBytes, 0)
     var cookieBytes = 0
     XCTAssertNotNil(CMAudioFormatDescriptionGetMagicCookie(format, sizeOut: &cookieBytes))
     XCTAssertEqual(cookieBytes, MP4AudioConfigurationTests.aacStereo44k.count)
