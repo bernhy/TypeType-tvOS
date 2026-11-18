@@ -106,6 +106,44 @@ private enum SabrAudioReferenceDiagnostics {
               Int(asbd?.mFramesPerPacket ?? 0),
               cookieBytes, cookieDigest,
               layoutBytes, layoutExists ? 1 : 0, extensionCount)
+        // v6: Identify the *actual* AVAssetReader extension key and compact
+        // 12-byte channel-layout tag. Earlier stereo A/B supplied a 32-byte
+        // layout with no extensions and was therefore not Apple-equivalent.
+        // All of this remains offline reference metadata: no playback change.
+        let layoutTag = layoutExists
+            ? Int(CMAudioFormatDescriptionGetChannelLayout(
+                format, sizeOut: &layoutBytes
+              )!.pointee.mChannelLayoutTag) : -1
+        let channelBitmap = layoutExists
+            ? Int(CMAudioFormatDescriptionGetChannelLayout(
+                format, sizeOut: &layoutBytes
+              )!.pointee.mChannelBitmap) : -1
+        NSLog("TypeType AUDIO-REFERENCE-DETAIL source=%@ layoutTag=%d layoutBitmap=%d layoutBytes=%d asbdBytesPerPacket=%u asbdBytesPerFrame=%u asbdBitsPerChannel=%u asbdReserved=%u",
+              source, layoutTag, channelBitmap, layoutBytes,
+              asbd?.mBytesPerPacket ?? 0,
+              asbd?.mBytesPerFrame ?? 0,
+              asbd?.mBitsPerChannel ?? 0,
+              asbd?.mReserved ?? 0)
+        if let extensions {
+            // Only log extension *names* and value types/sizes, not raw
+            // media samples, encoded atoms, personal URLs or tokens.
+            let dictionary = extensions as NSDictionary
+            for key in dictionary.allKeys {
+                guard let value = dictionary[key] else { continue }
+                let dataCount = (value as? Data)?.count ?? 0
+                let nestedKeys: String
+                if let nested = value as? NSDictionary {
+                    nestedKeys = nested.allKeys
+                        .map { String(describing: $0) }.sorted().joined(separator: ",")
+                } else {
+                    nestedKeys = "-"
+                }
+                NSLog("TypeType AUDIO-REFERENCE-EXT source=%@ key=%@ valueType=%@ dataBytes=%d nestedKeys=%@",
+                      source, String(describing: key),
+                      String(describing: type(of: value)),
+                      dataCount, nestedKeys)
+            }
+        }
     }
 
     static func readAlreadyDownloadedAudio(
