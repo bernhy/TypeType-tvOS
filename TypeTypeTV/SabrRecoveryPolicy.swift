@@ -70,14 +70,21 @@ struct SabrEarlyTransportRetryPolicy {
 enum SabrEarlySessionPrewarmPolicy {
     static let minimumBufferedMs: Int64 = 3_000
 
+    /// Decoder queues are deliberately shallow: a long, contiguous A/V
+    /// fragment cache may exist even when <3s has been submitted to either
+    /// renderer. Use the later of the two *shared* coverage frontiers.
+    /// cachedThroughMs must be calculated for both selected tracks at the
+    /// current playhead, not from the last requested server window.
     static func startPosition(playheadMs: Int64,
                               audioQueuedEndMs: Int64,
-                              videoQueuedEndMs: Int64) -> Int64? {
-        let end = min(audioQueuedEndMs, videoQueuedEndMs)
+                              videoQueuedEndMs: Int64,
+                              cachedThroughMs: Int64 = 0) -> Int64? {
+        let rendererEnd = min(audioQueuedEndMs, videoQueuedEndMs)
+        let end = max(rendererEnd, cachedThroughMs)
         guard playheadMs >= 0, end - playheadMs >= minimumBufferedMs else {
             return nil
         }
-        return max(0, end - 2_000)
+        return max(playheadMs, end - 2_000)
     }
 
     static func shouldPrepare(for error: Error) -> Bool {
