@@ -52,6 +52,11 @@ enum SabrDirectMP4Reader {
 
     static func batchSize(for kind: MP4TrackKind) -> Int {
         switch kind {
+        // tvOS CoreMedia emits AudioFormatDescription -12710 when enqueuing
+        // compressed video CMSampleBuffers containing 2+ frames (850/850
+        // two-frame enqueues on Apple TV); one frame produced 0 warnings
+        // across 1,573 enqueues and preserved smooth playback/fast seeking.
+        // Keep one compressed video access unit per renderer submission.
         case .video: return 1
         case .audio: return 16
         }
