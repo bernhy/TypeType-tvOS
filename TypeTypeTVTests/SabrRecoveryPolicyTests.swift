@@ -101,6 +101,64 @@ final class SabrRecoveryPolicyTests: XCTestCase {
         ), "Media integrity problems need full recovery")
     }
 
+    func testSplicePreflightSelectsActualFragmentsCoveringHandover() {
+        let audio = [
+            SabrFragment(url: "https://example.invalid/segment/44",
+                         startMs: 429_336, durationMs: 9_985),
+            SabrFragment(url: "https://example.invalid/segment/45",
+                         startMs: 439_321, durationMs: 9_985)
+        ]
+        let video = [
+            SabrFragment(url: "https://example.invalid/segment/82",
+                         startMs: 426_800, durationMs: 5_840),
+            SabrFragment(url: "https://example.invalid/segment/83",
+                         startMs: 432_640, durationMs: 5_840)
+        ]
+        let target: Int64 = 436_480  // From November 18 Apple TV hardware log.
+        XCTAssertEqual(SabrSplicePreflightPolicy.segment(audio, covering: target)?.startMs,
+                       429_336)
+        XCTAssertEqual(SabrSplicePreflightPolicy.segment(video, covering: target)?.startMs,
+                       432_640)
+        XCTAssertNil(SabrSplicePreflightPolicy.segment(video, covering: 439_000),
+                     "Do not claim unverified media coverage in a gap")
+        XCTAssertNil(SabrSplicePreflightPolicy.segment(video, covering: Int64.max),
+                     "Overflowing timestamps are always invalid")
+    }
+
+    func testSplicePreflightRequiresActualAudioAndReliableVideoKeyframe() {
+        let target: Int64 = 436_480
+        XCTAssertTrue(SabrSplicePreflightPolicy.accepts(
+            targetMs: target,
+            audioFirstMs: 436_486, audioEndMs: 439_321,
+            videoRAPMs: 432_640, videoEndMs: 438_480
+        ), "Contiguous AAC samples and a preceding RAP permit a live splice")
+        XCTAssertFalse(SabrSplicePreflightPolicy.accepts(
+            targetMs: target,
+            audioFirstMs: 436_486, audioEndMs: 439_321,
+            videoRAPMs: nil, videoEndMs: 438_480
+        ), "No inferred or fabricated keyframe")
+        XCTAssertFalse(SabrSplicePreflightPolicy.accepts(
+            targetMs: target,
+            audioFirstMs: 437_100, audioEndMs: 439_321,
+            videoRAPMs: 432_640, videoEndMs: 438_480
+        ), "Cached bytes alone must not conceal a missing audio interval")
+        XCTAssertFalse(SabrSplicePreflightPolicy.accepts(
+            targetMs: target,
+            audioFirstMs: 436_486, audioEndMs: 439_321,
+            videoRAPMs: 436_600, videoEndMs: 438_480
+        ), "Starting from a future RAP would leave an undecodable video gap")
+        XCTAssertFalse(SabrSplicePreflightPolicy.accepts(
+            targetMs: target,
+            audioFirstMs: 436_486, audioEndMs: 436_700,
+            videoRAPMs: 432_640, videoEndMs: 438_480
+        ), "Audio must reach beyond the handover point")
+        XCTAssertFalse(SabrSplicePreflightPolicy.accepts(
+            targetMs: target,
+            audioFirstMs: 436_486, audioEndMs: 439_321,
+            videoRAPMs: 432_640, videoEndMs: 436_600
+        ), "Video must reach beyond the handover point")
+    }
+
     func testSuccessiveServerRestartsCanReSpliceWithinBoundedBudget() {
         let networkLoss = SabrFailure.server(404, "opaque")
         // We have already switched once. A second and third server restart
