@@ -231,17 +231,7 @@ enum SabrDirectMP4Reader {
     static func batchSize(for kind: MP4TrackKind) -> Int {
         switch kind {
         case .video: return 8
-        case .audio:
-            // A/B v8: AVAssetReader produced 129 compressed AAC packets in
-            // its first sample buffer, vs 16 in our native path. Compare
-            // *batch grouping only* on test/debug builds; per-packet
-            // PTS/DTS/duration, byte data, sample order and the shared
-            // native A/V synchronizer remain untouched. Release stays 16.
-            #if DEBUG
-            return 129
-            #else
-            return 16
-            #endif
+        case .audio: return 16
         }
     }
 
@@ -387,9 +377,6 @@ enum SabrDirectMP4Reader {
            audioReferenceOnce.claim() {
             // Compare format/sample metadata only. AVAssetReader is NOT given
             // to the player and cannot affect our sample order or A/V clock.
-            NSLog("TypeType AUDIO-BATCH-AB mode=reference-sized-v8 firstBufferPackets=%d nativeBatchSize=%d totalFragmentPackets=%d outputBuffers=%d",
-                  CMSampleBufferGetNumSamples(firstBuffer),
-                  batchSize(for: kind), samples.count, buffers.count)
             SabrAudioReferenceDiagnostics.describe(
                 source: "native-generic", sample: firstBuffer
             )
