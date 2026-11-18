@@ -4,6 +4,7 @@
 // The original MPL-2.0 license is available in LICENSES/MPL-2.0.txt.
 import AudioToolbox
 import CoreMedia
+import Foundation
 
 public enum MP4MediaError: Error, Equatable {
   case formatDescription(OSStatus)
@@ -88,6 +89,27 @@ public enum MP4FormatDescription {
       )
     }
     guard status == noErr, let description else { throw MP4MediaError.formatDescription(status) }
+    // Created once per unique init segment by SabrDirectMP4Reader's cache.
+    // -12710 is CoreMedia's InvalidParameter, but the repeated internal
+    // warnings may come from later format-layout queries by the renderer.
+    // Report only stable numeric metadata: never audio bytes or media URLs.
+    let actual = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee
+    var channelLayoutBytes = 0
+    let hasLayout = CMAudioFormatDescriptionGetChannelLayout(
+      description, sizeOut: &channelLayoutBytes
+    ) != nil
+    var outputCookieBytes = 0
+    let hasCookie = CMAudioFormatDescriptionGetMagicCookie(
+      description, sizeOut: &outputCookieBytes
+    ) != nil
+    NSLog("TypeType AUDIO-FORMAT source=esds objectType=%d inputRate=%.0f inputChannels=%d inputCookieBytes=%d actualRate=%.0f actualChannels=%d framesPerPacket=%d actualCookieBytes=%d hasCookie=%d channelLayoutBytes=%d hasLayout=%d",
+          config.objectType, asbd.mSampleRate, Int(asbd.mChannelsPerFrame),
+          track.configuration.count,
+          actual?.mSampleRate ?? -1,
+          Int(actual?.mChannelsPerFrame ?? 0),
+          Int(actual?.mFramesPerPacket ?? 0),
+          outputCookieBytes, hasCookie ? 1 : 0,
+          channelLayoutBytes, hasLayout ? 1 : 0)
     return description
   }
 }
