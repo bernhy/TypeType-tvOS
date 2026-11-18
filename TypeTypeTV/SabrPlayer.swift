@@ -1543,8 +1543,10 @@ final class SabrPlayerController: ObservableObject {
     /// Prewarm the *future* media beyond the old session's verified A/V
     /// disk boundary, never just the two-second overlap. A replacement
     /// is decoder-splice-safe only if at least 4s of new, contiguous native
-    /// AAC/video samples are cached and the new video begins with a true RAP
-    /// at the boundary. Preflight never enqueues samples or changes the clock.
+    /// AAC/video samples are cached and a reliably flagged RAP from the GOP
+    /// crossing that boundary is available for decoder preroll. Such a RAP
+    /// legitimately precedes the frontier by several seconds. Preflight
+    /// never enqueues samples or changes the clock.
     private func verifyPrewarmedSplice(
         service: SabrService, reply: SabrSessionReply,
         selection: SabrSelection, window: SabrWindow, boundaryMs: Int64
@@ -1623,9 +1625,10 @@ final class SabrPlayerController: ObservableObject {
             }
             let samples: [CMSampleBuffer]
             if index == 0 {
-                // YouTube native PTS is frequently 20ms ahead of rounded
-                // SABR metadata. Probe just after the metadata boundary to
-                // discover the NEXT GOP's actual RAP, not the old GOP.
+                // SABR metadata rounds native PTS by ~20-40ms. Probe
+                // slightly beyond the rounded boundary; the actual RAP may
+                // precede it by a full GOP and remains valid decoder preroll.
+                // Existing GOP frames are deduplicated at the handoff.
                 let batch = try await SabrDirectMP4Reader.compressedSeekVideo(
                     initialization: videoInit, fragment: bytes,
                     presentationStartMs: boundaryMs + 200
