@@ -29,7 +29,7 @@ public enum MP4SampleBuffers {
     }
     var sizes = samples.map(\.size)
     var sampleBuffer: CMSampleBuffer?
-    #if DEBUG
+    #if DEBUG && COREMEDIA_12710_TRACE
     // v11: trace the actual audio CMSampleBuffer constructor boundary.
     // All rendering and packet/timing data remain unchanged. Matching
     // before/after markers distinguish synchronous failures from downstream
@@ -53,7 +53,7 @@ public enum MP4SampleBuffers {
       sampleSizeArray: &sizes,
       sampleBufferOut: &sampleBuffer
     )
-    #if DEBUG
+    #if DEBUG && COREMEDIA_12710_TRACE
     if traceAudio {
       NSLog("TypeType AUDIO-CREATE phase=after status=%d ready=%d count=%d",
             status, sampleBuffer == nil ? 0 : 1, samples.count)
