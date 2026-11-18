@@ -3055,7 +3055,25 @@ final class SabrPlayerController: ObservableObject {
                 videoReadyWaits += 1
             }
             #endif
+            #if DEBUG
+            // v12 call-site trace: v10 showed -12710 without an attached
+            // audio renderer; v11 showed no warnings during AAC construction.
+            // Keep the native video renderer, sample order and synchronizer
+            // unchanged while checking for synchronous warnings on enqueue.
+            let videoTracePTS = CMTimeGetSeconds(
+                CMSampleBufferGetPresentationTimeStamp(sample)
+            )
+            let videoTracePTSMS = videoTracePTS.isFinite
+                ? Int64(videoTracePTS * 1_000) : -1
+            let videoTraceCount = CMSampleBufferGetNumSamples(sample)
+            NSLog("TypeType VIDEO-TRACE phase=enqueue-before ptsMs=%lld samples=%d",
+                  videoTracePTSMS, videoTraceCount)
+            #endif
             renderer.enqueue(sample)
+            #if DEBUG
+            NSLog("TypeType VIDEO-TRACE phase=enqueue-after ptsMs=%lld samples=%d",
+                  videoTracePTSMS, videoTraceCount)
+            #endif
             if let cutoff = spliceAwaitingVideoAfterMs,
                let end = SabrSampleTimingProbe.actualEndMs([sample]),
                end > cutoff {
