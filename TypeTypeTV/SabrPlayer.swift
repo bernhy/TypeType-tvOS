@@ -1940,8 +1940,11 @@ final class SabrPlayerController: ObservableObject {
                     originalVideo.segments, after: lastVideoSequence
                 )
             )
+            // The server may omit sessionId in /segments. The decoder
+            // must nevertheless know which generation authorized each
+            // queued window after a producer-only session switch.
             let requested = SabrWindow(
-                sessionId: original.sessionId, generation: original.generation,
+                sessionId: sessionId, generation: original.generation,
                 ready: original.ready, retryAfterMs: original.retryAfterMs,
                 status: original.status, durationMs: original.durationMs,
                 endOfStream: original.endOfStream, startTimeMs: original.startTimeMs,
@@ -2204,7 +2207,9 @@ final class SabrPlayerController: ObservableObject {
             if let ms = response.durationMs { durationMs = ms }
             // Producer may switch sessions while old windows are still in
             // the FIFO mailbox. Keep each window's own media credentials.
-            let responseSession = response.sessionId
+            guard let responseSession = response.sessionId else {
+                throw SabrFailure.invalidResponse("queued window lacks session provenance")
+            }
             let responseGeneration = response.generation
             if let previousSession = currentWindowSession,
                previousSession != responseSession {
