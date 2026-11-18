@@ -230,7 +230,18 @@ enum SabrDirectMP4Reader {
 
     static func batchSize(for kind: MP4TrackKind) -> Int {
         switch kind {
-        case .video: return 8
+        case .video:
+            #if DEBUG
+            // v13 short diagnostic A/B: each grouped video buffer in v12
+            // triggered a synchronous -12710 inside renderer.enqueue;
+            // the sole one-frame video buffer did not. Test grouping only.
+            // Keep native H.264 bytes, sample order, PTS/DTS, A/V clock and
+            // SABR transport unchanged. Release retains the proven batch=8.
+            NSLog("TypeType VIDEO-BATCH-AB mode=single-frame-v13 nativeBatchSize=1")
+            return 1
+            #else
+            return 8
+            #endif
         case .audio: return 16
         }
     }
