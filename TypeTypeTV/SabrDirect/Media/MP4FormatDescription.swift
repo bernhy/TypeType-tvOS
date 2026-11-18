@@ -67,11 +67,10 @@ public enum MP4FormatDescription {
     var asbd = AudioStreamBasicDescription(
       mSampleRate: config.sampleRate > 0 ? config.sampleRate : track.sampleRate,
       mFormatID: formatID,
-      // MPEG-4 AAC ASBD format flags encode the audio object type.
-      // A/B test: previous CoreMedia format used 0 for AAC-LC even though
-      // AudioSpecificConfig identifies object type 2. Keep other profiles
-      // unchanged while investigating repeated nonfatal -12710 warnings.
-      mFormatFlags: config.objectType == 2 ? AudioFormatFlags(config.objectType) : 0,
+      // The isolated AAC-LC object-type-flags=2 A/B test did not change
+      // the recurrent -12710 warnings. Restore the original ASBD to avoid
+      // changing playback behavior during the next call-site trace.
+      mFormatFlags: 0,
       mBytesPerPacket: 0,
       mFramesPerPacket: 1_024,
       mBytesPerFrame: 0,
@@ -110,7 +109,7 @@ public enum MP4FormatDescription {
     let hasCookie = CMAudioFormatDescriptionGetMagicCookie(
       description, sizeOut: &outputCookieBytes
     ) != nil
-    NSLog("TypeType AUDIO-FORMAT source=esds experiment=aac-object-flags-v2 objectType=%d inputRate=%.0f inputChannels=%d inputFlags=%u inputCookieBytes=%d actualRate=%.0f actualChannels=%d actualFlags=%u framesPerPacket=%d actualCookieBytes=%d hasCookie=%d channelLayoutBytes=%d hasLayout=%d",
+    NSLog("TypeType AUDIO-FORMAT source=esds experiment=callsite-trace-v3 objectType=%d inputRate=%.0f inputChannels=%d inputFlags=%u inputCookieBytes=%d actualRate=%.0f actualChannels=%d actualFlags=%u framesPerPacket=%d actualCookieBytes=%d hasCookie=%d channelLayoutBytes=%d hasLayout=%d",
           config.objectType, asbd.mSampleRate, Int(asbd.mChannelsPerFrame),
           asbd.mFormatFlags, track.configuration.count,
           actual?.mSampleRate ?? -1,
