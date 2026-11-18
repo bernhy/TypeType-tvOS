@@ -1653,6 +1653,7 @@ final class SabrPlayerController: ObservableObject {
                 producer.cancel()
                 windowProducerTask = nil
                 activeMailbox = nil
+                releaseRetiredSabrSessions(using: service)
                 abandonEarlyRecovery()
                 return
             } catch {
@@ -1660,6 +1661,7 @@ final class SabrPlayerController: ObservableObject {
                 await mailbox.finish(error: CancellationError())
                 windowProducerTask = nil
                 activeMailbox = nil
+                releaseRetiredSabrSessions(using: service)
                 let lastPositionMs = max(0, Int64(playbackSeconds() * 1_000))
                 let playbackAdvancedMs = max(0, lastPositionMs - producerStart)
                 if playbackAdvancedMs >= SabrRecoveryBudget.stablePlaybackMs {
