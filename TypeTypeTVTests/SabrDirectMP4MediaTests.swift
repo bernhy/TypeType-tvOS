@@ -34,6 +34,34 @@ final class MP4FormatDescriptionTests: XCTestCase {
     XCTAssertEqual(dimensions.height, 1080)
   }
 
+  func testNativeAudioPreservesOriginalISOEntryAndMetadata() throws {
+    let initBytes = MP4TestBoxes.initSegment(
+      video: false, timescale: 44_100,
+      configuration: MP4AudioConfigurationTests.aacStereo44k
+    )
+    let track = try XCTUnwrap(try MP4InitSegment.tracks(in: Data(initBytes)).first)
+    let entry = track.verbatimAudioSampleEntry
+    XCTAssertGreaterThanOrEqual(entry.count, 36)
+    XCTAssertEqual(String(decoding: entry[4..<8], as: UTF8.self), "mp4a")
+    let entryLength = entry.prefix(4).reduce(UInt32(0)) {
+      ($0 << 8) | UInt32($1)
+    }
+    XCTAssertEqual(Int(entryLength), entry.count)
+
+    // The experiment replaces ONLY the AAC format description; the
+    // MP4SampleBuffers timestamps, data bytes, clock and renderer are shared
+    // unchanged with the established pipeline.
+    let format = try MP4FormatDescription.make(for: track)
+    let asbd = try XCTUnwrap(CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee)
+    XCTAssertEqual(asbd.mFormatID, kAudioFormatMPEG4AAC)
+    XCTAssertEqual(asbd.mSampleRate, 44_100)
+    XCTAssertEqual(asbd.mChannelsPerFrame, 2)
+    XCTAssertEqual(asbd.mFramesPerPacket, 1_024)
+    var cookieBytes = 0
+    XCTAssertNotNil(CMAudioFormatDescriptionGetMagicCookie(format, sizeOut: &cookieBytes))
+    XCTAssertEqual(cookieBytes, MP4AudioConfigurationTests.aacStereo44k.count)
+  }
+
   func testAudioDescriptionReadsTheDescriptor() throws {
     let bytes = MP4TestBoxes.initSegment(
       video: false,
