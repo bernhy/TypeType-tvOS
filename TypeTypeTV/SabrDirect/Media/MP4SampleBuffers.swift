@@ -3,6 +3,7 @@
 // Original sources: https://github.com/TypeType-Video/TypeType-tvOS
 // The original MPL-2.0 license is available in LICENSES/MPL-2.0.txt.
 import CoreMedia
+import Foundation
 
 public enum MP4SampleBuffers {
   // `hiddenBefore`: frames presented earlier are decoded but not shown, so a seek can start from the previous
@@ -28,6 +29,19 @@ public enum MP4SampleBuffers {
     }
     var sizes = samples.map(\.size)
     var sampleBuffer: CMSampleBuffer?
+    #if DEBUG
+    // v11: trace the actual audio CMSampleBuffer constructor boundary.
+    // All rendering and packet/timing data remain unchanged. Matching
+    // before/after markers distinguish synchronous failures from downstream
+    // work or calls made elsewhere in CoreMedia.
+    let traceAudio = CMFormatDescriptionGetMediaType(format) == kCMMediaType_Audio
+    if traceAudio {
+      NSLog("TypeType AUDIO-CREATE phase=before count=%d firstPtsMs=%.3f bytes=%d",
+            samples.count,
+            CMTimeGetSeconds(timings[0].presentationTimeStamp) * 1_000,
+            sizes.reduce(0, +))
+    }
+    #endif
     let status = CMSampleBufferCreateReady(
       allocator: kCFAllocatorDefault,
       dataBuffer: blockBuffer,
@@ -39,6 +53,12 @@ public enum MP4SampleBuffers {
       sampleSizeArray: &sizes,
       sampleBufferOut: &sampleBuffer
     )
+    #if DEBUG
+    if traceAudio {
+      NSLog("TypeType AUDIO-CREATE phase=after status=%d ready=%d count=%d",
+            status, sampleBuffer == nil ? 0 : 1, samples.count)
+    }
+    #endif
     guard status == noErr, let sampleBuffer else { throw MP4MediaError.sampleBuffer(status) }
     if CMFormatDescriptionGetMediaType(format) == kCMMediaType_Video {
       markFrames(sampleBuffer, samples: samples, timescale: scale, hiddenBefore: hiddenBefore)
