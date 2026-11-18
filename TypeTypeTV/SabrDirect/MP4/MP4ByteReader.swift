@@ -43,7 +43,8 @@ struct MP4ByteReader {
   }
 
   private func check(_ offset: Int, _ count: Int) throws {
-    guard offset >= 0, count >= 0, offset + count <= bytes.count else {
+    guard offset >= 0, count >= 0, offset <= bytes.count,
+          count <= bytes.count - offset else {
       throw MP4Error.truncated
     }
   }
