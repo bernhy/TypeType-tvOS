@@ -15,6 +15,9 @@ public struct MP4TrackInfo: Equatable, Sendable {
   public let timescale: UInt32
   public let codec: MP4FourCC
   public let configuration: Data
+  /// The exact big-endian ISO BMFF stsd sample-entry box (header + payload).
+  /// Needed for the CoreMedia ISO-family AAC format A/B; empty for video.
+  public let verbatimAudioSampleEntry: Data
   public let width: Int
   public let height: Int
   public let channelCount: Int
@@ -94,6 +97,8 @@ public enum MP4InitSegment {
       timescale: timescale,
       codec: entry.type,
       configuration: sampleEntry.configuration,
+      verbatimAudioSampleEntry: kind == .audio
+        ? try reader.data(entry.start..<entry.end) : Data(),
       width: sampleEntry.width,
       height: sampleEntry.height,
       channelCount: sampleEntry.channelCount,
