@@ -122,7 +122,10 @@ private final class SabrTTMLCollector: NSObject, XMLParserDelegate {
             currentStart = attributeDict["begin"].flatMap(SabrCaptionParser.timestamp)
             currentEnd = attributeDict["end"].flatMap(SabrCaptionParser.timestamp)
             if currentEnd == nil, let start = currentStart,
-               let dur = attributeDict["dur"].flatMap(SabrCaptionParser.timestamp) {
+               let dur = attributeDict["dur"].flatMap(SabrCaptionParser.timestamp),
+               dur <= Int64.max - start {
+                // Both times can be individually valid but their sum can
+                // exceed Int64. Drop malformed TTML cues instead of trapping.
                 currentEnd = start + dur
             }
             contents = ""
