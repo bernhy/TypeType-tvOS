@@ -232,9 +232,12 @@ enum SabrSplicePreflightPolicy {
         return nil
     }
 
-    /// The very first *new* video GOP must begin at the old boundary, not
-    /// replay a keyframe from several seconds before it. Both A/V tracks
-    /// must contain at least 4 seconds of strictly new native sample time.
+    /// A valid RAP may PRECEDE the cache boundary because it begins the GOP
+    /// that straddles that boundary. It is decoder preroll, not proof that
+    /// the session cannot supply new frames. Require a *reliably flagged* RAP
+    /// within 10 seconds before the boundary, while the parsed audio/video
+    /// sample END timestamps must still extend >=4 seconds BEYOND it.
+    /// Already submitted GOPs are deduplicated later at native enqueue.
     static func acceptsForwardBoundary(boundaryMs: Int64,
                                        audioFirstMs: Int64?,
                                        audioEndMs: Int64?,
@@ -247,7 +250,7 @@ enum SabrSplicePreflightPolicy {
         return audioFirstMs >= boundaryMs - min(boundaryMs, maximumFirstGapMs) &&
             audioFirstMs <= boundaryMs + maximumFirstGapMs &&
             audioEndMs >= boundaryMs + minimumNewMediaMs &&
-            videoRAPMs >= boundaryMs - min(boundaryMs, maximumFirstGapMs) &&
+            videoRAPMs >= boundaryMs - min(boundaryMs, maximumRAPLookbehindMs) &&
             videoRAPMs <= boundaryMs + maximumFirstGapMs &&
             videoEndMs >= boundaryMs + minimumNewMediaMs
     }
