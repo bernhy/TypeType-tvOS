@@ -1401,9 +1401,15 @@ final class SabrPlayerController: ObservableObject {
 
     /// Hold the network mailbox open briefly while preparing a replacement.
     /// On timeout retain preparation for the existing end-of-buffer fallback.
-    private func awaitEarlySessionForSplice() async throws
+    private func awaitEarlySessionForSplice(cacheAheadMs: Int64) async throws
         -> SabrPrewarmedRecoverySession? {
-        for _ in 0..<50 {
+        // Verification now includes NEW compressed A/V fragments, rather
+        // than only a cheap overlapping GOP. Give the server more time if
+        // the existing cache safely covers the current playback, but retain
+        // at least four seconds for a bounded decoder fallback.
+        let waitMs = min(Int64(10_000), max(Int64(500),
+                         cacheAheadMs - SabrSplicePreflightPolicy.minimumNewMediaMs))
+        for _ in 0..<Int(waitMs / 100) {
             try Task.checkCancellation()
             if let prepared = earlyRecoveryPrepared {
                 guard prepared.verifiedForSplice else {
@@ -1490,7 +1496,9 @@ final class SabrPlayerController: ObservableObject {
                     selection: choice, buffer: buffer, startMs: anchor,
                     forwardBoundaryMs: cacheEndMs
                 )
-                guard let next = try? await awaitEarlySessionForSplice() else {
+                guard let next = try? await awaitEarlySessionForSplice(
+                    cacheAheadMs: max(0, cacheEndMs - playheadMs)
+                ) else {
                     NSLog("TypeType SABR EARLY re-splice-not-ready sessionCount=%d",
                           sessions)
                     await mailbox.finish(error: error)
@@ -1900,7 +1908,9 @@ final class SabrPlayerController: ObservableObject {
                         if SabrRecoverySplicePolicy.shouldSwitch(
                             error: error, initialized: self.isInitialized,
                             playheadMs: playheadMs, cachedThroughMs: cacheEndMs
-                        ), let prepared = try? await self.awaitEarlySessionForSplice() {
+                        ), let prepared = try? await self.awaitEarlySessionForSplice(
+                            cacheAheadMs: max(0, cacheEndMs - playheadMs)
+                        ) {
                             guard !Task.isCancelled,
                                   self.sessionId == currentSession,
                                   prepared.reply.sessionId != currentSession else {
