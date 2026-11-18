@@ -117,7 +117,7 @@ private enum SabrAudioReferenceDiagnostics {
         let channelBitmap = layoutExists
             ? Int(CMAudioFormatDescriptionGetChannelLayout(
                 format, sizeOut: &layoutBytes
-              )!.pointee.mChannelBitmap) : -1
+              )!.pointee.mChannelBitmap.rawValue) : -1
         NSLog("TypeType AUDIO-REFERENCE-DETAIL source=%@ layoutTag=%d layoutBitmap=%d layoutBytes=%d asbdBytesPerPacket=%u asbdBytesPerFrame=%u asbdBitsPerChannel=%u asbdReserved=%u",
               source, layoutTag, channelBitmap, layoutBytes,
               asbd?.mBytesPerPacket ?? 0,
