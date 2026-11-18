@@ -52,7 +52,7 @@ enum SabrDirectMP4Reader {
 
     static func batchSize(for kind: MP4TrackKind) -> Int {
         switch kind {
-        case .video: return 8
+        case .video: return 1
         case .audio: return 16
         }
     }
