@@ -8514,33 +8514,33 @@
       }
     },
     "home.continueWatchingEmpty": {
-  "localizations": {
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Noch keine Videos zum Fortsetzen."
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Videos zum Fortsetzen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No videos to continue watching yet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune vidéo à reprendre pour le moment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía no hay vídeos para seguir viendo."
+          }
+        }
       }
     },
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "No videos to continue watching yet."
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Aucune vidéo à reprendre pour le moment."
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Todavía no hay vídeos para seguir viendo."
-      }
-    }
-  }
-},
     "home.continueWatching": {
       "localizations": {
         "de": {
@@ -14949,6 +14949,62 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cerrar"
+          }
+        }
+      }
+    },
+    "player.automaticQualitySwitch": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatischer Qualitätswechsel: %1$@ → %2$@ (%3$@)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic quality change: %1$@ → %2$@ (%3$@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changement automatique de qualité : %1$@ → %2$@ (%3$@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambio automático de calidad: %1$@ → %2$@ (%3$@)."
+          }
+        }
+      }
+    },
+    "player.recoveringPlayback": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiedergabe wird wiederhergestellt …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restoring playback…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rétablissement de la lecture…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restableciendo la reproducción…"
           }
         }
       }

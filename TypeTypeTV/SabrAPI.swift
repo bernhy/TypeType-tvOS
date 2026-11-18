@@ -406,6 +406,42 @@ final class SabrService: @unchecked Sendable {
         self.prefetchInterval = max(0.05, prefetchInterval)
     }
 
+    /// Lightweight public TypeType-Server availability probe, used only
+    /// while the SABR producer is sleeping because its cache is full.
+    /// nil means this deployment does not expose a compatible /api/health
+    /// endpoint; it must not be mistaken for a server outage.
+    func serverHealth() async -> Bool? {
+        struct Health: Decodable { let status: String }
+        var request = URLRequest(url: base.appendingPathComponent("health"))
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 3
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+            if http.statusCode == 200 {
+                // A proxy might return the web SPA as HTTP 200 on an
+                // unknown route. Only accept the server's JSON health body.
+                return (try? json.decode(Health.self, from: data))?.status == "ok"
+                    ? true : nil
+            }
+            if [502, 503, 504].contains(http.statusCode) { return false }
+            return nil
+        } catch is CancellationError {
+            return nil
+        } catch let error as URLError {
+            switch error.code {
+            case .timedOut, .networkConnectionLost, .notConnectedToInternet,
+                 .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+                return false
+            default: return nil
+            }
+        } catch {
+            return nil
+        }
+    }
+
     func bootstrap(videoURL: String) async throws -> SabrBootstrap {
         try await request("streams/youtube/sabr/bootstrap", query: [URLQueryItem(name: "url", value: videoURL)])
     }

@@ -3,6 +3,332 @@ import XCTest
 @testable import TypeTypeTV
 
 final class SabrRecoveryPolicyTests: XCTestCase {
+    func testEarlySessionPreparationUsesCommonAVBufferAndRetryableErrors() {
+        XCTAssertEqual(SabrEarlySessionPrewarmPolicy.startPosition(
+            playheadMs: 30_000, audioQueuedEndMs: 55_000,
+            videoQueuedEndMs: 42_000
+        ), 40_000)
+        XCTAssertNil(SabrEarlySessionPrewarmPolicy.startPosition(
+            playheadMs: 30_000, audioQueuedEndMs: 45_000,
+            videoQueuedEndMs: 32_999
+        ))
+        XCTAssertNil(SabrEarlySessionPrewarmPolicy.startPosition(
+            playheadMs: 0, audioQueuedEndMs: 0,
+            videoQueuedEndMs: 20_000
+        ))
+        XCTAssertTrue(SabrEarlySessionPrewarmPolicy.shouldPrepare(
+            for: SabrFailure.server(404, "sabr/playback/session/segments")
+        ))
+        XCTAssertTrue(SabrEarlySessionPrewarmPolicy.shouldPrepare(
+            for: URLError(.networkConnectionLost)
+        ))
+        XCTAssertFalse(SabrEarlySessionPrewarmPolicy.shouldPrepare(
+            for: SabrFailure.unavailable
+        ))
+        XCTAssertFalse(SabrEarlySessionPrewarmPolicy.shouldPrepare(
+            for: CancellationError()
+        ))
+    }
+
+
+    func testEarlySessionUsesContiguousDiskCacheIfDecoderQueuesAreShallow() {
+        // Real Apple TV log: ~22 seconds of compressed A/V were cached,
+        // but no prewarm began. Queued renderer samples need not match cache.
+        XCTAssertEqual(SabrEarlySessionPrewarmPolicy.startPosition(
+            playheadMs: 547_875,
+            audioQueuedEndMs: 549_000,
+            videoQueuedEndMs: 550_000,
+            cachedThroughMs: 569_600
+        ), 567_600)
+        XCTAssertEqual(SabrEarlySessionPrewarmPolicy.startPosition(
+            playheadMs: 1_264_334,
+            audioQueuedEndMs: 1_265_000,
+            videoQueuedEndMs: 1_266_000,
+            cachedThroughMs: 1_285_120
+        ), 1_283_120)
+        XCTAssertNil(SabrEarlySessionPrewarmPolicy.startPosition(
+            playheadMs: 30_000,
+            audioQueuedEndMs: 31_000,
+            videoQueuedEndMs: 32_000,
+            cachedThroughMs: 32_999
+        ), "Do not prewarm with less than 3s of contiguous A/V media")
+        XCTAssertEqual(SabrEarlySessionPrewarmPolicy.startPosition(
+            playheadMs: 30_000,
+            audioQueuedEndMs: 40_000,
+            videoQueuedEndMs: 39_000,
+            cachedThroughMs: 31_000
+        ), 37_000, "Do not regress when native renderer is ahead of disk cache")
+        XCTAssertTrue(SabrEarlySessionPrewarmPolicy.shouldPrepare(
+            for: SabrFailure.server(503, "sabr/playback/opaque/position")
+        ))
+        XCTAssertFalse(SabrEarlySessionPrewarmPolicy.shouldPrepare(
+            for: SabrFailure.server(401, "sabr/playback/opaque/position")
+        ), "Authentication failure is not safe for speculative sessions")
+    }
+
+    func testInPlaceProducerHandoverNeedsActualAVCacheAndNetworkFailure() {
+        // The November 18 Apple TV reboot: 20.9s contiguous compressed
+        // A/V cache, only 1.4s submitted to the native renderer.
+        XCTAssertTrue(SabrRecoverySplicePolicy.shouldSwitch(
+            error: SabrFailure.server(404, "segments"),
+            initialized: true, playheadMs: 132_407,
+            cachedThroughMs: 153_280
+        ))
+        XCTAssertTrue(SabrRecoverySplicePolicy.shouldSwitch(
+            error: URLError(.networkConnectionLost),
+            initialized: true, playheadMs: 100_000,
+            cachedThroughMs: 120_000
+        ))
+        XCTAssertFalse(SabrRecoverySplicePolicy.shouldSwitch(
+            error: SabrFailure.server(404, "segments"),
+            initialized: true, playheadMs: 132_407,
+            cachedThroughMs: 137_000
+        ), "Do not switch when there is no time to fill the new mailbox")
+        XCTAssertFalse(SabrRecoverySplicePolicy.shouldSwitch(
+            error: SabrFailure.server(404, "segments"),
+            initialized: false, playheadMs: 132_407,
+            cachedThroughMs: 153_280
+        ), "Cold resume and attestation issues need the original recovery")
+        XCTAssertFalse(SabrRecoverySplicePolicy.shouldSwitch(
+            error: SabrFailure.server(401, "segments"),
+            initialized: true, playheadMs: 132_407,
+            cachedThroughMs: 153_280
+        ), "Never start a fresh stream to bypass an authentication failure")
+        XCTAssertFalse(SabrRecoverySplicePolicy.shouldSwitch(
+            error: SabrFailure.stalled("decoder sample discontinuity"),
+            initialized: true, playheadMs: 132_407,
+            cachedThroughMs: 153_280
+        ), "Media integrity problems need full recovery")
+    }
+
+    func testV5PreflightPlansGenuinelyNewAudioAndVideoGOPs() {
+        // Real Nov 18 first restart: old cache stopped at 746_920ms.
+        // The old 743_040ms GOP is already in the native renderer.
+        let video = [
+            SabrFragment(url: "old", startMs: 743_040, durationMs: 3_880),
+            SabrFragment(url: "new-1", startMs: 746_920, durationMs: 3_880),
+            SabrFragment(url: "new-2", startMs: 750_800, durationMs: 3_880)
+        ]
+        let audio = [
+            SabrFragment(url: "old-a", startMs: 738_858, durationMs: 9_985),
+            SabrFragment(url: "new-a", startMs: 748_843, durationMs: 9_985)
+        ]
+        XCTAssertEqual(
+            SabrSplicePreflightPolicy.forwardSegments(
+                video, boundaryMs: 746_920
+            )?.map(\.url),
+            ["new-1", "new-2"]
+        )
+        XCTAssertEqual(
+            SabrSplicePreflightPolicy.forwardSegments(
+                audio, boundaryMs: 746_920
+            )?.map(\.url),
+            ["old-a", "new-a"]
+        )
+
+        // On the second restart the rounded old GOP extends only 40ms
+        // past the old cache frontier; it must not be replayed.
+        let rounded = [
+            SabrFragment(url: "old-rounded", startMs: 791_520, durationMs: 5_840),
+            SabrFragment(url: "future-1", startMs: 797_360, durationMs: 3_880),
+            SabrFragment(url: "future-2", startMs: 801_240, durationMs: 3_880)
+        ]
+        XCTAssertEqual(
+            SabrSplicePreflightPolicy.forwardSegments(
+                rounded, boundaryMs: 797_320
+            )?.map(\.url),
+            ["future-1", "future-2"]
+        )
+
+        XCTAssertNil(SabrSplicePreflightPolicy.forwardSegments([
+            SabrFragment(url: "gap", startMs: 747_300, durationMs: 3_880),
+            SabrFragment(url: "after-gap", startMs: 751_180, durationMs: 3_880)
+        ], boundaryMs: 746_920))
+        XCTAssertNil(SabrSplicePreflightPolicy.forwardSegments(
+            [video[1]], boundaryMs: 746_920
+        ), "One 3.88-second GOP does not prove 4 seconds of future video")
+        XCTAssertNil(SabrSplicePreflightPolicy.forwardSegments(
+            video, boundaryMs: Int64.max
+        ))
+    }
+
+    func testV5PreflightAcceptsReliablePrerollButRejectsInsufficientNewMedia() {
+        XCTAssertTrue(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 746_920, audioFirstMs: 746_919,
+            audioEndMs: 758_828, videoRAPMs: 746_940,
+            videoEndMs: 754_700
+        ))
+        XCTAssertTrue(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 746_920, audioFirstMs: 746_919,
+            audioEndMs: 758_828, videoRAPMs: 743_060,
+            videoEndMs: 754_700
+        ), "A reliable RAP in the GOP crossing the cache boundary is necessary preroll; future A/V evidence is validated separately")
+        // These exact two RAP positions caused the November 18 12:04:51
+        // and 12:05:51 regressions: v5 incorrectly rejected viable
+        // replacement sessions and forced full decoder recovery.
+        XCTAssertTrue(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 574_374, audioFirstMs: 574_369,
+            audioEndMs: 579_106, videoRAPMs: 570_537,
+            videoEndMs: 581_581
+        ))
+        XCTAssertTrue(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 641_374, audioFirstMs: 641_358,
+            audioEndMs: 648_998, videoRAPMs: 638_938,
+            videoEndMs: 645_912
+        ))
+        XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 574_374, audioFirstMs: 574_369,
+            audioEndMs: 579_106, videoRAPMs: 559_000,
+            videoEndMs: 581_581
+        ), "A RAP more than ten seconds earlier is too far from the splice")
+        XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 574_374, audioFirstMs: 574_369,
+            audioEndMs: 579_106, videoRAPMs: nil,
+            videoEndMs: 581_581
+        ), "Never guess or fabricate a video keyframe")
+        XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 574_374, audioFirstMs: 574_369,
+            audioEndMs: 579_106, videoRAPMs: 574_700,
+            videoEndMs: 581_581
+        ), "Do not silently jump to a new future RAP outside bounded timestamp rounding")
+        XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 746_920, audioFirstMs: 746_919,
+            audioEndMs: 758_828, videoRAPMs: 746_940,
+            videoEndMs: 750_820
+        ), "Need >=4 seconds of actual new video before decoder handoff")
+        XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 746_920, audioFirstMs: 747_400,
+            audioEndMs: 758_828, videoRAPMs: 746_940,
+            videoEndMs: 754_700
+        ), "AAC must not begin half a second after video")
+        XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 746_920, audioFirstMs: 746_919,
+            audioEndMs: 750_000, videoRAPMs: 746_940,
+            videoEndMs: 754_700
+        ))
+        XCTAssertTrue(SabrSplicePreflightPolicy.continues(
+            previousEndMs: 750_820, nextStartMs: 750_840
+        ))
+        XCTAssertFalse(SabrSplicePreflightPolicy.continues(
+            previousEndMs: 750_820, nextStartMs: 751_200
+        ))
+    }
+
+    func testSplicePreflightSelectsActualFragmentsCoveringHandover() {
+        let audio = [
+            SabrFragment(url: "https://example.invalid/segment/44",
+                         startMs: 429_336, durationMs: 9_985),
+            SabrFragment(url: "https://example.invalid/segment/45",
+                         startMs: 439_321, durationMs: 9_985)
+        ]
+        let video = [
+            SabrFragment(url: "https://example.invalid/segment/82",
+                         startMs: 426_800, durationMs: 5_840),
+            SabrFragment(url: "https://example.invalid/segment/83",
+                         startMs: 432_640, durationMs: 5_840)
+        ]
+        let target: Int64 = 436_480  // From November 18 Apple TV hardware log.
+        XCTAssertEqual(SabrSplicePreflightPolicy.segment(audio, covering: target)?.startMs,
+                       429_336)
+        XCTAssertEqual(SabrSplicePreflightPolicy.segment(video, covering: target)?.startMs,
+                       432_640)
+        XCTAssertNil(SabrSplicePreflightPolicy.segment(video, covering: 439_000),
+                     "Do not claim unverified media coverage in a gap")
+        XCTAssertNil(SabrSplicePreflightPolicy.segment(video, covering: Int64.max),
+                     "Overflowing timestamps are always invalid")
+    }
+
+    func testSplicePreflightRequiresActualAudioAndReliableVideoKeyframe() {
+        let target: Int64 = 436_480
+        XCTAssertTrue(SabrSplicePreflightPolicy.accepts(
+            targetMs: target,
+            audioFirstMs: 436_486, audioEndMs: 439_321,
+            videoRAPMs: 432_640, videoEndMs: 438_480
+        ), "Contiguous AAC samples and a preceding RAP permit a live splice")
+        XCTAssertFalse(SabrSplicePreflightPolicy.accepts(
+            targetMs: target,
+            audioFirstMs: 436_486, audioEndMs: 439_321,
+            videoRAPMs: nil, videoEndMs: 438_480
+        ), "No inferred or fabricated keyframe")
+        XCTAssertFalse(SabrSplicePreflightPolicy.accepts(
+            targetMs: target,
+            audioFirstMs: 437_100, audioEndMs: 439_321,
+            videoRAPMs: 432_640, videoEndMs: 438_480
+        ), "Cached bytes alone must not conceal a missing audio interval")
+        XCTAssertFalse(SabrSplicePreflightPolicy.accepts(
+            targetMs: target,
+            audioFirstMs: 436_486, audioEndMs: 439_321,
+            videoRAPMs: 436_600, videoEndMs: 438_480
+        ), "Starting from a future RAP would leave an undecodable video gap")
+        XCTAssertFalse(SabrSplicePreflightPolicy.accepts(
+            targetMs: target,
+            audioFirstMs: 436_486, audioEndMs: 436_700,
+            videoRAPMs: 432_640, videoEndMs: 438_480
+        ), "Audio must reach beyond the handover point")
+        XCTAssertFalse(SabrSplicePreflightPolicy.accepts(
+            targetMs: target,
+            audioFirstMs: 436_486, audioEndMs: 439_321,
+            videoRAPMs: 432_640, videoEndMs: 436_600
+        ), "Video must reach beyond the handover point")
+    }
+
+    func testSuccessiveServerRestartsCanReSpliceWithinBoundedBudget() {
+        let networkLoss = SabrFailure.server(404, "opaque")
+        // We have already switched once. A second and third server restart
+        // can replace the producer without resetting native A/V renderers.
+        for previousSessions in 1..<SabrRecoverySplicePolicy.maximumSessionsPerIncident {
+            XCTAssertTrue(SabrRecoverySplicePolicy.canReSplice(
+                error: networkLoss, initialized: true,
+                playheadMs: 324_545, cachedThroughMs: 345_400,
+                sessionsSoFar: previousSessions
+            ))
+        }
+        XCTAssertFalse(SabrRecoverySplicePolicy.canReSplice(
+            error: networkLoss, initialized: true,
+            playheadMs: 324_545, cachedThroughMs: 345_400,
+            sessionsSoFar: SabrRecoverySplicePolicy.maximumSessionsPerIncident
+        ), "The number of speculative server sessions must be bounded")
+        XCTAssertFalse(SabrRecoverySplicePolicy.canReSplice(
+            error: networkLoss, initialized: true,
+            playheadMs: 215_338, cachedThroughMs: 217_320,
+            sessionsSoFar: 1
+        ), "Near-empty cache must use the existing decoder fallback")
+        XCTAssertFalse(SabrRecoverySplicePolicy.canReSplice(
+            error: SabrFailure.expired, initialized: true,
+            playheadMs: 324_545, cachedThroughMs: 345_400,
+            sessionsSoFar: 1
+        ), "Keep the separate attestation/expiry investigation untouched")
+        XCTAssertFalse(SabrRecoverySplicePolicy.canReSplice(
+            error: SabrFailure.server(401, "opaque"), initialized: true,
+            playheadMs: 324_545, cachedThroughMs: 345_400,
+            sessionsSoFar: 1
+        ))
+        XCTAssertEqual(SabrRecoverySplicePolicy.errorKind(
+            SabrFailure.server(404, "/api/sabr/private/session-id")
+        ), "http")
+        XCTAssertEqual(SabrRecoverySplicePolicy.httpStatus(networkLoss), 404)
+        XCTAssertEqual(SabrRecoverySplicePolicy.errorKind(
+            SabrFailure.invalidResponse("SABR segment gap before next media sample")
+        ), "segment-gap")
+        XCTAssertEqual(SabrRecoverySplicePolicy.errorKind(
+            SabrFailure.invalidResponse("private-id-or-token")
+        ), "invalid-response")
+    }
+
+    func testSpliceCutsAudioAndVideoAtIndependentSubmittedFrontiers() {
+        XCTAssertEqual(SabrRecoverySplicePolicy.clipBeforeMs(
+            queuedEndMs: 159_753, parsedEndMs: 160_100,
+            presentationStartMs: 132_407
+        ), 160_100)
+        XCTAssertEqual(SabrRecoverySplicePolicy.clipBeforeMs(
+            queuedEndMs: 153_300, parsedEndMs: 153_280,
+            presentationStartMs: 132_407
+        ), 153_300)
+        XCTAssertEqual(SabrRecoverySplicePolicy.clipBeforeMs(
+            queuedEndMs: 0, parsedEndMs: nil, presentationStartMs: 5_000
+        ), 5_000)
+    }
+
     func testEarlyTransportRetriesOnlySafePlaybackRoutesAndTransientFailures() {
         let policy = SabrEarlyTransportRetryPolicy(delaysMilliseconds: [1, 2])
         XCTAssertEqual(SabrEarlyTransportRetryPolicy.route(

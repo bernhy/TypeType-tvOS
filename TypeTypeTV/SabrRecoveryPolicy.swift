@@ -64,6 +64,233 @@ struct SabrEarlyTransportRetryPolicy {
     }
 }
 
+/// The network producer can prepare a new SABR session while media from the
+/// old session is still playing. Only the common queued A/V time is safe to
+/// use as an approximate prewarm anchor, never one track's high-water mark.
+enum SabrEarlySessionPrewarmPolicy {
+    static let minimumBufferedMs: Int64 = 3_000
+
+    /// Decoder queues are deliberately shallow: a long, contiguous A/V
+    /// fragment cache may exist even when <3s has been submitted to either
+    /// renderer. Use the later of the two *shared* coverage frontiers.
+    /// cachedThroughMs must be calculated for both selected tracks at the
+    /// current playhead, not from the last requested server window.
+    static func startPosition(playheadMs: Int64,
+                              audioQueuedEndMs: Int64,
+                              videoQueuedEndMs: Int64,
+                              cachedThroughMs: Int64 = 0) -> Int64? {
+        let rendererEnd = min(audioQueuedEndMs, videoQueuedEndMs)
+        let end = max(rendererEnd, cachedThroughMs)
+        guard playheadMs >= 0, end - playheadMs >= minimumBufferedMs else {
+            return nil
+        }
+        return max(playheadMs, end - 2_000)
+    }
+
+    static func shouldPrepare(for error: Error) -> Bool {
+        SabrRecoveryPolicy().canRetry(
+            error, completedAttempts: 1, elapsedSeconds: 0
+        )
+    }
+}
+
+/// A producer-only session swap is safe only while a verified A/V cache
+/// still covers the current playback position. Media integrity errors and
+/// throttling are left to the existing bounded restart/fallback path.
+enum SabrRecoverySplicePolicy {
+    static let minimumCachedAheadMs: Int64 = 8_000
+    // Bound repeated producer-only switches during successive server restarts.
+    static let maximumSessionsPerIncident = 4
+
+    /// Log only stable, sanitized error categories, never session-specific URLs,
+    /// bearer tokens or untrusted server error bodies.
+    static func errorKind(_ error: Error) -> String {
+        if let failure = error as? SabrFailure {
+            switch failure {
+            case .server: return "http"
+            case .expired: return "expired"
+            case .throttled: return "throttled"
+            case .stalled: return "stalled"
+            case .unsupported: return "unsupported"
+            case .unavailable: return "unavailable"
+            case .stopped: return "stopped"
+            case .invalidResponse(let description):
+                switch description {
+                case "SABR segment gap before next media sample": return "segment-gap"
+                case "SABR window stopped advancing": return "window-stalled"
+                case "segment window timed out": return "window-timeout"
+                case "SABR recovered media has noncontiguous native timestamps":
+                    return "native-time-gap"
+                default: return "invalid-response"
+                }
+            }
+        }
+        return error is CancellationError ? "cancelled" :
+            (error is URLError ? "network" : "other")
+    }
+
+    static func httpStatus(_ error: Error) -> Int {
+        guard let failure = error as? SabrFailure else { return 0 }
+        switch failure {
+        case .server(let status, _), .throttled(let status, _, _):
+            return status
+        default: return 0
+        }
+    }
+
+    static func canReSplice(error: Error, initialized: Bool,
+                            playheadMs: Int64, cachedThroughMs: Int64,
+                            sessionsSoFar: Int) -> Bool {
+        sessionsSoFar >= 1 &&
+            sessionsSoFar < maximumSessionsPerIncident &&
+            shouldSwitch(error: error, initialized: initialized,
+                         playheadMs: playheadMs, cachedThroughMs: cachedThroughMs)
+    }
+
+    static func shouldSwitch(error: Error, initialized: Bool,
+                             playheadMs: Int64, cachedThroughMs: Int64) -> Bool {
+        guard initialized, playheadMs >= 0, cachedThroughMs >= playheadMs,
+              cachedThroughMs - playheadMs >= minimumCachedAheadMs else {
+            return false
+        }
+        if let failure = error as? SabrFailure {
+            switch failure {
+            // The unrelated ~one-minute attestation/expired condition
+            // stays on the original recovery path, not this experiment.
+            case .server(let status, _):
+                return [404, 410, 502, 503, 504].contains(status)
+            default: return false
+            }
+        }
+        if let url = error as? URLError {
+            switch url.code {
+            case .timedOut, .networkConnectionLost, .notConnectedToInternet,
+                 .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+                return true
+            default: return false
+            }
+        }
+        return false
+    }
+
+    /// Trim *each* track at its own last parsed/submitted sample frontier.
+    /// Sharing a single A/V cutoff would duplicate audio or drop video
+    /// whenever the fragment lengths differ.
+    static func clipBeforeMs(queuedEndMs: Int64, parsedEndMs: Int64?,
+                             presentationStartMs: Int64) -> Int64 {
+        max(0, max(presentationStartMs,
+                   max(queuedEndMs, parsedEndMs ?? 0)))
+    }
+}
+
+/// Fail closed before joining two SABR sessions in a single native decoder.
+/// Metadata alone is not evidence of playable future A/V; the producer also
+/// verifies compressed sample timestamps and a real video RAP below.
+enum SabrSplicePreflightPolicy {
+    static let minimumForwardMs: Int64 = 250
+    // Real forward media, not the two-second overlap with the old session.
+    // The producer must have enough verified frames for the native renderer
+    // to survive the first new-session window and its keyframe preroll.
+    static let minimumNewMediaMs: Int64 = 4_000
+    static let maximumFirstGapMs: Int64 = 250
+    static let maximumInterFragmentGapMs: Int64 = 120
+    static let maximumMetadataFragments = 6
+
+    /// Select only media which *extends* the previous A/V disk frontier.
+    /// Returns nil rather than claiming continuity from stale/overlapping
+    /// first-window data or a hole in the server's segment descriptors.
+    static func forwardSegments(_ segments: [SabrFragment],
+                                boundaryMs: Int64) -> [SabrFragment]? {
+        guard boundaryMs >= 0,
+              boundaryMs <= Int64.max - minimumNewMediaMs else { return nil }
+        let target = boundaryMs + minimumNewMediaMs
+        let candidates = segments.filter { part in
+            part.startMs >= 0 && part.durationMs > 0 &&
+            part.startMs <= Int64.max - part.durationMs &&
+            part.startMs + part.durationMs > boundaryMs
+        }.sorted { $0.startMs < $1.startMs }
+        var coveredThrough = boundaryMs
+        var result: [SabrFragment] = []
+        for part in candidates {
+            let endMs = part.startMs + part.durationMs
+            if endMs <= coveredThrough { continue }
+            // The previous window can end 20-60ms inside a server-rounded
+            // GOP. Do not decode that old multi-second GOP merely to gain
+            // its last few milliseconds: advance to the next *new* RAP.
+            if result.isEmpty, part.startMs < boundaryMs - min(boundaryMs, maximumFirstGapMs),
+               endMs <= boundaryMs + maximumFirstGapMs {
+                continue
+            }
+            guard part.startMs <= coveredThrough + maximumFirstGapMs else {
+                return nil
+            }
+            result.append(part)
+            coveredThrough = part.startMs + part.durationMs
+            if coveredThrough >= target { return result }
+            if result.count == maximumMetadataFragments { return nil }
+        }
+        return nil
+    }
+
+    /// A valid RAP may PRECEDE the cache boundary because it begins the GOP
+    /// that straddles that boundary. It is decoder preroll, not proof that
+    /// the session cannot supply new frames. Require a *reliably flagged* RAP
+    /// within 10 seconds before the boundary, while the parsed audio/video
+    /// sample END timestamps must still extend >=4 seconds BEYOND it.
+    /// Already submitted GOPs are deduplicated later at native enqueue.
+    static func acceptsForwardBoundary(boundaryMs: Int64,
+                                       audioFirstMs: Int64?,
+                                       audioEndMs: Int64?,
+                                       videoRAPMs: Int64?,
+                                       videoEndMs: Int64?) -> Bool {
+        guard boundaryMs >= 0,
+              boundaryMs <= Int64.max - minimumNewMediaMs,
+              let audioFirstMs, let audioEndMs,
+              let videoRAPMs, let videoEndMs else { return false }
+        return audioFirstMs >= boundaryMs - min(boundaryMs, maximumFirstGapMs) &&
+            audioFirstMs <= boundaryMs + maximumFirstGapMs &&
+            audioEndMs >= boundaryMs + minimumNewMediaMs &&
+            videoRAPMs >= boundaryMs - min(boundaryMs, maximumRAPLookbehindMs) &&
+            videoRAPMs <= boundaryMs + maximumFirstGapMs &&
+            videoEndMs >= boundaryMs + minimumNewMediaMs
+    }
+
+    /// Actual native PTS/DTS may differ by a few milliseconds from rounded
+    /// segment metadata; larger discontinuities cannot enter the live clock.
+    static func continues(previousEndMs: Int64, nextStartMs: Int64) -> Bool {
+        nextStartMs >= previousEndMs - maximumInterFragmentGapMs &&
+            nextStartMs <= previousEndMs + maximumInterFragmentGapMs
+    }
+    static let maximumAudioStartDelayMs: Int64 = 250
+    static let maximumRAPLookbehindMs: Int64 = 10_000
+
+    static func segment(_ segments: [SabrFragment], covering targetMs: Int64)
+        -> SabrFragment? {
+        guard targetMs >= 0,
+              targetMs <= Int64.max - minimumForwardMs else { return nil }
+        return segments.filter {
+            $0.startMs >= 0 && $0.durationMs > 0 &&
+            $0.startMs <= Int64.max - $0.durationMs &&
+            $0.startMs <= targetMs &&
+            $0.startMs + $0.durationMs >= targetMs + minimumForwardMs
+        }.max { $0.startMs < $1.startMs }
+    }
+
+    static func accepts(targetMs: Int64, audioFirstMs: Int64?,
+                        audioEndMs: Int64?, videoRAPMs: Int64?,
+                        videoEndMs: Int64?) -> Bool {
+        guard targetMs >= 0, targetMs <= Int64.max - minimumForwardMs,
+              let audioFirstMs, let audioEndMs,
+              let videoRAPMs, let videoEndMs,
+              audioFirstMs <= targetMs + maximumAudioStartDelayMs,
+              audioEndMs >= targetMs + minimumForwardMs,
+              videoRAPMs <= targetMs,
+              videoRAPMs >= max(0, targetMs - maximumRAPLookbehindMs),
+              videoEndMs >= targetMs + minimumForwardMs else { return false }
+        return true
+    }
+}
+
 /// Bounded recovery patterned after Android's stream reconnect policy.
 /// HTTP client/credential failures and malformed media stay terminal;
 /// network outages, expired SABR sessions and renderer stalls are retried.

@@ -201,6 +201,17 @@ private struct SabrSeekReuse {
     let selection: SabrSelection
 }
 
+/// Prepared while samples from the old session remain queued. When enough
+/// verified A/V media is cached, a new producer can append windows to the
+/// existing mailbox. Otherwise the original full recovery still uses it.
+private struct SabrPrewarmedRecoverySession {
+    let reply: SabrSessionReply
+    let startPositionMs: Int64
+    /// True only after both actual fMP4 tracks and a reliable video RAP
+    /// have been checked. A metadata-only session is fallback-only.
+    let verifiedForSplice: Bool
+}
+
 // Direct compressed fMP4 samples are synchronised by CoreMedia.
 @MainActor
 final class SabrPlayerController: ObservableObject {
@@ -258,6 +269,10 @@ final class SabrPlayerController: ObservableObject {
     private var bufferingNeedsVideo = false
     private var queuedAudioEndMs: Int64 = 0
     private var queuedVideoEndMs: Int64 = 0
+    // One-shot evidence for the first *submitted* sample beyond each
+    // server-session boundary; do not confuse cached windows with renderers.
+    private var spliceAwaitingAudioAfterMs: Int64?
+    private var spliceAwaitingVideoAfterMs: Int64?
     #if DEBUG
     private var startupMetrics = SabrStartupMetrics()
     private var startupStartedUptime: TimeInterval = 0
@@ -274,6 +289,11 @@ final class SabrPlayerController: ObservableObject {
     private var segmentCache: SabrFragmentCache?
     private var windowProducerTask: Task<Void, Never>?
     private var activeMailbox: SabrWindowMailbox?
+    private var earlyRecoveryTask: Task<Void, Never>?
+    private var earlyRecoveryPrepared: SabrPrewarmedRecoverySession?
+    private var earlyRecoveryService: SabrService?
+    // Keep old sessions alive until their FIFO mailbox windows are consumed.
+    private var retiredSabrSessions: [String] = []
     private let progressWriter = TVPlaybackProgressWriter()
     // Main-actor handoff guarantees the stop checkpoint reaches the actor
     // before a fast seek/quality restart changes the history permission.
@@ -414,6 +434,7 @@ final class SabrPlayerController: ObservableObject {
 
     func stop(preservingSessionId: String? = nil) {
         playbackEpoch &+= 1
+        abandonEarlyRecovery()
         pendingSeekTask?.cancel()
         pendingSeekTask = nil
         pendingSeekTargetMs = nil
@@ -439,6 +460,7 @@ final class SabrPlayerController: ObservableObject {
         audioRenderer.isMuted = false
         let previousService = playbackService
         playbackService = nil
+        releaseRetiredSabrSessions(using: previousService)
         let previousSession = sessionId
         if let previousService, !previousSession.isEmpty,
            previousSession != preservingSessionId {
@@ -571,6 +593,8 @@ final class SabrPlayerController: ObservableObject {
     private func prepareFastSeek(api: TypeTypeAPI, video: VideoItem,
                                  targetMs: Int64, reusing: SabrSeekReuse) {
         playbackEpoch &+= 1
+        abandonEarlyRecovery()
+        releaseRetiredSabrSessions(using: playbackService)
         if isInitialized { recordProgress(force: true) }
         TVPlaybackPresenceReporter.shared.stop(owner: presenceOwner)
         presenceReported = false
@@ -744,6 +768,8 @@ final class SabrPlayerController: ObservableObject {
         bufferingNeedsVideo = false
         queuedAudioEndMs = 0
         queuedVideoEndMs = 0
+        spliceAwaitingAudioAfterMs = nil
+        spliceAwaitingVideoAfterMs = nil
         rendererReadyThroughMs = 0
         #if DEBUG
         maxVideoDeliveryMs = 0
@@ -1282,6 +1308,26 @@ final class SabrPlayerController: ObservableObject {
                         // remain in this run's bounded manual fallback chain.
                         requestedVideoItag = nil
                     }
+                    if !manualFallbackActive {
+                        // Automatic bitrate/codec/height changes must not be
+                        // silent, especially after a cold-resume attestation
+                        // failure. Reuse the existing newest-first, timed
+                        // Liquid Glass notice stack, including rapid retries.
+                        let oldFormat = formatLabel(choice.video)
+                        let newFormat = formatLabel(orderedOptions[index + 1].video)
+                        let reason = TVL10n.value(
+                            SabrManualQualityFallbackPolicy.reasonKey(for: error)
+                        )
+                        postPlayerNotice(String(
+                            format: TVL10n.value("player.automaticQualitySwitch"),
+                            oldFormat, newFormat, reason
+                        ))
+                        NSLog("TypeType SABR QUALITY automatic-fallback oldItag=%d newItag=%d oldHeight=%d newHeight=%d reason=%@",
+                              choice.video.itag, orderedOptions[index + 1].video.itag,
+                              choice.video.height ?? 0,
+                              orderedOptions[index + 1].video.height ?? 0,
+                              SabrManualQualityFallbackPolicy.diagnosticCode(for: error))
+                    }
                     if case SabrFailure.expired = error {
                         NSLog("TypeType SABR RESUME alternate-track firstItag=%d nextItag=%d positionMs=%lld reason=expired",
                               choice.video.itag, orderedOptions[index + 1].video.itag,
@@ -1344,6 +1390,413 @@ final class SabrPlayerController: ObservableObject {
         }
     }
 
+    private func releaseRetiredSabrSessions(using service: SabrService?) {
+        let retired = retiredSabrSessions
+        retiredSabrSessions.removeAll()
+        guard let service else { return }
+        for oldSession in retired {
+            Task { try? await service.release(sessionId: oldSession) }
+        }
+    }
+
+    /// Hold the network mailbox open briefly while preparing a replacement.
+    /// On timeout retain preparation for the existing end-of-buffer fallback.
+    private func awaitEarlySessionForSplice(cacheAheadMs: Int64) async throws
+        -> SabrPrewarmedRecoverySession? {
+        // Verification now includes NEW compressed A/V fragments, rather
+        // than only a cheap overlapping GOP. Give the server more time if
+        // the existing cache safely covers the current playback, but retain
+        // at least four seconds for a bounded decoder fallback.
+        let waitMs = min(Int64(10_000), max(Int64(500),
+                         cacheAheadMs - SabrSplicePreflightPolicy.minimumNewMediaMs))
+        for _ in 0..<Int(waitMs / 100) {
+            try Task.checkCancellation()
+            if let prepared = earlyRecoveryPrepared {
+                guard prepared.verifiedForSplice else {
+                    NSLog("TypeType SABR EARLY splice-deferred reason=unverified-media")
+                    return nil
+                }
+                earlyRecoveryPrepared = nil
+                earlyRecoveryTask?.cancel()
+                earlyRecoveryTask = nil
+                earlyRecoveryService = nil
+                return prepared
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return nil
+    }
+
+    /// Repeated server restarts must not terminate the already-running
+    /// decoder mailbox after the first producer-only session swap. Continue
+    /// replacing ONLY the network producer while at least 8 seconds of verified
+    /// contiguous audio/video cache remain; otherwise let the ordinary
+    /// bounded full recovery handle the underrun.
+    private func runSplicedProducer(
+        service: SabrService, videoId: String, choice: SabrSelection,
+        buffer: SabrBufferSettings, cache: SabrFragmentCache,
+        mailbox: SabrWindowMailbox,
+        initial: SabrPrewarmedRecoverySession
+    ) async {
+        let epoch = playbackEpoch
+        var current = initial
+        var sessions = 1
+
+        while !Task.isCancelled, playbackEpoch == epoch {
+            do {
+                try await downloadWindows(
+                    service: service, videoId: videoId,
+                    sessionId: current.reply.sessionId,
+                    generation: current.reply.generation,
+                    choice: choice, start: current.startPositionMs,
+                    buffer: buffer, cache: cache, mailbox: mailbox
+                )
+                await mailbox.finish()
+                return
+            } catch {
+                guard !Task.isCancelled, playbackEpoch == epoch else {
+                    await mailbox.finish(error: CancellationError())
+                    return
+                }
+                let clock = playbackSeconds()
+                let validClock = clock.isFinite && clock >= 0 &&
+                    clock < Double(Int64.max) / 1_000
+                let playheadMs = validClock ? Int64(clock * 1_000) : 0
+                let cacheEndMs = validClock
+                    ? await cache.cachedThroughMs(
+                        audioItag: choice.audio.itag,
+                        videoItag: choice.video.itag,
+                        positionMs: playheadMs
+                    ) : 0
+                let safeToRetry = validClock &&
+                    SabrRecoverySplicePolicy.canReSplice(
+                        error: error, initialized: isInitialized,
+                        playheadMs: playheadMs, cachedThroughMs: cacheEndMs,
+                        sessionsSoFar: sessions
+                    )
+                let anchor = safeToRetry
+                    ? SabrEarlySessionPrewarmPolicy.startPosition(
+                        playheadMs: playheadMs,
+                        audioQueuedEndMs: queuedAudioEndMs,
+                        videoQueuedEndMs: queuedVideoEndMs,
+                        cachedThroughMs: cacheEndMs
+                    ) : nil
+                NSLog("TypeType SABR EARLY splice-failure kind=%@ http=%d sessionCount=%d playbackMs=%lld cacheAheadMs=%lld retry=%d",
+                      SabrRecoverySplicePolicy.errorKind(error),
+                      SabrRecoverySplicePolicy.httpStatus(error),
+                      sessions, playheadMs,
+                      max(0, cacheEndMs - playheadMs),
+                      anchor == nil ? 0 : 1)
+                guard let anchor else {
+                    await mailbox.finish(error: error)
+                    return
+                }
+                beginEarlyRecovery(
+                    service: service, videoId: videoId,
+                    selection: choice, buffer: buffer, startMs: anchor,
+                    forwardBoundaryMs: cacheEndMs
+                )
+                guard let next = try? await awaitEarlySessionForSplice(
+                    cacheAheadMs: max(0, cacheEndMs - playheadMs)
+                ) else {
+                    NSLog("TypeType SABR EARLY re-splice-not-ready sessionCount=%d",
+                          sessions)
+                    await mailbox.finish(error: error)
+                    return
+                }
+                guard !Task.isCancelled, playbackEpoch == epoch,
+                      sessionId == current.reply.sessionId,
+                      next.reply.sessionId != current.reply.sessionId else {
+                    let abandoned = next.reply.sessionId
+                    Task.detached(priority: .utility) {
+                        try? await service.release(sessionId: abandoned)
+                    }
+                    await mailbox.finish(error: CancellationError())
+                    return
+                }
+                retiredSabrSessions.append(current.reply.sessionId)
+                sessionId = next.reply.sessionId
+                generation = next.reply.generation
+                sessions += 1
+                NSLog("TypeType SABR EARLY re-splice-producer sessionCount=%d startMs=%lld",
+                      sessions, next.startPositionMs)
+                current = next
+            }
+        }
+        await mailbox.finish(error: CancellationError())
+    }
+
+    /// Cancel speculative session work and release its token on Stop,
+    /// seek, or successful end of stream.
+    private func abandonEarlyRecovery() {
+        earlyRecoveryTask?.cancel()
+        earlyRecoveryTask = nil
+        let staged = earlyRecoveryPrepared
+        let service = earlyRecoveryService
+        earlyRecoveryPrepared = nil
+        earlyRecoveryService = nil
+        if let staged, let service {
+            Task { try? await service.release(sessionId: staged.reply.sessionId) }
+        }
+    }
+
+    /// Prewarm the *future* media beyond the old session's verified A/V
+    /// disk boundary, never just the two-second overlap. A replacement
+    /// is decoder-splice-safe only if at least 4s of new, contiguous native
+    /// AAC/video samples are cached and a reliably flagged RAP from the GOP
+    /// crossing that boundary is available for decoder preroll. Such a RAP
+    /// legitimately precedes the frontier by several seconds. Preflight
+    /// never enqueues samples or changes the clock.
+    private func verifyPrewarmedSplice(
+        service: SabrService, reply: SabrSessionReply,
+        selection: SabrSelection, window: SabrWindow, boundaryMs: Int64
+    ) async throws -> Bool {
+        guard let audio = window.audio, let video = window.video,
+              let audioParts = SabrSplicePreflightPolicy.forwardSegments(
+                audio.segments, boundaryMs: boundaryMs
+              ),
+              let videoParts = SabrSplicePreflightPolicy.forwardSegments(
+                video.segments, boundaryMs: boundaryMs
+              ),
+              let cache = segmentCache else {
+            NSLog("TypeType SABR EARLY preflight result=0 reason=no-forward-av boundaryMs=%lld",
+                  boundaryMs)
+            return false
+        }
+
+        let sid = reply.sessionId
+        let gen = reply.generation
+        let audioInit = try await service.fragmentData(
+            audio.initUrl, sessionId: sid,
+            itag: selection.audio.itag, generation: gen
+        )
+        let videoInit = try await service.fragmentData(
+            video.initUrl, sessionId: sid,
+            itag: selection.video.itag, generation: gen
+        )
+        var audioFirstMs: Int64?
+        var audioEndMs: Int64?
+        var videoRAPMs: Int64?
+        var videoEndMs: Int64?
+        var staged: [SabrMediaReference] = []
+
+        for part in audioParts {
+            try Task.checkCancellation()
+            let bytes = try await cache.data(for: part.url) {
+                try await service.fragmentData(
+                    part.url, sessionId: sid,
+                    itag: selection.audio.itag, generation: gen
+                )
+            }
+            let samples = try await SabrDirectMP4Reader.compressedSamples(
+                initialization: audioInit, fragment: bytes,
+                mediaType: .audio, presentationStartMs: boundaryMs
+            )
+            guard let start = SabrSampleTimingProbe.actualStartMs(samples),
+                  let end = SabrSampleTimingProbe.actualEndMs(samples),
+                  end > start else {
+                NSLog("TypeType SABR EARLY preflight result=0 reason=empty-new-audio boundaryMs=%lld",
+                      boundaryMs)
+                return false
+            }
+            if let prior = audioEndMs,
+               !SabrSplicePreflightPolicy.continues(
+                previousEndMs: prior, nextStartMs: start
+               ) {
+                NSLog("TypeType SABR EARLY preflight result=0 reason=audio-gap gapMs=%lld",
+                      start - prior)
+                return false
+            }
+            if audioFirstMs == nil { audioFirstMs = start }
+            audioEndMs = end
+            staged.append(SabrMediaReference(
+                url: part.url, itag: selection.audio.itag,
+                startMs: part.startMs, durationMs: part.durationMs
+            ))
+        }
+
+        for (index, part) in videoParts.enumerated() {
+            try Task.checkCancellation()
+            let bytes = try await cache.data(for: part.url) {
+                try await service.fragmentData(
+                    part.url, sessionId: sid,
+                    itag: selection.video.itag, generation: gen
+                )
+            }
+            let samples: [CMSampleBuffer]
+            if index == 0 {
+                // SABR metadata rounds native PTS by ~20-40ms. Probe
+                // slightly beyond the rounded boundary; the actual RAP may
+                // precede it by a full GOP and remains valid decoder preroll.
+                // Existing GOP frames are deduplicated at the handoff.
+                let batch = try await SabrDirectMP4Reader.compressedSeekVideo(
+                    initialization: videoInit, fragment: bytes,
+                    presentationStartMs: boundaryMs + 200
+                )
+                videoRAPMs = batch.selectedRAPMs
+                samples = batch.buffers
+            } else {
+                samples = try await SabrDirectMP4Reader.compressedSamples(
+                    initialization: videoInit, fragment: bytes,
+                    mediaType: .video
+                )
+            }
+            guard let start = SabrSampleTimingProbe.actualStartMs(samples),
+                  let end = SabrSampleTimingProbe.actualEndMs(samples),
+                  end > start else {
+                NSLog("TypeType SABR EARLY preflight result=0 reason=empty-new-video boundaryMs=%lld",
+                      boundaryMs)
+                return false
+            }
+            if let prior = videoEndMs,
+               !SabrSplicePreflightPolicy.continues(
+                previousEndMs: prior, nextStartMs: start
+               ) {
+                NSLog("TypeType SABR EARLY preflight result=0 reason=video-gap gapMs=%lld",
+                      start - prior)
+                return false
+            }
+            videoEndMs = end
+            staged.append(SabrMediaReference(
+                url: part.url, itag: selection.video.itag,
+                startMs: part.startMs, durationMs: part.durationMs
+            ))
+        }
+
+        let valid = SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: boundaryMs, audioFirstMs: audioFirstMs,
+            audioEndMs: audioEndMs, videoRAPMs: videoRAPMs,
+            videoEndMs: videoEndMs
+        )
+        NSLog("TypeType SABR EARLY preflight result=%d boundaryMs=%lld audioFirstMs=%lld audioEndMs=%lld videoRapMs=%lld videoEndMs=%lld newAudioMs=%lld newVideoMs=%lld",
+              valid ? 1 : 0, boundaryMs, audioFirstMs ?? -1,
+              audioEndMs ?? -1, videoRAPMs ?? -1, videoEndMs ?? -1,
+              max(0, (audioEndMs ?? 0) - boundaryMs),
+              max(0, (videoEndMs ?? 0) - boundaryMs))
+        if valid {
+            for reference in staged { await cache.recordCachedMedia(reference) }
+        }
+        return valid
+    }
+
+    /// Prepare a fresh SABR session concurrently with playback. A readiness
+    /// window request warms its first tracks on the server, but does not
+    /// submit them to the old renderer or alter its timeline.
+    private func beginEarlyRecovery(service: SabrService, videoId: String,
+                                    selection: SabrSelection,
+                                    buffer: SabrBufferSettings,
+                                    startMs: Int64,
+                                    forwardBoundaryMs: Int64? = nil) {
+        guard earlyRecoveryTask == nil else { return }
+        let epoch = playbackEpoch
+        earlyRecoveryService = service
+        earlyRecoveryTask = Task { [weak self] in
+            guard let self else { return }
+            let policy = SabrRecoveryPolicy()
+            let began = Date()
+            for attempt in 1...policy.maxAttempts {
+                guard !Task.isCancelled, self.playbackEpoch == epoch else { return }
+                var createdSessionID: String?
+                do {
+                    let reply = try await service.start(
+                        videoId: videoId, selection: selection,
+                        positionMs: startMs
+                    )
+                    guard !reply.sessionId.isEmpty else {
+                        throw SabrFailure.invalidResponse("sessionId")
+                    }
+                    createdSessionID = reply.sessionId
+                    let firstWindow = try await service.window(
+                        sessionId: reply.sessionId, selection: selection,
+                        generation: reply.generation, positionMs: startMs,
+                        buffer: buffer,
+                        requestedBufferGoalMs: min(20_000, buffer.forwardMilliseconds)
+                    )
+                    // A ready server token is NOT a ready native decoder
+                    // splice. The fallback may still use metadata-only
+                    // sessions; the in-place producer may not.
+                    let verified: Bool
+                    do {
+                        if let forwardBoundaryMs {
+                            verified = try await self.verifyPrewarmedSplice(
+                                service: service, reply: reply,
+                                selection: selection, window: firstWindow,
+                                boundaryMs: forwardBoundaryMs
+                            )
+                        } else {
+                            // Proactive health checks do not prove an
+                            // upcoming decoder splice boundary. Keep their
+                            // session as a normal full-recovery fallback.
+                            verified = false
+                        }
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        NSLog("TypeType SABR EARLY preflight result=0 kind=%@",
+                              SabrRecoverySplicePolicy.errorKind(error))
+                        verified = false
+                    }
+                    guard !Task.isCancelled, self.playbackEpoch == epoch else {
+                        let abandoned = reply.sessionId
+                        // The parent was cancelled by Stop/Seek. Release
+                        // from an independent task, not its cancelled context.
+                        Task.detached(priority: .utility) {
+                            try? await service.release(sessionId: abandoned)
+                        }
+                        return
+                    }
+                    self.earlyRecoveryPrepared = SabrPrewarmedRecoverySession(
+                        reply: reply, startPositionMs: startMs,
+                        verifiedForSplice: verified
+                    )
+                    NSLog("TypeType SABR EARLY session-ready attempt=%d targetMs=%lld spliceVerified=%d",
+                          attempt, startMs, verified ? 1 : 0)
+                    return
+                } catch {
+                    if let createdSessionID {
+                        Task.detached(priority: .utility) {
+                            try? await service.release(sessionId: createdSessionID)
+                        }
+                    }
+                    guard !Task.isCancelled, self.playbackEpoch == epoch,
+                          policy.canRetry(
+                            error, completedAttempts: attempt,
+                            elapsedSeconds: Date().timeIntervalSince(began)
+                          ) else {
+                        NSLog("TypeType SABR EARLY session-unavailable attempt=%d", attempt)
+                        return
+                    }
+                    NSLog("TypeType SABR EARLY session-retry attempt=%d", attempt)
+                    do {
+                        try await Task.sleep(
+                            nanoseconds: policy.delayNanoseconds(
+                                for: error, attempt: attempt
+                            )
+                        )
+                    } catch { return }
+                }
+            }
+        }
+    }
+
+    /// Give an in-flight prewarm at most 1.2s at the handover boundary.
+    /// If it is not ready, fall back to the existing fresh-session recovery.
+    private func takeEarlyRecovery() async throws -> SabrPrewarmedRecoverySession? {
+        if earlyRecoveryTask != nil, earlyRecoveryPrepared == nil {
+            for _ in 0..<8 {
+                try Task.checkCancellation()
+                if earlyRecoveryPrepared != nil { break }
+                try await Task.sleep(nanoseconds: 150_000_000)
+            }
+        }
+        let prepared = earlyRecoveryPrepared
+        earlyRecoveryPrepared = nil
+        earlyRecoveryTask?.cancel()
+        earlyRecoveryTask = nil
+        earlyRecoveryService = nil
+        return prepared
+    }
+
     /// The network stage runs independently of sample-buffer decoder pressure.
     /// Producer sends complete metadata windows through a bounded mailbox and
     /// downloads the compressed bytes to the disk cache before advancing.
@@ -1372,7 +1825,8 @@ final class SabrPlayerController: ObservableObject {
                 }
                 do {
                     try await self.downloadWindows(
-                        service: service, sessionId: currentSession,
+                        service: service, videoId: videoId,
+                        sessionId: currentSession,
                         generation: currentGeneration, choice: choice,
                         start: producerStart, buffer: buffer,
                         cache: cache, mailbox: mailbox
@@ -1400,6 +1854,92 @@ final class SabrPlayerController: ObservableObject {
                     NSLog("TypeType SABR PRODUCER failed reason=%@ playbackMs=%lld cachedMs=%lld",
                           reason, max(0, Int64(self.playbackSeconds() * 1_000)),
                           self.cachedThroughMs)
+                    let clock = self.playbackSeconds()
+                    let validClock = clock.isFinite && clock >= 0 &&
+                        clock < Double(Int64.max) / 1_000
+                    let playheadMs = validClock ? Int64(clock * 1_000) : 0
+                    // Inspect the actual contiguous disk coverage for BOTH
+                    // selected tracks. The decoder's queued sample frontier
+                    // can be much shorter than the compressed-media cache.
+                    let cacheEndMs = validClock
+                        ? await cache.cachedThroughMs(
+                            audioItag: choice.audio.itag,
+                            videoItag: choice.video.itag,
+                            positionMs: playheadMs
+                        ) : 0
+                    let rendererEndMs = min(self.queuedAudioEndMs,
+                                            self.queuedVideoEndMs)
+                    let recoverable = SabrEarlySessionPrewarmPolicy.shouldPrepare(
+                        for: error
+                    )
+                    let anchor = validClock
+                        ? SabrEarlySessionPrewarmPolicy.startPosition(
+                            playheadMs: playheadMs,
+                            audioQueuedEndMs: self.queuedAudioEndMs,
+                            videoQueuedEndMs: self.queuedVideoEndMs,
+                            cachedThroughMs: cacheEndMs
+                        ) : nil
+                    let httpCode: Int
+                    if let failure = error as? SabrFailure {
+                        switch failure {
+                        case .server(let code, _), .throttled(let code, _, _):
+                            httpCode = code
+                        default: httpCode = 0
+                        }
+                    } else {
+                        httpCode = 0
+                    }
+                    // Always record the trigger decision, including skips.
+                    // No session identifiers, auth, or media URLs are logged.
+                    NSLog("TypeType SABR EARLY decision recoverable=%d initialized=%d http=%d cacheAheadMs=%lld rendererAheadMs=%lld eligible=%d",
+                          recoverable ? 1 : 0, self.isInitialized ? 1 : 0,
+                          httpCode, max(0, cacheEndMs - playheadMs),
+                          max(0, rendererEndMs - playheadMs),
+                          anchor == nil ? 0 : 1)
+                    if !Task.isCancelled, self.isInitialized, validClock,
+                       recoverable, let anchor {
+                        NSLog("TypeType SABR EARLY producer-lost startMs=%lld",
+                              anchor)
+                        self.beginEarlyRecovery(
+                            service: service, videoId: videoId,
+                            selection: choice, buffer: buffer, startMs: anchor,
+                            forwardBoundaryMs: cacheEndMs
+                        )
+                        // Continue the existing decoder mailbox instead of
+                        // waiting for its last cached window to drain. No
+                        // renderer flush, clock reset or cache clear occurs.
+                        if SabrRecoverySplicePolicy.shouldSwitch(
+                            error: error, initialized: self.isInitialized,
+                            playheadMs: playheadMs, cachedThroughMs: cacheEndMs
+                        ), let prepared = try? await self.awaitEarlySessionForSplice(
+                            cacheAheadMs: max(0, cacheEndMs - playheadMs)
+                        ) {
+                            guard !Task.isCancelled,
+                                  self.sessionId == currentSession,
+                                  prepared.reply.sessionId != currentSession else {
+                                let abandoned = prepared.reply.sessionId
+                                Task.detached(priority: .utility) {
+                                    try? await service.release(sessionId: abandoned)
+                                }
+                                await mailbox.finish(error: error)
+                                return
+                            }
+                            self.retiredSabrSessions.append(currentSession)
+                            self.sessionId = prepared.reply.sessionId
+                            self.generation = prepared.reply.generation
+                            NSLog("TypeType SABR EARLY splice-producer startMs=%lld cacheAheadMs=%lld rendererAheadMs=%lld",
+                                  prepared.startPositionMs,
+                                  max(0, cacheEndMs - playheadMs),
+                                  max(0, rendererEndMs - playheadMs))
+                            await self.runSplicedProducer(
+                                service: service, videoId: videoId,
+                                choice: choice, buffer: buffer,
+                                cache: cache, mailbox: mailbox,
+                                initial: prepared
+                            )
+                            return
+                        }
+                    }
                     await mailbox.finish(error: error)
                 }
             }
@@ -1412,12 +1952,22 @@ final class SabrPlayerController: ObservableObject {
                 producer.cancel()
                 windowProducerTask = nil
                 activeMailbox = nil
+                releaseRetiredSabrSessions(using: service)
+                abandonEarlyRecovery()
                 return
             } catch {
+                let failedAtMs = max(0, Int64(playbackSeconds() * 1_000))
+                NSLog("TypeType SABR RECOVERY decoder-exit kind=%@ http=%d clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld diskAheadMs=%lld",
+                      SabrRecoverySplicePolicy.errorKind(error),
+                      SabrRecoverySplicePolicy.httpStatus(error),
+                      failedAtMs, queuedAudioEndMs - failedAtMs,
+                      queuedVideoEndMs - failedAtMs,
+                      cachedThroughMs - failedAtMs)
                 producer.cancel()
                 await mailbox.finish(error: CancellationError())
                 windowProducerTask = nil
                 activeMailbox = nil
+                releaseRetiredSabrSessions(using: service)
                 let lastPositionMs = max(0, Int64(playbackSeconds() * 1_000))
                 let playbackAdvancedMs = max(0, lastPositionMs - producerStart)
                 if playbackAdvancedMs >= SabrRecoveryBudget.stablePlaybackMs {
@@ -1442,7 +1992,10 @@ final class SabrPlayerController: ObservableObject {
                 // Never log the sessionId, bearer or media URL.
                 NSLog("TypeType SABR RECOVERY attempt=%d retry=%d playbackMs=%lld contiguousMs=%lld",
                       recoveryAttempt, allowed ? 1 : 0, lastPositionMs, positionMs)
-                guard allowed else { throw error }
+                guard allowed else {
+                    abandonEarlyRecovery()
+                    throw error
+                }
                 let refreshUpstream = SabrRecoveryRefreshPolicy.shouldRefresh(
                     attempt: recoveryAttempt,
                     currentFailurePositionMs: lastPositionMs,
@@ -1464,18 +2017,34 @@ final class SabrPlayerController: ObservableObject {
                     transportMs: restartPosition,
                     initialized: isInitialized
                 )
+                // The producer may already have started and warmed a new
+                // server session in parallel with the old renderer.
+                // A deliberate upstream-token refresh cannot reuse it.
+                if refreshUpstream { abandonEarlyRecovery() }
+                let prepared: SabrPrewarmedRecoverySession?
+                if refreshUpstream {
+                    prepared = nil
+                } else {
+                    prepared = try await takeEarlyRecovery()
+                }
+                try Task.checkCancellation()
                 recordProgress(force: true)
                 synchronizer.setRate(
                     0, time: CMTime(value: restartPosition, timescale: 1_000)
                 )
                 isPlaying = false
-                state = TVL10n.value("player.connecting") +
+                // A decoder/timebase restart can happen even after the
+                // TypeType server has already reconnected. Do not tell the
+                // user the network is still disconnected.
+                state = TVL10n.value("player.recoveringPlayback") +
                     " (\(recoveryAttempt))"
-                try await Task.sleep(
-                    nanoseconds: policy.delayNanoseconds(
-                        for: error, attempt: recoveryAttempt
+                if prepared == nil {
+                    try await Task.sleep(
+                        nanoseconds: policy.delayNanoseconds(
+                            for: error, attempt: recoveryAttempt
+                        )
                     )
-                )
+                }
                 try Task.checkCancellation()
                 if refreshUpstream {
                     // Request the local server's isolated metadata refresh
@@ -1486,11 +2055,42 @@ final class SabrPlayerController: ObservableObject {
                           recoveryAttempt, restartPosition)
                 }
                 let oldSession = sessionId
-                let renewed = try await retryTransient {
-                    try await service.start(
-                        videoId: videoId, selection: choice,
-                        positionMs: restartPosition, refreshUpstream: refreshUpstream
-                    )
+                let renewed: SabrSessionReply
+                if let prepared {
+                    // The speculative start was anchored near the previous
+                    // renderer frontier. The consumer's exact recovery target
+                    // can differ; seek only the NEW session to that target.
+                    do {
+                        renewed = try await service.seek(
+                            sessionId: prepared.reply.sessionId,
+                            selection: choice, positionMs: restartPosition
+                        )
+                        if renewed.sessionId != prepared.reply.sessionId {
+                            let unused = prepared.reply.sessionId
+                            Task { try? await service.release(sessionId: unused) }
+                        }
+                        NSLog("TypeType SABR EARLY handover prewarmed=1 offsetMs=%lld",
+                              restartPosition - prepared.startPositionMs)
+                    } catch {
+                        let unused = prepared.reply.sessionId
+                        Task { try? await service.release(sessionId: unused) }
+                        NSLog("TypeType SABR EARLY handover prewarmed=0 reason=seek-failed")
+                        renewed = try await retryTransient {
+                            try await service.start(
+                                videoId: videoId, selection: choice,
+                                positionMs: restartPosition,
+                                refreshUpstream: refreshUpstream
+                            )
+                        }
+                    }
+                } else {
+                    renewed = try await retryTransient {
+                        try await service.start(
+                            videoId: videoId, selection: choice,
+                            positionMs: restartPosition,
+                            refreshUpstream: refreshUpstream
+                        )
+                    }
                 }
                 if Task.isCancelled {
                     let abandoned = renewed.sessionId
@@ -1536,8 +2136,9 @@ final class SabrPlayerController: ObservableObject {
     /// Uses the *actual playback clock* for the server's position updates.
     /// The bufferedRanges fields, rather than a fake forward seek, tell the
     /// server which completed audio/video intervals are already stored.
-    private func downloadWindows(service: SabrService, sessionId: String,
-                                 generation: Int64, choice: SabrSelection,
+    private func downloadWindows(service: SabrService, videoId: String,
+                                 sessionId: String, generation: Int64,
+                                 choice: SabrSelection,
                                  start: Int64, buffer: SabrBufferSettings,
                                  cache: SabrFragmentCache,
                                  mailbox: SabrWindowMailbox) async throws {
@@ -1550,6 +2151,9 @@ final class SabrPlayerController: ObservableObject {
         var stalled = 0
         var lastAudioSequence: Int?
         var lastVideoSequence: Int?
+        var lastHealthCheck = Date.distantPast
+        var consecutiveHealthFailures = 0
+        var healthEndpointSupported = true
         let target = SabrLookaheadPolicy.targetMilliseconds(
             buffer, videoBitrate: choice.video.bitrate
         )
@@ -1565,6 +2169,37 @@ final class SabrPlayerController: ObservableObject {
             if !first && !SabrLookaheadPolicy.shouldRequestMore(
                 cachedThroughMs: retainedEnd, playheadMs: playhead, targetMs: target
             ) {
+                // With enough compressed media on disk the producer issues
+                // no SABR requests. Poll the public health endpoint at most
+                // once per five seconds so a server reboot can be noticed
+                // before the current playback buffer is almost exhausted.
+                if healthEndpointSupported,
+                   Date().timeIntervalSince(lastHealthCheck) >= 5 {
+                    lastHealthCheck = Date()
+                    if let healthy = await service.serverHealth() {
+                        consecutiveHealthFailures = healthy ? 0
+                            : consecutiveHealthFailures + 1
+                        if consecutiveHealthFailures >= 2,
+                           isInitialized, earlyRecoveryTask == nil,
+                           let anchor = SabrEarlySessionPrewarmPolicy.startPosition(
+                               playheadMs: playhead,
+                               audioQueuedEndMs: queuedAudioEndMs,
+                               videoQueuedEndMs: queuedVideoEndMs,
+                               cachedThroughMs: retainedEnd
+                           ) {
+                            NSLog("TypeType SABR EARLY health-outage detections=%d",
+                                  consecutiveHealthFailures)
+                            beginEarlyRecovery(
+                                service: service, videoId: videoId,
+                                selection: choice, buffer: buffer, startMs: anchor
+                            )
+                        }
+                    } else {
+                        // Older/proxied deployments without /api/health
+                        // continue to rely on genuine producer errors.
+                        healthEndpointSupported = false
+                    }
+                }
                 try await Task.sleep(nanoseconds: 250_000_000)
                 continue
             }
@@ -1616,8 +2251,11 @@ final class SabrPlayerController: ObservableObject {
                     originalVideo.segments, after: lastVideoSequence
                 )
             )
+            // The server may omit sessionId in /segments. The decoder
+            // must nevertheless know which generation authorized each
+            // queued window after a producer-only session switch.
             let requested = SabrWindow(
-                sessionId: original.sessionId, generation: original.generation,
+                sessionId: sessionId, generation: generation,
                 ready: original.ready, retryAfterMs: original.retryAfterMs,
                 status: original.status, durationMs: original.durationMs,
                 endOfStream: original.endOfStream, startTimeMs: original.startTimeMs,
@@ -1853,6 +2491,9 @@ final class SabrPlayerController: ObservableObject {
         var audioInitLocation = ""
         var videoInitLocation = ""
         var seen = Set<String>()
+        var currentWindowSession: String?
+        var spliceAudioBeforeMs: Int64?
+        var spliceVideoBeforeMs: Int64?
         // Audio (often ~10 s per fragment) and video (often ~5 s) do
         // not share fragment indices. Keep an independent queue per track;
         // only submit samples through the last contiguous COMMON timeline.
@@ -1875,13 +2516,46 @@ final class SabrPlayerController: ObservableObject {
         }) {
             try Task.checkCancellation()
             if let ms = response.durationMs { durationMs = ms }
+            // Producer may switch sessions while old windows are still in
+            // the FIFO mailbox. Keep each window's own media credentials.
+            guard let responseSession = response.sessionId else {
+                throw SabrFailure.invalidResponse("queued window lacks session provenance")
+            }
+            guard let responseGeneration = response.generation else {
+                throw SabrFailure.invalidResponse("queued window lacks generation provenance")
+            }
+            if let previousSession = currentWindowSession,
+               previousSession != responseSession {
+                spliceAudioBeforeMs = SabrRecoverySplicePolicy.clipBeforeMs(
+                    queuedEndMs: queuedAudioEndMs,
+                    parsedEndMs: audioTimeline.lastActualEndMs,
+                    presentationStartMs: presentationStartMs
+                )
+                spliceVideoBeforeMs = SabrRecoverySplicePolicy.clipBeforeMs(
+                    queuedEndMs: queuedVideoEndMs,
+                    parsedEndMs: videoTimeline.lastActualEndMs,
+                    presentationStartMs: presentationStartMs
+                )
+                let spliceClockMs = max(0, Int64(playbackSeconds() * 1_000))
+                spliceAwaitingAudioAfterMs = spliceAudioBeforeMs
+                spliceAwaitingVideoAfterMs = spliceVideoBeforeMs
+                NSLog("TypeType SABR EARLY splice-decoder audioCutMs=%lld videoCutMs=%lld clockMs=%lld audioHeadroomMs=%lld videoHeadroomMs=%lld",
+                      spliceAudioBeforeMs ?? 0, spliceVideoBeforeMs ?? 0,
+                      spliceClockMs, queuedAudioEndMs - spliceClockMs,
+                      queuedVideoEndMs - spliceClockMs)
+                if let index = retiredSabrSessions.firstIndex(of: previousSession) {
+                    retiredSabrSessions.remove(at: index)
+                    Task { try? await service.release(sessionId: previousSession) }
+                }
+            }
+            currentWindowSession = responseSession
             guard let audio = response.audio, let video = response.video else {
                 throw SabrFailure.invalidResponse("SABR audio/video missing")
             }
             if audioInitLocation != audio.initUrl {
                 audioInit = try await service.fragmentData(
-                    audio.initUrl, sessionId: sessionId,
-                    itag: choice.audio.itag, generation: generation
+                    audio.initUrl, sessionId: responseSession,
+                    itag: choice.audio.itag, generation: responseGeneration
                 )
                 audioInitLocation = audio.initUrl
                 audioTimeline = SabrNativeTimelineResolver()
@@ -1889,8 +2563,8 @@ final class SabrPlayerController: ObservableObject {
             }
             if videoInitLocation != video.initUrl {
                 videoInit = try await service.fragmentData(
-                    video.initUrl, sessionId: sessionId,
-                    itag: choice.video.itag, generation: generation
+                    video.initUrl, sessionId: responseSession,
+                    itag: choice.video.itag, generation: responseGeneration
                 )
                 videoInitLocation = video.initUrl
                 videoTimeline = SabrNativeTimelineResolver()
@@ -1906,7 +2580,7 @@ final class SabrPlayerController: ObservableObject {
                 try Task.checkCancellation()
                 let key = "a:\(segment.url)"
                 guard !seen.contains(key) else { continue }
-                let sid = sessionId, gen = generation
+                let sid = responseSession, gen = responseGeneration
                 #if DEBUG
                 let readStarted = ProcessInfo.processInfo.systemUptime
                 #endif
@@ -1917,8 +2591,8 @@ final class SabrPlayerController: ObservableObject {
                     try await SabrDirectMP4Reader.compressedSamples(
                         initialization: audioInit, fragment: bytes,
                         mediaType: .audio,
-                        presentationStartMs: presentationStartMs > start
-                            ? presentationStartMs : nil
+                        presentationStartMs: spliceAudioBeforeMs ??
+                            (presentationStartMs > start ? presentationStartMs : nil)
                     )
                 }
                 #if DEBUG
@@ -1979,7 +2653,7 @@ final class SabrPlayerController: ObservableObject {
                     // In a decoder preroll this entire audio fragment may
                     // end before the real seek target. Its metadata remains
                     // relevant to window continuity, but it must stay silent.
-                    guard presentationStartMs > start else {
+                    guard presentationStartMs > start || spliceAudioBeforeMs != nil else {
                         throw SabrFailure.unsupported("SABR audio segment contains no compressed samples")
                     }
                     try coverage.acceptAudio(segment)
@@ -2032,7 +2706,22 @@ final class SabrPlayerController: ObservableObject {
                 try Task.checkCancellation()
                 let key = "v:\(segment.url)"
                 guard !seen.contains(key) else { continue }
-                let sid = sessionId, gen = generation
+                if let cutoff = spliceVideoBeforeMs,
+                   segment.durationMs > 0, segment.startMs >= 0,
+                   segment.startMs <= Int64.max - segment.durationMs,
+                   cutoff <= Int64.max - 40,
+                   segment.startMs + segment.durationMs <= cutoff + 40 {
+                    // Native PTS is commonly 20ms ahead of rounded SABR
+                    // metadata. This GOP is ALREADY in the old native
+                    // renderer: do not submit hidden duplicate H.264 frames
+                    // or replay a stale keyframe in the same CoreMedia clock.
+                    NSLog("TypeType SABR EARLY skip-old-video-gop seq=%d metadataEndMs=%lld oldQueuedEndMs=%lld",
+                          SabrSequenceOrder.sequence(segment.url) ?? -1,
+                          segment.startMs + segment.durationMs, cutoff)
+                    seen.insert(key)
+                    continue
+                }
+                let sid = responseSession, gen = responseGeneration
                 #if DEBUG
                 let readStarted = ProcessInfo.processInfo.systemUptime
                 #endif
@@ -2042,8 +2731,8 @@ final class SabrPlayerController: ObservableObject {
                 ) { bytes in
                     try await SabrDirectMP4Reader.compressedSeekVideo(
                         initialization: videoInit, fragment: bytes,
-                        presentationStartMs: presentationStartMs > start
-                            ? presentationStartMs : nil
+                        presentationStartMs: spliceVideoBeforeMs ??
+                            (presentationStartMs > start ? presentationStartMs : nil)
                     )
                 }
                 let rawSamples = videoBatch.buffers
@@ -2267,6 +2956,15 @@ final class SabrPlayerController: ObservableObject {
                 throw SabrFailure.stalled("native audio renderer failed")
             }
             audioRenderer.enqueue(sample)
+            if let cutoff = spliceAwaitingAudioAfterMs,
+               let end = SabrSampleTimingProbe.actualEndMs([sample]),
+               end > cutoff {
+                let first = SabrSampleTimingProbe.actualStartMs([sample]) ?? -1
+                let clockMs = max(0, Int64(playbackSeconds() * 1_000))
+                NSLog("TypeType SABR EARLY first-audio-enqueued firstMs=%lld endMs=%lld cutMs=%lld clockMs=%lld previousQueuedMs=%lld",
+                      first, end, cutoff, clockMs, queuedAudioEndMs)
+                spliceAwaitingAudioAfterMs = nil
+            }
             #if DEBUG
             if !hasQueuedFirstAudio { noteStartup(.audioQueued) }
             #endif
@@ -2281,8 +2979,9 @@ final class SabrPlayerController: ObservableObject {
         let renderer = videoLayer.sampleBufferRenderer
         for sample in buffers {
             try Task.checkCancellation()
+            let spliceVideoEnqueueStart = ProcessInfo.processInfo.systemUptime
             #if DEBUG
-            let waitingSince = ProcessInfo.processInfo.systemUptime
+            let waitingSince = spliceVideoEnqueueStart
             #endif
             try await SabrNativeRendererReadiness.waitUntilReady(renderer)
             guard renderer.status != .failed else {
@@ -2298,6 +2997,16 @@ final class SabrPlayerController: ObservableObject {
             }
             #endif
             renderer.enqueue(sample)
+            if let cutoff = spliceAwaitingVideoAfterMs,
+               let end = SabrSampleTimingProbe.actualEndMs([sample]),
+               end > cutoff {
+                let first = SabrSampleTimingProbe.actualStartMs([sample]) ?? -1
+                let clockMs = max(0, Int64(playbackSeconds() * 1_000))
+                NSLog("TypeType SABR EARLY first-video-enqueued firstMs=%lld endMs=%lld cutMs=%lld clockMs=%lld previousQueuedMs=%lld rendererWaitMs=%d",
+                      first, end, cutoff, clockMs, queuedVideoEndMs,
+                      Int((ProcessInfo.processInfo.systemUptime - spliceVideoEnqueueStart) * 1_000))
+                spliceAwaitingVideoAfterMs = nil
+            }
             #if DEBUG
             if !hasQueuedFirstVideo { noteStartup(.videoQueued) }
             #endif
