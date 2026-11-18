@@ -57,6 +57,23 @@ final class SabrCaptionTests: XCTestCase {
         XCTAssertEqual(cues.map(\.text), ["Good cue"])
     }
 
+    func testTTMLDurationPlusStartOverflowDropsOnlyInvalidCue() throws {
+        let input = Data("""
+        <?xml version="1.0" encoding="utf-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml">
+          <body><div>
+            <p begin="9000000000000000000ms" dur="500000000000000000ms">Invalid</p>
+            <p begin="1s" dur="2s">Valid</p>
+          </div></body>
+        </tt>
+        """.utf8)
+        let cues = try SabrCaptionParser.decode(input, mime: "application/ttml+xml")
+        XCTAssertEqual(cues.count, 1)
+        XCTAssertEqual(cues.first?.text, "Valid")
+        XCTAssertEqual(cues.first?.startMs, 1_000)
+        XCTAssertEqual(cues.first?.endMs, 3_000)
+    }
+
     func testRejectsUnknownCaptionFormat() {
         XCTAssertThrowsError(try SabrCaptionParser.decode(
             Data("random".utf8), mime: "application/octet-stream"
