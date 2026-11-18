@@ -201,9 +201,9 @@ private struct SabrSeekReuse {
     let selection: SabrSelection
 }
 
-/// Prepared on the network side while samples from the old SABR session
-/// remain queued in the native decoder. Never install this token before
-/// the consumer reaches its ordinary recovery handoff.
+/// Prepared while samples from the old session remain queued. When enough
+/// verified A/V media is cached, a new producer can append windows to the
+/// existing mailbox. Otherwise the original full recovery still uses it.
 private struct SabrPrewarmedRecoverySession {
     let reply: SabrSessionReply
     let startPositionMs: Int64
@@ -285,6 +285,8 @@ final class SabrPlayerController: ObservableObject {
     private var earlyRecoveryTask: Task<Void, Never>?
     private var earlyRecoveryPrepared: SabrPrewarmedRecoverySession?
     private var earlyRecoveryService: SabrService?
+    // Keep old sessions alive until their FIFO mailbox windows are consumed.
+    private var retiredSabrSessions: [String] = []
     private let progressWriter = TVPlaybackProgressWriter()
     // Main-actor handoff guarantees the stop checkpoint reaches the actor
     // before a fast seek/quality restart changes the history permission.
@@ -451,6 +453,7 @@ final class SabrPlayerController: ObservableObject {
         audioRenderer.isMuted = false
         let previousService = playbackService
         playbackService = nil
+        releaseRetiredSabrSessions(using: previousService)
         let previousSession = sessionId
         if let previousService, !previousSession.isEmpty,
            previousSession != preservingSessionId {
@@ -584,6 +587,7 @@ final class SabrPlayerController: ObservableObject {
                                  targetMs: Int64, reusing: SabrSeekReuse) {
         playbackEpoch &+= 1
         abandonEarlyRecovery()
+        releaseRetiredSabrSessions(using: playbackService)
         if isInitialized { recordProgress(force: true) }
         TVPlaybackPresenceReporter.shared.stop(owner: presenceOwner)
         presenceReported = false
@@ -1355,6 +1359,33 @@ final class SabrPlayerController: ObservableObject {
             isPlaying = false
             state = TVL10n.value("player.failed")
         }
+    }
+
+    private func releaseRetiredSabrSessions(using service: SabrService?) {
+        let retired = retiredSabrSessions
+        retiredSabrSessions.removeAll()
+        guard let service else { return }
+        for oldSession in retired {
+            Task { try? await service.release(sessionId: oldSession) }
+        }
+    }
+
+    /// Hold the network mailbox open briefly while preparing a replacement.
+    /// On timeout retain preparation for the existing end-of-buffer fallback.
+    private func awaitEarlySessionForSplice() async throws
+        -> SabrPrewarmedRecoverySession? {
+        for _ in 0..<50 {
+            try Task.checkCancellation()
+            if let prepared = earlyRecoveryPrepared {
+                earlyRecoveryPrepared = nil
+                earlyRecoveryTask?.cancel()
+                earlyRecoveryTask = nil
+                earlyRecoveryService = nil
+                return prepared
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return nil
     }
 
     /// Cancel speculative session work and release its token on Stop,
