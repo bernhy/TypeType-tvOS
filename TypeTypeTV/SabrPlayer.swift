@@ -1946,7 +1946,10 @@ final class SabrPlayerController: ObservableObject {
                     0, time: CMTime(value: restartPosition, timescale: 1_000)
                 )
                 isPlaying = false
-                state = TVL10n.value("player.connecting") +
+                // A decoder/timebase restart can happen even after the
+                // TypeType server has already reconnected. Do not tell the
+                // user the network is still disconnected.
+                state = TVL10n.value("player.recoveringPlayback") +
                     " (\(recoveryAttempt))"
                 if prepared == nil {
                     try await Task.sleep(
