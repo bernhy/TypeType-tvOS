@@ -2,6 +2,7 @@
 // Adapted from TypeType-Video/TypeType-tvOS TypeTypePlayerKit (Media/MP4SampleBuffers.swift).
 // Original sources: https://github.com/TypeType-Video/TypeType-tvOS
 // The original MPL-2.0 license is available in LICENSES/MPL-2.0.txt.
+import AudioToolbox
 import CoreMedia
 
 public enum MP4SampleBuffers {
@@ -27,6 +28,22 @@ public enum MP4SampleBuffers {
       )
     }
     var sizes = samples.map(\.size)
+    // A/B v4: For compressed AAC-LC use the CoreMedia audio-specific
+    // constructor, which receives a packet description for each variable-size
+    // AAC access unit. The earlier generic constructor only supplied sample
+    // sizes and timings; the old AVAssetReader supplied audio packet metadata.
+    // We retain ALL original per-packet timestamps with a timing-copy so
+    // native A/V sync, seeking and presentation gaps remain unchanged.
+    // Video, HE-AAC and other formats keep their proven original path.
+    if CMFormatDescriptionGetMediaType(format) == kCMMediaType_Audio &&
+       CMFormatDescriptionGetMediaSubType(format) == kAudioFormatMPEG4AAC {
+      return try makeAACWithPacketDescriptions(
+        blockBuffer: blockBuffer,
+        samples: samples,
+        timings: timings,
+        format: format
+      )
+    }
     var sampleBuffer: CMSampleBuffer?
     let status = CMSampleBufferCreateReady(
       allocator: kCFAllocatorDefault,
@@ -44,6 +61,60 @@ public enum MP4SampleBuffers {
       markFrames(sampleBuffer, samples: samples, timescale: scale, hiddenBefore: hiddenBefore)
     }
     return sampleBuffer
+  }
+
+  private static func makeAACWithPacketDescriptions(
+    blockBuffer: CMBlockBuffer,
+    samples: [MP4Sample],
+    timings: [CMSampleTimingInfo],
+    format: CMFormatDescription
+  ) throws -> CMSampleBuffer {
+    var descriptions: [AudioStreamPacketDescription] = []
+    descriptions.reserveCapacity(samples.count)
+    var byteOffset: Int64 = 0
+    for sample in samples {
+      guard let byteSize = UInt32(exactly: sample.size), byteSize > 0 else {
+        throw MP4Error.invalidBox("AAC packet size")
+      }
+      descriptions.append(AudioStreamPacketDescription(
+        mStartOffset: byteOffset,
+        mVariableFramesInPacket: 0,  // ASBD supplies fixed 1024 AAC frames.
+        mDataByteSize: byteSize
+      ))
+      byteOffset += Int64(byteSize)
+    }
+    var audioBuffer: CMSampleBuffer?
+    let audioStatus = descriptions.withUnsafeBufferPointer { descriptions in
+      CMAudioSampleBufferCreateReadyWithPacketDescriptions(
+        allocator: kCFAllocatorDefault,
+        dataBuffer: blockBuffer,
+        formatDescription: format,
+        sampleCount: samples.count,
+        presentationTimeStamp: timings[0].presentationTimeStamp,
+        packetDescriptions: descriptions.baseAddress,
+        sampleBufferOut: &audioBuffer
+      )
+    }
+    guard audioStatus == noErr, let audioBuffer else {
+      throw MP4MediaError.sampleBuffer(audioStatus)
+    }
+    // Apple's audio-specific constructor derives nominal packet timing from
+    // the ASBD. Restore the exact fMP4 per-packet PTS/DTS/duration, including
+    // gaps or fragment offsets. This is essential for the existing SABR sync.
+    var synchronized: CMSampleBuffer?
+    let timingStatus = timings.withUnsafeBufferPointer { entries in
+      CMSampleBufferCreateCopyWithNewTiming(
+        allocator: kCFAllocatorDefault,
+        sampleBuffer: audioBuffer,
+        sampleTimingEntryCount: entries.count,
+        sampleTimingArray: entries.baseAddress,
+        sampleBufferOut: &synchronized
+      )
+    }
+    guard timingStatus == noErr, let synchronized else {
+      throw MP4MediaError.sampleBuffer(timingStatus)
+    }
+    return synchronized
   }
 
   private static func makeBlockBuffer(
