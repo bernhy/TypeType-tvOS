@@ -232,13 +232,13 @@ enum SabrDirectMP4Reader {
         switch kind {
         case .video:
             #if DEBUG
-            // v13 short diagnostic A/B: each grouped video buffer in v12
-            // triggered a synchronous -12710 inside renderer.enqueue;
-            // the sole one-frame video buffer did not. Test grouping only.
-            // Keep native H.264 bytes, sample order, PTS/DTS, A/V clock and
-            // SABR transport unchanged. Release retains the proven batch=8.
-            NSLog("TypeType VIDEO-BATCH-AB mode=single-frame-v13 nativeBatchSize=1")
-            return 1
+            // v14 diagnostic A/B: v12 batches of 8 (or 4) video samples
+            // triggered -12710 on each enqueue; v13 batches of exactly 1
+            // eliminated all -12710 warnings on real Apple TV. Determine
+            // whether just 2 compressed frames reproduce the problem.
+            // Never alter timing, frame order, render API or normal Release.
+            NSLog("TypeType VIDEO-BATCH-AB mode=two-frame-v14 nativeBatchSize=2")
+            return 2
             #else
             return 8
             #endif
