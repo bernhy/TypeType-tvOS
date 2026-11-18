@@ -1388,6 +1388,103 @@ final class SabrPlayerController: ObservableObject {
         return nil
     }
 
+    /// Repeated server restarts must not terminate the already-running
+    /// decoder mailbox after the first producer-only session swap. Continue
+    /// replacing ONLY the network producer while at least 8 seconds of verified
+    /// contiguous audio/video cache remain; otherwise let the ordinary
+    /// bounded full recovery handle the underrun.
+    private func runSplicedProducer(
+        service: SabrService, videoId: String, choice: SabrSelection,
+        buffer: SabrBufferSettings, cache: SabrFragmentCache,
+        mailbox: SabrWindowMailbox,
+        initial: SabrPrewarmedRecoverySession
+    ) async {
+        let epoch = playbackEpoch
+        var current = initial
+        var sessions = 1
+
+        while !Task.isCancelled, playbackEpoch == epoch {
+            do {
+                try await downloadWindows(
+                    service: service, videoId: videoId,
+                    sessionId: current.reply.sessionId,
+                    generation: current.reply.generation,
+                    choice: choice, start: current.startPositionMs,
+                    buffer: buffer, cache: cache, mailbox: mailbox
+                )
+                await mailbox.finish()
+                return
+            } catch {
+                guard !Task.isCancelled, playbackEpoch == epoch else {
+                    await mailbox.finish(error: CancellationError())
+                    return
+                }
+                let clock = playbackSeconds()
+                let validClock = clock.isFinite && clock >= 0 &&
+                    clock < Double(Int64.max) / 1_000
+                let playheadMs = validClock ? Int64(clock * 1_000) : 0
+                let cacheEndMs = validClock
+                    ? await cache.cachedThroughMs(
+                        audioItag: choice.audio.itag,
+                        videoItag: choice.video.itag,
+                        positionMs: playheadMs
+                    ) : 0
+                let safeToRetry = validClock &&
+                    SabrRecoverySplicePolicy.shouldSwitch(
+                        error: error, initialized: isInitialized,
+                        playheadMs: playheadMs, cachedThroughMs: cacheEndMs
+                    )
+                let hasBudget = sessions <
+                    SabrRecoverySplicePolicy.maximumSessionsPerIncident
+                let anchor = safeToRetry && hasBudget
+                    ? SabrEarlySessionPrewarmPolicy.startPosition(
+                        playheadMs: playheadMs,
+                        audioQueuedEndMs: queuedAudioEndMs,
+                        videoQueuedEndMs: queuedVideoEndMs,
+                        cachedThroughMs: cacheEndMs
+                    ) : nil
+                NSLog("TypeType SABR EARLY splice-failure kind=%@ http=%d sessionCount=%d playbackMs=%lld cacheAheadMs=%lld retry=%d",
+                      SabrRecoverySplicePolicy.errorKind(error),
+                      SabrRecoverySplicePolicy.httpStatus(error),
+                      sessions, playheadMs,
+                      max(0, cacheEndMs - playheadMs),
+                      anchor == nil ? 0 : 1)
+                guard let anchor else {
+                    await mailbox.finish(error: error)
+                    return
+                }
+                beginEarlyRecovery(
+                    service: service, videoId: videoId,
+                    selection: choice, buffer: buffer, startMs: anchor
+                )
+                guard let next = try? await awaitEarlySessionForSplice() else {
+                    NSLog("TypeType SABR EARLY re-splice-not-ready sessionCount=%d",
+                          sessions)
+                    await mailbox.finish(error: error)
+                    return
+                }
+                guard !Task.isCancelled, playbackEpoch == epoch,
+                      sessionId == current.reply.sessionId,
+                      next.reply.sessionId != current.reply.sessionId else {
+                    let abandoned = next.reply.sessionId
+                    Task.detached(priority: .utility) {
+                        try? await service.release(sessionId: abandoned)
+                    }
+                    await mailbox.finish(error: CancellationError())
+                    return
+                }
+                retiredSabrSessions.append(current.reply.sessionId)
+                sessionId = next.reply.sessionId
+                generation = next.reply.generation
+                sessions += 1
+                NSLog("TypeType SABR EARLY re-splice-producer sessionCount=%d startMs=%lld",
+                      sessions, next.startPositionMs)
+                current = next
+            }
+        }
+        await mailbox.finish(error: CancellationError())
+    }
+
     /// Cancel speculative session work and release its token on Stop,
     /// seek, or successful end of stream.
     private func abandonEarlyRecovery() {
@@ -1625,19 +1722,12 @@ final class SabrPlayerController: ObservableObject {
                                   prepared.startPositionMs,
                                   max(0, cacheEndMs - playheadMs),
                                   max(0, rendererEndMs - playheadMs))
-                            do {
-                                try await self.downloadWindows(
-                                    service: service, videoId: videoId,
-                                    sessionId: prepared.reply.sessionId,
-                                    generation: prepared.reply.generation,
-                                    choice: choice, start: prepared.startPositionMs,
-                                    buffer: buffer, cache: cache, mailbox: mailbox
-                                )
-                                await mailbox.finish()
-                            } catch {
-                                NSLog("TypeType SABR EARLY splice-producer failed; preserving fallback")
-                                await mailbox.finish(error: error)
-                            }
+                            await self.runSplicedProducer(
+                                service: service, videoId: videoId,
+                                choice: choice, buffer: buffer,
+                                cache: cache, mailbox: mailbox,
+                                initial: prepared
+                            )
                             return
                         }
                     }
