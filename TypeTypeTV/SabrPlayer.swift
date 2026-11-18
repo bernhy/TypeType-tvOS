@@ -1944,7 +1944,7 @@ final class SabrPlayerController: ObservableObject {
             // must nevertheless know which generation authorized each
             // queued window after a producer-only session switch.
             let requested = SabrWindow(
-                sessionId: sessionId, generation: original.generation,
+                sessionId: sessionId, generation: generation,
                 ready: original.ready, retryAfterMs: original.retryAfterMs,
                 status: original.status, durationMs: original.durationMs,
                 endOfStream: original.endOfStream, startTimeMs: original.startTimeMs,
@@ -2210,7 +2210,9 @@ final class SabrPlayerController: ObservableObject {
             guard let responseSession = response.sessionId else {
                 throw SabrFailure.invalidResponse("queued window lacks session provenance")
             }
-            let responseGeneration = response.generation
+            guard let responseGeneration = response.generation else {
+                throw SabrFailure.invalidResponse("queued window lacks generation provenance")
+            }
             if let previousSession = currentWindowSession,
                previousSession != responseSession {
                 spliceAudioBeforeMs = SabrRecoverySplicePolicy.clipBeforeMs(
