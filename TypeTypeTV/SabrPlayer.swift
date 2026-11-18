@@ -1869,6 +1869,13 @@ final class SabrPlayerController: ObservableObject {
                 abandonEarlyRecovery()
                 return
             } catch {
+                let failedAtMs = max(0, Int64(playbackSeconds() * 1_000))
+                NSLog("TypeType SABR RECOVERY decoder-exit kind=%@ http=%d clockMs=%lld audioAheadMs=%lld videoAheadMs=%lld diskAheadMs=%lld",
+                      SabrRecoverySplicePolicy.errorKind(error),
+                      SabrRecoverySplicePolicy.httpStatus(error),
+                      failedAtMs, queuedAudioEndMs - failedAtMs,
+                      queuedVideoEndMs - failedAtMs,
+                      cachedThroughMs - failedAtMs)
                 producer.cancel()
                 await mailbox.finish(error: CancellationError())
                 windowProducerTask = nil
