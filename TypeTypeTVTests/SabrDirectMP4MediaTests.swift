@@ -46,9 +46,10 @@ final class MP4FormatDescriptionTests: XCTestCase {
     XCTAssertEqual(asbd.mFormatID, kAudioFormatMPEG4AAC)
     XCTAssertEqual(asbd.mSampleRate, 44_100)
     XCTAssertEqual(asbd.mChannelsPerFrame, 2)
-    // Compare against the original no-layout format: only AAC-LC's
-    // Audio Object Type in ASBD flags should differ from the baseline.
-    XCTAssertEqual(asbd.mFormatFlags, 2)
+    // Both isolated A/B trials (stereo layout and AAC-LC flags=2)
+    // left the device's internal -12710 warnings unchanged. Keep the
+    // original no-layout, flags=0 baseline for the call-site trace.
+    XCTAssertEqual(asbd.mFormatFlags, 0)
     var layoutBytes = 0
     XCTAssertNil(CMAudioFormatDescriptionGetChannelLayout(format, sizeOut: &layoutBytes))
     XCTAssertEqual(layoutBytes, 0)
