@@ -321,7 +321,16 @@ final class SabrPlayerController: ObservableObject {
         // Use the display layer's own renderer in the shared synchronizer
         // so both compressed-media tracks follow the same A/V clock.
         synchronizer.addRenderer(videoLayer.sampleBufferRenderer)
+        #if DEBUG
+        // v10 short isolation A/B: v9 proved -12710 continues when no AAC
+        // packets are ever enqueued. Test whether simply registering an
+        // *empty* audio renderer in AVSampleBufferRenderSynchronizer causes
+        // its internal AudioFormatDescription validation. No audio is
+        // enqueued in Debug v10; do not use this build for normal viewing.
+        NSLog("TypeType AUDIO-ISOLATION mode=video-only-synchronizer-v10 audioRendererAttached=0 audioEnqueued=0")
+        #else
         synchronizer.addRenderer(audioRenderer)
+        #endif
         // A/V startup is gated by the actual first samples below.
         // Avoid a second implicit rate gate on tvOS after a seek.
         synchronizer.delaysRateChangeUntilHasSufficientMediaData = false
