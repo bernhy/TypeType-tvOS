@@ -152,17 +152,45 @@ final class SabrRecoveryPolicyTests: XCTestCase {
         ))
     }
 
-    func testV5PreflightRejectsOldKeyframeAndInsufficientFutureMedia() {
+    func testV5PreflightAcceptsReliablePrerollButRejectsInsufficientNewMedia() {
         XCTAssertTrue(SabrSplicePreflightPolicy.acceptsForwardBoundary(
             boundaryMs: 746_920, audioFirstMs: 746_919,
             audioEndMs: 758_828, videoRAPMs: 746_940,
             videoEndMs: 754_700
         ))
-        XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+        XCTAssertTrue(SabrSplicePreflightPolicy.acceptsForwardBoundary(
             boundaryMs: 746_920, audioFirstMs: 746_919,
             audioEndMs: 758_828, videoRAPMs: 743_060,
             videoEndMs: 754_700
-        ), "The v4 false-positive: a RAP from the old GOP")
+        ), "A reliable RAP in the GOP crossing the cache boundary is necessary preroll; future A/V evidence is validated separately")
+        // These exact two RAP positions caused the November 18 12:04:51
+        // and 12:05:51 regressions: v5 incorrectly rejected viable
+        // replacement sessions and forced full decoder recovery.
+        XCTAssertTrue(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 574_374, audioFirstMs: 574_369,
+            audioEndMs: 579_106, videoRAPMs: 570_537,
+            videoEndMs: 581_581
+        ))
+        XCTAssertTrue(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 641_374, audioFirstMs: 641_358,
+            audioEndMs: 648_998, videoRAPMs: 638_938,
+            videoEndMs: 645_912
+        ))
+        XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 574_374, audioFirstMs: 574_369,
+            audioEndMs: 579_106, videoRAPMs: 559_000,
+            videoEndMs: 581_581
+        ), "A RAP more than ten seconds earlier is too far from the splice")
+        XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 574_374, audioFirstMs: 574_369,
+            audioEndMs: 579_106, videoRAPMs: nil,
+            videoEndMs: 581_581
+        ), "Never guess or fabricate a video keyframe")
+        XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 574_374, audioFirstMs: 574_369,
+            audioEndMs: 579_106, videoRAPMs: 574_700,
+            videoEndMs: 581_581
+        ), "Do not silently jump to a new future RAP outside bounded timestamp rounding")
         XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
             boundaryMs: 746_920, audioFirstMs: 746_919,
             audioEndMs: 758_828, videoRAPMs: 746_940,
