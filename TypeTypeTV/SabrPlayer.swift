@@ -2987,6 +2987,22 @@ final class SabrPlayerController: ObservableObject {
                                  startMs: Int64) async throws {
         for sample in buffers {
             try Task.checkCancellation()
+            #if DEBUG
+            // v9 ISOLATION TEST ONLY: intentionally withhold all audio samples
+            // from AVSampleBufferAudioRenderer. Maintain the existing A/V
+            // timeline bookkeeping so the *video* path and shared clock can
+            // run for a short diagnostic session. Sound is deliberately
+            // absent, and this Debug build is NOT suitable for regular use.
+            // Once this establishes whether -12710 depends on audio enqueue,
+            // restore normal audio and investigate the specific cause.
+            if !hasQueuedFirstAudio {
+                NSLog("TypeType AUDIO-ISOLATION mode=drop-audio-enqueue-v9 submitted=0 audioSilent=1 videoUnaffected=1")
+                noteStartup(.audioQueued)
+            }
+            noteQueuedMedia(.audio, sample: sample)
+            hasQueuedFirstAudio = true
+            startDirectClockIfReady(at: startMs)
+            #else
             try await SabrNativeRendererReadiness.waitUntilReady(audioRenderer)
             guard audioRenderer.status != .failed else {
                 throw SabrFailure.stalled("native audio renderer failed")
@@ -3028,6 +3044,7 @@ final class SabrPlayerController: ObservableObject {
             noteQueuedMedia(.audio, sample: sample)
             hasQueuedFirstAudio = true
             startDirectClockIfReady(at: startMs)
+            #endif
         }
     }
 
