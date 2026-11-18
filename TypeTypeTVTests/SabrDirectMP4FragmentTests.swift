@@ -126,6 +126,22 @@ final class MP4FragmentTests: XCTestCase {
     }
   }
 
+  func testMalformedExtendedBoxSizeAndReaderOffsetDoNotOverflow() throws {
+    let input = Data(
+      B.box("free", []) +
+      B.u32(1) + Array("mdat".utf8) + B.u64(UInt64(Int.max))
+    )
+    try input.withUnsafeBytes { raw in
+      let reader = MP4ByteReader(bytes: raw)
+      XCTAssertThrowsError(try reader.uint32(at: Int.max)) { error in
+        XCTAssertEqual(error as? MP4Error, .truncated)
+      }
+      XCTAssertThrowsError(try reader.boxes(in: 0..<raw.count)) { error in
+        XCTAssertEqual(error as? MP4Error, .truncated)
+      }
+    }
+  }
+
   func testUsesTrackDefaultsWhenTheRunOmitsFields() throws {
     let bytes = segment(baseTime: 0, sizes: [2, 2], durations: nil, flags: nil, compositions: nil)
     let samples = try XCTUnwrap(
