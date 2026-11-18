@@ -99,7 +99,7 @@ enum SabrEarlySessionPrewarmPolicy {
 /// a decoder retry budget: do not consume the last eight seconds simply to
 /// keep waiting for a server that may still be booting/attesting.
 enum SabrEarlySpliceWaitPolicy {
-    static let minimumCacheReserveMs: Int64 = 8_000
+    static let minimumCacheReserveMs: Int64 = 18_000
     static let maximumWaitMs: Int64 = 45_000
     static let pollMs: Int64 = 200
 
