@@ -1481,7 +1481,8 @@ final class SabrPlayerController: ObservableObject {
                 }
                 beginEarlyRecovery(
                     service: service, videoId: videoId,
-                    selection: choice, buffer: buffer, startMs: anchor
+                    selection: choice, buffer: buffer, startMs: anchor,
+                    forwardBoundaryMs: cacheEndMs
                 )
                 guard let next = try? await awaitEarlySessionForSplice() else {
                     NSLog("TypeType SABR EARLY re-splice-not-ready sessionCount=%d",
@@ -1667,7 +1668,8 @@ final class SabrPlayerController: ObservableObject {
     private func beginEarlyRecovery(service: SabrService, videoId: String,
                                     selection: SabrSelection,
                                     buffer: SabrBufferSettings,
-                                    startMs: Int64) {
+                                    startMs: Int64,
+                                    forwardBoundaryMs: Int64? = nil) {
         guard earlyRecoveryTask == nil else { return }
         let epoch = playbackEpoch
         earlyRecoveryService = service
@@ -1698,11 +1700,18 @@ final class SabrPlayerController: ObservableObject {
                     // sessions; the in-place producer may not.
                     let verified: Bool
                     do {
-                        verified = try await self.verifyPrewarmedSplice(
-                            service: service, reply: reply,
-                            selection: selection, window: firstWindow,
-                            targetMs: startMs
-                        )
+                        if let forwardBoundaryMs {
+                            verified = try await self.verifyPrewarmedSplice(
+                                service: service, reply: reply,
+                                selection: selection, window: firstWindow,
+                                boundaryMs: forwardBoundaryMs
+                            )
+                        } else {
+                            // Proactive health checks do not prove an
+                            // upcoming decoder splice boundary. Keep their
+                            // session as a normal full-recovery fallback.
+                            verified = false
+                        }
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
@@ -1876,7 +1885,8 @@ final class SabrPlayerController: ObservableObject {
                               anchor)
                         self.beginEarlyRecovery(
                             service: service, videoId: videoId,
-                            selection: choice, buffer: buffer, startMs: anchor
+                            selection: choice, buffer: buffer, startMs: anchor,
+                            forwardBoundaryMs: cacheEndMs
                         )
                         // Continue the existing decoder mailbox instead of
                         // waiting for its last cached window to drain. No
