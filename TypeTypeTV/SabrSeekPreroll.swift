@@ -34,6 +34,18 @@ enum SabrSeekPreroll {
     }
 }
 
+/// Cold nonzero SABR sessions can get stuck in the server's demand builder
+/// before /segments ever becomes ready. A playing session can seek correctly,
+/// so first establish the transport at zero, then seek to the original
+/// 5-second-preroll resume position. Keep the normal zero-start and fast
+/// existing-session seek paths unchanged.
+enum SabrColdResumePolicy {
+    static func primeFromZero(transportStartMs: Int64,
+                              reusingSession: Bool) -> Bool {
+        transportStartMs > 0 && !reusingSession
+    }
+}
+
 /// Pure MP4 sample-table keyframe choice; no media bytes or renderer state.
 /// Missing/ambiguous sync flags leave samples untouched rather than
 /// pretending every sample is independently decodable.
