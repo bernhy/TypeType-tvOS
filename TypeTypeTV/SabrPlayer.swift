@@ -269,6 +269,10 @@ final class SabrPlayerController: ObservableObject {
     private var bufferingNeedsVideo = false
     private var queuedAudioEndMs: Int64 = 0
     private var queuedVideoEndMs: Int64 = 0
+    // One-shot evidence for the first *submitted* sample beyond each
+    // server-session boundary; do not confuse cached windows with renderers.
+    private var spliceAwaitingAudioAfterMs: Int64?
+    private var spliceAwaitingVideoAfterMs: Int64?
     #if DEBUG
     private var startupMetrics = SabrStartupMetrics()
     private var startupStartedUptime: TimeInterval = 0
@@ -764,6 +768,8 @@ final class SabrPlayerController: ObservableObject {
         bufferingNeedsVideo = false
         queuedAudioEndMs = 0
         queuedVideoEndMs = 0
+        spliceAwaitingAudioAfterMs = nil
+        spliceAwaitingVideoAfterMs = nil
         rendererReadyThroughMs = 0
         #if DEBUG
         maxVideoDeliveryMs = 0
@@ -2517,9 +2523,13 @@ final class SabrPlayerController: ObservableObject {
                     parsedEndMs: videoTimeline.lastActualEndMs,
                     presentationStartMs: presentationStartMs
                 )
-                NSLog("TypeType SABR EARLY splice-decoder audioCutMs=%lld videoCutMs=%lld clockMs=%lld",
+                let spliceClockMs = max(0, Int64(playbackSeconds() * 1_000))
+                spliceAwaitingAudioAfterMs = spliceAudioBeforeMs
+                spliceAwaitingVideoAfterMs = spliceVideoBeforeMs
+                NSLog("TypeType SABR EARLY splice-decoder audioCutMs=%lld videoCutMs=%lld clockMs=%lld audioHeadroomMs=%lld videoHeadroomMs=%lld",
                       spliceAudioBeforeMs ?? 0, spliceVideoBeforeMs ?? 0,
-                      max(0, Int64(playbackSeconds() * 1_000)))
+                      spliceClockMs, queuedAudioEndMs - spliceClockMs,
+                      queuedVideoEndMs - spliceClockMs)
                 if let index = retiredSabrSessions.firstIndex(of: previousSession) {
                     retiredSabrSessions.remove(at: index)
                     Task { try? await service.release(sessionId: previousSession) }
@@ -2933,6 +2943,15 @@ final class SabrPlayerController: ObservableObject {
                 throw SabrFailure.stalled("native audio renderer failed")
             }
             audioRenderer.enqueue(sample)
+            if let cutoff = spliceAwaitingAudioAfterMs,
+               let end = SabrSampleTimingProbe.actualEndMs([sample]),
+               end > cutoff {
+                let first = SabrSampleTimingProbe.actualStartMs([sample]) ?? -1
+                let clockMs = max(0, Int64(playbackSeconds() * 1_000))
+                NSLog("TypeType SABR EARLY first-audio-enqueued firstMs=%lld endMs=%lld cutMs=%lld clockMs=%lld previousQueuedMs=%lld",
+                      first, end, cutoff, clockMs, queuedAudioEndMs)
+                spliceAwaitingAudioAfterMs = nil
+            }
             #if DEBUG
             if !hasQueuedFirstAudio { noteStartup(.audioQueued) }
             #endif
@@ -2947,8 +2966,9 @@ final class SabrPlayerController: ObservableObject {
         let renderer = videoLayer.sampleBufferRenderer
         for sample in buffers {
             try Task.checkCancellation()
+            let spliceVideoEnqueueStart = ProcessInfo.processInfo.systemUptime
             #if DEBUG
-            let waitingSince = ProcessInfo.processInfo.systemUptime
+            let waitingSince = spliceVideoEnqueueStart
             #endif
             try await SabrNativeRendererReadiness.waitUntilReady(renderer)
             guard renderer.status != .failed else {
@@ -2964,6 +2984,16 @@ final class SabrPlayerController: ObservableObject {
             }
             #endif
             renderer.enqueue(sample)
+            if let cutoff = spliceAwaitingVideoAfterMs,
+               let end = SabrSampleTimingProbe.actualEndMs([sample]),
+               end > cutoff {
+                let first = SabrSampleTimingProbe.actualStartMs([sample]) ?? -1
+                let clockMs = max(0, Int64(playbackSeconds() * 1_000))
+                NSLog("TypeType SABR EARLY first-video-enqueued firstMs=%lld endMs=%lld cutMs=%lld clockMs=%lld previousQueuedMs=%lld rendererWaitMs=%d",
+                      first, end, cutoff, clockMs, queuedVideoEndMs,
+                      Int((ProcessInfo.processInfo.systemUptime - spliceVideoEnqueueStart) * 1_000))
+                spliceAwaitingVideoAfterMs = nil
+            }
             #if DEBUG
             if !hasQueuedFirstVideo { noteStartup(.videoQueued) }
             #endif
