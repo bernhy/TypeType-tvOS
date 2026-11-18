@@ -94,6 +94,21 @@ enum SabrEarlySessionPrewarmPolicy {
     }
 }
 
+/// Wait for a verified replacement server session only while the old
+/// compressed A/V cache has real, contiguous playback headroom. This is NOT
+/// a decoder retry budget: do not consume the last eight seconds simply to
+/// keep waiting for a server that may still be booting/attesting.
+enum SabrEarlySpliceWaitPolicy {
+    static let minimumCacheReserveMs: Int64 = 18_000
+    static let maximumWaitMs: Int64 = 45_000
+    static let pollMs: Int64 = 200
+
+    static func mayContinue(elapsedMs: Int64, currentCacheAheadMs: Int64) -> Bool {
+        elapsedMs >= 0 && elapsedMs < maximumWaitMs &&
+            currentCacheAheadMs > minimumCacheReserveMs
+    }
+}
+
 /// A producer-only session swap is safe only while a verified A/V cache
 /// still covers the current playback position. Media integrity errors and
 /// throttling are left to the existing bounded restart/fallback path.

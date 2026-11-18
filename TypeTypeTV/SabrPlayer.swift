@@ -1399,17 +1399,17 @@ final class SabrPlayerController: ObservableObject {
         }
     }
 
-    /// Hold the network mailbox open briefly while preparing a replacement.
-    /// On timeout retain preparation for the existing end-of-buffer fallback.
-    private func awaitEarlySessionForSplice(cacheAheadMs: Int64) async throws
+    /// The replacement may need several fresh-session/attestation retries
+    /// while playback continues from old compressed A/V. Re-evaluate the
+    /// ACTUAL shared disk-cache coverage every 200ms, not a stale snapshot
+    /// from the failure. Preserve eighteen seconds for the original fallback,
+    /// and cap any single wait at 45 seconds. No change to native renderers.
+    private func awaitEarlySessionForSplice(cache: SabrFragmentCache,
+                                             choice: SabrSelection) async throws
         -> SabrPrewarmedRecoverySession? {
-        // Verification now includes NEW compressed A/V fragments, rather
-        // than only a cheap overlapping GOP. Give the server more time if
-        // the existing cache safely covers the current playback, but retain
-        // at least four seconds for a bounded decoder fallback.
-        let waitMs = min(Int64(10_000), max(Int64(500),
-                         cacheAheadMs - SabrSplicePreflightPolicy.minimumNewMediaMs))
-        for _ in 0..<Int(waitMs / 100) {
+        let began = ProcessInfo.processInfo.systemUptime
+        var lastReportedBucket: Int64 = -1
+        while true {
             try Task.checkCancellation()
             if let prepared = earlyRecoveryPrepared {
                 guard prepared.verifiedForSplice else {
@@ -1422,9 +1422,43 @@ final class SabrPlayerController: ObservableObject {
                 earlyRecoveryService = nil
                 return prepared
             }
-            try await Task.sleep(nanoseconds: 100_000_000)
+            let seconds = playbackSeconds()
+            guard seconds.isFinite, seconds >= 0,
+                  seconds < Double(Int64.max) / 1_000 else {
+                NSLog("TypeType SABR EARLY wait-exit reason=invalid-clock")
+                return nil
+            }
+            let playheadMs = Int64(seconds * 1_000)
+            let cacheEndMs = await cache.cachedThroughMs(
+                audioItag: choice.audio.itag, videoItag: choice.video.itag,
+                positionMs: playheadMs
+            )
+            let cacheAheadMs = max(0, cacheEndMs - playheadMs)
+            let elapsedMs = max(0, Int64(
+                (ProcessInfo.processInfo.systemUptime - began) * 1_000
+            ))
+            guard SabrEarlySpliceWaitPolicy.mayContinue(
+                elapsedMs: elapsedMs, currentCacheAheadMs: cacheAheadMs
+            ) else {
+                let reason = elapsedMs >= SabrEarlySpliceWaitPolicy.maximumWaitMs
+                    ? "max-wait" : "cache-reserve"
+                NSLog("TypeType SABR EARLY wait-exit reason=%@ elapsedMs=%lld cacheAheadMs=%lld reserveMs=%lld",
+                      reason, elapsedMs, cacheAheadMs,
+                      SabrEarlySpliceWaitPolicy.minimumCacheReserveMs)
+                return nil
+            }
+            // Low-frequency diagnostic: useful for distinguishing attestation
+            // retries from actual server/network inactivity.
+            let bucket = elapsedMs / 5_000
+            if bucket != lastReportedBucket {
+                lastReportedBucket = bucket
+                NSLog("TypeType SABR EARLY wait-active elapsedMs=%lld cacheAheadMs=%lld",
+                      elapsedMs, cacheAheadMs)
+            }
+            try await Task.sleep(nanoseconds: UInt64(
+                SabrEarlySpliceWaitPolicy.pollMs
+            ) * 1_000_000)
         }
-        return nil
     }
 
     /// Repeated server restarts must not terminate the already-running
@@ -1497,7 +1531,7 @@ final class SabrPlayerController: ObservableObject {
                     forwardBoundaryMs: cacheEndMs
                 )
                 guard let next = try? await awaitEarlySessionForSplice(
-                    cacheAheadMs: max(0, cacheEndMs - playheadMs)
+                    cache: cache, choice: choice
                 ) else {
                     NSLog("TypeType SABR EARLY re-splice-not-ready sessionCount=%d",
                           sessions)
@@ -1912,7 +1946,7 @@ final class SabrPlayerController: ObservableObject {
                             error: error, initialized: self.isInitialized,
                             playheadMs: playheadMs, cachedThroughMs: cacheEndMs
                         ), let prepared = try? await self.awaitEarlySessionForSplice(
-                            cacheAheadMs: max(0, cacheEndMs - playheadMs)
+                            cache: cache, choice: choice
                         ) {
                             guard !Task.isCancelled,
                                   self.sessionId == currentSession,
@@ -2171,10 +2205,11 @@ final class SabrPlayerController: ObservableObject {
             ) {
                 // With enough compressed media on disk the producer issues
                 // no SABR requests. Poll the public health endpoint at most
-                // once per five seconds so a server reboot can be noticed
-                // before the current playback buffer is almost exhausted.
+                // every two seconds. Two failed checks detect a server restart
+                // well before the large compressed cache needs refilling.
+                // The health prewarm is speculative and never resets the decoder.
                 if healthEndpointSupported,
-                   Date().timeIntervalSince(lastHealthCheck) >= 5 {
+                   Date().timeIntervalSince(lastHealthCheck) >= 2 {
                     lastHealthCheck = Date()
                     if let healthy = await service.serverHealth() {
                         consecutiveHealthFailures = healthy ? 0
@@ -2191,7 +2226,8 @@ final class SabrPlayerController: ObservableObject {
                                   consecutiveHealthFailures)
                             beginEarlyRecovery(
                                 service: service, videoId: videoId,
-                                selection: choice, buffer: buffer, startMs: anchor
+                                selection: choice, buffer: buffer, startMs: anchor,
+                                forwardBoundaryMs: retainedEnd
                             )
                         }
                     } else {

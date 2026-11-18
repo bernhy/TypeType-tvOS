@@ -31,6 +31,32 @@ final class SabrRecoveryPolicyTests: XCTestCase {
     }
 
 
+    func testDynamicPrewarmWaitKeepsSafeFullRecoveryReserve() {
+        // A server restart may spend >10s in fresh-session/attestation.
+        // Continue preparing immediately with a large verified dual-track
+        // cache instead of abandoning at a fixed 10-second timeout.
+        XCTAssertTrue(SabrEarlySpliceWaitPolicy.mayContinue(
+            elapsedMs: 10_000, currentCacheAheadMs: 45_000
+        ))
+        XCTAssertTrue(SabrEarlySpliceWaitPolicy.mayContinue(
+            elapsedMs: 25_000, currentCacheAheadMs: 22_000
+        ))
+        XCTAssertFalse(SabrEarlySpliceWaitPolicy.mayContinue(
+            elapsedMs: 35_000, currentCacheAheadMs: 17_999
+        ), "Leave enough actual cached A/V to attempt full decoder recovery")
+        XCTAssertFalse(SabrEarlySpliceWaitPolicy.mayContinue(
+            elapsedMs: 20_000, currentCacheAheadMs: 18_000
+        ))
+        XCTAssertFalse(SabrEarlySpliceWaitPolicy.mayContinue(
+            elapsedMs: 45_000, currentCacheAheadMs: 100_000
+        ), "Even huge caches must not permit an unbounded background wait")
+        XCTAssertFalse(SabrEarlySpliceWaitPolicy.mayContinue(
+            elapsedMs: -1, currentCacheAheadMs: 100_000
+        ))
+        XCTAssertEqual(SabrEarlySpliceWaitPolicy.pollMs, 200)
+        XCTAssertEqual(SabrEarlySpliceWaitPolicy.minimumCacheReserveMs, 18_000)
+    }
+
     func testEarlySessionUsesContiguousDiskCacheIfDecoderQueuesAreShallow() {
         // Real Apple TV log: ~22 seconds of compressed A/V were cached,
         // but no prewarm began. Queued renderer samples need not match cache.

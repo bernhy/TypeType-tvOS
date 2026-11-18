@@ -229,6 +229,45 @@ final class SabrTransportTests: XCTestCase {
                        "Short network outages must not restart playback")
     }
 
+    func testSabrHTTPStagesIdentify404WithoutLoggingPrivateSessionURLs() {
+        // Only fixed route names are returned; the opaque session ID must
+        // never leak into the device log via its failure classification.
+        let sensitive = "private-session-bearer-123"
+        XCTAssertEqual(SabrHTTPFailureStage.classify(
+            method: "POST", path: "sabr/playback/abc123def45"
+        ), "session-start")
+        XCTAssertEqual(SabrHTTPFailureStage.classify(
+            method: "POST", path: "sabr/playback/\(sensitive)/segments"
+        ), "segments")
+        XCTAssertEqual(SabrHTTPFailureStage.classify(
+            method: "POST", path: "sabr/playback/\(sensitive)/prefetch"
+        ), "prefetch")
+        XCTAssertEqual(SabrHTTPFailureStage.classify(
+            method: "POST", path: "sabr/playback/\(sensitive)/position"
+        ), "position")
+        XCTAssertEqual(SabrHTTPFailureStage.classify(
+            method: "POST", path: "sabr/playback/\(sensitive)/seek"
+        ), "session-seek")
+        XCTAssertEqual(SabrHTTPFailureStage.classify(
+            method: "DELETE", path: "sabr/playback/\(sensitive)"
+        ), "session-release")
+        XCTAssertEqual(SabrHTTPFailureStage.classify(
+            method: "GET", path: "segment", mediaResource: "init"
+        ), "media-init")
+        XCTAssertEqual(SabrHTTPFailureStage.classify(
+            method: "GET", path: "segment", mediaResource: "init.mp4"
+        ), "media-init")
+        XCTAssertEqual(SabrHTTPFailureStage.classify(
+            method: "GET", path: "segment", mediaResource: "149"
+        ), "media-fragment")
+        XCTAssertEqual(SabrHTTPFailureStage.classify(
+            method: "GET", path: "some/custom/path/\(sensitive)"
+        ), "other")
+        XCTAssertFalse(SabrHTTPFailureStage.classify(
+            method: "POST", path: "sabr/playback/\(sensitive)/segments"
+        ).contains(sensitive))
+    }
+
     func testVanishedSession404IsNotRepeatedByEarlyTransportRetry() async throws {
         let lock = NSLock()
         var attempts = 0
