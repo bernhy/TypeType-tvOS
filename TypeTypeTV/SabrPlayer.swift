@@ -1601,6 +1601,45 @@ final class SabrPlayerController: ObservableObject {
                             service: service, videoId: videoId,
                             selection: choice, buffer: buffer, startMs: anchor
                         )
+                        // Continue the existing decoder mailbox instead of
+                        // waiting for its last cached window to drain. No
+                        // renderer flush, clock reset or cache clear occurs.
+                        if SabrRecoverySplicePolicy.shouldSwitch(
+                            error: error, initialized: self.isInitialized,
+                            playheadMs: playheadMs, cachedThroughMs: cacheEndMs
+                        ), let prepared = try? await self.awaitEarlySessionForSplice() {
+                            guard !Task.isCancelled,
+                                  self.sessionId == currentSession,
+                                  prepared.reply.sessionId != currentSession else {
+                                let abandoned = prepared.reply.sessionId
+                                Task.detached(priority: .utility) {
+                                    try? await service.release(sessionId: abandoned)
+                                }
+                                await mailbox.finish(error: error)
+                                return
+                            }
+                            self.retiredSabrSessions.append(currentSession)
+                            self.sessionId = prepared.reply.sessionId
+                            self.generation = prepared.reply.generation
+                            NSLog("TypeType SABR EARLY splice-producer startMs=%lld cacheAheadMs=%lld rendererAheadMs=%lld",
+                                  prepared.startPositionMs,
+                                  max(0, cacheEndMs - playheadMs),
+                                  max(0, rendererEndMs - playheadMs))
+                            do {
+                                try await self.downloadWindows(
+                                    service: service, videoId: videoId,
+                                    sessionId: prepared.reply.sessionId,
+                                    generation: prepared.reply.generation,
+                                    choice: choice, start: prepared.startPositionMs,
+                                    buffer: buffer, cache: cache, mailbox: mailbox
+                                )
+                                await mailbox.finish()
+                            } catch {
+                                NSLog("TypeType SABR EARLY splice-producer failed; preserving fallback")
+                                await mailbox.finish(error: error)
+                            }
+                            return
+                        }
                     }
                     await mailbox.finish(error: error)
                 }
