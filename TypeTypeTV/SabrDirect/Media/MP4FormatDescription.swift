@@ -64,6 +64,57 @@ public enum MP4FormatDescription {
     case 29: formatID = kAudioFormatMPEG4AAC_HE_V2
     default: formatID = kAudioFormatMPEG4AAC
     }
+    // A/B v7: derive the AAC-LC CoreMedia description directly from the
+    // ORIGINAL ISO BMFF mp4a sample entry, not from reconstructed fields.
+    // AVAssetReader produces a 12-byte stereo layout and preserves the
+    // original 'VerbatimISOSampleEntry'; the prior manual stereo A/B did
+    // neither exactly. This touches only format metadata, never timestamps,
+    // sample sizes, renderer or the native A/V synchronizer.
+    if config.objectType == 2,
+       track.verbatimAudioSampleEntry.count >= 36,
+       track.verbatimAudioSampleEntry.count <= 4_096 {
+      var isoFormat: CMAudioFormatDescription?
+      let isoStatus = track.verbatimAudioSampleEntry.withUnsafeBytes { bytes -> OSStatus in
+        guard let pointer = bytes.bindMemory(to: UInt8.self).baseAddress else {
+          return paramErr
+        }
+        return CMAudioFormatDescriptionCreateFromBigEndianSoundDescriptionData(
+          allocator: kCFAllocatorDefault,
+          bigEndianSoundDescriptionData: pointer,
+          size: bytes.count,
+          flavor: kCMSoundDescriptionFlavor_ISOFamily,
+          formatDescriptionOut: &isoFormat
+        )
+      }
+      if isoStatus == noErr, let isoFormat,
+         let actual = CMAudioFormatDescriptionGetStreamBasicDescription(isoFormat)?.pointee,
+         actual.mFormatID == formatID,
+         actual.mSampleRate == config.sampleRate,
+         actual.mChannelsPerFrame == UInt32(config.channelCount),
+         actual.mFramesPerPacket == 1_024 {
+        var layoutBytes = 0
+        let hasLayout = CMAudioFormatDescriptionGetChannelLayout(
+          isoFormat, sizeOut: &layoutBytes
+        ) != nil
+        var cookieBytes = 0
+        let hasCookie = CMAudioFormatDescriptionGetMagicCookie(
+          isoFormat, sizeOut: &cookieBytes
+        ) != nil
+        let extensions = CMFormatDescriptionGetExtensions(isoFormat)
+        let extensionCount = extensions.map { CFDictionaryGetCount($0) } ?? 0
+        NSLog("TypeType AUDIO-FORMAT experiment=iso-sample-entry-v7 mode=iso status=%d entryBytes=%d rate=%.0f channels=%d flags=%u framesPerPacket=%d cookieBytes=%d hasCookie=%d channelLayoutBytes=%d hasLayout=%d extensionCount=%d",
+              isoStatus, track.verbatimAudioSampleEntry.count,
+              actual.mSampleRate, Int(actual.mChannelsPerFrame),
+              actual.mFormatFlags, Int(actual.mFramesPerPacket),
+              cookieBytes, hasCookie ? 1 : 0,
+              layoutBytes, hasLayout ? 1 : 0, extensionCount)
+        return isoFormat
+      }
+      // A malformed or unusual MP4 entry must NEVER interrupt playback;
+      // fall back to the known-working manual esds format instead.
+      NSLog("TypeType AUDIO-FORMAT experiment=iso-sample-entry-v7 mode=fallback status=%d entryBytes=%d",
+            isoStatus, track.verbatimAudioSampleEntry.count)
+    }
     var asbd = AudioStreamBasicDescription(
       mSampleRate: config.sampleRate > 0 ? config.sampleRate : track.sampleRate,
       mFormatID: formatID,
@@ -109,7 +160,7 @@ public enum MP4FormatDescription {
     let hasCookie = CMAudioFormatDescriptionGetMagicCookie(
       description, sizeOut: &outputCookieBytes
     ) != nil
-    NSLog("TypeType AUDIO-FORMAT source=esds experiment=callsite-trace-v3 objectType=%d inputRate=%.0f inputChannels=%d inputFlags=%u inputCookieBytes=%d actualRate=%.0f actualChannels=%d actualFlags=%u framesPerPacket=%d actualCookieBytes=%d hasCookie=%d channelLayoutBytes=%d hasLayout=%d",
+    NSLog("TypeType AUDIO-FORMAT source=esds experiment=iso-sample-entry-v7 mode=manual-fallback objectType=%d inputRate=%.0f inputChannels=%d inputFlags=%u inputCookieBytes=%d actualRate=%.0f actualChannels=%d actualFlags=%u framesPerPacket=%d actualCookieBytes=%d hasCookie=%d channelLayoutBytes=%d hasLayout=%d",
           config.objectType, asbd.mSampleRate, Int(asbd.mChannelsPerFrame),
           asbd.mFormatFlags, track.configuration.count,
           actual?.mSampleRate ?? -1,
