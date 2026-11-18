@@ -321,16 +321,9 @@ final class SabrPlayerController: ObservableObject {
         // Use the display layer's own renderer in the shared synchronizer
         // so both compressed-media tracks follow the same A/V clock.
         synchronizer.addRenderer(videoLayer.sampleBufferRenderer)
-        #if DEBUG
-        // v10 short isolation A/B: v9 proved -12710 continues when no AAC
-        // packets are ever enqueued. Test whether simply registering an
-        // *empty* audio renderer in AVSampleBufferRenderSynchronizer causes
-        // its internal AudioFormatDescription validation. No audio is
-        // enqueued in Debug v10; do not use this build for normal viewing.
-        NSLog("TypeType AUDIO-ISOLATION mode=video-only-synchronizer-v10 audioRendererAttached=0 audioEnqueued=0")
-        #else
+        // v10 proved -12710 persists without the audio renderer attached.
+        // Restore normal two-renderer A/V synchronization for Debug and Release.
         synchronizer.addRenderer(audioRenderer)
-        #endif
         // A/V startup is gated by the actual first samples below.
         // Avoid a second implicit rate gate on tvOS after a seek.
         synchronizer.delaysRateChangeUntilHasSufficientMediaData = false
@@ -2996,22 +2989,6 @@ final class SabrPlayerController: ObservableObject {
                                  startMs: Int64) async throws {
         for sample in buffers {
             try Task.checkCancellation()
-            #if DEBUG
-            // v9 ISOLATION TEST ONLY: intentionally withhold all audio samples
-            // from AVSampleBufferAudioRenderer. Maintain the existing A/V
-            // timeline bookkeeping so the *video* path and shared clock can
-            // run for a short diagnostic session. Sound is deliberately
-            // absent, and this Debug build is NOT suitable for regular use.
-            // Once this establishes whether -12710 depends on audio enqueue,
-            // restore normal audio and investigate the specific cause.
-            if !hasQueuedFirstAudio {
-                NSLog("TypeType AUDIO-ISOLATION mode=drop-audio-enqueue-v9 submitted=0 audioSilent=1 videoEnqueuePathUnmodified=1")
-                noteStartup(.audioQueued)
-            }
-            noteQueuedMedia(.audio, sample: sample)
-            hasQueuedFirstAudio = true
-            startDirectClockIfReady(at: startMs)
-            #else
             try await SabrNativeRendererReadiness.waitUntilReady(audioRenderer)
             guard audioRenderer.status != .failed else {
                 throw SabrFailure.stalled("native audio renderer failed")
@@ -3053,7 +3030,6 @@ final class SabrPlayerController: ObservableObject {
             noteQueuedMedia(.audio, sample: sample)
             hasQueuedFirstAudio = true
             startDirectClockIfReady(at: startMs)
-            #endif
         }
     }
 
