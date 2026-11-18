@@ -31,6 +31,41 @@ final class SabrRecoveryPolicyTests: XCTestCase {
     }
 
 
+    func testEarlySessionUsesContiguousDiskCacheIfDecoderQueuesAreShallow() {
+        // Real Apple TV log: ~22 seconds of compressed A/V were cached,
+        // but no prewarm began. Queued renderer samples need not match cache.
+        XCTAssertEqual(SabrEarlySessionPrewarmPolicy.startPosition(
+            playheadMs: 547_875,
+            audioQueuedEndMs: 549_000,
+            videoQueuedEndMs: 550_000,
+            cachedThroughMs: 569_600
+        ), 567_600)
+        XCTAssertEqual(SabrEarlySessionPrewarmPolicy.startPosition(
+            playheadMs: 1_264_334,
+            audioQueuedEndMs: 1_265_000,
+            videoQueuedEndMs: 1_266_000,
+            cachedThroughMs: 1_285_120
+        ), 1_283_120)
+        XCTAssertNil(SabrEarlySessionPrewarmPolicy.startPosition(
+            playheadMs: 30_000,
+            audioQueuedEndMs: 31_000,
+            videoQueuedEndMs: 32_000,
+            cachedThroughMs: 32_999
+        ), "Do not prewarm with less than 3s of contiguous A/V media")
+        XCTAssertEqual(SabrEarlySessionPrewarmPolicy.startPosition(
+            playheadMs: 30_000,
+            audioQueuedEndMs: 40_000,
+            videoQueuedEndMs: 39_000,
+            cachedThroughMs: 31_000
+        ), 37_000, "Do not regress when native renderer is ahead of disk cache")
+        XCTAssertTrue(SabrEarlySessionPrewarmPolicy.shouldPrepare(
+            for: SabrFailure.server(503, "sabr/playback/opaque/position")
+        ))
+        XCTAssertFalse(SabrEarlySessionPrewarmPolicy.shouldPrepare(
+            for: SabrFailure.server(401, "sabr/playback/opaque/position")
+        ), "Authentication failure is not safe for speculative sessions")
+    }
+
     func testEarlyTransportRetriesOnlySafePlaybackRoutesAndTransientFailures() {
         let policy = SabrEarlyTransportRetryPolicy(delaysMilliseconds: [1, 2])
         XCTAssertEqual(SabrEarlyTransportRetryPolicy.route(
