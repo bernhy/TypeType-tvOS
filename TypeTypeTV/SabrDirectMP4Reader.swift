@@ -31,7 +31,7 @@ struct SabrCompressedSampleBatch {
     let selectedRAPMs: Int64?
 }
 
-#if DEBUG
+#if DEBUG && COREMEDIA_12710_TRACE
 /// One-time reference reader for comparing CoreMedia metadata, NOT a playback
 /// fallback. All bytes come from an already-downloaded SABR window, so this
 /// introduces zero additional network traffic.
@@ -218,7 +218,7 @@ enum SabrDirectMP4Reader {
     /// Same init segment and track means same format throughout a stream.
     /// Avoid re-parsing moov/stsd and rebuilding the CoreMedia description
     /// for every fragment. Content-hashed keys cannot mix two different inits.
-    #if DEBUG
+    #if DEBUG && COREMEDIA_12710_TRACE
     private static let audioReferenceOnce = SabrAudioReferenceOnce()
     #endif
 
@@ -231,17 +231,12 @@ enum SabrDirectMP4Reader {
     static func batchSize(for kind: MP4TrackKind) -> Int {
         switch kind {
         case .video:
-            #if DEBUG
-            // v14 diagnostic A/B: v12 batches of 8 (or 4) video samples
-            // triggered -12710 on each enqueue; v13 batches of exactly 1
-            // eliminated all -12710 warnings on real Apple TV. Determine
-            // whether just 2 compressed frames reproduce the problem.
-            // Never alter timing, frame order, render API or normal Release.
-            NSLog("TypeType VIDEO-BATCH-AB mode=two-frame-v14 nativeBatchSize=2")
-            return 2
-            #else
-            return 8
-            #endif
+            // v15 performance-validation candidate (Debug AND Release).
+            // Hardware A/B: 1 sample => 0/1573 -12710 in v13; 2 samples
+            // => 850/850 -12710 in v14. Keep the original per-frame
+            // DTS/PTS, compressed bytes, audio batching and render path.
+            // Do not silently diverge production vs diagnostic behavior.
+            return 1
         case .audio: return 16
         }
     }
@@ -382,7 +377,7 @@ enum SabrDirectMP4Reader {
             }
             buffers.append(buffer)
         }
-        #if DEBUG
+        #if DEBUG && COREMEDIA_12710_TRACE
         if kind == .audio, let firstBuffer = buffers.first,
            CMFormatDescriptionGetMediaSubType(prepared.format) == kAudioFormatMPEG4AAC,
            audioReferenceOnce.claim() {
