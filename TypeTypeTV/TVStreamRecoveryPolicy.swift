@@ -18,9 +18,11 @@ struct TVStreamRecoveryPolicy {
             switch failure {
             case .retryAfter(_, _, let wait):
                 seconds = max(fallback, wait)
-            case .http(let status, _)
+            case .http(let status, _), .serverDetails(let status, _, _)
                 where status == 408 || status == 425 || status == 429 ||
                     (500...599).contains(status):
+                // Retry on the HTTP status, not on whether the server added
+                // an error code/request ID to its structured JSON response.
                 seconds = fallback
             default:
                 return nil
