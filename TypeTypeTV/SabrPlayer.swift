@@ -1302,6 +1302,26 @@ final class SabrPlayerController: ObservableObject {
                         // remain in this run's bounded manual fallback chain.
                         requestedVideoItag = nil
                     }
+                    if !manualFallbackActive {
+                        // Automatic bitrate/codec/height changes must not be
+                        // silent, especially after a cold-resume attestation
+                        // failure. Reuse the existing newest-first, timed
+                        // Liquid Glass notice stack, including rapid retries.
+                        let oldFormat = formatLabel(choice.video)
+                        let newFormat = formatLabel(orderedOptions[index + 1].video)
+                        let reason = TVL10n.value(
+                            SabrManualQualityFallbackPolicy.reasonKey(for: error)
+                        )
+                        postPlayerNotice(String(
+                            format: TVL10n.value("player.automaticQualitySwitch"),
+                            oldFormat, newFormat, reason
+                        ))
+                        NSLog("TypeType SABR QUALITY automatic-fallback oldItag=%d newItag=%d oldHeight=%d newHeight=%d reason=%@",
+                              choice.video.itag, orderedOptions[index + 1].video.itag,
+                              choice.video.height ?? 0,
+                              orderedOptions[index + 1].video.height ?? 0,
+                              SabrManualQualityFallbackPolicy.diagnosticCode(for: error))
+                    }
                     if case SabrFailure.expired = error {
                         NSLog("TypeType SABR RESUME alternate-track firstItag=%d nextItag=%d positionMs=%lld reason=expired",
                               choice.video.itag, orderedOptions[index + 1].video.itag,
