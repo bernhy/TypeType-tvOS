@@ -193,7 +193,8 @@ enum SabrSplicePreflightPolicy {
 
     static func segment(_ segments: [SabrFragment], covering targetMs: Int64)
         -> SabrFragment? {
-        guard targetMs >= 0 else { return nil }
+        guard targetMs >= 0,
+              targetMs <= Int64.max - minimumForwardMs else { return nil }
         return segments.filter {
             $0.startMs >= 0 && $0.durationMs > 0 &&
             $0.startMs <= Int64.max - $0.durationMs &&
