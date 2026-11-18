@@ -345,17 +345,28 @@ final class TVCommentVoicePlayback: NSObject, ObservableObject, AVAudioPlayerDel
     @Published private(set) var error: String?
     private var player: AVAudioPlayer?
     private var task: Task<Void, Never>?
+    private var loadGeneration: UInt64 = 0
 
     func toggle(api: TypeTypeAPI, reply: TVCommentVoiceReply) {
         if isPlaying { stop(); return }
         guard !isLoading else { return }
+        loadGeneration &+= 1
+        let generation = loadGeneration
         error = nil
         isLoading = true
         task = Task { @MainActor in
-            defer { self.isLoading = false }
+            defer {
+                // The previous fetch may unwind after stop() and after a
+                // new voice reply started loading. Never clear its state.
+                if self.loadGeneration == generation {
+                    self.isLoading = false
+                    self.task = nil
+                }
+            }
             do {
                 let bytes = try await api.commentVoiceAudio(watchURL: reply.url)
                 try Task.checkCancellation()
+                guard self.loadGeneration == generation else { return }
                 let audio = try AVAudioPlayer(data: bytes)
                 audio.delegate = self
                 audio.prepareToPlay()
@@ -365,12 +376,14 @@ final class TVCommentVoicePlayback: NSObject, ObservableObject, AVAudioPlayerDel
             } catch is CancellationError {
                 return
             } catch {
+                guard !Task.isCancelled, self.loadGeneration == generation else { return }
                 self.error = error.localizedDescription
             }
         }
     }
 
     func stop() {
+        loadGeneration &+= 1
         task?.cancel()
         task = nil
         player?.stop()
@@ -383,8 +396,11 @@ final class TVCommentVoicePlayback: NSObject, ObservableObject, AVAudioPlayerDel
         _ player: AVAudioPlayer, successfully flag: Bool
     ) {
         Task { @MainActor [weak self] in
-            self?.player = nil
-            self?.isPlaying = false
+            // A late delegate callback from the old AVAudioPlayer must not
+            // stop the new reply that was already started.
+            guard let self, self.player === player else { return }
+            self.player = nil
+            self.isPlaying = false
         }
     }
 }
