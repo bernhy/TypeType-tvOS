@@ -94,6 +94,47 @@ enum SabrEarlySessionPrewarmPolicy {
     }
 }
 
+/// A producer-only session swap is safe only while a verified A/V cache
+/// still covers the current playback position. Media integrity errors and
+/// throttling are left to the existing bounded restart/fallback path.
+enum SabrRecoverySplicePolicy {
+    static let minimumCachedAheadMs: Int64 = 8_000
+
+    static func shouldSwitch(error: Error, initialized: Bool,
+                             playheadMs: Int64, cachedThroughMs: Int64) -> Bool {
+        guard initialized, playheadMs >= 0, cachedThroughMs >= playheadMs,
+              cachedThroughMs - playheadMs >= minimumCachedAheadMs else {
+            return false
+        }
+        if let failure = error as? SabrFailure {
+            switch failure {
+            case .expired: return true
+            case .server(let status, _):
+                return [404, 410, 502, 503, 504].contains(status)
+            default: return false
+            }
+        }
+        if let url = error as? URLError {
+            switch url.code {
+            case .timedOut, .networkConnectionLost, .notConnectedToInternet,
+                 .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+                return true
+            default: return false
+            }
+        }
+        return false
+    }
+
+    /// Trim *each* track at its own last parsed/submitted sample frontier.
+    /// Sharing a single A/V cutoff would duplicate audio or drop video
+    /// whenever the fragment lengths differ.
+    static func clipBeforeMs(queuedEndMs: Int64, parsedEndMs: Int64?,
+                             presentationStartMs: Int64) -> Int64 {
+        max(0, max(presentationStartMs,
+                   max(queuedEndMs, parsedEndMs ?? 0)))
+    }
+}
+
 /// Bounded recovery patterned after Android's stream reconnect policy.
 /// HTTP client/credential failures and malformed media stay terminal;
 /// network outages, expired SABR sessions and renderer stalls are retried.
