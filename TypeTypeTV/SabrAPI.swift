@@ -560,7 +560,6 @@ final class SabrService: @unchecked Sendable {
         var lastPrefetch: Date?
         #if DEBUG
         var prefetchAttempts = 0
-        var lastPendingStateLog: Date?
         #endif
         let startedAt = Date()
         let deadline = startedAt.addingTimeInterval(25)
@@ -598,24 +597,6 @@ final class SabrService: @unchecked Sendable {
                       answer.audio != nil else { throw SabrFailure.invalidResponse("window generation/tracks") }
                 return answer
             }
-            #if DEBUG
-            // Only log safe categorical state: never log the server's raw
-            // terminalError, request body, session ID or signed media URLs.
-            // This distinguishes a stalled upstream demand from failed MP4
-            // parsing (which starts only after a ready window is returned).
-            let observedAt = Date()
-            if lastPendingStateLog.map({ observedAt.timeIntervalSince($0) >= 5 }) ?? true {
-                lastPendingStateLog = observedAt
-                NSLog("TypeType SABR WINDOW pending state=%@ cause=%@ action=%@ elapsedMs=%d retryMs=%d audio=%d video=%d",
-                      SabrServerRecoveryDiagnostics.state(answer.status),
-                      SabrServerRecoveryDiagnostics.category(answer.terminalError),
-                      SabrServerRecoveryDiagnostics.action(answer.recoveryAction),
-                      Int(observedAt.timeIntervalSince(startedAt) * 1_000),
-                      answer.retryAfterMs ?? -1,
-                      answer.audio == nil ? 0 : 1,
-                      answer.video == nil ? 0 : 1)
-            }
-            #endif
             if answer.recoveryAction == "retry_fresh_session" {
                 // "Expired" is our client-side name for the server's
                 // instruction to create a fresh playback session; it does
