@@ -134,3 +134,13 @@ final class MP4SampleBuffersTests: XCTestCase {
     XCTAssertEqual(bytes, [1, 1, 2, 2])
   }
 }
+
+// Regression guard: compressed video must be enqueued as one access unit per
+// CMSampleBuffer on tvOS. 2/4/8-frame batches reproduce CoreMedia -12710 on
+// real hardware; audio continues using its original packet grouping.
+final class SabrNativeBufferBatchTests: XCTestCase {
+  func testSingleFrameVideoBuffersAndUnchangedAudioGrouping() {
+    XCTAssertEqual(SabrDirectMP4Reader.batchSize(for: .video), 1)
+    XCTAssertEqual(SabrDirectMP4Reader.batchSize(for: .audio), 16)
+  }
+}
