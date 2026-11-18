@@ -99,6 +99,44 @@ enum SabrEarlySessionPrewarmPolicy {
 /// throttling are left to the existing bounded restart/fallback path.
 enum SabrRecoverySplicePolicy {
     static let minimumCachedAheadMs: Int64 = 8_000
+    // Bound repeated producer-only switches during successive server restarts.
+    static let maximumSessionsPerIncident = 4
+
+    /// Log only stable, sanitized error categories, never session-specific URLs,
+    /// bearer tokens or untrusted server error bodies.
+    static func errorKind(_ error: Error) -> String {
+        if let failure = error as? SabrFailure {
+            switch failure {
+            case .server: return "http"
+            case .expired: return "expired"
+            case .throttled: return "throttled"
+            case .stalled: return "stalled"
+            case .unsupported: return "unsupported"
+            case .unavailable: return "unavailable"
+            case .stopped: return "stopped"
+            case .invalidResponse(let description):
+                switch description {
+                case "SABR segment gap before next media sample": return "segment-gap"
+                case "SABR window stopped advancing": return "window-stalled"
+                case "segment window timed out": return "window-timeout"
+                case "SABR recovered media has noncontiguous native timestamps":
+                    return "native-time-gap"
+                default: return "invalid-response"
+                }
+            }
+        }
+        return error is CancellationError ? "cancelled" :
+            (error is URLError ? "network" : "other")
+    }
+
+    static func httpStatus(_ error: Error) -> Int {
+        guard let failure = error as? SabrFailure else { return 0 }
+        switch failure {
+        case .server(let status, _), .throttled(let status, _, _):
+            return status
+        default: return 0
+        }
+    }
 
     static func shouldSwitch(error: Error, initialized: Bool,
                              playheadMs: Int64, cachedThroughMs: Int64) -> Bool {
