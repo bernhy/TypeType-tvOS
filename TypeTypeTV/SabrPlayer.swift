@@ -1505,6 +1505,84 @@ final class SabrPlayerController: ObservableObject {
         }
     }
 
+    /// Verify real *compressed* media before admitting a session to the live
+    /// CoreMedia mailbox. Server window metadata or a successful HTTP response
+    /// is not enough: both A/V fragments must cover the splice position,
+    /// and the video fragment must contain a reliably flagged RAP at/before it.
+    /// This runs on the speculative network path; it never flushes or touches
+    /// the currently playing native renderer or its shared clock.
+    private func verifyPrewarmedSplice(
+        service: SabrService, reply: SabrSessionReply,
+        selection: SabrSelection, window: SabrWindow, targetMs: Int64
+    ) async throws -> Bool {
+        guard let audio = window.audio, let video = window.video,
+              let audioPart = SabrSplicePreflightPolicy.segment(
+                audio.segments, covering: targetMs
+              ),
+              let videoPart = SabrSplicePreflightPolicy.segment(
+                video.segments, covering: targetMs
+              ),
+              let cache = segmentCache else {
+            NSLog("TypeType SABR EARLY preflight result=0 reason=missing-av-metadata")
+            return false
+        }
+        let sid = reply.sessionId, gen = reply.generation
+        let audioInit = try await service.fragmentData(
+            audio.initUrl, sessionId: sid,
+            itag: selection.audio.itag, generation: gen
+        )
+        let videoInit = try await service.fragmentData(
+            video.initUrl, sessionId: sid,
+            itag: selection.video.itag, generation: gen
+        )
+        // Save verified downloads in the SAME bounded cache used by the
+        // playing producer; session URLs are distinct keys, not summed
+        // extra seconds in the on-screen buffer calculation.
+        let audioBytes = try await cache.data(for: audioPart.url) {
+            try await service.fragmentData(
+                audioPart.url, sessionId: sid,
+                itag: selection.audio.itag, generation: gen
+            )
+        }
+        let videoBytes = try await cache.data(for: videoPart.url) {
+            try await service.fragmentData(
+                videoPart.url, sessionId: sid,
+                itag: selection.video.itag, generation: gen
+            )
+        }
+        try Task.checkCancellation()
+        let audioSamples = try await SabrDirectMP4Reader.compressedSamples(
+            initialization: audioInit, fragment: audioBytes,
+            mediaType: .audio, presentationStartMs: targetMs
+        )
+        let videoBatch = try await SabrDirectMP4Reader.compressedSeekVideo(
+            initialization: videoInit, fragment: videoBytes,
+            presentationStartMs: targetMs
+        )
+        let audioStart = SabrSampleTimingProbe.actualStartMs(audioSamples)
+        let audioEnd = SabrSampleTimingProbe.actualEndMs(audioSamples)
+        let videoEnd = SabrSampleTimingProbe.actualEndMs(videoBatch.buffers)
+        let valid = SabrSplicePreflightPolicy.accepts(
+            targetMs: targetMs, audioFirstMs: audioStart,
+            audioEndMs: audioEnd, videoRAPMs: videoBatch.selectedRAPMs,
+            videoEndMs: videoEnd
+        )
+        NSLog("TypeType SABR EARLY preflight result=%d targetMs=%lld audioStartMs=%lld audioEndMs=%lld videoRapMs=%lld videoEndMs=%lld",
+              valid ? 1 : 0, targetMs, audioStart ?? -1, audioEnd ?? -1,
+              videoBatch.selectedRAPMs ?? -1, videoEnd ?? -1)
+        if valid {
+            await cache.recordCachedMedia(SabrMediaReference(
+                url: audioPart.url, itag: selection.audio.itag,
+                startMs: audioPart.startMs, durationMs: audioPart.durationMs
+            ))
+            await cache.recordCachedMedia(SabrMediaReference(
+                url: videoPart.url, itag: selection.video.itag,
+                startMs: videoPart.startMs, durationMs: videoPart.durationMs
+            ))
+        }
+        return valid
+    }
+
     /// Prepare a fresh SABR session concurrently with playback. A readiness
     /// window request warms its first tracks on the server, but does not
     /// submit them to the old renderer or alter its timeline.
