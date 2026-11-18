@@ -93,6 +93,23 @@ final class TVVideoMetadataTests: XCTestCase {
         XCTAssertFalse(TVVideoIdentity.equivalent("", ""))
     }
 
+    func testProgressEnrichmentHandlesVeryLargeDurationSafely() {
+        var video = VideoItem(
+            id: "long", title: "Malformed duration",
+            url: "https://youtu.be/abc123def45", thumbnailUrl: nil,
+            uploaderName: nil, duration: Int.max, isLive: false
+        )
+        video.watched = false
+        let enriched = video.withProgress(10_000)
+        XCTAssertEqual(enriched.watchPositionMs, 10_000)
+        XCTAssertFalse(enriched.watched ?? true)
+        XCTAssertFalse(TVWatchedState.isWatched(enriched, positionMs: 10_000))
+
+        video.duration = 100
+        XCTAssertFalse(video.withProgress(89_999).watched ?? true)
+        XCTAssertTrue(video.withProgress(90_000).watched ?? false)
+    }
+
     func testExplicitZeroProgressOverridesWatchedFlag() {
         var video = VideoItem(
             id: "abc123def45", title: "Example",
