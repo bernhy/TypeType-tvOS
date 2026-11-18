@@ -183,6 +183,40 @@ enum SabrRecoverySplicePolicy {
     }
 }
 
+/// Fail closed before joining two SABR sessions in a single native decoder.
+/// Metadata alone is not evidence of playable future A/V; the producer also
+/// verifies compressed sample timestamps and a real video RAP below.
+enum SabrSplicePreflightPolicy {
+    static let minimumForwardMs: Int64 = 250
+    static let maximumAudioStartDelayMs: Int64 = 250
+    static let maximumRAPLookbehindMs: Int64 = 10_000
+
+    static func segment(_ segments: [SabrFragment], covering targetMs: Int64)
+        -> SabrFragment? {
+        guard targetMs >= 0 else { return nil }
+        return segments.filter {
+            $0.startMs >= 0 && $0.durationMs > 0 &&
+            $0.startMs <= Int64.max - $0.durationMs &&
+            $0.startMs <= targetMs &&
+            $0.startMs + $0.durationMs >= targetMs + minimumForwardMs
+        }.max { $0.startMs < $1.startMs }
+    }
+
+    static func accepts(targetMs: Int64, audioFirstMs: Int64?,
+                        audioEndMs: Int64?, videoRAPMs: Int64?,
+                        videoEndMs: Int64?) -> Bool {
+        guard targetMs >= 0, targetMs <= Int64.max - minimumForwardMs,
+              let audioFirstMs, let audioEndMs,
+              let videoRAPMs, let videoEndMs,
+              audioFirstMs <= targetMs + maximumAudioStartDelayMs,
+              audioEndMs >= targetMs + minimumForwardMs,
+              videoRAPMs <= targetMs,
+              videoRAPMs >= max(0, targetMs - maximumRAPLookbehindMs),
+              videoEndMs >= targetMs + minimumForwardMs else { return false }
+        return true
+    }
+}
+
 /// Bounded recovery patterned after Android's stream reconnect policy.
 /// HTTP client/credential failures and malformed media stay terminal;
 /// network outages, expired SABR sessions and renderer stalls are retried.
