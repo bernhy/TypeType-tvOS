@@ -31,6 +31,141 @@ struct SabrCompressedSampleBatch {
     let selectedRAPMs: Int64?
 }
 
+#if DEBUG
+/// One-time reference reader for comparing CoreMedia metadata, NOT a playback
+/// fallback. All bytes come from an already-downloaded SABR window, so this
+/// introduces zero additional network traffic.
+private final class SabrAudioReferenceOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var scheduled = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !scheduled else { return false }
+        scheduled = true
+        return true
+    }
+}
+
+private enum SabrAudioReferenceDiagnostics {
+    static func describe(source: String, sample: CMSampleBuffer,
+                         fallback: CMFormatDescription? = nil) {
+        let format = CMSampleBufferGetFormatDescription(sample) ?? fallback
+        let count = CMSampleBufferGetNumSamples(sample)
+        let firstSize = count > 0 ? CMSampleBufferGetSampleSize(sample, at: 0) : 0
+        let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
+        let dts = CMTimeGetSeconds(CMSampleBufferGetDecodeTimeStamp(sample))
+        var timing = CMSampleTimingInfo()
+        let timingStatus: OSStatus = count > 0
+            ? CMSampleBufferGetSampleTimingInfo(sample, at: 0, timingInfoOut: &timing)
+            : -1
+        let duration = CMTimeGetSeconds(timing.duration)
+        var packetPointer: UnsafePointer<AudioStreamPacketDescription>?
+        var packetBytes = 0
+        let packetStatus = CMSampleBufferGetAudioStreamPacketDescriptionsPtr(
+            sample,
+            packetDescriptionsPointerOut: &packetPointer,
+            sizeOut: &packetBytes
+        )
+        let attachments = CMSampleBufferGetSampleAttachmentsArray(
+            sample, createIfNecessary: false
+        )
+        let attachmentCount = (attachments as? [Any])?.count ?? 0
+        guard let format else {
+            NSLog("TypeType AUDIO-REFERENCE source=%@ format=missing packets=%d bytes=%d",
+                  source, count, CMSampleBufferGetTotalSampleSize(sample))
+            return
+        }
+        let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee
+        var cookieBytes = 0
+        let cookie = CMAudioFormatDescriptionGetMagicCookie(
+            format, sizeOut: &cookieBytes
+        )
+        let cookieDigest: String
+        if let cookie, cookieBytes > 0 {
+            let bytes = Data(bytes: cookie, count: cookieBytes)
+            cookieDigest = SHA256.hash(data: bytes).prefix(6)
+                .map { String(format: "%02x", $0) }.joined()
+        } else {
+            cookieDigest = "none"
+        }
+        var layoutBytes = 0
+        let layoutExists = CMAudioFormatDescriptionGetChannelLayout(
+            format, sizeOut: &layoutBytes
+        ) != nil
+        let extensions = CMFormatDescriptionGetExtensions(format)
+        let extensionCount = extensions.map { CFDictionaryGetCount($0) } ?? 0
+        NSLog("TypeType AUDIO-REFERENCE source=%@ packets=%d totalBytes=%d firstBytes=%d ptsMs=%.3f dtsMs=%.3f durationMs=%.3f timingStatus=%d packetStatus=%d packetBytes=%d hasPacketPointer=%d attachments=%d asbdRate=%.0f asbdChannels=%d asbdFlags=%u asbdFramesPerPacket=%d cookieBytes=%d cookieSha12=%@ channelLayoutBytes=%d hasLayout=%d extensionCount=%d",
+              source, count, CMSampleBufferGetTotalSampleSize(sample), firstSize,
+              pts * 1_000, dts * 1_000, duration * 1_000, timingStatus,
+              packetStatus, packetBytes, packetPointer == nil ? 0 : 1,
+              attachmentCount, asbd?.mSampleRate ?? -1,
+              Int(asbd?.mChannelsPerFrame ?? 0),
+              asbd?.mFormatFlags ?? 0,
+              Int(asbd?.mFramesPerPacket ?? 0),
+              cookieBytes, cookieDigest,
+              layoutBytes, layoutExists ? 1 : 0, extensionCount)
+    }
+
+    static func readAlreadyDownloadedAudio(
+        initialization: Data, fragment: Data
+    ) async {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "typetype-audio-reference-\(UUID().uuidString).mp4"
+        )
+        defer { try? FileManager.default.removeItem(at: file) }
+        do {
+            guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
+                NSLog("TypeType AUDIO-REFERENCE source=avassetreader unavailable=file-create")
+                return
+            }
+            let writer = try FileHandle(forWritingTo: file)
+            try writer.write(contentsOf: initialization)
+            try writer.write(contentsOf: fragment)
+            try writer.close()
+
+            let asset = AVURLAsset(url: file)
+            guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
+                NSLog("TypeType AUDIO-REFERENCE source=avassetreader unavailable=no-track")
+                return
+            }
+            let fallbackFormat = try await track.load(.formatDescriptions).first
+            let reader = try AVAssetReader(asset: asset)
+            let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+            output.alwaysCopiesSampleData = false
+            guard reader.canAdd(output) else {
+                NSLog("TypeType AUDIO-REFERENCE source=avassetreader unavailable=no-output")
+                return
+            }
+            reader.add(output)
+            guard reader.startReading() else {
+                NSLog("TypeType AUDIO-REFERENCE source=avassetreader unavailable=start status=%d",
+                      reader.status.rawValue)
+                return
+            }
+            var examined = 0
+            while reader.status == .reading, examined < 12 {
+                guard let sample = output.copyNextSampleBuffer() else { break }
+                guard CMSampleBufferGetNumSamples(sample) > 0 else { continue }
+                if examined == 0 {
+                    describe(source: "avassetreader", sample: sample,
+                             fallback: fallbackFormat)
+                }
+                examined += 1
+            }
+            reader.cancelReading()
+            NSLog("TypeType AUDIO-REFERENCE source=avassetreader done=1 inspectedBuffers=%d",
+                  examined)
+        } catch {
+            // Error reason only; do not log file path or media URL.
+            NSLog("TypeType AUDIO-REFERENCE source=avassetreader unavailable=reader-error type=%@",
+                  String(describing: type(of: error)))
+        }
+    }
+}
+#endif
+
 private final class SabrPreparedSampleTrack: NSObject {
     let track: MP4TrackInfo
     let format: CMFormatDescription
@@ -45,6 +180,10 @@ enum SabrDirectMP4Reader {
     /// Same init segment and track means same format throughout a stream.
     /// Avoid re-parsing moov/stsd and rebuilding the CoreMedia description
     /// for every fragment. Content-hashed keys cannot mix two different inits.
+    #if DEBUG
+    private static let audioReferenceOnce = SabrAudioReferenceOnce()
+    #endif
+
     private static let trackCache: NSCache<NSString, SabrPreparedSampleTrack> = {
         let cache = NSCache<NSString, SabrPreparedSampleTrack>()
         cache.countLimit = 24
@@ -196,18 +335,21 @@ enum SabrDirectMP4Reader {
         }
         #if DEBUG
         if kind == .audio, let firstBuffer = buffers.first,
-           CMFormatDescriptionGetMediaSubType(prepared.format) == kAudioFormatMPEG4AAC {
-            var packetPointer: UnsafePointer<AudioStreamPacketDescription>?
-            var packetBytes = 0
-            let packetStatus = CMSampleBufferGetAudioStreamPacketDescriptionsPtr(
-                firstBuffer,
-                packetDescriptionsPointerOut: &packetPointer,
-                sizeOut: &packetBytes
+           CMFormatDescriptionGetMediaSubType(prepared.format) == kAudioFormatMPEG4AAC,
+           audioReferenceOnce.claim() {
+            // Compare format/sample metadata only. AVAssetReader is NOT given
+            // to the player and cannot affect our sample order or A/V clock.
+            SabrAudioReferenceDiagnostics.describe(
+                source: "native-generic", sample: firstBuffer
             )
-            NSLog("TypeType AUDIO-PACKET-AB mode=packet-descriptions-v4 inputPackets=%d outputBuffers=%d firstBufferPackets=%d packetDescriptionBytes=%d packetStatus=%d packetPointer=%d",
-                  samples.count, buffers.count,
-                  CMSampleBufferGetNumSamples(firstBuffer),
-                  packetBytes, packetStatus, packetPointer == nil ? 0 : 1)
+            let referenceInitialization = initialization
+            let referenceFragment = fragment
+            Task.detached(priority: .utility) {
+                await SabrAudioReferenceDiagnostics.readAlreadyDownloadedAudio(
+                    initialization: referenceInitialization,
+                    fragment: referenceFragment
+                )
+            }
         }
         #endif
         return SabrCompressedSampleBatch(buffers: buffers,
