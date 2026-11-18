@@ -34,6 +34,29 @@ final class SabrCaptionTests: XCTestCase {
         XCTAssertEqual(cues.first?.text, "Hallo\nTV")
     }
 
+    func testMalformedGiganticCaptionTimestampsNeverOverflow() throws {
+        XCTAssertNil(SabrCaptionParser.timestamp("9223372036854775808ms"))
+        XCTAssertNil(SabrCaptionParser.timestamp("1e50ms"))
+        XCTAssertNil(SabrCaptionParser.timestamp("1e20s"))
+        XCTAssertNil(SabrCaptionParser.timestamp("1e20:00:00"))
+        XCTAssertNil(SabrCaptionParser.timestamp("-12ms"))
+        XCTAssertEqual(SabrCaptionParser.timestamp("1750ms"), 1_750)
+        XCTAssertEqual(SabrCaptionParser.timestamp("1.75s"), 1_750)
+        XCTAssertEqual(SabrCaptionParser.timestamp("00:00:01.750"), 1_750)
+
+        let data = Data("""
+        WEBVTT
+
+        1e50s --> 1e51s
+        Bad cue
+
+        00:00:01.000 --> 00:00:02.000
+        Good cue
+        """.utf8)
+        let cues = try SabrCaptionParser.decode(data, mime: "text/vtt")
+        XCTAssertEqual(cues.map(\.text), ["Good cue"])
+    }
+
     func testRejectsUnknownCaptionFormat() {
         XCTAssertThrowsError(try SabrCaptionParser.decode(
             Data("random".utf8), mime: "application/octet-stream"
