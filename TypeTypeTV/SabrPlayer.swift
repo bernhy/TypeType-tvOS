@@ -1430,13 +1430,12 @@ final class SabrPlayerController: ObservableObject {
                         positionMs: playheadMs
                     ) : 0
                 let safeToRetry = validClock &&
-                    SabrRecoverySplicePolicy.shouldSwitch(
+                    SabrRecoverySplicePolicy.canReSplice(
                         error: error, initialized: isInitialized,
-                        playheadMs: playheadMs, cachedThroughMs: cacheEndMs
+                        playheadMs: playheadMs, cachedThroughMs: cacheEndMs,
+                        sessionsSoFar: sessions
                     )
-                let hasBudget = sessions <
-                    SabrRecoverySplicePolicy.maximumSessionsPerIncident
-                let anchor = safeToRetry && hasBudget
+                let anchor = safeToRetry
                     ? SabrEarlySessionPrewarmPolicy.startPosition(
                         playheadMs: playheadMs,
                         audioQueuedEndMs: queuedAudioEndMs,
