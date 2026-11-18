@@ -877,6 +877,10 @@ final class TypeTypeTVUITests: XCTestCase {
                       "One Up from Play should reach the channel")
         XCUIRemote.shared.press(.select)
         XCTAssertTrue(app.staticTexts["Testkanal"].waitForExistence(timeout: 10))
+        // Regression: opening a channel from a video detail must populate
+        // its Videos grid immediately, without switching to Shorts and back.
+        XCTAssertTrue(app.buttons["subscription-video-0"].waitForExistence(timeout: 10),
+                      "Directly opened channels must load videos on first appearance")
         XCUIRemote.shared.press(.menu)
         XCTAssertTrue(channel.waitForExistence(timeout: 10),
                       "Back from channel must return to its video detail")
