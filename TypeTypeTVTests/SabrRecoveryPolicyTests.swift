@@ -66,6 +66,55 @@ final class SabrRecoveryPolicyTests: XCTestCase {
         ), "Authentication failure is not safe for speculative sessions")
     }
 
+    func testInPlaceProducerHandoverNeedsActualAVCacheAndNetworkFailure() {
+        // The November 18 Apple TV reboot: 20.9s contiguous compressed
+        // A/V cache, only 1.4s submitted to the native renderer.
+        XCTAssertTrue(SabrRecoverySplicePolicy.shouldSwitch(
+            error: SabrFailure.server(404, "segments"),
+            initialized: true, playheadMs: 132_407,
+            cachedThroughMs: 153_280
+        ))
+        XCTAssertTrue(SabrRecoverySplicePolicy.shouldSwitch(
+            error: URLError(.networkConnectionLost),
+            initialized: true, playheadMs: 100_000,
+            cachedThroughMs: 120_000
+        ))
+        XCTAssertFalse(SabrRecoverySplicePolicy.shouldSwitch(
+            error: SabrFailure.server(404, "segments"),
+            initialized: true, playheadMs: 132_407,
+            cachedThroughMs: 137_000
+        ), "Do not switch when there is no time to fill the new mailbox")
+        XCTAssertFalse(SabrRecoverySplicePolicy.shouldSwitch(
+            error: SabrFailure.server(404, "segments"),
+            initialized: false, playheadMs: 132_407,
+            cachedThroughMs: 153_280
+        ), "Cold resume and attestation issues need the original recovery")
+        XCTAssertFalse(SabrRecoverySplicePolicy.shouldSwitch(
+            error: SabrFailure.server(401, "segments"),
+            initialized: true, playheadMs: 132_407,
+            cachedThroughMs: 153_280
+        ), "Never start a fresh stream to bypass an authentication failure")
+        XCTAssertFalse(SabrRecoverySplicePolicy.shouldSwitch(
+            error: SabrFailure.stalled("decoder sample discontinuity"),
+            initialized: true, playheadMs: 132_407,
+            cachedThroughMs: 153_280
+        ), "Media integrity problems need full recovery")
+    }
+
+    func testSpliceCutsAudioAndVideoAtIndependentSubmittedFrontiers() {
+        XCTAssertEqual(SabrRecoverySplicePolicy.clipBeforeMs(
+            queuedEndMs: 159_753, parsedEndMs: 160_100,
+            presentationStartMs: 132_407
+        ), 160_100)
+        XCTAssertEqual(SabrRecoverySplicePolicy.clipBeforeMs(
+            queuedEndMs: 153_300, parsedEndMs: 153_280,
+            presentationStartMs: 132_407
+        ), 153_300)
+        XCTAssertEqual(SabrRecoverySplicePolicy.clipBeforeMs(
+            queuedEndMs: 0, parsedEndMs: nil, presentationStartMs: 5_000
+        ), 5_000)
+    }
+
     func testEarlyTransportRetriesOnlySafePlaybackRoutesAndTransientFailures() {
         let policy = SabrEarlyTransportRetryPolicy(delaysMilliseconds: [1, 2])
         XCTAssertEqual(SabrEarlyTransportRetryPolicy.route(
