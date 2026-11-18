@@ -38,16 +38,25 @@ enum SabrCaptionParser {
         throw SabrFailure.unsupported("unsupported subtitle format")
     }
 
+    /// Invalid or extremely large provider timestamps must never trap on a
+    /// Double -> Int64 conversion (Double(Int64.max) rounds up to 2^63).
+    private static func safeMilliseconds(_ value: Double, scale: Double) -> Int64? {
+        let milliseconds = value * scale
+        guard milliseconds.isFinite, milliseconds >= 0,
+              milliseconds < Double(Int64.max) else { return nil }
+        return Int64(milliseconds)
+    }
+
     static func timestamp(_ value: String) -> Int64? {
         let cleaned = value.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: ",", with: ".")
         if cleaned.hasSuffix("ms"),
-           let ms = Double(cleaned.dropLast(2)), ms.isFinite && ms >= 0 {
-            return Int64(ms)
+           let ms = Double(cleaned.dropLast(2)) {
+            return safeMilliseconds(ms, scale: 1)
         }
         if cleaned.hasSuffix("s"),
-           let seconds = Double(cleaned.dropLast()), seconds.isFinite && seconds >= 0 {
-            return Int64(seconds * 1_000)
+           let seconds = Double(cleaned.dropLast()) {
+            return safeMilliseconds(seconds, scale: 1_000)
         }
         let components = cleaned.split(separator: ":")
         guard components.count == 2 || components.count == 3 else { return nil }
@@ -58,8 +67,7 @@ enum SabrCaptionParser {
         let seconds = components.count == 3
             ? numbers[0] * 3_600 + numbers[1] * 60 + numbers[2]
             : numbers[0] * 60 + numbers[1]
-        guard seconds < Double(Int64.max) / 1_000 else { return nil }
-        return Int64(seconds * 1_000)
+        return safeMilliseconds(seconds, scale: 1_000)
     }
 
     private static func webVTT(_ text: String) -> [SabrCaptionCue] {
