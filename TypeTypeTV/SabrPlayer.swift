@@ -2177,6 +2177,9 @@ final class SabrPlayerController: ObservableObject {
         var audioInitLocation = ""
         var videoInitLocation = ""
         var seen = Set<String>()
+        var currentWindowSession: String?
+        var spliceAudioBeforeMs: Int64?
+        var spliceVideoBeforeMs: Int64?
         // Audio (often ~10 s per fragment) and video (often ~5 s) do
         // not share fragment indices. Keep an independent queue per track;
         // only submit samples through the last contiguous COMMON timeline.
@@ -2199,13 +2202,38 @@ final class SabrPlayerController: ObservableObject {
         }) {
             try Task.checkCancellation()
             if let ms = response.durationMs { durationMs = ms }
+            // Producer may switch sessions while old windows are still in
+            // the FIFO mailbox. Keep each window's own media credentials.
+            let responseSession = response.sessionId
+            let responseGeneration = response.generation
+            if let previousSession = currentWindowSession,
+               previousSession != responseSession {
+                spliceAudioBeforeMs = SabrRecoverySplicePolicy.clipBeforeMs(
+                    queuedEndMs: queuedAudioEndMs,
+                    parsedEndMs: audioTimeline.lastActualEndMs,
+                    presentationStartMs: presentationStartMs
+                )
+                spliceVideoBeforeMs = SabrRecoverySplicePolicy.clipBeforeMs(
+                    queuedEndMs: queuedVideoEndMs,
+                    parsedEndMs: videoTimeline.lastActualEndMs,
+                    presentationStartMs: presentationStartMs
+                )
+                NSLog("TypeType SABR EARLY splice-decoder audioCutMs=%lld videoCutMs=%lld clockMs=%lld",
+                      spliceAudioBeforeMs ?? 0, spliceVideoBeforeMs ?? 0,
+                      max(0, Int64(playbackSeconds() * 1_000)))
+                if let index = retiredSabrSessions.firstIndex(of: previousSession) {
+                    retiredSabrSessions.remove(at: index)
+                    Task { try? await service.release(sessionId: previousSession) }
+                }
+            }
+            currentWindowSession = responseSession
             guard let audio = response.audio, let video = response.video else {
                 throw SabrFailure.invalidResponse("SABR audio/video missing")
             }
             if audioInitLocation != audio.initUrl {
                 audioInit = try await service.fragmentData(
-                    audio.initUrl, sessionId: sessionId,
-                    itag: choice.audio.itag, generation: generation
+                    audio.initUrl, sessionId: responseSession,
+                    itag: choice.audio.itag, generation: responseGeneration
                 )
                 audioInitLocation = audio.initUrl
                 audioTimeline = SabrNativeTimelineResolver()
@@ -2213,8 +2241,8 @@ final class SabrPlayerController: ObservableObject {
             }
             if videoInitLocation != video.initUrl {
                 videoInit = try await service.fragmentData(
-                    video.initUrl, sessionId: sessionId,
-                    itag: choice.video.itag, generation: generation
+                    video.initUrl, sessionId: responseSession,
+                    itag: choice.video.itag, generation: responseGeneration
                 )
                 videoInitLocation = video.initUrl
                 videoTimeline = SabrNativeTimelineResolver()
@@ -2230,7 +2258,7 @@ final class SabrPlayerController: ObservableObject {
                 try Task.checkCancellation()
                 let key = "a:\(segment.url)"
                 guard !seen.contains(key) else { continue }
-                let sid = sessionId, gen = generation
+                let sid = responseSession, gen = responseGeneration
                 #if DEBUG
                 let readStarted = ProcessInfo.processInfo.systemUptime
                 #endif
@@ -2241,8 +2269,8 @@ final class SabrPlayerController: ObservableObject {
                     try await SabrDirectMP4Reader.compressedSamples(
                         initialization: audioInit, fragment: bytes,
                         mediaType: .audio,
-                        presentationStartMs: presentationStartMs > start
-                            ? presentationStartMs : nil
+                        presentationStartMs: spliceAudioBeforeMs ??
+                            (presentationStartMs > start ? presentationStartMs : nil)
                     )
                 }
                 #if DEBUG
@@ -2303,7 +2331,7 @@ final class SabrPlayerController: ObservableObject {
                     // In a decoder preroll this entire audio fragment may
                     // end before the real seek target. Its metadata remains
                     // relevant to window continuity, but it must stay silent.
-                    guard presentationStartMs > start else {
+                    guard presentationStartMs > start || spliceAudioBeforeMs != nil else {
                         throw SabrFailure.unsupported("SABR audio segment contains no compressed samples")
                     }
                     try coverage.acceptAudio(segment)
@@ -2356,7 +2384,17 @@ final class SabrPlayerController: ObservableObject {
                 try Task.checkCancellation()
                 let key = "v:\(segment.url)"
                 guard !seen.contains(key) else { continue }
-                let sid = sessionId, gen = generation
+                if let cutoff = spliceVideoBeforeMs,
+                   segment.durationMs > 0, segment.startMs >= 0,
+                   segment.startMs <= Int64.max - segment.durationMs,
+                   cutoff >= 250,
+                   segment.startMs + segment.durationMs <= cutoff - 250 {
+                    // Already decoded and queued by the old session.
+                    // A later RAP is needed to extend this video track.
+                    seen.insert(key)
+                    continue
+                }
+                let sid = responseSession, gen = responseGeneration
                 #if DEBUG
                 let readStarted = ProcessInfo.processInfo.systemUptime
                 #endif
@@ -2366,8 +2404,8 @@ final class SabrPlayerController: ObservableObject {
                 ) { bytes in
                     try await SabrDirectMP4Reader.compressedSeekVideo(
                         initialization: videoInit, fragment: bytes,
-                        presentationStartMs: presentationStartMs > start
-                            ? presentationStartMs : nil
+                        presentationStartMs: spliceVideoBeforeMs ??
+                            (presentationStartMs > start ? presentationStartMs : nil)
                     )
                 }
                 let rawSamples = videoBatch.buffers
