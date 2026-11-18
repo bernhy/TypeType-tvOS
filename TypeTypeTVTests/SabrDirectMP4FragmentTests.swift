@@ -80,6 +80,52 @@ final class MP4FragmentTests: XCTestCase {
     XCTAssertEqual(samples[1].offset, first.offset + 5)
   }
 
+  func testRejectsHugeSampleCountBeforeAttemptingAllocation() throws {
+    let tfhd = B.fullBox("tfhd", flags: 0x020000, B.u32(1))
+    let trun = B.fullBox("trun", B.u32(UInt32.max))
+    let moof = B.box("moof", B.box("traf", tfhd + trun))
+    XCTAssertThrowsError(
+      try MP4Fragment.samples(in: Data(moof), tracks: [try track()])
+    ) { error in
+      XCTAssertEqual(error as? MP4Error, .invalidBox("trun sample count"))
+    }
+  }
+
+  func testRejectsOversizedDecodeAndPresentationTimestamps() throws {
+    let decodeOverflow = segment(
+      baseTime: UInt64(Int64.max), sizes: [2], durations: [1],
+      flags: nil, compositions: nil
+    )
+    XCTAssertThrowsError(
+      try MP4Fragment.samples(in: Data(decodeOverflow), tracks: [try track()])
+    ) { error in
+      XCTAssertEqual(error as? MP4Error, .invalidBox("trun decode time"))
+    }
+
+    let presentationOverflow = segment(
+      baseTime: UInt64(Int64.max), sizes: [2], durations: [0],
+      flags: nil, compositions: [1]
+    )
+    XCTAssertThrowsError(
+      try MP4Fragment.samples(in: Data(presentationOverflow), tracks: [try track()])
+    ) { error in
+      XCTAssertEqual(error as? MP4Error, .invalidBox("trun presentation time"))
+    }
+  }
+
+  func testRejectsOverflowingExplicitDataOffsets() throws {
+    let tfhd = B.fullBox("tfhd", flags: 0x000001,
+                         B.u32(1) + B.u64(UInt64(Int.max)))
+    let trun = B.fullBox("trun", flags: 0x000001,
+                         B.u32(1) + B.u32(1))
+    let moof = B.box("moof", B.box("traf", tfhd + trun))
+    XCTAssertThrowsError(
+      try MP4Fragment.samples(in: Data(moof), tracks: [try track()])
+    ) { error in
+      XCTAssertEqual(error as? MP4Error, .invalidBox("trun data offset"))
+    }
+  }
+
   func testUsesTrackDefaultsWhenTheRunOmitsFields() throws {
     let bytes = segment(baseTime: 0, sizes: [2, 2], durations: nil, flags: nil, compositions: nil)
     let samples = try XCTUnwrap(
