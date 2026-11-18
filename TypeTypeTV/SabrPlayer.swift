@@ -2686,10 +2686,15 @@ final class SabrPlayerController: ObservableObject {
                 if let cutoff = spliceVideoBeforeMs,
                    segment.durationMs > 0, segment.startMs >= 0,
                    segment.startMs <= Int64.max - segment.durationMs,
-                   cutoff >= 250,
-                   segment.startMs + segment.durationMs <= cutoff - 250 {
-                    // Already decoded and queued by the old session.
-                    // A later RAP is needed to extend this video track.
+                   cutoff <= Int64.max - 40,
+                   segment.startMs + segment.durationMs <= cutoff + 40 {
+                    // Native PTS is commonly 20ms ahead of rounded SABR
+                    // metadata. This GOP is ALREADY in the old native
+                    // renderer: do not submit hidden duplicate H.264 frames
+                    // or replay a stale keyframe in the same CoreMedia clock.
+                    NSLog("TypeType SABR EARLY skip-old-video-gop seq=%d metadataEndMs=%lld oldQueuedEndMs=%lld",
+                          SabrSequenceOrder.sequence(segment.url) ?? -1,
+                          segment.startMs + segment.durationMs, cutoff)
                     seen.insert(key)
                     continue
                 }
