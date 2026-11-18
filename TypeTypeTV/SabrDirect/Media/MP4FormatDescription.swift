@@ -82,7 +82,7 @@ public enum MP4FormatDescription {
           allocator: kCFAllocatorDefault,
           bigEndianSoundDescriptionData: pointer,
           size: bytes.count,
-          flavor: kCMSoundDescriptionFlavor_ISOFamily,
+          flavor: CMSoundDescriptionFlavor.isoFamily,
           formatDescriptionOut: &isoFormat
         )
       }
