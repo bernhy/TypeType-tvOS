@@ -101,6 +101,91 @@ final class SabrRecoveryPolicyTests: XCTestCase {
         ), "Media integrity problems need full recovery")
     }
 
+    func testV5PreflightPlansGenuinelyNewAudioAndVideoGOPs() {
+        // Real Nov 18 first restart: old cache stopped at 746_920ms.
+        // The old 743_040ms GOP is already in the native renderer.
+        let video = [
+            SabrFragment(url: "old", startMs: 743_040, durationMs: 3_880),
+            SabrFragment(url: "new-1", startMs: 746_920, durationMs: 3_880),
+            SabrFragment(url: "new-2", startMs: 750_800, durationMs: 3_880)
+        ]
+        let audio = [
+            SabrFragment(url: "old-a", startMs: 738_858, durationMs: 9_985),
+            SabrFragment(url: "new-a", startMs: 748_843, durationMs: 9_985)
+        ]
+        XCTAssertEqual(
+            SabrSplicePreflightPolicy.forwardSegments(
+                video, boundaryMs: 746_920
+            )?.map(\.url),
+            ["new-1", "new-2"]
+        )
+        XCTAssertEqual(
+            SabrSplicePreflightPolicy.forwardSegments(
+                audio, boundaryMs: 746_920
+            )?.map(\.url),
+            ["old-a", "new-a"]
+        )
+
+        // On the second restart the rounded old GOP extends only 40ms
+        // past the old cache frontier; it must not be replayed.
+        let rounded = [
+            SabrFragment(url: "old-rounded", startMs: 791_520, durationMs: 5_840),
+            SabrFragment(url: "future-1", startMs: 797_360, durationMs: 3_880),
+            SabrFragment(url: "future-2", startMs: 801_240, durationMs: 3_880)
+        ]
+        XCTAssertEqual(
+            SabrSplicePreflightPolicy.forwardSegments(
+                rounded, boundaryMs: 797_320
+            )?.map(\.url),
+            ["future-1", "future-2"]
+        )
+
+        XCTAssertNil(SabrSplicePreflightPolicy.forwardSegments([
+            SabrFragment(url: "gap", startMs: 747_300, durationMs: 3_880),
+            SabrFragment(url: "after-gap", startMs: 751_180, durationMs: 3_880)
+        ], boundaryMs: 746_920))
+        XCTAssertNil(SabrSplicePreflightPolicy.forwardSegments(
+            [video[1]], boundaryMs: 746_920
+        ), "One 3.88-second GOP does not prove 4 seconds of future video")
+        XCTAssertNil(SabrSplicePreflightPolicy.forwardSegments(
+            video, boundaryMs: Int64.max
+        ))
+    }
+
+    func testV5PreflightRejectsOldKeyframeAndInsufficientFutureMedia() {
+        XCTAssertTrue(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 746_920, audioFirstMs: 746_919,
+            audioEndMs: 758_828, videoRAPMs: 746_940,
+            videoEndMs: 754_700
+        ))
+        XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 746_920, audioFirstMs: 746_919,
+            audioEndMs: 758_828, videoRAPMs: 743_060,
+            videoEndMs: 754_700
+        ), "The v4 false-positive: a RAP from the old GOP")
+        XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 746_920, audioFirstMs: 746_919,
+            audioEndMs: 758_828, videoRAPMs: 746_940,
+            videoEndMs: 750_820
+        ), "Need >=4 seconds of actual new video before decoder handoff")
+        XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 746_920, audioFirstMs: 747_400,
+            audioEndMs: 758_828, videoRAPMs: 746_940,
+            videoEndMs: 754_700
+        ), "AAC must not begin half a second after video")
+        XCTAssertFalse(SabrSplicePreflightPolicy.acceptsForwardBoundary(
+            boundaryMs: 746_920, audioFirstMs: 746_919,
+            audioEndMs: 750_000, videoRAPMs: 746_940,
+            videoEndMs: 754_700
+        ))
+        XCTAssertTrue(SabrSplicePreflightPolicy.continues(
+            previousEndMs: 750_820, nextStartMs: 750_840
+        ))
+        XCTAssertFalse(SabrSplicePreflightPolicy.continues(
+            previousEndMs: 750_820, nextStartMs: 751_200
+        ))
+    }
+
     func testSplicePreflightSelectsActualFragmentsCoveringHandover() {
         let audio = [
             SabrFragment(url: "https://example.invalid/segment/44",
