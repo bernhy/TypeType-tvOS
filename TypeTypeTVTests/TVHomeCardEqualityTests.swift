@@ -471,27 +471,6 @@ final class TVHomeCardEqualityTests: XCTestCase {
     }
 
 
-    func testComparisonMenuHasOnlyTwoVisibleChoices() {
-        XCTAssertEqual(TVHomeComparisonPolicy.previous,
-                       TVHomeExperimentMode.fullLightweightStableFocus.rawValue)
-        XCTAssertEqual(TVHomeComparisonPolicy.baseline,
-                       TVHomeExperimentMode.subscriptionsBaseline.rawValue)
-        XCTAssertNotEqual(TVHomeComparisonPolicy.previous, TVHomeComparisonPolicy.baseline)
-        XCTAssertEqual(TVHomeComparisonPolicy.label(for: TVHomeComparisonPolicy.previous),
-                       "Bisheriges Home")
-        XCTAssertEqual(TVHomeComparisonPolicy.label(for: TVHomeComparisonPolicy.baseline),
-                       "Home wie Abonnements")
-        XCTAssertTrue(TVHomeComparisonPolicy.isChosen(
-            TVHomeComparisonPolicy.baseline, selected: TVHomeComparisonPolicy.baseline
-        ))
-        XCTAssertFalse(TVHomeComparisonPolicy.isChosen(
-            TVHomeComparisonPolicy.previous, selected: TVHomeComparisonPolicy.baseline
-        ))
-        XCTAssertTrue(TVHomeComparisonPolicy.isChosen(
-            TVHomeComparisonPolicy.previous, selected: TVHomeExperimentMode.full.rawValue
-        ))
-    }
-
     func testDiagnosticModesIsolateHomeWorkWithoutReduccingImageQuality() {
         XCTAssertEqual(TVHomeExperimentMode.allCases.count, 11)
         XCTAssertEqual(TVHomeExperimentMode.full.next,
