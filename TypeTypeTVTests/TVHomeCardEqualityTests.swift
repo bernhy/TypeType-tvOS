@@ -13,6 +13,20 @@ final class TVHomeCardEqualityTests: XCTestCase {
                        CGPoint(x: 147, y: 237))
     }
 
+    func testToastRevealIsClippedExactlyAtTheCardTopEdge() {
+        let card = CGRect(x: 310, y: 245, width: 265, height: 190)
+        let viewport = CGRect(x: 0, y: 0, width: 1400, height: 780)
+        let reveal = TVHomeCardToastPosition.revealRect(
+            for: card, in: viewport
+        )
+        XCTAssertEqual(reveal.minY, card.minY,
+                       "The clipped slide must emerge at the card's top edge")
+        XCTAssertEqual(reveal.minX, card.minX)
+        XCTAssertGreaterThan(reveal.width, card.width,
+                             "A long toast must not wrap at the tile's width")
+        XCTAssertEqual(reveal.maxX, viewport.maxX)
+    }
+
     func testToastDisappearsWhenItsCardLeavesTheVisibleViewport() {
         let viewport = CGRect(x: 0, y: 0, width: 1200, height: 680)
         let visible = CGRect(x: 140, y: 230, width: 300, height: 180)
