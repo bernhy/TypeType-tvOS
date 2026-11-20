@@ -25,6 +25,9 @@ struct TVVideoActionModifier: ViewModifier {
     let isWatchLaterEntry: Bool
     let externalFocus: FocusState<String?>.Binding?
     let focusID: String?
+    // Focus-only Home A/B attaches its binding to the outer NavigationLink
+    // instead, so mounting an action menu never replaces the focus owner.
+    var attachFocus = true
 
     @ObservedObject private var localProgress = TVLocalProgress.shared
     @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
@@ -50,10 +53,15 @@ struct TVVideoActionModifier: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
-        content
-            .modifier(TVActionFocusModifier(
-                local: $cardFocus, external: externalFocus, key: focusID
-            ))
+        Group {
+            if attachFocus {
+                content.modifier(TVActionFocusModifier(
+                    local: $cardFocus, external: externalFocus, key: focusID
+                ))
+            } else {
+                content
+            }
+        }
             .task { await watchLaterMembership.ensureLoaded(api: api) }
             .contextMenu {
                 if let position = localProgress.positions[video.url] ?? video.watchPositionMs,
