@@ -19,6 +19,9 @@ struct TVHomeSubscriptionsBaselineView: View {
     var onInitialFocusReady: () -> Void = {}
 
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
+    // One shared state host for Home menu dialogs/actions. Every card keeps
+    // the same NavigationLink + FocusState chain throughout focus movement.
+    @StateObject private var homeMenu = TVHomeMenuCoordinator()
     @State private var videos: [VideoItem]
     @State private var nextCursor: String?
     @State private var loading = false
@@ -105,11 +108,16 @@ struct TVHomeSubscriptionsBaselineView: View {
                                 .focusEffectDisabled(true)
                                 .zIndex(focusedVideo == video.url ? 5 : 0)
                                 .id(video.url)
-                                // Match Abonnements exactly: actions keep their
-                                // own membership/progress updates; no Home
-                                // refresh triggered by a context-menu action.
-                                .videoActions(api: api, video: video, onChanged: {},
-                                              focus: $focusedVideo, focusID: video.url)
+                                // Retain the minimal subscriptions-style
+                                // NavigationLink focus structure, but build
+                                // context menu contents lazily from a single
+                                // Home coordinator. No per-card observers,
+                                // action state or focus-owner replacement.
+                                .modifier(TVHomeLightweightVideoActions(
+                                    api: api, video: video, model: homeMenu,
+                                    focus: $focusedVideo, focusID: video.url,
+                                    onChanged: { Task { await reload() } }
+                                ))
                                 .onMoveCommand { direction in
                                     if direction == .left && index % columns.count == 0 {
                                         onRevealMenu()
@@ -144,6 +152,12 @@ struct TVHomeSubscriptionsBaselineView: View {
                 .padding(.bottom, 120)
             }
             .background(TTTheme.ink)
+            .modifier(TVHomeMenuPresentation(model: homeMenu))
+            .onChange(of: homeMenu.focusRestoreRequest) { _, _ in
+                if let id = homeMenu.focusRestoreTarget {
+                    focusedVideo = id
+                }
+            }
             .task {
                 await contentPreferences.ensureLoaded(api: api)
                 guard !loadedOnce else { return }
