@@ -756,7 +756,11 @@ final class TVHomeResumeMetadataLoader {
     // The global TVStreamMetadataCache provides the broader 128-entry cache.
     private var known: [String: StreamInfo] = [:]
     private var completed: [String: StreamInfo] = [:]
+    // One start delay per Home appearance, then up to three independent
+    // asynchronous lookups. No task or observer is attached to VideoCard.
     private var worker: Task<Void, Never>?
+    private var ready = false
+    private var inFlight: [String: Task<Void, Never>] = [:]
     private var flushTask: Task<Void, Never>?
     private var lastNavigation = Date.distantPast
     private var onBatch: (@MainActor ([String: StreamInfo]) -> Void)?
@@ -836,6 +840,9 @@ final class TVHomeResumeMetadataLoader {
         generation &+= 1
         worker?.cancel()
         worker = nil
+        ready = false
+        for task in inFlight.values { task.cancel() }
+        inFlight.removeAll()
         flushTask?.cancel()
         flushTask = nil
         pending.removeAll()
@@ -848,42 +855,66 @@ final class TVHomeResumeMetadataLoader {
     }
 
     private func start(api: TypeTypeAPI) {
-        guard worker == nil, !pending.isEmpty else { return }
+        guard !pending.isEmpty else { return }
+        if ready {
+            fillSlots(api: api)
+            return
+        }
+        guard worker == nil else { return }
         let currentGeneration = generation
         worker = Task(priority: .utility) { [weak self] in
-            // Allow initial recommendations to finish and scrolling to settle.
-            try? await Task.sleep(for: .milliseconds(350))
+            // Preserve the one-time startup grace period from the prior
+            // experiment; concurrency is the only loading-policy change.
+            do {
+                try await Task.sleep(for: .milliseconds(350))
+            } catch {
+                return
+            }
             guard let self, !Task.isCancelled,
                   self.generation == currentGeneration else { return }
-            await self.drain(api: api, generation: currentGeneration)
+            self.worker = nil
+            self.ready = true
+            self.fillSlots(api: api)
         }
     }
 
-    private func drain(api: TypeTypeAPI, generation expected: Int) async {
-        defer {
-            if generation == expected { worker = nil }
-        }
-        // Exactly one sequential fetch, even when the system cache permits
-        // three other callers. Never fetch merely because focus changed.
-        while generation == expected && !Task.isCancelled && !pending.isEmpty {
+    private func fillSlots(api: TypeTypeAPI) {
+        // The shared TVStreamMetadataCache already caps total stream
+        // extractions at three. This view also caps its own outstanding work
+        // at three, instead of awaiting each lookup sequentially.
+        while inFlight.count < 3 && !pending.isEmpty {
             let request = pending.removeFirst()
-            guard activeKeys.contains(request.key) else { continue }
+            guard activeKeys.contains(request.key),
+                  !attempted.contains(request.key) else { continue }
             attempted.insert(request.key)
             #if DEBUG
             TVHomeFocusDiagnostics.hit(.resumeMetadataLookup)
             #endif
-            let details = await fetch(request.video, api)
-            guard generation == expected && !Task.isCancelled else { return }
-            if let details, activeKeys.contains(request.key) {
-                known[request.key] = details
-                completed[request.key] = details
-                scheduleFlush()
-            } else if !activeKeys.contains(request.key) {
-                // An abandoned attempt may be retried if the card reappears.
-                attempted.remove(request.key)
+            let expected = generation
+            inFlight[request.key] = Task(priority: .utility) { [weak self] in
+                guard let self else { return }
+                // The await suspends this task, not the Home render or the
+                // other two lookups. Identical URLs share the existing cache.
+                let details = await self.fetch(request.video, api)
+                guard self.generation == expected else { return }
+                self.inFlight[request.key] = nil
+
+                if !Task.isCancelled {
+                    if let details, self.activeKeys.contains(request.key) {
+                        self.known[request.key] = details
+                        self.completed[request.key] = details
+                        self.scheduleFlush()
+                    } else if !self.activeKeys.contains(request.key) {
+                        // A recycled/offscreen tile is eligible on re-entry.
+                        self.attempted.remove(request.key)
+                    }
+                }
+
+                // Refill only a released slot. A single slow server request
+                // cannot block metadata for the other visible cards.
+                self.fillSlots(api: api)
             }
         }
-        scheduleFlush()
     }
 
     private func scheduleFlush() {
