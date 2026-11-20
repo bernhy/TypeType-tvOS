@@ -10,7 +10,7 @@ struct TVRelatedVideosSection: View {
     @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @FocusState private var focusedRelatedID: String?
     @State private var detailReturnID: String?
-    @State private var lastMutationID = 0
+    @State private var mutationCursor = TVVideoMutationCursor()
     @State private var hiddenVideoIDs = Set<String>()
 
     private var visibleVideos: [VideoItem] {
@@ -80,9 +80,9 @@ struct TVRelatedVideosSection: View {
     @MainActor
     private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
         let pending = events.filter {
-            $0.id > lastMutationID && $0.accountScope == api.metadataCacheScope
+            $0.id > mutationCursor.lastID && $0.accountScope == api.metadataCacheScope
         }
-        lastMutationID = max(lastMutationID, events.last?.id ?? 0)
+        mutationCursor.lastID = max(mutationCursor.lastID, events.last?.id ?? 0)
         guard !pending.isEmpty else { return }
         for item in videos where pending.contains(where: { $0.removes(item) }) {
             hiddenVideoIDs.insert(TVPlaylistMembership.videoKey(item.url))
