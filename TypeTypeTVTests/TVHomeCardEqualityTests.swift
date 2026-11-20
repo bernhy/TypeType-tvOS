@@ -2,6 +2,90 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVHomeCardEqualityTests: XCTestCase {
+
+    func testResumeMetadataPolicyOnlyRequestsIncompleteCards() {
+        var video = VideoItem(
+            id: "a", title: "Resume", url: "https://youtu.be/ABCDEFGHIJK",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 180, isLive: false
+        )
+        XCTAssertEqual(TVHomeResumeMetadataPolicy.maxTrackedCards, 6)
+        XCTAssertTrue(TVHomeResumeMetadataPolicy.needsLookup(video))
+        video.viewCount = 1_230
+        XCTAssertTrue(TVHomeResumeMetadataPolicy.needsLookup(video))
+        video.publishedAt = 1_800_000_000_000
+        XCTAssertFalse(TVHomeResumeMetadataPolicy.needsLookup(video))
+        video.viewCount = 0
+        XCTAssertTrue(TVHomeResumeMetadataPolicy.needsLookup(video))
+    }
+
+    @MainActor
+    func testResumeMetadataLoaderDeduplicatesVisibleRequestsAndBatches() async throws {
+        let api = try TypeTypeAPI(address: "https://example.com")
+        let metadata = try JSONDecoder().decode(StreamInfo.self, from: Data(
+            #"{\"viewCount\":5123,\"publishedAt\":1800000000000}"#.utf8
+        ))
+        func row(_ id: String) -> VideoItem {
+            VideoItem(
+                id: id, title: id, url: "https://youtu.be/\(id)",
+                thumbnailUrl: nil, uploaderName: "Channel", duration: 120,
+                isLive: false
+            )
+        }
+        var running = 0
+        var highestRunning = 0
+        var lookups: [String] = []
+        let loader = TVHomeResumeMetadataLoader(fetch: { video, _ in
+            running += 1
+            highestRunning = max(highestRunning, running)
+            lookups.append(video.url)
+            try? await Task.sleep(for: .milliseconds(40))
+            running -= 1
+            return metadata
+        })
+        let received = expectation(description: "One batch for two visible cards")
+        var batches = 0
+        var merged: [String: StreamInfo] = [:]
+        let onBatch: ([String: StreamInfo]) -> Void = { data in
+            batches += 1
+            merged.merge(data, uniquingKeysWith: { _, latest in latest })
+            if merged.count == 2 { received.fulfill() }
+        }
+        let first = row("ABCDEFGHIJK")
+        let second = row("LMNOPQRSTUV")
+        let offscreen = row("WXYZabcdefg")
+        loader.appear(video: first, api: api, onBatch: onBatch)
+        loader.appear(video: first, api: api, onBatch: onBatch)
+        loader.appear(video: second, api: api, onBatch: onBatch)
+        loader.appear(video: offscreen, api: api, onBatch: onBatch)
+        loader.disappear(offscreen)
+        await fulfillment(of: [received], timeout: 5)
+        XCTAssertEqual(highestRunning, 1, "Stream lookups are sequential")
+        XCTAssertEqual(lookups.count, 2, "Duplicated/offscreen cards do not fetch")
+        XCTAssertEqual(batches, 1, "Results are applied in one idle batch")
+        XCTAssertEqual(merged.count, 2)
+        loader.stop()
+    }
+
+    @MainActor
+    func testResumeMetadataLoaderStopsBeforeItStartsOffscreenWork() async throws {
+        let api = try TypeTypeAPI(address: "https://example.com")
+        let video = VideoItem(
+            id: "ABCDEFGHIJK", title: "Resume",
+            url: "https://youtu.be/ABCDEFGHIJK",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 120,
+            isLive: false
+        )
+        var lookups = 0
+        let loader = TVHomeResumeMetadataLoader(fetch: { _, _ in
+            lookups += 1
+            return nil
+        })
+        loader.appear(video: video, api: api, onBatch: { _ in })
+        loader.stop()
+        try await Task.sleep(for: .milliseconds(550))
+        XCTAssertEqual(lookups, 0, "Closing Home cancels pending extraction")
+    }
+
     func testHomeContextMenuReflectsWatchLaterAndWatchedStateChanges() {
         let video = VideoItem(
             id: "menu-a", title: "Example",
