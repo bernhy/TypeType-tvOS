@@ -323,6 +323,11 @@ struct SearchView: View {
                 await TVWatchLaterMembership.shared.ensureLoaded(api: api)
             }
             .task {
+                async let playlists: Void = TVPlaylistMembership.shared.ensureLoaded(api: api)
+                async let favorites: Void = TVFavoriteMembership.shared.ensureLoaded(api: api)
+                _ = await (playlists, favorites)
+            }
+            .task {
                 await contentPreferences.ensureLoaded(api: api)
                 await loadFilterCapabilities()
             }
