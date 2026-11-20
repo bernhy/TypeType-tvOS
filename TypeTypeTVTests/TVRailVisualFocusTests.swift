@@ -20,6 +20,38 @@ final class TVRailVisualFocusTests: XCTestCase {
         }
     }
 
+    func testHomeZoomUsesOneGridWidthThroughoutMainNavigationAnimation() {
+        let screenWidth: CGFloat = 1920
+        let gridWidth = TVHomeNavigationZoom.layoutWidth(outerWidth: screenWidth)
+        XCTAssertEqual(gridWidth, 1864)
+        XCTAssertEqual(TVMainNavigationLayout.width(expanded: false), 56)
+        XCTAssertEqual(TVMainNavigationLayout.width(expanded: true), 214)
+
+        // Check intermediate HStack widths too: none may recompute the
+        // four-column LazyVGrid's logical width.
+        for railWidth: CGFloat in [56, 80, 130, 168, 190, 214] {
+            let availableWidth = screenWidth - railWidth
+            let scale = TVHomeNavigationZoom.scale(
+                visibleWidth: availableWidth, layoutWidth: gridWidth
+            )
+            XCTAssertEqual(gridWidth * scale, availableWidth,
+                           accuracy: 0.0001)
+            XCTAssertEqual(gridWidth, 1864)
+            XCTAssertGreaterThan(scale, 0)
+            XCTAssertLessThanOrEqual(scale, 1)
+        }
+        XCTAssertEqual(
+            TVHomeNavigationZoom.scale(visibleWidth: gridWidth,
+                                        layoutWidth: gridWidth),
+            1
+        )
+        XCTAssertEqual(
+            TVHomeNavigationZoom.scale(visibleWidth: 0,
+                                        layoutWidth: gridWidth),
+            1
+        )
+    }
+
     func testReturningFromAboutDoesNotPaintNearbyAccountInMainRail() {
         // tvOS may first report Account because it lies next to About.
         // The app must paint the white pill on the current Settings icon.
