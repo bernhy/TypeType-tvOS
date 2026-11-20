@@ -80,7 +80,8 @@ struct TVSubscriptionFeedView: View {
                                 !loading && !loadingMore && pageError == nil,
                             loadAhead: columns.count + 1,
                             lookupMissingMetadata: false,
-                            isWatchLaterEntry: false, playbackQueue: nil
+                            isWatchLaterEntry: false, reloadPlaylistOnRemoval: false,
+                            playbackQueue: nil
                         ),
                         api: api, focus: $focusedVideo, menu: videoMenu,
                         onReturnToList: { id in
@@ -129,6 +130,9 @@ struct TVSubscriptionFeedView: View {
             priority: railReturnVideoID == nil ? .automatic : .userInitiated
         )
         .modifier(TVHomeMenuPresentation(model: videoMenu))
+        .task {
+            await TVWatchLaterMembership.shared.ensureLoaded(api: api)
+        }
         .task {
             await contentPreferences.ensureLoaded(api: api)
             guard !loadedOnce else { return }
