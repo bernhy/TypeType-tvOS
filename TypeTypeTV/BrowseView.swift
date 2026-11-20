@@ -1643,6 +1643,30 @@ struct HomeView: View {
     }
 }
 
+/// Only screens that have not preloaded account-wide badge membership
+/// should bootstrap the two shared indices from a card appearance.
+/// In the lean Home this modifier is entirely skipped, not merely given
+/// an empty Task body, so no per-tile membership tasks are scheduled.
+private struct TVVideoCardMembershipBootstrap: ViewModifier {
+    let api: TypeTypeAPI
+    let onCardAppearance: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if onCardAppearance {
+            content
+                .task(id: api.metadataCacheScope) {
+                    await TVPlaylistMembership.shared.ensureLoaded(api: api)
+                }
+                .task(id: api.metadataCacheScope) {
+                    await TVFavoriteMembership.shared.ensureLoaded(api: api)
+                }
+        } else {
+            content
+        }
+    }
+}
+
 struct VideoCard: View {
     let api: TypeTypeAPI
     let video: VideoItem
@@ -1654,6 +1678,9 @@ struct VideoCard: View {
     var lookupMissingMetadata = false
     // Test-only: retains full-resolution artwork and the same focus zoom.
     var includeVisualEffects = true
+    /// Default preserves existing Library/Search/Subscriptions behavior.
+    /// Home uses one screen-level initializer instead of two tasks per tile.
+    var loadMembershipOnAppear = true
     @State private var streamMetadata: StreamInfo?
     @State private var metadataVideoURL: String?
 
@@ -1850,12 +1877,9 @@ struct VideoCard: View {
             guard !Task.isCancelled else { return }
             streamMetadata = fetched
         }
-        .task(id: api.metadataCacheScope) {
-            await playlistMembership.ensureLoaded(api: api)
-        }
-        .task(id: api.metadataCacheScope) {
-            await favoriteMembership.ensureLoaded(api: api)
-        }
+        .modifier(TVVideoCardMembershipBootstrap(
+            api: api, onCardAppearance: loadMembershipOnAppear
+        ))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(TTTheme.accessibilityText(for: video))
     }
