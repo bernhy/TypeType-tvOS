@@ -19,8 +19,6 @@ struct TVHomeSubscriptionsBaselineView: View {
     var onInitialFocusReady: () -> Void = {}
 
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
-    @AppStorage("typetype.experiment.homeDiagnosticMode")
-    private var diagnosticModeRaw = TVHomeExperimentMode.full.rawValue
     @State private var videos: [VideoItem]
     @State private var nextCursor: String?
     @State private var loading = false
@@ -60,15 +58,9 @@ struct TVHomeSubscriptionsBaselineView: View {
                                 .font(.system(size: 45, weight: .bold))
                         }
                         Spacer()
-                        Button {
-                            diagnosticModeRaw =
-                                TVHomeExperimentMode.fullLightweightStableFocus.rawValue
-                        } label: {
-                            Label("Home-Test: zurück zum Vergleich",
-                                  systemImage: "arrow.uturn.backward")
+                        if previewVideos == nil {
+                            TVHomeComparisonMenu()
                         }
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier("home-baseline-switch-back")
                         Button("common.refresh") { Task { await reload() } }
                             .buttonStyle(.bordered)
                             .disabled(loading || loadingMore)
