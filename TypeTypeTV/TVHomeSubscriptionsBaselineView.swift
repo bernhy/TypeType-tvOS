@@ -138,7 +138,7 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
                     rowSpacing: 32, canLoadMore: snapshot.canLoadMore,
                     loadAhead: snapshot.columns + 1,
                     lookupMissingMetadata: false, isWatchLaterEntry: false,
-                    playbackQueue: nil
+                    reloadPlaylistOnRemoval: false, playbackQueue: nil
                 ),
                 api: api, focus: focus, menu: homeMenu,
                 onReturnToList: { onReturnToList($0, nil) },
