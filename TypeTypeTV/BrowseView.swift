@@ -139,6 +139,7 @@ struct BrowseView: View {
                                     api: api, previewVideos: previewVideos,
                                     focusRequest: menuPreviewVisible ? -1 : homeFocusRequest,
                                     onRevealMenu: revealMenu,
+                                    onOpenAccount: { open(.account) },
                                     onInitialFocusReady: { homeStartupFocusPending = false }
                                 )
                             } else {

@@ -732,8 +732,8 @@ final class TypeTypeTVUITests: XCTestCase {
         let first = app.buttons["home-baseline-video-0"]
         XCTAssertTrue(waitForFocus(first, timeout: 10),
                       "Minimal Home must enter its first recommendation")
-        XCTAssertFalse(app.staticTexts["ANSEHEN FORTSETZEN"].exists,
-                       "Baseline intentionally has no extra resume shelf")
+        XCTAssertTrue(app.staticTexts["Ansehen fortsetzen"].exists,
+                      "The fast Home should now display the optional resume shelf")
 
         XCUIRemote.shared.press(.down)
         let nextRow = app.buttons["home-baseline-video-4"]

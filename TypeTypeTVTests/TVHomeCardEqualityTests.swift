@@ -2,6 +2,22 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVHomeCardEqualityTests: XCTestCase {
+    func testContinueWatchingRespectsAccountSetting() {
+        let hidden = try? JSONDecoder().decode(
+            TVServerSettings.self,
+            from: Data(#"{"hideContinueWatching":true}"#.utf8)
+        )
+        XCTAssertEqual(hidden?.hideContinueWatching, true)
+        XCTAssertFalse(hidden?.enabled(.continueWatching))
+        let shown = try? JSONDecoder().decode(
+            TVServerSettings.self,
+            from: Data(#"{"hideContinueWatching":false}"#.utf8)
+        )
+        XCTAssertEqual(shown?.hideContinueWatching, false)
+        XCTAssertTrue(shown?.enabled(.continueWatching))
+    }
+
+
     func testHomeToastKeepsItsOriginalActionCardAndPosition() {
         let toast = TVHomeCardToast(
             message: "Saved", focusID: "recommendation-https://example.com/video"

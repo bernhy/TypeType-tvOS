@@ -1,10 +1,9 @@
 import SwiftUI
 
-/// Diagnostic baseline built from the subscriptions screen's ordinary grid.
-/// Deliberately NO Home-specific focus restoration, focusScope, preferred
-/// focus for each card, row-width freezing, resume rail, or custom menu logic.
-/// Uses the SAME /recommendations/home + progress APIs and VideoCard/context
-/// actions as regular browsing. Never enabled outside the experiment branch.
+/// Native subscriptions-style Home with an optional horizontal resume shelf.
+/// Both sections share one stable video-tile builder, one lightweight menu
+/// coordinator and one card-attached Liquid Glass feedback surface.
+/// No legacy Home focusScope, rail-width freezing or per-tile menu state.
 private struct TVHomeBaselineGridEntry: Identifiable {
     let index: Int
     let video: VideoItem
@@ -16,36 +15,85 @@ struct TVHomeSubscriptionsBaselineView: View {
     let previewVideos: [VideoItem]?
     var focusRequest = 0
     var onRevealMenu: () -> Void = {}
+    var onOpenAccount: () -> Void = {}
     var onInitialFocusReady: () -> Void = {}
 
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
+    @ObservedObject private var localProgress = TVLocalProgress.shared
     // One shared state host for Home menu dialogs/actions. Every card keeps
     // the same NavigationLink + FocusState chain throughout focus movement.
     @StateObject private var homeMenu = TVHomeMenuCoordinator()
     @State private var videos: [VideoItem]
+    @State private var recentVideos: [VideoItem]
+    @State private var historyLoadedOnce = false
+    @State private var loadingRecent = false
+    @State private var historyHasMore = false
+    @State private var historyLoadingMore = false
+    @State private var historyOffset = 0
+    @State private var historyRequestID = UUID()
+    @State private var recentError: String?
+    @State private var recentNeedsLogin = false
     @State private var nextCursor: String?
     @State private var loading = false
     @State private var loadingMore = false
     @State private var error: String?
     @State private var pageError: String?
     @State private var loadedOnce = false
+    @State private var recommendationsLoaded = false
     @State private var handledFocusRequest: Int?
     @State private var initialFocusPending = false
     @FocusState private var focusedVideo: String?
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 4)
+    private let historyPageSize = 100
+    private var showRecent: Bool {
+        contentPreferences.settings?.hideContinueWatching != true
+    }
+    private var showRecommendations: Bool {
+        contentPreferences.settings?.hideHomeRecommendations != true
+    }
     private var visibleVideos: [VideoItem] { contentPreferences.displayed(videos) }
+    private var visibleRecent: [VideoItem] {
+        // Shared 90% threshold, finished-video logic and local progress override.
+        contentPreferences.displayed(recentVideos).filter {
+            TVContinueWatchingPolicy.isEligible(
+                $0, positionMs: localProgress.position(for: $0.url) ?? $0.watchPositionMs
+            )
+        }
+    }
+
+    private func cardID(_ video: VideoItem, resume: Bool) -> String {
+        (resume ? "recent-" : "recommendation-") + video.url
+    }
+
+    private var firstCardID: String? {
+        if showRecommendations {
+            if let first = visibleVideos.first {
+                return cardID(first, resume: false)
+            }
+            if !recommendationsLoaded { return nil }
+        }
+        if showRecent, let first = visibleRecent.first {
+            return cardID(first, resume: true)
+        }
+        return nil
+    }
 
     init(api: TypeTypeAPI, previewVideos: [VideoItem]? = nil,
          focusRequest: Int = 0, onRevealMenu: @escaping () -> Void = {},
+         onOpenAccount: @escaping () -> Void = {},
          onInitialFocusReady: @escaping () -> Void = {}) {
         self.api = api
         self.previewVideos = previewVideos
         self.focusRequest = focusRequest
         self.onRevealMenu = onRevealMenu
+        self.onOpenAccount = onOpenAccount
         self.onInitialFocusReady = onInitialFocusReady
         _videos = State(initialValue: previewVideos ?? [])
+        _recentVideos = State(initialValue: previewVideos ?? [])
         _loadedOnce = State(initialValue: previewVideos != nil)
+        _historyLoadedOnce = State(initialValue: previewVideos != nil)
+        _recommendationsLoaded = State(initialValue: previewVideos != nil)
     }
 
     var body: some View {
@@ -57,95 +105,103 @@ struct TVHomeSubscriptionsBaselineView: View {
                             Text("home.forYou")
                                 .font(.subheadline.bold()).tracking(2.3)
                                 .foregroundStyle(TTTheme.accent)
-                            Text("home.recommendations")
+                            Text("nav.home")
                                 .font(.system(size: 45, weight: .bold))
                         }
                         Spacer()
-                        if previewVideos == nil {
-                            TVHomeComparisonMenu()
-                        }
-                        Button("common.refresh") { Task { await reload() } }
+                        if previewVideos == nil { TVHomeComparisonMenu() }
+                        Button("common.refresh") { Task { await refresh() } }
                             .buttonStyle(.bordered)
-                            .disabled(loading || loadingMore)
+                            .disabled(loading || loadingMore || loadingRecent ||
+                                      historyLoadingMore)
                     }
-                    if loading && videos.isEmpty {
-                        TVPulsingPlaceholder()
-                            .frame(maxWidth: .infinity, minHeight: 180)
-                    }
-                    if let error {
-                        TVContentMessage(
-                            symbol: "wifi.exclamationmark",
-                            title: TVL10n.value("home.serverUnavailable"),
-                            detail: error,
-                            action: { Task { await reload() } }
-                        )
-                    } else if !loading && visibleVideos.isEmpty {
-                        TVContentMessage(
-                            symbol: "play.rectangle",
-                            title: TVL10n.value("home.noRecommendations"),
-                            detail: TVL10n.value("home.emptyHelp")
-                        )
-                    } else {
-                        LazyVGrid(columns: columns, spacing: 32) {
-                            ForEach(visibleVideos.enumerated().map {
-                                TVHomeBaselineGridEntry(index: $0.offset, video: $0.element)
-                            }) { entry in
-                                let index = entry.index
-                                let video = entry.video
-                                NavigationLink {
-                                    VideoDetailView(
-                                        api: api, video: video,
-                                        onReturnToList: {
-                                            TVVideoFocusReturn.restore(
-                                                $focusedVideo, id: video.url, scroll: scroll
-                                            )
-                                        }
-                                    )
-                                } label: {
-                                    VideoCard(api: api, video: video)
-                                }
-                                .buttonStyle(TVRailButtonStyle())
-                                .focusEffectDisabled(true)
-                                .zIndex(focusedVideo == video.url ? 5 : 0)
-                                .id(video.url)
-                                // Retain the minimal subscriptions-style
-                                // NavigationLink focus structure, but build
-                                // context menu contents lazily from a single
-                                // Home coordinator. No per-card observers,
-                                // action state or focus-owner replacement.
-                                .modifier(TVHomeLightweightVideoActions(
-                                    api: api, video: video, model: homeMenu,
-                                    focus: $focusedVideo, focusID: video.url,
-                                    // Only blocking a video/channel may
-                                    // trigger a full Home fetch.
-                                    onChanged: { Task { await reload() } }
-                                ))
-                                .onMoveCommand { direction in
-                                    if direction == .left && index % columns.count == 0 {
-                                        onRevealMenu()
+
+                    if showRecent {
+                        VStack(alignment: .leading, spacing: 19) {
+                            Text("home.continueWatching")
+                                .font(.system(size: 35, weight: .bold))
+                            if loadingRecent && recentVideos.isEmpty {
+                                TVPulsingPlaceholder()
+                                    .frame(maxWidth: .infinity, minHeight: 135)
+                            } else if !visibleRecent.isEmpty {
+                                continueWatchingShelf(visibleRecent, scroll: scroll)
+                            } else if recentNeedsLogin {
+                                VStack(alignment: .leading, spacing: 15) {
+                                    Text("home.signInForHistory")
+                                        .foregroundStyle(TTTheme.muted)
+                                    Button {
+                                        onOpenAccount()
+                                    } label: {
+                                        Label("settings.pair",
+                                              systemImage: "person.crop.circle")
                                     }
+                                    .buttonStyle(.borderedProminent)
                                 }
-                                .accessibilityIdentifier("home-baseline-video-\(index)")
-                                .onAppear {
-                                    if index >= visibleVideos.count - columns.count - 1,
-                                       nextCursor != nil && !loading && !loadingMore &&
-                                       pageError == nil {
-                                        Task { await loadMore() }
-                                    }
-                                }
+                            } else if !loadingRecent {
+                                Text(recentError ??
+                                     TVL10n.value("home.continueWatchingEmpty"))
+                                    .foregroundStyle(TTTheme.muted)
+                                    .font(.callout)
                             }
                         }
-                        .focusSection()
-                        if loadingMore {
-                            ProgressView("settings.remoteLoading")
-                                .frame(maxWidth: .infinity)
-                        } else if nextCursor != nil || pageError != nil {
-                            Button("home.loadMore") { Task { await loadMore() } }
-                                .buttonStyle(.bordered)
-                                .frame(maxWidth: .infinity)
-                        }
-                        if let pageError {
-                            Text(pageError).font(.callout).foregroundStyle(.orange)
+                    }
+
+                    if showRecommendations {
+                        if showRecent { Divider().padding(.vertical, 6) }
+                        VStack(alignment: .leading, spacing: 19) {
+                            Text("home.recommendations")
+                                .font(.system(size: 35, weight: .bold))
+                            if loading && videos.isEmpty {
+                                TVPulsingPlaceholder()
+                                    .frame(maxWidth: .infinity, minHeight: 180)
+                            }
+                            if let error {
+                                TVContentMessage(
+                                    symbol: "wifi.exclamationmark",
+                                    title: TVL10n.value("home.serverUnavailable"),
+                                    detail: error,
+                                    action: { Task { await reload() } }
+                                )
+                            } else if !loading && visibleVideos.isEmpty {
+                                TVContentMessage(
+                                    symbol: "play.rectangle",
+                                    title: TVL10n.value("home.noRecommendations"),
+                                    detail: TVL10n.value("home.emptyHelp")
+                                )
+                            } else {
+                                LazyVGrid(columns: columns, spacing: 32) {
+                                    ForEach(visibleVideos.enumerated().map {
+                                        TVHomeBaselineGridEntry(
+                                            index: $0.offset, video: $0.element
+                                        )
+                                    }) { entry in
+                                        videoTile(entry, resume: false, scroll: scroll)
+                                            .onAppear {
+                                                if entry.index >=
+                                                    visibleVideos.count - columns.count - 1,
+                                                    nextCursor != nil && !loading &&
+                                                    !loadingMore && pageError == nil {
+                                                    Task { await loadMore() }
+                                                }
+                                            }
+                                    }
+                                }
+                                .focusSection()
+                                if loadingMore {
+                                    ProgressView("settings.remoteLoading")
+                                        .frame(maxWidth: .infinity)
+                                } else if nextCursor != nil || pageError != nil {
+                                    Button("home.loadMore") {
+                                        Task { await loadMore() }
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .frame(maxWidth: .infinity)
+                                }
+                                if let pageError {
+                                    Text(pageError)
+                                        .font(.callout).foregroundStyle(.orange)
+                                }
+                            }
                         }
                     }
                 }
@@ -154,22 +210,25 @@ struct TVHomeSubscriptionsBaselineView: View {
                 .padding(.bottom, 120)
             }
             .background(TTTheme.ink)
+            // Shared by BOTH sources. No per-card dialog or toast state.
             .modifier(TVHomeMenuPresentation(model: homeMenu))
             .onChange(of: homeMenu.focusRestoreRequest) { _, _ in
-                if let id = homeMenu.focusRestoreTarget {
-                    focusedVideo = id
-                }
+                if let id = homeMenu.focusRestoreTarget { focusedVideo = id }
             }
-            // A single account-scoped load for all lightweight menus;
-            // the original per-card videoActions does this in every tile.
             .task {
                 await TVWatchLaterMembership.shared.ensureLoaded(api: api)
             }
             .task {
+                // Do not fetch /history before the settings have arrived.
                 await contentPreferences.ensureLoaded(api: api)
                 guard !loadedOnce else { return }
                 loadedOnce = true
-                await reload()
+                await refresh()
+            }
+            .onChange(of: showRecent) { _, enabled in
+                if enabled && !historyLoadedOnce && previewVideos == nil {
+                    Task { await loadHistory() }
+                }
             }
             .task(id: focusRequest) {
                 guard focusRequest > 0,
@@ -177,46 +236,142 @@ struct TVHomeSubscriptionsBaselineView: View {
                 handledFocusRequest = focusRequest
                 initialFocusPending = true
                 await Task.yield()
-                if let first = visibleVideos.first {
-                    initialFocusPending = false
-                    focusedVideo = first.url
-                    onInitialFocusReady()
-                }
+                claimInitialFocus()
             }
-            .onChange(of: visibleVideos.map(\.url)) { _, urls in
-                guard !urls.isEmpty, focusRequest > 0 else { return }
+            .onChange(of: visibleVideos.map { cardID($0, resume: false) } +
+                         (showRecent ? visibleRecent.map {
+                             cardID($0, resume: true)
+                         } : [])) { _, ids in
                 if initialFocusPending {
-                    initialFocusPending = false
-                    focusedVideo = urls.first
-                    onInitialFocusReady()
-                } else if let focusedVideo, !urls.contains(focusedVideo) {
-                    self.focusedVideo = urls.first
+                    claimInitialFocus()
+                } else if let current = focusedVideo, !ids.contains(current),
+                          let firstCardID {
+                    focusedVideo = firstCardID
                 }
             }
-            .onChange(of: loading) { _, stillLoading in
-                if !stillLoading && visibleVideos.isEmpty {
-                    onInitialFocusReady()
-                }
-            }
+            .onChange(of: loading) { _, _ in claimInitialFocus() }
+            .onChange(of: loadingRecent) { _, _ in claimInitialFocus() }
+            .onChange(of: recommendationsLoaded) { _, _ in claimInitialFocus() }
             .onExitCommand { handleHomeBack(scroll: scroll) }
         }
     }
 
-    /// Match the existing Home Back behavior without importing its heavy
-    /// per-card focus hints, viewport fixes or rail-handoff state.
-    /// First Back from a deep recommendation scrolls/focuses the first card;
-    /// Back from that top card opens the global navigation. Native Left and
-    /// Right handling remains unchanged.
+    // A SINGLE tile factory. The resume shelf uses the same VideoCard,
+    // stable NavigationLink, shared lazy context actions and toast anchors
+    // as recommendations. Only layout and focus ID differ.
+    @ViewBuilder
+    private func videoTile(_ entry: TVHomeBaselineGridEntry, resume: Bool,
+                           scroll: ScrollViewProxy) -> some View {
+        let video = entry.video
+        let id = cardID(video, resume: resume)
+        let link = NavigationLink {
+            VideoDetailView(
+                api: api, video: video,
+                onReturnToList: {
+                    TVVideoFocusReturn.restore($focusedVideo, id: id, scroll: scroll)
+                }
+            )
+        } label: {
+            VideoCard(api: api, video: video)
+        }
+        .buttonStyle(TVRailButtonStyle())
+        .focusEffectDisabled(true)
+        .zIndex(focusedVideo == id ? 5 : 0)
+        .id(id)
+        .modifier(TVHomeLightweightVideoActions(
+            api: api, video: video, model: homeMenu,
+            focus: $focusedVideo, focusID: id,
+            onChanged: {
+                Task {
+                    // Only a successful Block action invokes this callback.
+                    if resume { await loadHistory() }
+                    else { await reload() }
+                }
+            }
+        ))
+        .onMoveCommand { direction in
+            if direction == .left &&
+               (resume ? entry.index == 0 : entry.index % columns.count == 0) {
+                onRevealMenu()
+            }
+        }
+        .accessibilityIdentifier(resume
+            ? "home-baseline-recent-\(entry.index)"
+            : "home-baseline-video-\(entry.index)")
+
+        if resume {
+            link.containerRelativeFrame(.horizontal, count: 4, spacing: 26)
+        } else {
+            link
+        }
+    }
+
+    // Lazy, horizontal, exactly four visible tile slots. No per-tile focus
+    // restoration state and no metadata enrichment when merely browsing.
+    private func continueWatchingShelf(_ items: [VideoItem],
+                                       scroll: ScrollViewProxy) -> some View {
+        ScrollView(.horizontal) {
+            LazyHStack(alignment: .center, spacing: 26) {
+                ForEach(items.enumerated().map {
+                    TVHomeBaselineGridEntry(index: $0.offset, video: $0.element)
+                }) { entry in
+                    videoTile(entry, resume: true, scroll: scroll)
+                        .onAppear {
+                            if entry.index >= items.count - 2 &&
+                               historyHasMore && !loadingRecent &&
+                               !historyLoadingMore {
+                                Task { await loadMoreHistory() }
+                            }
+                        }
+                }
+            }
+            .padding(.vertical, 20)
+            .scrollTargetLayout()
+        }
+        .scrollIndicators(.hidden)
+        .scrollClipDisabled()
+        .scrollTargetBehavior(.viewAligned)
+        .frame(height: 445)
+        .id("home-continue-watching-row")
+        .focusSection()
+    }
+
+    @MainActor
+    private func claimInitialFocus() {
+        guard initialFocusPending else { return }
+        if let firstCardID {
+            initialFocusPending = false
+            focusedVideo = firstCardID
+            onInitialFocusReady()
+        } else if recommendationsLoaded &&
+                  (!showRecent || (!loadingRecent && historyLoadedOnce)) {
+            initialFocusPending = false
+            onInitialFocusReady()
+        }
+    }
+
     @MainActor
     private func handleHomeBack(scroll: ScrollViewProxy) {
-        guard let first = visibleVideos.first else {
-            onRevealMenu()
-            return
-        }
-        if focusedVideo == first.url {
+        guard let firstCardID else { onRevealMenu(); return }
+        if focusedVideo == firstCardID {
             onRevealMenu()
         } else {
-            TVVideoFocusReturn.restore($focusedVideo, id: first.url, scroll: scroll)
+            TVVideoFocusReturn.restore($focusedVideo, id: firstCardID,
+                                       scroll: scroll)
+        }
+    }
+
+    @MainActor
+    private func refresh() async {
+        await contentPreferences.ensureLoaded(api: api)
+        if showRecent && showRecommendations {
+            async let recommendations: Void = reload()
+            async let history: Void = loadHistory()
+            _ = await (recommendations, history)
+        } else if showRecent {
+            await loadHistory()
+        } else if showRecommendations {
+            await reload()
         }
     }
 
@@ -227,7 +382,10 @@ struct TVHomeSubscriptionsBaselineView: View {
         error = nil
         pageError = nil
         nextCursor = nil
-        defer { loading = false }
+        defer {
+            loading = false
+            recommendationsLoaded = true
+        }
         #if DEBUG
         if api.origin.host == "preview.invalid" {
             videos = TVShowcaseFixtures.videos
@@ -274,4 +432,85 @@ struct TVHomeSubscriptionsBaselineView: View {
             pageError = error.localizedDescription
         }
     }
+
+    // History is entirely opt-in. Its data source is independent of
+    // recommendation pagination and never causes a per-card network call.
+    @MainActor
+    private func loadHistory() async {
+        guard previewVideos == nil && showRecent && !loadingRecent else { return }
+        let request = UUID()
+        historyRequestID = request
+        historyLoadedOnce = true
+        loadingRecent = true
+        historyHasMore = false
+        defer {
+            if historyRequestID == request { loadingRecent = false }
+        }
+        do {
+            let raw = try await api.historyPage(offset: 0, limit: historyPageSize)
+            guard !Task.isCancelled && historyRequestID == request else { return }
+            let unique = TVHistoryDeduplicator.unique(raw)
+            let enriched = await api.withProgress(unique)
+            guard !Task.isCancelled && historyRequestID == request else { return }
+            recentVideos = enriched
+            historyOffset = raw.count
+            historyHasMore = raw.count == historyPageSize
+            recentNeedsLogin = false
+            recentError = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            guard historyRequestID == request else { return }
+            recentVideos = []
+            historyOffset = 0
+            historyHasMore = false
+            let status = TVServerErrorMapping.httpStatus(error)
+            recentNeedsLogin = status == 401 || status == 403
+            recentError = recentNeedsLogin ? nil : error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func loadMoreHistory() async {
+        guard previewVideos == nil && showRecent && historyHasMore &&
+              !loadingRecent && !historyLoadingMore else { return }
+        let request = historyRequestID
+        historyLoadingMore = true
+        defer {
+            if historyRequestID == request { historyLoadingMore = false }
+        }
+        do {
+            var offset = historyOffset
+            var hasMore = historyHasMore
+            var fresh: [VideoItem] = []
+            // Multiple raw history events may describe the same video.
+            // Do not replace the existing shelf or repeatedly fetch its
+            // membership/metadata when paginating over duplicates.
+            for _ in 0..<10 {
+                let raw = try await api.historyPage(
+                    offset: offset, limit: historyPageSize
+                )
+                try Task.checkCancellation()
+                guard historyRequestID == request else { return }
+                offset += raw.count
+                hasMore = raw.count == historyPageSize
+                fresh = TVHistoryDeduplicator.appendUnique(
+                    raw, to: recentVideos
+                )
+                if !fresh.isEmpty || !hasMore { break }
+            }
+            historyOffset = offset
+            historyHasMore = hasMore
+            guard !fresh.isEmpty else { return }
+            let enriched = await api.withProgress(fresh)
+            guard !Task.isCancelled && historyRequestID == request else { return }
+            recentVideos.append(contentsOf: enriched)
+        } catch is CancellationError {
+            return
+        } catch {
+            guard historyRequestID == request else { return }
+            historyHasMore = false
+        }
+    }
+
 }
