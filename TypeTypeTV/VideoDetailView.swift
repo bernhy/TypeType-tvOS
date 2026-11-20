@@ -653,6 +653,9 @@ struct VideoDetailView: View {
         do {
             try await api.setFavorite(videoURL: video.url, enabled: favorite)
             TVFavoriteMembership.shared.mark(video.url, present: favorite, api: api)
+            TVVideoMutationCenter.shared.record(
+                api: api, video: video, kind: .favorite(added: favorite)
+            )
         } catch {
             favorite = old
             activityError = error.localizedDescription
@@ -670,6 +673,9 @@ struct VideoDetailView: View {
         do {
             try await api.setWatchLater(video: video, enabled: watchLater)
             TVWatchLaterMembership.shared.mark(video.url, present: watchLater, api: api)
+            TVVideoMutationCenter.shared.record(
+                api: api, video: video, kind: .watchLater(added: watchLater)
+            )
         } catch {
             watchLater = old
             activityError = error.localizedDescription
