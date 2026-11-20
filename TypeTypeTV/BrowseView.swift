@@ -40,8 +40,8 @@ enum TVSection: String, CaseIterable, Hashable {
     }
 }
 
-/// Rail and page share a single SwiftUI layout animation. Preserve the
-/// baseline geometry while testing Home-specific performance changes.
+/// Rail and page share one native SwiftUI layout animation. Home maintains
+/// its grid width and applies visual scaling inside the fixed-height ScrollView.
 enum TVMainNavigationLayout {
     static let collapsedWidth: CGFloat = 56
     static let expandedWidth: CGFloat = 214
@@ -593,8 +593,6 @@ struct VideoCard: View {
     @ObservedObject private var favoriteMembership = TVFavoriteMembership.shared
     @Environment(\.isFocused) private var isFocused
     var lookupMissingMetadata = false
-    // Test-only: retains full-resolution artwork and the same focus zoom.
-    var includeVisualEffects = true
     @State private var streamMetadata: StreamInfo?
     @State private var metadataVideoURL: String?
 
@@ -639,7 +637,7 @@ struct VideoCard: View {
                 TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
                             origin: api.origin, contentMode: .fit,
                             maximumPixelDimension: 768, videoURL: video.url)
-                    .grayscale(includeVisualEffects && completed ? 1 : 0)
+                    .grayscale(completed ? 1 : 0)
                     // Never scale thumbnail content: on tvOS the duration
                     // badge at the bottom-right otherwise appears enlarged
                     // and can be cropped by its card.
@@ -713,7 +711,7 @@ struct VideoCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 10))
             // The actual remote-driven specular/glimbal highlight lives on
             // the artwork viewport. It was previously a fixed gradient.
-            .modifier(TVFocusedArtworkGlint(enabled: includeVisualEffects))
+            .modifier(TVFocusedArtworkGlint())
             VStack(alignment: .leading, spacing: 7) {
                 Text(video.title)
                     .font(.system(size: 21, weight: .semibold))
@@ -775,9 +773,8 @@ struct VideoCard: View {
         // Scale the complete card, not the thumbnail viewport.
         // .fit preserves the original image edges and the progress bar.
         .scaleEffect(isFocused ? 1.065 : 1, anchor: .center)
-        .shadow(color: includeVisualEffects && isFocused
-                ? Color.black.opacity(0.55) : .clear,
-                radius: includeVisualEffects ? 19 : 0, y: 10)
+        .shadow(color: isFocused ? Color.black.opacity(0.55) : .clear,
+                radius: 19, y: 10)
         .animation(.easeOut(duration: 0.13), value: isFocused)
         .foregroundStyle(.white)
         .modifier(TVVideoCardMetadataTask(
