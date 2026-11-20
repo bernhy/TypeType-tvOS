@@ -2,12 +2,12 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVRailVisualFocusTests: XCTestCase {
-    func testMainNavigationZoomNeverReflowsTheVideoGrid() {
+    func testMainNavigationKeepsOriginalSidebarWidthAndFixedPageLayout() {
         XCTAssertEqual(TVMainNavigationLayout.duration, 0.28)
         XCTAssertEqual(TVMainNavigationLayout.width(expanded: false), 56)
         XCTAssertEqual(TVMainNavigationLayout.width(expanded: true), 214)
         let viewportWidth: CGFloat = 1920
-        let laidOutPageWidth = viewportWidth - TVMainNavigationLayout.collapsedWidth
+        let fixedPageWidth = viewportWidth - TVMainNavigationLayout.collapsedWidth
 
         for section in TVSection.allCases {
             let closedScale = TVMainNavigationLayout.contentScale(
@@ -17,24 +17,23 @@ final class TVRailVisualFocusTests: XCTestCase {
                 viewportWidth: viewportWidth, expanded: true
             )
             XCTAssertEqual(closedScale, 1, "\(section)")
-            XCTAssertLessThan(openScale, 1, "\(section): full page must zoom out")
-            XCTAssertEqual(TVMainNavigationLayout.contentShift(expanded: false), 0)
-            XCTAssertEqual(TVMainNavigationLayout.contentShift(expanded: true), 158)
-            // The fixed layout still uses all 1864 points; only the GPU
-            // transform makes it *look* 1706 points wide beside the rail.
+            XCTAssertLessThan(openScale, 1, "\(section): content zooms out")
+            // The original HStack still measures the sidebar at 214 points.
+            // The fixed page remains 1864 layout points in BOTH states.
+            XCTAssertEqual(fixedPageWidth, 1864)
             XCTAssertEqual(
-                laidOutPageWidth * openScale,
-                viewportWidth - TVMainNavigationLayout.expandedWidth,
-                accuracy: 0.0001, "\(section)"
+                TVMainNavigationLayout.width(expanded: false) +
+                    fixedPageWidth * closedScale,
+                viewportWidth,
+                accuracy: 0.0001, "\(section): closed page fills viewport"
             )
             XCTAssertEqual(
-                TVMainNavigationLayout.collapsedWidth +
-                TVMainNavigationLayout.contentShift(expanded: true) +
-                laidOutPageWidth * openScale,
-                viewportWidth, accuracy: 0.0001, "\(section)"
+                TVMainNavigationLayout.width(expanded: true) +
+                    fixedPageWidth * openScale,
+                viewportWidth,
+                accuracy: 0.0001, "\(section): zoomed page fits beside rail"
             )
         }
-        // Defensive geometry for very small/incomplete layout proposals.
         XCTAssertEqual(
             TVMainNavigationLayout.contentScale(viewportWidth: 0, expanded: true),
             1
