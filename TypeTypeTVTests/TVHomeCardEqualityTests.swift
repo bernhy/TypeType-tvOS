@@ -356,13 +356,13 @@ final class TVHomeCardEqualityTests: XCTestCase {
             from: Data(#"{"hideContinueWatching":true}"#.utf8)
         )
         XCTAssertEqual(hidden?.hideContinueWatching, true)
-        XCTAssertFalse(hidden?.enabled(.continueWatching))
+        XCTAssertEqual(hidden?.enabled(.continueWatching), false)
         let shown = try? JSONDecoder().decode(
             TVServerSettings.self,
             from: Data(#"{"hideContinueWatching":false}"#.utf8)
         )
         XCTAssertEqual(shown?.hideContinueWatching, false)
-        XCTAssertTrue(shown?.enabled(.continueWatching))
+        XCTAssertEqual(shown?.enabled(.continueWatching), true)
     }
 
 
@@ -489,8 +489,11 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertNotEqual(original, snapshot(destination: "library-history",
                                             watchLater: true),
                           "Watch Later menus differ from other lists")
-        var renamed = video
-        renamed.title = "Updated"
+        let renamed = VideoItem(
+            id: "sample", title: "Updated", url: video.url,
+            thumbnailUrl: nil, uploaderName: "Channel",
+            duration: 120, isLive: false
+        )
         XCTAssertNotEqual(original, snapshot(destination: "library-history",
                                             rows: [renamed]),
                           "Visible video metadata changes must still redraw")
