@@ -1,7 +1,6 @@
 import SwiftUI
 import UIKit
 import ImageIO
-import CryptoKit
 
 /// Decode only a bounded thumbnail instead of eagerly expanding potentially
 /// huge third-party images. This limits memory spikes from highly compressed
@@ -33,18 +32,15 @@ private struct TVThumbnailDecoded: @unchecked Sendable {
 }
 
 /// Public TypeType/YouTube artwork is independent of account membership.
-/// Deduplicate identical images across every account and server instance.
-/// Hash URL+size so any query parameters are not retained in clear text
-/// as NSCache keys; the hash is an identifier, not an authorization boundary.
+/// Reuse identical images across accounts, keyed by the complete source URL
+/// (including query parameters) and the requested decode size.
 enum TVThumbnailRequestPolicy {
     static func pixelLimit(_ requested: Int) -> Int {
         min(TVThumbnailDecoder.maximumPixelDimension, max(64, requested))
     }
 
     static func cacheKey(url: URL, pixels: Int) -> String {
-        let input = "\(url.absoluteString)\n\(pixelLimit(pixels))"
-        return SHA256.hash(data: Data(input.utf8))
-            .map { String(format: "%02x", $0) }.joined()
+        "\(url.absoluteString)\n#pixels=\(pixelLimit(pixels))"
     }
 }
 
