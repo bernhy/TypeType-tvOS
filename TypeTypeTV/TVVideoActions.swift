@@ -552,6 +552,12 @@ enum TVHomeCardToastPosition {
     static func topLeft(of frame: CGRect) -> CGPoint {
         CGPoint(x: frame.minX + 7, y: frame.minY + 7)
     }
+
+    /// The source card must still overlap the visible Home viewport.
+    /// Merely having a retained LazyVGrid anchor does not make it visible.
+    static func isVisible(_ frame: CGRect, in viewport: CGRect) -> Bool {
+        !frame.isEmpty && !viewport.isEmpty && frame.intersects(viewport)
+    }
 }
 
 @MainActor
@@ -596,6 +602,17 @@ final class TVHomeMenuCoordinator: ObservableObject {
             withAnimation(.easeInOut(duration: 0.23)) {
                 feedback = nil
             }
+        }
+    }
+
+    /// Scrolling the source tile fully outside the viewport ends its toast.
+    /// Never re-show the same confirmation if the user scrolls back quickly.
+    func dismissFeedback(matching id: UUID) {
+        guard feedback?.id == id else { return }
+        feedbackTask?.cancel()
+        feedbackTask = nil
+        withAnimation(.easeOut(duration: 0.16)) {
+            feedback = nil
         }
     }
 
@@ -818,22 +835,26 @@ struct TVHomeLightweightVideoActions: ViewModifier {
 /// Exactly one dialog/toast host, instead of one per visible Home thumbnail.
 struct TVHomeMenuPresentation: ViewModifier {
     @ObservedObject var model: TVHomeMenuCoordinator
-    // Only a single rect is cached for the rare case that a successful
-    // block action removes the original card before the toast has faded.
-    @State private var lastToastLocation: (id: String, frame: CGRect)?
-
     func body(content: Content) -> some View {
         content
             .overlayPreferenceValue(TVHomeCardToastAnchorKey.self) { cardAnchors in
                 GeometryReader { geometry in
-                    if let toast = model.feedback {
-                        let liveFrame = cardAnchors[toast.focusID].map {
-                            geometry[$0]
-                        }
-                        let cardFrame = liveFrame ??
-                            (lastToastLocation?.id == toast.focusID
-                             ? lastToastLocation?.frame : nil)
-                        if let cardFrame {
+                    let toast = model.feedback
+                    let cardFrame = toast.flatMap { cardAnchors[$0.focusID] }
+                        .map { geometry[$0] }
+                    let viewport = CGRect(origin: .zero, size: geometry.size)
+                    let visible = cardFrame.map {
+                        TVHomeCardToastPosition.isVisible($0, in: viewport)
+                    } ?? false
+
+                    ZStack(alignment: .topLeading) {
+                        Color.clear
+                            .onChange(of: visible) { wasVisible, isVisible in
+                                guard wasVisible && !isVisible, let toast else { return }
+                                model.dismissFeedback(matching: toast.id)
+                            }
+
+                        if let toast, let cardFrame, visible {
                             let position = TVHomeCardToastPosition.topLeft(of: cardFrame)
                             Label(toast.message, systemImage: "checkmark.circle.fill")
                                 .font(.callout.bold())
@@ -842,11 +863,8 @@ struct TVHomeMenuPresentation: ViewModifier {
                                 .background(.black.opacity(0.88),
                                             in: RoundedRectangle(cornerRadius: 12))
                                 .offset(x: position.x, y: position.y)
-                                .onAppear {
-                                    lastToastLocation = (toast.focusID, cardFrame)
-                                }
-                                .onChange(of: cardFrame) { _, updated in
-                                    lastToastLocation = (toast.focusID, updated)
+                                .onDisappear {
+                                    model.dismissFeedback(matching: toast.id)
                                 }
                                 .transition(.opacity)
                         }
