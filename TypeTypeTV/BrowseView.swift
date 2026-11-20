@@ -212,7 +212,8 @@ struct BrowseView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .scaleEffect(
                         TVMainNavigationLayout.contentScale(
-                            viewportWidth: viewport.size.width, expanded: expanded
+                            viewportWidth: viewport.size.width,
+                            expanded: expanded && !playbackVisibility.isVisible
                         ),
                         anchor: .topLeading
                     )
