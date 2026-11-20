@@ -59,10 +59,54 @@ final class TVHomeCardEqualityTests: XCTestCase {
         loader.appear(video: offscreen, api: api, onBatch: onBatch)
         loader.disappear(offscreen)
         await fulfillment(of: [received], timeout: 5)
-        XCTAssertEqual(highestRunning, 1, "Stream lookups are sequential")
+        XCTAssertEqual(highestRunning, 2, "Two visible cards fetch concurrently")
         XCTAssertEqual(lookups.count, 2, "Duplicated/offscreen cards do not fetch")
         XCTAssertEqual(batches, 1, "Results are applied in one idle batch")
         XCTAssertEqual(merged.count, 2)
+        loader.stop()
+    }
+
+    @MainActor
+    func testResumeMetadataLoaderCapsParallelRequestsAtThree() async throws {
+        let api = try TypeTypeAPI(address: "https://example.com")
+        let metadata = try JSONDecoder().decode(StreamInfo.self, from: Data(
+            #"{"viewCount":515,"publishedAt":1800000000000}"#.utf8
+        ))
+        var active = 0
+        var maximumActive = 0
+        var requested: [String] = []
+        let loader = TVHomeResumeMetadataLoader(fetch: { video, _ in
+            active += 1
+            maximumActive = max(maximumActive, active)
+            requested.append(video.url)
+            // Long enough that the first three requests overlap and the
+            // fourth/fifth must wait until a concurrency slot is free.
+            try? await Task.sleep(for: .milliseconds(180))
+            active -= 1
+            return metadata
+        })
+        let received = expectation(description: "Five results loaded")
+        var combined: [String: StreamInfo] = [:]
+        let ids = [
+            "ABCDEFGHIJK", "LMNOPQRSTUV", "WXYZabcdefg",
+            "hijkLMNopqr", "stuvwXYZabc"
+        ]
+        for id in ids {
+            let row = VideoItem(
+                id: id, title: id, url: "https://youtu.be/\(id)",
+                thumbnailUrl: nil, uploaderName: "Channel", duration: 120,
+                isLive: false
+            )
+            loader.appear(video: row, api: api, onBatch: { batch in
+                combined.merge(batch, uniquingKeysWith: { _, latest in latest })
+                if combined.count == ids.count { received.fulfill() }
+            })
+        }
+        await fulfillment(of: [received], timeout: 5)
+        XCTAssertEqual(requested.count, ids.count)
+        XCTAssertEqual(Set(requested).count, ids.count)
+        XCTAssertEqual(maximumActive, 3, "First three requests should overlap")
+        XCTAssertEqual(active, 0, "All requests must release their slot")
         loader.stop()
     }
 
