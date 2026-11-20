@@ -21,7 +21,6 @@ private struct TVHomeBaselineTile: View {
     let entry: TVHomeBaselineGridEntry
     let resume: Bool
     let columns: Int
-    let scroll: ScrollViewProxy
     let focus: FocusState<String?>.Binding
     let homeMenu: TVHomeMenuCoordinator
     let onRevealMenu: () -> Void
@@ -379,7 +378,7 @@ struct TVHomeSubscriptionsBaselineView: View {
         let id = cardID(entry.video, resume: resume)
         return TVHomeBaselineTile(
             api: api, entry: entry, resume: resume, columns: columns.count,
-            scroll: scroll, focus: $focusedVideo, homeMenu: homeMenu,
+            focus: $focusedVideo, homeMenu: homeMenu,
             onRevealMenu: onRevealMenu,
             onReturnToList: {
                 TVVideoFocusReturn.restore($focusedVideo, id: id, scroll: scroll)
