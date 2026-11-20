@@ -2,6 +2,48 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVHomeCardEqualityTests: XCTestCase {
+    func testHomeContextMenuReflectsWatchLaterAndWatchedStateChanges() {
+        let video = VideoItem(
+            id: "menu-a", title: "Example",
+            url: "https://youtu.be/ABCDEFGHIJK",
+            thumbnailUrl: nil, uploaderName: "Channel",
+            duration: 300, isLive: false
+        )
+        let initial = TVHomeCardMenuState(
+            video: video, positionMs: nil, watchLater: .notSaved
+        )
+        XCTAssertEqual(initial.watchLater, .notSaved)
+        XCTAssertFalse(initial.watched)
+        XCTAssertNil(initial.positionMs)
+
+        // After server-side add and in-memory mark, a new invocation
+        // must show REMOVE, not the cached initial ADD menu.
+        let saved = TVHomeCardMenuState(
+            video: video, positionMs: 135_000, watchLater: .saved
+        )
+        XCTAssertEqual(saved.watchLater, .saved)
+        XCTAssertFalse(saved.watched)
+        XCTAssertEqual(saved.positionMs, 135_000,
+                       "The menu must display 2:15 of playback progress")
+
+        // Mark-watched uses the same duration/position rule as VideoCard.
+        let watched = TVHomeCardMenuState(
+            video: video, positionMs: 300_000, watchLater: .saved
+        )
+        XCTAssertTrue(watched.watched)
+        XCTAssertEqual(watched.positionMs, 300_000)
+
+        // Removing Watch Later and toggling watched off must update BOTH
+        // menu actions without a Home grid reload.
+        let cleared = TVHomeCardMenuState(
+            video: video, positionMs: 0, watchLater: .notSaved
+        )
+        XCTAssertFalse(cleared.watched)
+        XCTAssertEqual(cleared.positionMs, 0)
+        XCTAssertEqual(cleared.watchLater, .notSaved)
+    }
+
+
     func testHomeCollectionSnapshotIgnoresFocusButTracksRealChanges() {
         let first = VideoItem(
             id: "focus-a", title: "Example", url: "https://youtu.be/ABCDEFGHIJK",

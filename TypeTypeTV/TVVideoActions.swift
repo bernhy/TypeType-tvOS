@@ -757,26 +757,54 @@ final class TVHomeMenuCoordinator: ObservableObject {
 /// Stable per-card modifier: the focused NavigationLink is never replaced.
 /// Unlike TVVideoActionModifier, this has no @ObservedObject, @State, .task,
 /// dialog, toast, or animation for each thumbnail.
-struct TVHomeLightweightVideoActions: ViewModifier {
+/// Menu-only state snapshot. The home card body deliberately has no
+/// subscription to watch-later/progress: it remains unchanged on focus-only
+/// moves, while the menu can always show current "remove"/"unwatched"
+/// actions and the current playback position.
+struct TVHomeCardMenuState: Equatable {
+    let positionMs: Int64?
+    let watched: Bool
+    let watchLater: TVWatchLaterMenuStatus
+
+    init(video: VideoItem, positionMs: Int64?,
+         watchLater: TVWatchLaterMenuStatus) {
+        self.positionMs = positionMs
+        self.watched = TVWatchedState.isWatched(video, positionMs: positionMs)
+        self.watchLater = watchLater
+    }
+}
+
+/// SwiftUI can cache a .contextMenu builder when its Home tile sits behind
+/// EquatableView. A menu-scoped ObservedObject makes that *menu* reactive
+/// without re-subscribing or refreshing every tile in the lazy grid.
+/// Both dependencies are existing shared in-memory caches: no GET here.
+private struct TVHomeCardMenuContents: View {
     let api: TypeTypeAPI
     let video: VideoItem
     let model: TVHomeMenuCoordinator
-    let focus: FocusState<String?>.Binding
     let focusID: String
     let onChanged: () -> Void
 
-    func body(content: Content) -> some View {
-        content
-            .focused(focus, equals: focusID)
-            .contextMenu {
-                // Read the current shared state only when the menu is built.
-                // Do not subscribe every Home card to progress/membership.
-                let position = TVLocalProgress.shared.position(for: video.url) ??
-                    video.watchPositionMs
-                let watched = TVWatchedState.isWatched(video, positionMs: position)
-                let watchLaterStatus = TVWatchLaterMembership.shared.menuStatus(
-                    for: video.url, api: api
+    @ObservedObject private var localProgress = TVLocalProgress.shared
+    @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
+
+    @ViewBuilder
+    var body: some View {
+                // This menu body, NOT the permanent Home tile, observes
+                // shared account/progress state. Values refresh whenever a
+                // long-press presents this menu or a library action changes
+                // the snapshot. No extra work during focus-only navigation.
+                let state = TVHomeCardMenuState(
+                    video: video,
+                    positionMs: localProgress.position(for: video.url) ??
+                        video.watchPositionMs,
+                    watchLater: watchLaterMembership.menuStatus(
+                        for: video.url, api: api
+                    )
                 )
+                let position = state.positionMs
+                let watched = state.watched
+                let watchLaterStatus = state.watchLater
 
                 if let position, position > 0 {
                     Button {} label: {
@@ -846,6 +874,25 @@ struct TVHomeLightweightVideoActions: ViewModifier {
                     Label("action.blockChannel",
                           systemImage: "person.crop.circle.badge.xmark")
                 }
+    }
+}
+
+struct TVHomeLightweightVideoActions: ViewModifier {
+    let api: TypeTypeAPI
+    let video: VideoItem
+    let model: TVHomeMenuCoordinator
+    let focus: FocusState<String?>.Binding
+    let focusID: String
+    let onChanged: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .focused(focus, equals: focusID)
+            .contextMenu {
+                TVHomeCardMenuContents(
+                    api: api, video: video, model: model,
+                    focusID: focusID, onChanged: onChanged
+                )
             }
             .anchorPreference(key: TVHomeCardToastAnchorKey.self, value: .bounds) {
                 [TVHomeCardToastAnchor(focusID: focusID, anchor: $0)]
