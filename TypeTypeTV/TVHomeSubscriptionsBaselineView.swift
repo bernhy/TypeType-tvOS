@@ -174,32 +174,27 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
 }
 
 
-/// The sidebar keeps the original HStack sizing. Zoom only Home's scroll
-/// *content*, while the ScrollView and its menu/dialog hosts remain full
-/// height and unscaled. The expanded content is laid out at the same width
-/// as the collapsed Home; a visual transform fits it in the smaller slot.
+/// The sidebar keeps its native HStack layout. The Home grid's width comes
+/// from the OUTER viewport (not from its animating sibling): this prevents
+/// even intermediate 280-ms animation frames from reflowing the grid.
+/// ScrollView, alerts, context-menu hosts and their height remain unscaled.
 enum TVHomeNavigationZoom {
-    static func layoutWidth(visibleWidth: CGFloat, expanded: Bool) -> CGFloat {
-        max(0, visibleWidth) + (expanded
-            ? TVMainNavigationLayout.expandedWidth -
-                TVMainNavigationLayout.collapsedWidth
-            : 0)
+    static func layoutWidth(outerWidth: CGFloat) -> CGFloat {
+        max(0, outerWidth - TVMainNavigationLayout.collapsedWidth)
     }
 
-    static func scale(visibleWidth: CGFloat, expanded: Bool) -> CGFloat {
-        let width = max(0, visibleWidth)
-        let layout = layoutWidth(visibleWidth: width, expanded: expanded)
-        guard width > 0, layout > 0 else { return 1 }
-        return width / layout
+    static func scale(visibleWidth: CGFloat, layoutWidth: CGFloat) -> CGFloat {
+        guard visibleWidth > 0, layoutWidth > 0 else { return 1 }
+        return min(1, visibleWidth / layoutWidth)
     }
 }
 
 struct TVHomeSubscriptionsBaselineView: View {
     let api: TypeTypeAPI
     let previewVideos: [VideoItem]?
-    // Only the Home content layer is zoomed. Native nav, dialogs and
-    // ScrollView viewport are not transformed.
-    var navigationExpanded = false
+    // Measured once per parent layout, from the outer screen width.
+    // This stays stable while the sidebar's own width animates.
+    var fixedLayoutWidth: CGFloat?
     var focusRequest = 0
     var onRevealMenu: () -> Void = {}
     var onOpenAccount: () -> Void = {}
@@ -303,13 +298,13 @@ struct TVHomeSubscriptionsBaselineView: View {
     }
 
     init(api: TypeTypeAPI, previewVideos: [VideoItem]? = nil,
-         navigationExpanded: Bool = false,
+         fixedLayoutWidth: CGFloat? = nil,
          focusRequest: Int = 0, onRevealMenu: @escaping () -> Void = {},
          onOpenAccount: @escaping () -> Void = {},
          onInitialFocusReady: @escaping () -> Void = {}) {
         self.api = api
         self.previewVideos = previewVideos
-        self.navigationExpanded = navigationExpanded
+        self.fixedLayoutWidth = fixedLayoutWidth
         self.focusRequest = focusRequest
         self.onRevealMenu = onRevealMenu
         self.onOpenAccount = onOpenAccount
@@ -332,6 +327,7 @@ struct TVHomeSubscriptionsBaselineView: View {
         )
         #endif
         GeometryReader { viewport in
+        let layoutWidth = fixedLayoutWidth ?? viewport.size.width
         ScrollViewReader { scroll in
             ScrollView {
                 VStack(alignment: .leading, spacing: 27) {
@@ -427,19 +423,14 @@ struct TVHomeSubscriptionsBaselineView: View {
                 .padding(.horizontal, 65)
                 .padding(.top, 42)
                 .padding(.bottom, 120)
-                // Fixed four-column geometry: 1864pt at a 1920pt
-                // viewport, regardless of whether the rail is open.
-                .frame(
-                    width: TVHomeNavigationZoom.layoutWidth(
-                        visibleWidth: viewport.size.width,
-                        expanded: navigationExpanded
-                    ),
-                    alignment: .leading
-                )
+                // The entire grid keeps the collapsed-rail width throughout
+                // the sidebar animation. This layout value is constant;
+                // only the presentation transform changes frame by frame.
+                .frame(width: layoutWidth, alignment: .leading)
                 .scaleEffect(
                     TVHomeNavigationZoom.scale(
                         visibleWidth: viewport.size.width,
-                        expanded: navigationExpanded
+                        layoutWidth: layoutWidth
                     ),
                     anchor: .topLeading
                 )
