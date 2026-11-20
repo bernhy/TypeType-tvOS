@@ -1202,10 +1202,6 @@ struct HomeView: View {
         railHandoffFocusTarget = target
         preferredHomeCardID = target
         focusedHomeVideo = target
-        #if DEBUG
-        NSLog("TypeType Home: direct rail focus handoff armed (%@)",
-              target.hasPrefix("recent-") ? "resume" : "recommendation")
-        #endif
         return true
     }
 
@@ -1698,9 +1694,6 @@ struct VideoCard: View {
     var lookupMissingMetadata = false
     // Test-only: retains full-resolution artwork and the same focus zoom.
     var includeVisualEffects = true
-    // DEBUG profiling is limited to the Home experiment. Other VideoCards
-    // keep their normal rendering and are not counted as Home navigation.
-    var diagnoseHomeFocus = false
     @State private var streamMetadata: StreamInfo?
     @State private var metadataVideoURL: String?
 
@@ -1738,12 +1731,6 @@ struct VideoCard: View {
     }
 
     var body: some View {
-        #if DEBUG
-        let _ = diagnoseHomeFocus
-            ? TVHomeFocusDiagnostics.videoCardBody(
-                isFocused: isFocused, videoURL: video.url
-            ) : ()
-        #endif
         // One card surface, no transparent 10-point gap between artwork
         // and the info panel. That gap used to reveal the black grid behind.
         VStack(alignment: .leading, spacing: 0) {
