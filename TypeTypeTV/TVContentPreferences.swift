@@ -7,8 +7,8 @@ import Combine
 /// key for compatibility; it now applies beyond the subscription feed.
 enum TVLiveStreamDisplayPolicy {
     static func isOngoing(_ item: VideoItem) -> Bool {
-        item.isLive == true ||
-        (item.isLiveContent == true && item.isPostLive != true)
+        item.isPostLive != true &&
+        (item.isLive == true || item.isLiveContent == true)
     }
 
     static func visible(_ items: [VideoItem], hideLiveStreams: Bool) -> [VideoItem] {

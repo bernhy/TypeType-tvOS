@@ -22,6 +22,9 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertTrue(TVLiveStreamDisplayPolicy.isOngoing(live))
         XCTAssertTrue(TVLiveStreamDisplayPolicy.isOngoing(stream))
         XCTAssertFalse(TVLiveStreamDisplayPolicy.isOngoing(archive))
+        var archivedLiveFlag = live
+        archivedLiveFlag.isPostLive = true
+        XCTAssertFalse(TVLiveStreamDisplayPolicy.isOngoing(archivedLiveFlag))
         XCTAssertEqual(TVLiveStreamDisplayPolicy.visible(
             [normal, live, stream, archive], hideLiveStreams: true
         ).map(\.id), ["normal", "archive"])
