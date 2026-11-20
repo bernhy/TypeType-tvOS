@@ -72,6 +72,22 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
         XCTAssertTrue(TVThumbnailSources.urls(primary: nil, videoURL: nil).isEmpty)
     }
 
+    func testHeroArtworkPrefersHighResolutionAndPreservesCustomThumbnails() throws {
+        let video = "https://youtu.be/ABCDEFGHIJK"
+        let hq = URL(string: "https://i.ytimg.com/vi/ABCDEFGHIJK/hqdefault.jpg")!
+        let maxres = URL(string: "https://i.ytimg.com/vi/ABCDEFGHIJK/maxresdefault.jpg")!
+        let sd = URL(string: "https://i.ytimg.com/vi/ABCDEFGHIJK/sddefault.jpg")!
+        let custom = URL(string: "https://cdn.example/dearrow/ABCDEFGHIJK.webp")!
+        XCTAssertEqual(TVThumbnailSources.urls(primary: hq, videoURL: video,
+                                                quality: .hero), [maxres, sd, hq])
+        XCTAssertEqual(TVThumbnailSources.urls(primary: nil, videoURL: video,
+                                                quality: .hero), [maxres, sd, hq])
+        XCTAssertEqual(TVThumbnailSources.urls(primary: custom, videoURL: video,
+                                                quality: .hero), [custom, maxres, sd, hq])
+        XCTAssertEqual(TVThumbnailSources.urls(primary: hq, videoURL: video),
+                       [hq], "Grid cells must retain their inexpensive image policy")
+    }
+
     func testEmptyStoredWatchLaterAndPlaylistThumbnailsCanRecover() throws {
         let watchLater = try JSONDecoder().decode(TVWatchLaterDTO.self, from: Data(#"""
         {"url":"https://www.youtube.com/watch?v=ABCDEFGHIJK",

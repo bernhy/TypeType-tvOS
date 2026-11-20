@@ -56,6 +56,21 @@ final class TVRailVisualFocusTests: XCTestCase {
             browsingWithinRail: true))
     }
 
+    func testHomeLeftRailReentryRestoresCardButBackKeepsFirst() {
+        let first = "recommendation-first"
+        let middle = "recommendation-middle"
+        let recent = "recent-resume"
+        let visible: Set<String> = [first, middle, recent]
+        XCTAssertEqual(TVHomeReturnFocusPolicy.target(
+            saved: middle, visibleIDs: visible, fallback: first), middle)
+        XCTAssertEqual(TVHomeReturnFocusPolicy.target(
+            saved: recent, visibleIDs: visible, fallback: first), recent)
+        XCTAssertEqual(TVHomeReturnFocusPolicy.target(
+            saved: nil, visibleIDs: visible, fallback: first), first)
+        XCTAssertEqual(TVHomeReturnFocusPolicy.target(
+            saved: "recommendation-deleted", visibleIDs: visible, fallback: first), first)
+    }
+
     func testNoWhitePillWhileFocusIsInContent() {
         XCTAssertFalse(TVRailVisualFocus.highlights(
             TVSection.settings, focused: nil, selected: .settings))

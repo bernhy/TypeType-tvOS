@@ -538,6 +538,14 @@ struct BrowseView: View {
 /// Stable identity survives history/recommendation enrichment, filtering,
 /// and pagination. Index-based ForEach identity remounts the wrong card when
 /// a preceding video disappears, which can reset focus to item zero.
+enum TVHomeReturnFocusPolicy {
+    static func target(saved: String?, visibleIDs: Set<String>,
+                       fallback: String) -> String {
+        guard let saved, visibleIDs.contains(saved) else { return fallback }
+        return saved
+    }
+}
+
 private struct TVHomeGridEntry: Identifiable {
     let index: Int
     let video: VideoItem
@@ -558,6 +566,9 @@ struct HomeView: View {
     // a detail screen is popped. Otherwise resetFocus selects item 0 and
     // pulls the deep-scrolled grid back to the top.
     @State private var preferredHomeCardID: String?
+    // Only Left-to-rail remembers the current card; Home/Back keeps its
+    // existing first-card-then-navigation behavior.
+    @State private var leftRailReturnCardID: String?
     @Namespace private var homeFocusScope
     @Environment(\.resetFocus) private var resetFocus
     @State private var needsHomeFocus = false
@@ -877,7 +888,15 @@ struct HomeView: View {
         // Wait for recommendations to arrive. Recent history may load first
         // but must never steal the initial Home focus.
         guard let first = firstVisible else { return }
-        let target = homeCardID(first.video, recommended: first.recommendation)
+        let firstID = homeCardID(first.video, recommended: first.recommendation)
+        let visibleIDs = Set(
+            visibleRecommendations.map { homeCardID($0, recommended: true) } +
+            visibleRecent.map { homeCardID($0, recommended: false) }
+        )
+        let target = TVHomeReturnFocusPolicy.target(
+            saved: leftRailReturnCardID, visibleIDs: visibleIDs, fallback: firstID
+        )
+        leftRailReturnCardID = nil
         needsHomeFocus = false
         focusHomeCard(target, scroll: scroll)
     }
@@ -929,6 +948,8 @@ struct HomeView: View {
                         .onMoveCommand { direction in
                             userMovedWithinHome()
                             if direction == .left && index == 0 {
+                                leftRailReturnCardID = focusID
+                                preferredHomeCardID = focusID
                                 onRevealMenu()
                             }
                         }
@@ -1007,6 +1028,9 @@ struct HomeView: View {
                 .onMoveCommand { direction in
                     userMovedWithinHome()
                     if direction == .left && index % columns.count == 0 {
+                        let target = homeCardID(video, recommended: paginate)
+                        leftRailReturnCardID = target
+                        preferredHomeCardID = target
                         onRevealMenu()
                     }
                 }
@@ -1216,7 +1240,7 @@ struct VideoCard: View {
             ZStack(alignment: .bottomTrailing) {
                 TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
                             origin: api.origin, contentMode: .fit,
-                            videoURL: video.url)
+                            maximumPixelDimension: 768, videoURL: video.url)
                     .grayscale(completed ? 1 : 0)
                     // Never scale thumbnail content: on tvOS the duration
                     // badge at the bottom-right otherwise appears enlarged

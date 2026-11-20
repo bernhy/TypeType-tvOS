@@ -48,14 +48,51 @@ enum TVThumbnailRequestPolicy {
 /// (which may be a DeArrow replacement), but recover from missing/stale
 /// stored artwork in older history, playlist or watch-later rows. Only a
 /// validated YouTube video URL qualifies for the canonical fallback.
+enum TVThumbnailImageQuality: String {
+    case standard, hero
+}
+
 enum TVThumbnailSources {
-    static func urls(primary: URL?, videoURL: String?) -> [URL] {
+    static func urls(primary: URL?, videoURL: String?,
+                     quality: TVThumbnailImageQuality = .standard) -> [URL] {
         guard let id = videoURL.flatMap(VideoAddress.youtubeID),
               let fallback = URL(string: "https://i.ytimg.com/vi/\(id)/hqdefault.jpg") else {
             return primary.map { [$0] } ?? []
         }
-        if let primary, primary != fallback { return [primary, fallback] }
-        return [fallback]
+        if quality == .standard {
+            if let primary, primary != fallback { return [primary, fallback] }
+            return [fallback]
+        }
+
+        // High-resolution variants are reserved for the detail hero and
+        // playback startup poster; normal grid cards remain inexpensive.
+        // Prefer custom DeArrow/server art over standard YouTube artwork.
+        let host = primary?.host?.lowercased() ?? ""
+        let youtubeArtwork = host == "img.youtube.com" ||
+            host == "ytimg.com" || host.hasSuffix(".ytimg.com")
+        let maxres = URL(string: "https://i.ytimg.com/vi/\(id)/maxresdefault.jpg")!
+        let sd = URL(string: "https://i.ytimg.com/vi/\(id)/sddefault.jpg")!
+        var candidates: [URL] = []
+        if let primary, !youtubeArtwork { candidates.append(primary) }
+        candidates.append(contentsOf: [maxres, sd])
+        if let primary { candidates.append(primary) }
+        candidates.append(fallback)
+        var ordered: [URL] = []
+        for candidate in candidates where !ordered.contains(candidate) {
+            ordered.append(candidate)
+        }
+        return ordered
+    }
+
+    static func accepts(_ image: UIImage, from url: URL,
+                        quality: TVThumbnailImageQuality) -> Bool {
+        guard quality == .hero,
+              ["maxresdefault.jpg", "sddefault.jpg"]
+                .contains(url.lastPathComponent.lowercased()) else { return true }
+        // Some unavailable maxres variants respond with a tiny image instead
+        // of a 404. Do not upscale their placeholder into a fullscreen hero.
+        guard let bitmap = image.cgImage else { return false }
+        return bitmap.width >= 640 && bitmap.height >= 360
     }
 }
 
@@ -189,6 +226,7 @@ struct TVThumbnail: View {
     // into 2048px without forcing every grid cell to decode a full image.
     var maximumPixelDimension = 1_024
     var videoURL: String? = nil
+    var quality: TVThumbnailImageQuality = .standard
     @State private var bitmap: UIImage?
 
     var body: some View {
@@ -216,17 +254,24 @@ struct TVThumbnail: View {
             .clipped()
         }
         .clipped()
-        .task(id: "\(origin.absoluteString)|\(url?.absoluteString ?? "")|\(maximumPixelDimension)|\(videoURL ?? "")") {
+        .task(id: "\(origin.absoluteString)|\(url?.absoluteString ?? "")|\(maximumPixelDimension)|\(videoURL ?? "")|\(quality.rawValue)") {
             // SwiftUI may reuse a card for a different URL. Do not keep the
             // previous video's artwork visible while the new image loads.
             bitmap = nil
             await load()
         }
+        .onDisappear {
+            // Lazy grid cells may survive offscreen in SwiftUI's view graph.
+            // Release their bitmap; the bounded shared cache can repopulate it.
+            bitmap = nil
+        }
     }
 
     @MainActor
     private func load() async {
-        let candidates = TVThumbnailSources.urls(primary: url, videoURL: videoURL)
+        let candidates = TVThumbnailSources.urls(
+            primary: url, videoURL: videoURL, quality: quality
+        )
         guard !candidates.isEmpty else {
             bitmap = nil
             return
@@ -243,8 +288,11 @@ struct TVThumbnail: View {
                 url: candidate, pixels: pixels
             ) as NSString
             if let cached = TVThumbnailMemory.shared.configuredCache().object(forKey: key) {
-                bitmap = cached
-                return
+                if TVThumbnailSources.accepts(cached, from: candidate, quality: quality) {
+                    bitmap = cached
+                    return
+                }
+                TVThumbnailMemory.shared.configuredCache().removeObject(forKey: key)
             }
             var request = URLRequest(url: candidate)
             request.timeoutInterval = 20
@@ -256,7 +304,9 @@ struct TVThumbnail: View {
             guard let decoded = await TVThumbnailWorkPool.shared.image(
                 key: key as String, request: request, origin: origin,
                 firstParty: firstParty, pixels: pixels
-            ), !Task.isCancelled else { continue }
+            ), !Task.isCancelled,
+               TVThumbnailSources.accepts(decoded.image, from: candidate,
+                                          quality: quality) else { continue }
             if let image = decoded.image.cgImage {
                 let size = image.bytesPerRow * image.height
                 TVThumbnailMemory.shared.configuredCache().setObject(
@@ -319,7 +369,9 @@ struct TVTransientStartupImage: UIViewRepresentable {
 
     func updateUIView(_ view: UIImageView, context: Context) {
         let coordinator = context.coordinator
-        let urls = TVThumbnailSources.urls(primary: url, videoURL: videoURL)
+        let urls = TVThumbnailSources.urls(
+            primary: url, videoURL: videoURL, quality: .hero
+        )
         guard retainsImage, !urls.isEmpty else {
             if coordinator.requestKey != nil || view.image != nil {
                 coordinator.release(view)
@@ -339,7 +391,8 @@ struct TVTransientStartupImage: UIViewRepresentable {
                 url: source, pixels: TVThumbnailDecoder.maximumPixelDimension
             ) as NSString
             if let cached = TVThumbnailMemory.shared.configuredCache()
-                .object(forKey: key) {
+                .object(forKey: key),
+               TVThumbnailSources.accepts(cached, from: source, quality: .hero) {
                 view.image = cached
                 return
             }
@@ -368,7 +421,9 @@ struct TVTransientStartupImage: UIViewRepresentable {
                     key: key, request: request, origin: origin, firstParty: firstParty,
                     pixels: TVThumbnailDecoder.maximumPixelDimension
                 ), !Task.isCancelled,
-                      coordinator?.requestKey == requestKey else { continue }
+                      coordinator?.requestKey == requestKey,
+                      TVThumbnailSources.accepts(decoded.image, from: source,
+                                                 quality: .hero) else { continue }
                 // Startup images remain transient; no shared-cache insertion.
                 view?.image = decoded.image
                 return

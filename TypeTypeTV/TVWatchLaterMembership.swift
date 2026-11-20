@@ -7,6 +7,8 @@ import Combine
 final class TVWatchLaterMembership: ObservableObject {
     static let shared = TVWatchLaterMembership()
     @Published private(set) var urls = Set<String>()
+    // Badges must not linearly scan a large saved-video collection per card.
+    private var indexedVideoKeys = Set<String>()
     private var scope = ""
     private var loaded = false
     private var fetch: Task<Void, Never>?
@@ -24,7 +26,7 @@ final class TVWatchLaterMembership: ObservableObject {
     }
 
     func contains(_ videoURL: String) -> Bool {
-        urls.contains { TVVideoIdentity.equivalent($0, videoURL) }
+        indexedVideoKeys.contains(TVPlaylistMembership.videoKey(videoURL))
     }
 
     func ensureLoaded(api: TypeTypeAPI) async {
@@ -34,6 +36,7 @@ final class TVWatchLaterMembership: ObservableObject {
             fetch = nil
             scope = key
             urls = []
+            indexedVideoKeys = []
             loaded = false
             lastFailure = nil
             pendingMutations.removeAll()
@@ -56,6 +59,7 @@ final class TVWatchLaterMembership: ObservableObject {
                     if mutation.present { snapshot.insert(mutation.url) }
                 }
                 urls = snapshot
+                indexedVideoKeys = Set(snapshot.map { TVPlaylistMembership.videoKey($0) })
                 loaded = true
                 lastFailure = nil
                 pendingMutations.removeAll()
@@ -79,6 +83,7 @@ final class TVWatchLaterMembership: ObservableObject {
         }
         urls = Set(urls.filter { !TVVideoIdentity.equivalent($0, url) })
         if present { urls.insert(url) }
+        indexedVideoKeys = Set(urls.map { TVPlaylistMembership.videoKey($0) })
         // Do not claim an incomplete membership snapshot is fully loaded:
         // other saved videos must remain discoverable by the next GET.
     }
@@ -88,6 +93,7 @@ final class TVWatchLaterMembership: ObservableObject {
         fetch = nil
         scope = ""
         urls = []
+        indexedVideoKeys = []
         loaded = false
         lastFailure = nil
         pendingMutations.removeAll()
