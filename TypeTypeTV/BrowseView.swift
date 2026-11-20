@@ -545,6 +545,8 @@ enum TVHomeExperimentMode: String, CaseIterable {
     case noStreamMetadata
     case recommendationsOnly
     case twelveRecommendations
+    case twelveWithoutActions
+    case twelveWithoutEffects
 
     var title: String {
         switch self {
@@ -552,6 +554,8 @@ enum TVHomeExperimentMode: String, CaseIterable {
         case .noStreamMetadata: return "Ohne Stream-Metadaten"
         case .recommendationsOnly: return "Nur Empfehlungen"
         case .twelveRecommendations: return "12 Empfehlungen"
+        case .twelveWithoutActions: return "12 ohne Kontextmenüs"
+        case .twelveWithoutEffects: return "12 ohne Bildeffekte"
         }
     }
 
@@ -564,8 +568,16 @@ enum TVHomeExperimentMode: String, CaseIterable {
     }
 
     var recommendationLimit: Int? {
-        self == .twelveRecommendations ? 12 : nil
+        switch self {
+        case .twelveRecommendations, .twelveWithoutActions, .twelveWithoutEffects:
+            return 12
+        default:
+            return nil
+        }
     }
+
+    var includesCardActionModifiers: Bool { self != .twelveWithoutActions }
+    var includesCardVisualEffects: Bool { self != .twelveWithoutEffects }
 
     var next: Self {
         let modes = Self.allCases
@@ -634,16 +646,39 @@ struct TVHomeCardContent: View, Equatable {
     let api: TypeTypeAPI
     let video: VideoItem
     var lookupMissingMetadata = false
+    var includeVisualEffects = true
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.api.origin == rhs.api.origin &&
         lhs.video == rhs.video &&
-        lhs.lookupMissingMetadata == rhs.lookupMissingMetadata
+        lhs.lookupMissingMetadata == rhs.lookupMissingMetadata &&
+        lhs.includeVisualEffects == rhs.includeVisualEffects
     }
 
     var body: some View {
         VideoCard(api: api, video: video,
-                  lookupMissingMetadata: lookupMissingMetadata)
+                  lookupMissingMetadata: lookupMissingMetadata,
+                  includeVisualEffects: includeVisualEffects)
+    }
+}
+
+/// A/B-only: keep Home focus binding identical, but omit the full
+/// context-menu and shared progress observers in the lean mode.
+private struct TVHomeDiagnosticActions: ViewModifier {
+    let api: TypeTypeAPI
+    let video: VideoItem
+    let includeActions: Bool
+    let focus: FocusState<String?>.Binding
+    let focusID: String
+    let onChanged: () -> Void
+
+    func body(content: Content) -> some View {
+        if includeActions {
+            content.videoActions(api: api, video: video, onChanged: onChanged,
+                                 focus: focus, focusID: focusID)
+        } else {
+            content.focused(focus, equals: focusID)
+        }
     }
 }
 
@@ -1186,18 +1221,21 @@ struct HomeView: View {
                             TVHomeCardContent(
                                 api: api, video: video,
                                 lookupMissingMetadata:
-                                    diagnosticMode.enrichesResumeMetadata
+                                    diagnosticMode.enrichesResumeMetadata,
+                                includeVisualEffects:
+                                    diagnosticMode.includesCardVisualEffects
                             ).equatable()
                         }
                         .buttonStyle(TVRailButtonStyle())
                         .focusEffectDisabled(true)
                         .containerRelativeFrame(.horizontal, count: 4, spacing: 26)
                         .zIndex(focusedHomeVideo == focusID ? 5 : 0)
-                        .videoActions(
+                        .modifier(TVHomeDiagnosticActions(
                             api: api, video: video,
-                            onChanged: { Task { await refresh() } },
-                            focus: $focusedHomeVideo, focusID: focusID
-                        )
+                            includeActions: diagnosticMode.includesCardActionModifiers,
+                            focus: $focusedHomeVideo, focusID: focusID,
+                            onChanged: { Task { await refresh() } }
+                        ))
                         .prefersDefaultFocus(
                             preferredHomeCardID == focusID, in: homeFocusScope
                         )
@@ -1267,17 +1305,21 @@ struct HomeView: View {
                 } label: {
                     TVHomeCardContent(
                         api: api, video: video,
-                        lookupMissingMetadata: lookupHistoryMetadata
+                        lookupMissingMetadata: lookupHistoryMetadata,
+                        includeVisualEffects: diagnosticMode.includesCardVisualEffects
                     ).equatable()
                 }
                 .buttonStyle(TVRailButtonStyle())
                 .focusEffectDisabled(true)
                 .zIndex(focusedHomeVideo ==
                     homeCardID(video, recommended: paginate) ? 5 : 0)
-                .videoActions(api: api, video: video, onChanged: {
-                    Task { await refresh() }
-                }, focus: $focusedHomeVideo,
-                   focusID: homeCardID(video, recommended: paginate))
+                .modifier(TVHomeDiagnosticActions(
+                    api: api, video: video,
+                    includeActions: diagnosticMode.includesCardActionModifiers,
+                    focus: $focusedHomeVideo,
+                    focusID: homeCardID(video, recommended: paginate),
+                    onChanged: { Task { await refresh() } }
+                ))
                 // The default focus engine otherwise prefers the first
                 // (recently watched) grid or the global rail on cold launch.
                 // Also gives resetFocus() a concrete deep-card destination
@@ -1471,6 +1513,8 @@ struct VideoCard: View {
     @ObservedObject private var favoriteMembership = TVFavoriteMembership.shared
     @Environment(\.isFocused) private var isFocused
     var lookupMissingMetadata = false
+    // Test-only: retains full-resolution artwork and the same focus zoom.
+    var includeVisualEffects = true
     @State private var streamMetadata: StreamInfo?
     @State private var metadataVideoURL: String?
 
@@ -1514,7 +1558,7 @@ struct VideoCard: View {
                 TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
                             origin: api.origin, contentMode: .fit,
                             maximumPixelDimension: 768, videoURL: video.url)
-                    .grayscale(completed ? 1 : 0)
+                    .grayscale(includeVisualEffects && completed ? 1 : 0)
                     // Never scale thumbnail content: on tvOS the duration
                     // badge at the bottom-right otherwise appears enlarged
                     // and can be cropped by its card.
@@ -1588,7 +1632,7 @@ struct VideoCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 10))
             // The actual remote-driven specular/glimbal highlight lives on
             // the artwork viewport. It was previously a fixed gradient.
-            .modifier(TVFocusedArtworkGlint())
+            .modifier(TVFocusedArtworkGlint(enabled: includeVisualEffects))
             VStack(alignment: .leading, spacing: 7) {
                 Text(video.title)
                     .font(.system(size: 21, weight: .semibold))
@@ -1650,8 +1694,9 @@ struct VideoCard: View {
         // Scale the complete card, not the thumbnail viewport.
         // .fit preserves the original image edges and the progress bar.
         .scaleEffect(isFocused ? 1.065 : 1, anchor: .center)
-        .shadow(color: isFocused ? Color.black.opacity(0.55) : .clear,
-                radius: 19, y: 10)
+        .shadow(color: includeVisualEffects && isFocused
+                ? Color.black.opacity(0.55) : .clear,
+                radius: includeVisualEffects ? 19 : 0, y: 10)
         .animation(.easeOut(duration: 0.13), value: isFocused)
         .foregroundStyle(.white)
         .task(id: "\(video.url)|\(lookupMissingMetadata)") {

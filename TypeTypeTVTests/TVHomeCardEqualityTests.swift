@@ -3,7 +3,7 @@ import XCTest
 
 final class TVHomeCardEqualityTests: XCTestCase {
     func testDiagnosticModesIsolateHomeWorkWithoutReduccingImageQuality() {
-        XCTAssertEqual(TVHomeExperimentMode.allCases.count, 4)
+        XCTAssertEqual(TVHomeExperimentMode.allCases.count, 6)
         XCTAssertEqual(TVHomeExperimentMode.full.next,
                        .noStreamMetadata)
         XCTAssertEqual(TVHomeExperimentMode.noStreamMetadata.next,
@@ -11,6 +11,10 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertEqual(TVHomeExperimentMode.recommendationsOnly.next,
                        .twelveRecommendations)
         XCTAssertEqual(TVHomeExperimentMode.twelveRecommendations.next,
+                       .twelveWithoutActions)
+        XCTAssertEqual(TVHomeExperimentMode.twelveWithoutActions.next,
+                       .twelveWithoutEffects)
+        XCTAssertEqual(TVHomeExperimentMode.twelveWithoutEffects.next,
                        .full)
         XCTAssertTrue(TVHomeExperimentMode.full.includesResume)
         XCTAssertTrue(TVHomeExperimentMode.full.enrichesResumeMetadata)
@@ -19,6 +23,14 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertFalse(TVHomeExperimentMode.recommendationsOnly.includesResume)
         XCTAssertNil(TVHomeExperimentMode.recommendationsOnly.recommendationLimit)
         XCTAssertEqual(TVHomeExperimentMode.twelveRecommendations.recommendationLimit, 12)
+        XCTAssertEqual(TVHomeExperimentMode.twelveWithoutActions.recommendationLimit, 12)
+        XCTAssertEqual(TVHomeExperimentMode.twelveWithoutEffects.recommendationLimit, 12)
+        XCTAssertFalse(TVHomeExperimentMode.twelveWithoutActions.includesCardActionModifiers)
+        XCTAssertTrue(TVHomeExperimentMode.twelveWithoutActions.includesCardVisualEffects)
+        XCTAssertTrue(TVHomeExperimentMode.twelveWithoutEffects.includesCardActionModifiers)
+        XCTAssertFalse(TVHomeExperimentMode.twelveWithoutEffects.includesCardVisualEffects)
+        XCTAssertTrue(TVHomeExperimentMode.full.includesCardActionModifiers)
+        XCTAssertTrue(TVHomeExperimentMode.full.includesCardVisualEffects)
     }
 
     func testSingleTargetRailHandoffNeverPermitsNeighborFocus() throws {
@@ -88,6 +100,9 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertNotEqual(a, TVHomeCardContent(api: api, video: changed))
         XCTAssertNotEqual(a, TVHomeCardContent(
             api: api, video: video, lookupMissingMetadata: true
+        ))
+        XCTAssertNotEqual(a, TVHomeCardContent(
+            api: api, video: video, includeVisualEffects: false
         ))
     }
 }
