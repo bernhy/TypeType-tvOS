@@ -13,6 +13,26 @@ final class TVHomeCardEqualityTests: XCTestCase {
                        CGPoint(x: 147, y: 237))
     }
 
+    func testToastDisappearsWhenItsCardLeavesTheVisibleViewport() {
+        let viewport = CGRect(x: 0, y: 0, width: 1200, height: 680)
+        let visible = CGRect(x: 140, y: 230, width: 300, height: 180)
+        XCTAssertTrue(TVHomeCardToastPosition.isVisible(visible, in: viewport))
+        // Still display while some part of the original card is visible.
+        XCTAssertTrue(TVHomeCardToastPosition.isVisible(
+            CGRect(x: 140, y: 650, width: 300, height: 180), in: viewport
+        ))
+        // No offscreen/frozen floating confirmation when the card is recycled.
+        XCTAssertFalse(TVHomeCardToastPosition.isVisible(
+            CGRect(x: 140, y: 680, width: 300, height: 180), in: viewport
+        ))
+        XCTAssertFalse(TVHomeCardToastPosition.isVisible(
+            CGRect(x: 1200, y: 230, width: 300, height: 180), in: viewport
+        ))
+        XCTAssertFalse(TVHomeCardToastPosition.isVisible(
+            CGRect(x: 140, y: 230, width: 0, height: 180), in: viewport
+        ))
+    }
+
 
     func testLivestreamFilterWorksAcrossHomeAndOtherGrids() {
         let normal = VideoItem(id: "normal", title: "Normal", url: "https://yt/normal",
