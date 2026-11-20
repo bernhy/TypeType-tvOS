@@ -25,6 +25,8 @@ struct TVSubscriptionFeedView: View {
     @State private var initialGridFocusPending = false
     @FocusState private var focusedVideo: String?
     @State private var railReturnVideoID: String?
+    @State private var detailReturnVideoID: String?
+    @State private var lastMutationID = 0
     @StateObject private var videoMenu = TVHomeMenuCoordinator()
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 4)
 
@@ -85,11 +87,13 @@ struct TVSubscriptionFeedView: View {
                         ),
                         api: api, focus: $focusedVideo, menu: videoMenu,
                         onReturnToList: { id in
-                            TVVideoFocusReturn.restore(
-                                $focusedVideo, id: id, scroll: scroll
-                            )
+                            // No post-pop timer or scrollTo when the existing
+                            // lazy grid remains mounted at its current offset.
+                            detailReturnVideoID = id
+                            focusedVideo = id
                         },
                         onLeftEdge: { id in
+                            detailReturnVideoID = nil
                             railReturnVideoID = id
                             onRevealMenu()
                         },
@@ -126,10 +130,19 @@ struct TVSubscriptionFeedView: View {
         .frame(width: viewport.size.width, height: viewport.size.height)
         .background(TTTheme.ink)
         .defaultFocus(
-            $focusedVideo, railReturnVideoID,
-            priority: railReturnVideoID == nil ? .automatic : .userInitiated
+            $focusedVideo, detailReturnVideoID ?? railReturnVideoID,
+            priority: detailReturnVideoID == nil && railReturnVideoID == nil
+                ? .automatic : .userInitiated
         )
         .modifier(TVHomeMenuPresentation(model: videoMenu))
+        .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
+        .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
+        .onChange(of: videoMenu.focusRestoreRequest) { _, _ in
+            if let id = videoMenu.focusRestoreTarget,
+               visibleVideos.contains(where: { $0.url == id }) {
+                focusedVideo = id
+            }
+        }
         .task {
             await TVWatchLaterMembership.shared.ensureLoaded(api: api)
         }
@@ -168,11 +181,24 @@ struct TVSubscriptionFeedView: View {
             }
         }
         .onExitCommand {
+            detailReturnVideoID = nil
             railReturnVideoID = focusedVideo
             onRevealMenu()
         }
         }
         } // GeometryReader keeps the grid width constant across menu zoom.
+    }
+
+    @MainActor
+    private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
+        let pending = events.filter {
+            $0.id > lastMutationID && $0.accountScope == api.metadataCacheScope
+        }
+        lastMutationID = max(lastMutationID, events.last?.id ?? 0)
+        guard !pending.isEmpty else { return }
+        if videos.contains(where: { item in pending.contains { $0.removes(item) } }) {
+            videos.removeAll { item in pending.contains { $0.removes(item) } }
+        }
     }
 
     @MainActor
