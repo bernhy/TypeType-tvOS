@@ -54,27 +54,61 @@ enum TVThumbnailRequestPolicy {
 /// utility worker, never in SwiftUI's MainActor image-loading task.
 private actor TVThumbnailWorkPool {
     static let shared = TVThumbnailWorkPool()
-    private var pending: [String: Task<TVThumbnailDecoded?, Never>] = [:]
+    private struct Entry {
+        let task: Task<TVThumbnailDecoded?, Never>
+        var subscribers: Set<UUID>
+    }
+    private var pending: [String: Entry] = [:]
     private var active = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private let maximumConcurrent = 4
 
     func image(key: String, request: URLRequest, origin: URL,
                firstParty: Bool, pixels: Int) async -> TVThumbnailDecoded? {
-        if let existing = pending[key] { return await existing.value }
-        let task = Task.detached(priority: .utility) { () -> TVThumbnailDecoded? in
-            await TVThumbnailWorkPool.shared.acquire()
-            let result = await Self.download(
-                request: request, origin: origin, firstParty: firstParty,
-                pixels: pixels
-            )
-            await TVThumbnailWorkPool.shared.release()
-            return result
+        let subscriber = UUID()
+        let task: Task<TVThumbnailDecoded?, Never>
+        if var existing = pending[key] {
+            existing.subscribers.insert(subscriber)
+            pending[key] = existing
+            task = existing.task
+        } else {
+            task = Task.detached(priority: .utility) { () -> TVThumbnailDecoded? in
+                await TVThumbnailWorkPool.shared.acquire()
+                let result: TVThumbnailDecoded?
+                if Task.isCancelled {
+                    result = nil
+                } else {
+                    result = await Self.download(
+                        request: request, origin: origin, firstParty: firstParty,
+                        pixels: pixels
+                    )
+                }
+                await TVThumbnailWorkPool.shared.release()
+                return result
+            }
+            pending[key] = Entry(task: task, subscribers: [subscriber])
         }
-        pending[key] = task
-        let result = await task.value
-        pending[key] = nil
-        return result
+        // SwiftUI cancels .task when a card scrolls out or a view disappears.
+        // Drop that subscriber immediately; only cancel the shared network
+        // request once its *last* interested view has gone away.
+        return await withTaskCancellationHandler {
+            let result = await task.value
+            releaseSubscriber(key: key, subscriber: subscriber)
+            return Task.isCancelled ? nil : result
+        } onCancel: {
+            Task { await self.releaseSubscriber(key: key, subscriber: subscriber) }
+        }
+    }
+
+    private func releaseSubscriber(key: String, subscriber: UUID) {
+        guard var entry = pending[key],
+              entry.subscribers.remove(subscriber) != nil else { return }
+        if entry.subscribers.isEmpty {
+            entry.task.cancel()
+            pending[key] = nil
+        } else {
+            pending[key] = entry
+        }
     }
 
     private func acquire() async {
