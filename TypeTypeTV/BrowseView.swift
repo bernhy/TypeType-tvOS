@@ -40,9 +40,8 @@ enum TVSection: String, CaseIterable, Hashable {
     }
 }
 
-/// The content keeps its collapsed-rail width throughout the menu transition.
-/// Animating a real HStack width causes every thumbnail/grid cell to be
-/// remeasured on every frame; translate the page as a layer instead.
+/// Rail and page share a single SwiftUI layout animation. Preserve the
+/// baseline geometry while testing Home-specific performance changes.
 enum TVMainNavigationLayout {
     static let collapsedWidth: CGFloat = 56
     static let expandedWidth: CGFloat = 214
@@ -50,10 +49,6 @@ enum TVMainNavigationLayout {
 
     static func width(expanded: Bool) -> CGFloat {
         expanded ? expandedWidth : collapsedWidth
-    }
-
-    static func pageShift(expanded: Bool) -> CGFloat {
-        expanded ? expandedWidth - collapsedWidth : 0
     }
 }
 
@@ -126,10 +121,11 @@ struct BrowseView: View {
             ZStack(alignment: .leading) {
                 TTTheme.ink.ignoresSafeArea()
                 HStack(spacing: 0) {
-                    // Reserve a CONSTANT rail width. The expanding rail is
-                    // an overlay; it never shrinks or reflows the lazy grid.
                     if !playbackVisibility.isVisible {
-                        Color.clear.frame(width: TVMainNavigationLayout.collapsedWidth)
+                        sidebar
+                            .disabled(homeStartupFocusPending ||
+                                      (section == .home && !expanded))
+                            .zIndex(1)
                     }
                 NavigationStack {
                     Group {
@@ -189,21 +185,10 @@ struct BrowseView: View {
                 }
                 .id("\(section.rawValue)-\(accountGeneration)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    // GPU translation, not another full page-grid layout.
-                    .offset(x: playbackVisibility.isVisible ? 0 :
-                        TVMainNavigationLayout.pageShift(expanded: expanded))
                     .focusSection()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea(.container, edges: .leading)
-                .overlay(alignment: .leading) {
-                    if !playbackVisibility.isVisible {
-                        sidebar
-                            .disabled(homeStartupFocusPending ||
-                                      (section == .home && !expanded))
-                            .zIndex(1)
-                    }
-                }
                 // Keep the entire existing navigation screen visible beneath
                 // the picker instead of presenting an opaque tvOS sheet.
                 .disabled(playlistPopup.request != nil)
@@ -563,6 +548,25 @@ private struct TVHomeGridEntry: Identifiable {
     var id: String { video.url }
 }
 
+/// Home-only experiment: avoid recomputing unmodified card content on
+/// every layout/focus transition while keeping card-local state reactive.
+struct TVHomeCardContent: View, Equatable {
+    let api: TypeTypeAPI
+    let video: VideoItem
+    var lookupMissingMetadata = false
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.api.origin == rhs.api.origin &&
+        lhs.video == rhs.video &&
+        lhs.lookupMissingMetadata == rhs.lookupMissingMetadata
+    }
+
+    var body: some View {
+        VideoCard(api: api, video: video,
+                  lookupMissingMetadata: lookupMissingMetadata)
+    }
+}
+
 struct HomeView: View {
     let api: TypeTypeAPI
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
@@ -663,6 +667,10 @@ struct HomeView: View {
 
     var body: some View {
         ScrollViewReader { scroll in
+            // Reuse each filtered collection within one render instead of
+            // rescanning 100+ history/recommendation entries several times.
+            let homeRecent = visibleRecent
+            let homeRecommendations = visibleRecommendations
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
                 HStack {
@@ -694,8 +702,8 @@ struct HomeView: View {
                     if loadingRecent && recentVideos.isEmpty {
                         TVPulsingPlaceholder()
                             .frame(maxWidth: .infinity, minHeight: 135)
-                    } else if !visibleRecent.isEmpty {
-                        continueWatchingRail(visibleRecent, scroll: scroll)
+                    } else if !homeRecent.isEmpty {
+                        continueWatchingRail(homeRecent, scroll: scroll)
                             .disabled(homeFocusRestoreTarget?.hasPrefix("recommendation-") == true)
                     } else if recentNeedsLogin {
                         VStack(alignment: .leading, spacing: 15) {
@@ -724,14 +732,14 @@ struct HomeView: View {
                         Text("home.recommendations")
                             .font(.system(size: 35, weight: .bold))
                         Spacer()
-                        Text(TVL10n.formatted("common.videoCount", visibleRecommendations.count))
+                        Text(TVL10n.formatted("common.videoCount", homeRecommendations.count))
                             .font(.callout)
                             .foregroundStyle(TTTheme.muted)
                     }
                     if loading && videos.isEmpty {
                         TVPulsingPlaceholder()
                             .frame(maxWidth: .infinity, minHeight: 200)
-                    } else if visibleRecommendations.isEmpty {
+                    } else if homeRecommendations.isEmpty {
                         TVContentMessage(
                             symbol: message == nil ? "rectangle.stack" : "wifi.exclamationmark",
                             title: TVL10n.value(
@@ -741,7 +749,7 @@ struct HomeView: View {
                             action: { Task { await loadRecommendations() } }
                         )
                     } else {
-                        videoGrid(visibleRecommendations, scroll: scroll, paginate: true)
+                        videoGrid(homeRecommendations, scroll: scroll, paginate: true)
                             .disabled(homeFocusRestoreTarget?.hasPrefix("recent-") == true)
                         if loadingMore {
                             ProgressView("home.loadingMore")
@@ -951,10 +959,10 @@ struct HomeView: View {
                                 }
                             )
                         } label: {
-                            VideoCard(
+                            TVHomeCardContent(
                                 api: api, video: video,
                                 lookupMissingMetadata: true
-                            )
+                            ).equatable()
                         }
                         .buttonStyle(TVRailButtonStyle())
                         .focusEffectDisabled(true)
@@ -1029,8 +1037,10 @@ struct HomeView: View {
                         }
                     )
                 } label: {
-                    VideoCard(api: api, video: video,
-                              lookupMissingMetadata: lookupHistoryMetadata)
+                    TVHomeCardContent(
+                        api: api, video: video,
+                        lookupMissingMetadata: lookupHistoryMetadata
+                    ).equatable()
                 }
                 .buttonStyle(TVRailButtonStyle())
                 .focusEffectDisabled(true)
