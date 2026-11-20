@@ -69,6 +69,7 @@ struct VideoDetailView: View {
         // (e.g. the screenshot showed 10:20 / 3:33). Never present an
         // impossible position even if its completed flag is correct.
         guard let duration = detailedVideo.duration, duration > 0 else { return saved }
+        guard duration <= Int64.max / 1_000 else { return saved }
         return min(saved, Int64(duration) * 1_000)
     }
     private var watchedFraction: Double {
@@ -311,7 +312,7 @@ struct VideoDetailView: View {
                     GeometryReader { proxy in
                         ZStack(alignment: .leading) {
                             TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
-                                        origin: api.origin)
+                                        origin: api.origin, maximumPixelDimension: 2_048)
                                 .frame(width: proxy.size.width, height: proxy.size.height)
                                 .scaleEffect(heroVisible || reduceMotion ? 1 : 0.94)
                                 .opacity(heroVisible || reduceMotion ? 1 : 0)
