@@ -97,7 +97,7 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
     let focus: FocusState<String?>.Binding
     let homeMenu: TVHomeMenuCoordinator
     let onRevealMenu: (String) -> Void
-    let onReturnToList: (String) -> Void
+    let onReturnToList: (String, ScrollViewProxy?) -> Void
     let onChanged: () -> Void
     let onApproachEnd: () -> Void
     let onResumeAppear: (Int, [VideoItem]) -> Void
@@ -111,30 +111,32 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
     @ViewBuilder
     var body: some View {
         if snapshot.resume {
-            ScrollView(.horizontal) {
-                LazyHStack(alignment: .center, spacing: 26) {
-                    entries
+            ScrollViewReader { railScroll in
+                ScrollView(.horizontal) {
+                    LazyHStack(alignment: .center, spacing: 26) {
+                        entries(railScroll: railScroll)
+                    }
+                    .padding(.vertical, 20)
+                    .scrollTargetLayout()
                 }
-                .padding(.vertical, 20)
-                .scrollTargetLayout()
+                .scrollIndicators(.hidden)
+                .scrollClipDisabled()
+                .scrollTargetBehavior(.viewAligned)
+                .frame(height: 445)
+                .id("home-continue-watching-row")
+                .focusSection()
             }
-            .scrollIndicators(.hidden)
-            .scrollClipDisabled()
-            .scrollTargetBehavior(.viewAligned)
-            .frame(height: 445)
-            .id("home-continue-watching-row")
-            .focusSection()
         } else {
             LazyVGrid(columns: Array(repeating:
                 GridItem(.flexible(), spacing: 26), count: snapshot.columns),
                 spacing: 32) {
-                entries
+                entries()
             }
             .focusSection()
         }
     }
 
-    private var entries: some View {
+    private func entries(railScroll: ScrollViewProxy? = nil) -> some View {
         ForEach(snapshot.items.enumerated().map {
             TVHomeBaselineGridEntry(index: $0.offset, video: $0.element)
         }) { entry in
@@ -144,7 +146,7 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
                 api: api, entry: entry, resume: snapshot.resume,
                 columns: snapshot.columns, focus: focus, homeMenu: homeMenu,
                 onRevealMenu: onRevealMenu,
-                onReturnToList: { onReturnToList(id) },
+                onReturnToList: { onReturnToList(id, railScroll) },
                 onChanged: onChanged, onNavigation: onNavigation
             )
             .onAppear {
@@ -167,6 +169,19 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
 /// from the OUTER viewport (not from its animating sibling): this prevents
 /// even intermediate 280-ms animation frames from reflowing the grid.
 /// ScrollView, alerts, context-menu hosts and their height remain unscaled.
+/// Mirrors the server's hasMore flag, including older servers that omit it.
+/// Never keep fetching a cursor when the server says pagination is complete
+/// or repeats the cursor we just requested.
+enum TVHomePagingPolicy {
+    static func nextCursor(_ page: HomeRecommendations,
+                           after previous: String? = nil) -> String? {
+        guard page.hasMore != false,
+              let cursor = page.nextCursor, !cursor.isEmpty,
+              cursor != previous else { return nil }
+        return cursor
+    }
+}
+
 enum TVHomeNavigationZoom {
     static func layoutWidth(outerWidth: CGFloat) -> CGFloat {
         max(0, outerWidth - TVMainNavigationLayout.collapsedWidth)
@@ -347,7 +362,7 @@ struct TVHomeSubscriptionsBaselineView: View {
                                 TVPulsingPlaceholder()
                                     .frame(maxWidth: .infinity, minHeight: 180)
                             }
-                            if let error {
+                            if let error, visibleVideos.isEmpty {
                                 TVContentMessage(
                                     symbol: "wifi.exclamationmark",
                                     title: TVL10n.value("home.serverUnavailable"),
@@ -375,6 +390,13 @@ struct TVHomeSubscriptionsBaselineView: View {
                                 }
                                 if let pageError {
                                     Text(pageError)
+                                        .font(.callout).foregroundStyle(.orange)
+                                }
+                                // Preserve the existing feed on a failed
+                                // manual refresh, and report the error below
+                                // the cards without disrupting scroll/focus.
+                                if let error {
+                                    Text(error)
                                         .font(.callout).foregroundStyle(.orange)
                                 }
                             }
@@ -501,14 +523,18 @@ struct TVHomeSubscriptionsBaselineView: View {
                 railReturnCardID = id
                 onRevealMenu()
             },
-            onReturnToList: { id in
-                TVVideoFocusReturn.restore($focusedVideo, id: id, scroll: scroll)
+            onReturnToList: { id, railScroll in
+                TVVideoFocusReturn.restore(
+                    $focusedVideo, id: id, scroll: scroll,
+                    scrollTarget: resume ? "home-continue-watching-row" : nil,
+                    nestedScroll: railScroll
+                )
             },
             onChanged: {
-                Task {
-                    if resume { await loadHistory() }
-                    else { await reload() }
-                }
+                // Blocking a video or channel must remove it from BOTH
+                // recommendations and Continue Watching. Other menu actions
+                // update shared in-memory membership/progress directly.
+                Task { await refresh() }
             },
             onApproachEnd: {
                 Task {
@@ -601,7 +627,8 @@ struct TVHomeSubscriptionsBaselineView: View {
         loading = true
         error = nil
         pageError = nil
-        nextCursor = nil
+        // Keep the old cursor until the replacement feed succeeds. A
+        // transient refresh failure must not disable paging existing cards.
         defer {
             loading = false
             recommendationsLoaded = true
@@ -616,7 +643,7 @@ struct TVHomeSubscriptionsBaselineView: View {
             let page = try await api.home()
             try Task.checkCancellation()
             videos = page.items
-            nextCursor = page.nextCursor?.isEmpty == false ? page.nextCursor : nil
+            nextCursor = TVHomePagingPolicy.nextCursor(page)
             let enriched = await api.withProgress(page.items)
             guard !Task.isCancelled else { return }
             videos = enriched
@@ -655,8 +682,7 @@ struct TVHomeSubscriptionsBaselineView: View {
             // A manual refresh or another navigation may invalidate this
             // request while the progress/batch endpoint is in flight.
             guard !Task.isCancelled, !loading, nextCursor == cursor else { return }
-            nextCursor = page.nextCursor?.isEmpty == false &&
-                page.nextCursor != cursor ? page.nextCursor : nil
+            nextCursor = TVHomePagingPolicy.nextCursor(page, after: cursor)
             videos.append(contentsOf: enriched)
             // Paginated recommendations may match older resume entries.
             let updated = TVVideoMetadata.reusingRecommendationMetadata(
