@@ -10,7 +10,7 @@ enum TVHomeFocusDiagnostics {
         case homeBody, focusChange, tileBuild, tileBody, videoCardBody, thumbnailBody
         case thumbnailTask, thumbnailCacheHit, recommendationAppear, resumeAppear
         case anchorReduce, filterRecommendations, filterRecent, buildFocusIDs
-        case pageRequest, pageAppend
+        case pageRequest, pageAppend, resumeMetadataLookup, resumeMetadataBatch
     }
 
     static let enabled = true
@@ -120,6 +120,7 @@ enum TVHomeFocusDiagnostics {
                 "appear=\(count(.recommendationAppear))/\(count(.resumeAppear)) " +
                 "anchorReduce=\(count(.anchorReduce)) " +
                 "pages=\(count(.pageRequest))/\(count(.pageAppend)) " +
+                "resumeMeta=\(count(.resumeMetadataLookup))/\(count(.resumeMetadataBatch)) " +
                 "filterMs=\(cost(.filterRecommendations))/\(cost(.filterRecent)) " +
                 "focusIDsMs=\(cost(.buildFocusIDs)) " +
                 "items=\(recommendations)/\(recent)"
