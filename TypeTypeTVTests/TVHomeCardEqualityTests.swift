@@ -2,6 +2,18 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVHomeCardEqualityTests: XCTestCase {
+    func testHomeToastKeepsItsOriginalActionCardAndPosition() {
+        let toast = TVHomeCardToast(
+            message: "Saved", focusID: "recommendation-https://example.com/video"
+        )
+        XCTAssertEqual(toast.focusID, "recommendation-https://example.com/video")
+        XCTAssertEqual(toast.message, "Saved")
+        let rect = CGRect(x: 140, y: 230, width: 300, height: 180)
+        XCTAssertEqual(TVHomeCardToastPosition.topLeft(of: rect),
+                       CGPoint(x: 147, y: 237))
+    }
+
+
     func testLivestreamFilterWorksAcrossHomeAndOtherGrids() {
         let normal = VideoItem(id: "normal", title: "Normal", url: "https://yt/normal",
                                thumbnailUrl: nil, uploaderName: nil, duration: 120,

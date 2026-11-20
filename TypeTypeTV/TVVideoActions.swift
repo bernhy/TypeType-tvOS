@@ -529,6 +529,31 @@ enum TVHomeMenuReloadPolicy {
     var requiresFeedReload: Bool { self == .block }
 }
 
+/// Each lightweight Home card publishes only a layout anchor. There is
+/// still exactly one presentation/observer for the entire grid. Unlike
+/// attaching a toast to every card, preferences do not add card state,
+/// tasks or a focus-affecting wrapper to NavigationLink.
+struct TVHomeCardToastAnchorKey: PreferenceKey {
+    static var defaultValue: [String: Anchor<CGRect>] { [:] }
+
+    static func reduce(value: inout [String: Anchor<CGRect>],
+                       nextValue: () -> [String: Anchor<CGRect>]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+struct TVHomeCardToast: Equatable {
+    let message: String
+    let focusID: String
+    let id = UUID()
+}
+
+enum TVHomeCardToastPosition {
+    static func topLeft(of frame: CGRect) -> CGPoint {
+        CGPoint(x: frame.minX + 7, y: frame.minY + 7)
+    }
+}
+
 @MainActor
 final class TVHomeMenuCoordinator: ObservableObject {
     enum BlockTarget { case video, channel }
@@ -543,7 +568,7 @@ final class TVHomeMenuCoordinator: ObservableObject {
 
     @Published var blockRequest: BlockRequest?
     @Published var errorMessage: String?
-    @Published var feedback: String?
+    @Published var feedback: TVHomeCardToast?
     @Published private(set) var focusRestoreRequest = 0
     private(set) var focusRestoreTarget: String?
     private var lastFocusID: String?
@@ -558,9 +583,9 @@ final class TVHomeMenuCoordinator: ObservableObject {
         }
     }
 
-    private func showFeedback(_ message: String) {
+    private func showFeedback(_ message: String, on focusID: String) {
         feedbackTask?.cancel()
-        feedback = message
+        feedback = TVHomeCardToast(message: message, focusID: focusID)
         feedbackTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(2.4))
             guard !Task.isCancelled else { return }
@@ -586,7 +611,7 @@ final class TVHomeMenuCoordinator: ObservableObject {
             defer { working = false }
             do {
                 let result = try await action()
-                showFeedback(result)
+                showFeedback(result, on: focusID)
                 if kind.requiresFeedReload { refreshAfterFeedback(onChanged) }
             } catch {
                 errorMessage = error.localizedDescription
@@ -637,7 +662,7 @@ final class TVHomeMenuCoordinator: ObservableObject {
             onSaved: { result in
                 // TVPlaylistPickerView updates the shared membership state.
                 // Do not discard/re-fetch the recommendations grid.
-                self.showFeedback(result)
+                self.showFeedback(result, on: focusID)
             },
             onDismiss: { self.restoreFocus(focusID) }
         )
@@ -778,28 +803,52 @@ struct TVHomeLightweightVideoActions: ViewModifier {
                           systemImage: "person.crop.circle.badge.xmark")
                 }
             }
+            .anchorPreference(key: TVHomeCardToastAnchorKey.self, value: .bounds) {
+                [focusID: $0]
+            }
     }
 }
 
 /// Exactly one dialog/toast host, instead of one per visible Home thumbnail.
 struct TVHomeMenuPresentation: ViewModifier {
     @ObservedObject var model: TVHomeMenuCoordinator
+    // Only a single rect is cached for the rare case that a successful
+    // block action removes the original card before the toast has faded.
+    @State private var lastToastLocation: (id: String, frame: CGRect)?
 
     func body(content: Content) -> some View {
         content
-            .overlay(alignment: .top) {
-                if let feedback = model.feedback {
-                    Label(feedback, systemImage: "checkmark.circle.fill")
-                        .font(.callout.bold())
-                        .foregroundStyle(.white)
-                        .padding(12)
-                        .background(.black.opacity(0.88),
-                                    in: RoundedRectangle(cornerRadius: 12))
-                        .padding(12)
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
+            .overlayPreferenceValue(TVHomeCardToastAnchorKey.self) { cardAnchors in
+                GeometryReader { geometry in
+                    if let toast = model.feedback {
+                        let liveFrame = cardAnchors[toast.focusID].map {
+                            geometry[$0]
+                        }
+                        let cardFrame = liveFrame ??
+                            (lastToastLocation?.id == toast.focusID
+                             ? lastToastLocation?.frame : nil)
+                        if let cardFrame {
+                            let position = TVHomeCardToastPosition.topLeft(of: cardFrame)
+                            Label(toast.message, systemImage: "checkmark.circle.fill")
+                                .font(.callout.bold())
+                                .foregroundStyle(.white)
+                                .padding(10)
+                                .background(.black.opacity(0.88),
+                                            in: RoundedRectangle(cornerRadius: 12))
+                                .offset(x: position.x, y: position.y)
+                                .onAppear {
+                                    lastToastLocation = (toast.focusID, cardFrame)
+                                }
+                                .onChange(of: cardFrame) { _, updated in
+                                    lastToastLocation = (toast.focusID, updated)
+                                }
+                                .transition(.opacity)
+                        }
+                    }
                 }
+                .allowsHitTesting(false)
             }
+            .animation(.easeInOut(duration: 0.23), value: model.feedback?.id)
             .confirmationDialog(
                 TVL10n.formatted(
                     "action.confirmBlockNamed",
