@@ -72,6 +72,26 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
         XCTAssertTrue(TVThumbnailSources.urls(primary: nil, videoURL: nil).isEmpty)
     }
 
+    func testEmptyStoredWatchLaterAndPlaylistThumbnailsCanRecover() throws {
+        let watchLater = try JSONDecoder().decode(TVWatchLaterDTO.self, from: Data(#"""
+        {"url":"https://www.youtube.com/watch?v=ABCDEFGHIJK",
+         "title":"Missing persisted thumbnail","thumbnail":"","channelName":"Author",
+         "duration":120}
+        """#.utf8))
+        let playlist = try JSONDecoder().decode(TVPlaylistVideoDTO.self, from: Data(#"""
+        {"url":"https://youtu.be/ABCDEFGHIJK",
+         "title":"Missing persisted thumbnail","thumbnail":"","duration":120}
+        """#.utf8))
+        for video in [watchLater.video, playlist.video] {
+            XCTAssertEqual(TVThumbnailSources.urls(
+                primary: URL(string: video.thumbnailUrl ?? ""),
+                videoURL: video.url
+            ).map(\.absoluteString), [
+                "https://i.ytimg.com/vi/ABCDEFGHIJK/hqdefault.jpg"
+            ])
+        }
+    }
+
     func testThumbnailFallbackRejectsSpoofedOrUnsupportedVideoAddresses() throws {
         let original = try XCTUnwrap(URL(string: "https://cdn.example.com/cover.webp"))
         for videoURL in [
