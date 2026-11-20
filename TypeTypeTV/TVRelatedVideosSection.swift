@@ -13,17 +13,21 @@ struct TVRelatedVideosSection: View {
     @State private var lastMutationID = 0
     @State private var hiddenVideoIDs = Set<String>()
 
+    private var visibleVideos: [VideoItem] {
+        Array(videos.filter {
+            !hiddenVideoIDs.contains(TVPlaylistMembership.videoKey($0.url))
+        }.prefix(24))
+    }
+
     var body: some View {
-        if !videos.isEmpty {
+        if !visibleVideos.isEmpty {
             VStack(alignment: .leading, spacing: 22) {
                 Divider()
                 Text("video.relatedVideos")
                     .font(.title2.bold())
                 TVSharedVideoGrid(
                     snapshot: TVSharedVideoGridSnapshot(
-                        videos: Array(videos.filter {
-                            !hiddenVideoIDs.contains(TVPlaylistMembership.videoKey($0.url))
-                        }.prefix(24)),
+                        videos: visibleVideos,
                         scope: api.metadataCacheScope,
                         destination: "video-related",
                         focusPrefix: "",
@@ -58,7 +62,7 @@ struct TVRelatedVideosSection: View {
             .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
             .onChange(of: videoMenu.focusRestoreRequest) { _, _ in
                 if let id = videoMenu.focusRestoreTarget,
-                   videos.contains(where: { $0.url == id }) {
+                   visibleVideos.contains(where: { $0.url == id }) {
                     focusedRelatedID = id
                 }
             }
