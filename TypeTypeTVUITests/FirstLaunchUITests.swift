@@ -83,9 +83,22 @@ final class TypeTypeTVUITests: XCTestCase {
         screenshot.lifetime = .keepAlways
         add(screenshot)
     }
+    func testOptimizedHomeIsDefaultWithoutExperimentalMenu() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let first = app.buttons["home-baseline-video-0"]
+        XCTAssertTrue(waitForFocus(first, timeout: 10),
+                      "The optimized Home must be the default on a fresh install")
+        XCTAssertFalse(app.buttons["home-comparison-menu"].exists,
+                       "The old A/B selector must not appear")
+    }
+
     func testHomeScreenLayoutWithoutServer() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"]
+        app.launchArguments = ["-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"]
         app.launch()
         XCTAssertTrue(app.staticTexts["FÜR DICH"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts["Empfehlungen"].exists)
@@ -103,7 +116,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testHomeFocusFollowsRepeatedRemoteMovesRatherThanReturningToFirstCard() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         let first = app.buttons["home-video-recommendation-0"]
@@ -123,7 +136,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testContinueWatchingIsOneScrollableShelfWithMoreThanFourCards() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         XCTAssertTrue(app.staticTexts["Ansehen fortsetzen"]
@@ -209,7 +222,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testBackFromHomeStaysInsideApp() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         XCTAssertTrue(app.staticTexts["Empfehlungen"].waitForExistence(timeout: 20))
@@ -377,7 +390,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testMainNavigationUsesSubscriptionsNotDuplicatePlaylists() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home",
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full",
             "-typetype.uiLanguage", "de"
         ]
         app.launch()
@@ -476,7 +489,7 @@ final class TypeTypeTVUITests: XCTestCase {
 
     func testFrenchHomePreview() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-TypeTypeTVPreview", "home",
+        app.launchArguments = ["-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full",
                                "-typetype.uiLanguage", "fr"]
         app.launch()
         XCTAssertTrue(app.staticTexts["Recommandations"].waitForExistence(timeout: 20))
@@ -628,7 +641,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testGlobalChannelsPreviewDoesNotTakeFocusUntilRight() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         focusHomeIcon(app)
@@ -650,7 +663,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testHomeOKFromGlobalRailSelectsFirstRecommendation() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         focusHomeIcon(app)
@@ -750,7 +763,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testHomeRailRightReturnsDirectlyToTheSavedDeepCard() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         XCTAssertTrue(waitForFocus(app.buttons["home-video-recommendation-0"], timeout: 8))
@@ -771,7 +784,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testHomeRailExpandKeepsTheVisibleRecommendationRowInPlace() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         XCTAssertTrue(waitForFocus(app.buttons["home-video-recommendation-0"], timeout: 8))
@@ -803,7 +816,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testBackFromDeepHomeRecommendationRestoresTileAndThenTopRecommendation() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         XCTAssertTrue(waitForFocus(app.buttons["home-video-recommendation-0"], timeout: 8),
@@ -841,7 +854,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testBackFromVideoDetailsRestoresOriginatingRecommendation() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         let recommendation = app.buttons["home-video-recommendation-0"]
@@ -861,7 +874,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testGlobalMenuPreviewsOnFocusAndSelectEntersStably() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         focusHomeIcon(app)
@@ -887,7 +900,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testGlobalMenuRightEntersSearchWithoutFocusBounce() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         focusHomeIcon(app)
@@ -946,7 +959,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testImmediateDownAfterReturningToMainRailIsNotSwallowed() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         focusHomeIcon(app)
@@ -961,7 +974,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testRightFromMainSettingsIconEntersSettingsWithoutBounce() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         focusHomeIcon(app)
@@ -983,7 +996,7 @@ final class TypeTypeTVUITests: XCTestCase {
     func testOpeningSettingsFromMainMenuTransfersFocusToSubnavigation() throws {
         let app = XCUIApplication()
         app.launchArguments = [
-            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+            "-TypeTypeTVPreview", "home", "-typetype.experiment.homeDiagnosticMode", "full", "-typetype.uiLanguage", "de"
         ]
         app.launch()
         let settings = app.buttons["main-nav-settings"]
