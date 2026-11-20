@@ -1056,7 +1056,9 @@ struct TypeTypeAPI {
         }
         #if DEBUG
         let traceRoute = endpoint == "recommendations/home" ||
-            endpoint == "history" || endpoint == "streams/youtube/sabr"
+            endpoint == "history" || endpoint == "streams/youtube/sabr" ||
+            endpoint == "favorites" || endpoint == "watch-later" ||
+            endpoint == "playlists" || endpoint.hasPrefix("playlists/")
         let traceStart = ProcessInfo.processInfo.systemUptime
         if traceRoute {
             NSLog("TypeType HomePerf HTTP GET %@ begin", endpoint)
