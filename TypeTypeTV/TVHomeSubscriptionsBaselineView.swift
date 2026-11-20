@@ -165,10 +165,6 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
 }
 
 
-/// The sidebar keeps its native HStack layout. The Home grid's width comes
-/// from the OUTER viewport (not from its animating sibling): this prevents
-/// even intermediate 280-ms animation frames from reflowing the grid.
-/// ScrollView, alerts, context-menu hosts and their height remain unscaled.
 /// Mirrors the server's hasMore flag, including older servers that omit it.
 /// Never keep fetching a cursor when the server says pagination is complete
 /// or repeats the cursor we just requested.
@@ -182,6 +178,10 @@ enum TVHomePagingPolicy {
     }
 }
 
+/// The sidebar keeps its native HStack layout. The Home grid's width comes
+/// from the OUTER viewport (not from its animating sibling): this prevents
+/// even intermediate 280-ms animation frames from reflowing the grid.
+/// ScrollView, alerts, context-menu hosts and their height remain unscaled.
 enum TVHomeNavigationZoom {
     static func layoutWidth(outerWidth: CGFloat) -> CGFloat {
         max(0, outerWidth - TVMainNavigationLayout.collapsedWidth)
@@ -361,8 +361,7 @@ struct TVHomeSubscriptionsBaselineView: View {
                             if loading && videos.isEmpty {
                                 TVPulsingPlaceholder()
                                     .frame(maxWidth: .infinity, minHeight: 180)
-                            }
-                            if let error, visibleVideos.isEmpty {
+                            } else if let error, visibleVideos.isEmpty {
                                 TVContentMessage(
                                     symbol: "wifi.exclamationmark",
                                     title: TVL10n.value("home.serverUnavailable"),
