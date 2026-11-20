@@ -489,7 +489,9 @@ struct TVPlaylistPickerView: View {
 /// A synchronous assignment during dismissal is overwritten by tvOS.
 enum TVVideoFocusReturn {
     static func restore(_ binding: FocusState<String?>.Binding, id: String,
-                        scroll: ScrollViewProxy? = nil) {
+                        scroll: ScrollViewProxy? = nil,
+                        scrollTarget: String? = nil,
+                        nestedScroll: ScrollViewProxy? = nil) {
         Task { @MainActor in
             // Wait for the detail pop, then materialize the offscreen card
             // before asking tvOS to give it focus.
@@ -497,7 +499,11 @@ enum TVVideoFocusReturn {
             guard !Task.isCancelled else { return }
             if let scroll {
                 withAnimation(.easeOut(duration: 0.18)) {
-                    scroll.scrollTo(id, anchor: .center)
+                    // For a resume tile, reveal the outer shelf AND the
+                    // original horizontal card. The outer proxy alone cannot
+                    // locate IDs inside the nested LazyHStack.
+                    scroll.scrollTo(scrollTarget ?? id, anchor: .center)
+                    nestedScroll?.scrollTo(id, anchor: .center)
                 }
                 try? await Task.sleep(nanoseconds: 140_000_000)
                 guard !Task.isCancelled else { return }
@@ -596,6 +602,10 @@ final class TVHomeMenuCoordinator: ObservableObject {
     @Published private(set) var focusRestoreRequest = 0
     private(set) var focusRestoreTarget: String?
     private var lastFocusID: String?
+    // On-demand shorts metadata belongs to the single shared menu host.
+    // It must survive closing/reopening the context menu, but must NOT be
+    // @Published or stored on each VideoCard (which would rerender the grid).
+    private var knownDurations: [String: Int] = [:]
     private var working = false
     private var feedbackTask: Task<Void, Never>?
 
@@ -660,10 +670,18 @@ final class TVHomeMenuCoordinator: ObservableObject {
         }
     }
 
+    func videoWithKnownDuration(_ video: VideoItem) -> VideoItem {
+        guard (video.duration ?? 0) <= 0,
+              let duration = knownDurations[video.url] else { return video }
+        var result = video
+        result.duration = duration
+        return result
+    }
+
     func markWatched(api: TypeTypeAPI, video: VideoItem, focusID: String,
                      onChanged: @escaping () -> Void) {
         run(focusID: focusID, kind: .watched, onChanged: onChanged) {
-            var target = video
+            var target = self.videoWithKnownDuration(video)
             if (target.duration ?? 0) <= 0 {
                 let details = await TVStreamMetadataCache.shared.details(for: video, api: api)
                 target = TVVideoMetadata.merged(video, stream: details)
@@ -676,6 +694,15 @@ final class TVHomeMenuCoordinator: ObservableObject {
                 video.watchPositionMs
             let mark = !TVWatchedState.isWatched(target, positionMs: currentPosition)
             try await api.setWatched(mark, video: target)
+            // This is mutated only after a menu action, never when focus
+            // moves. A later menu opening now sees the correct toggle even
+            // if the original shorts/history row omitted duration.
+            if self.knownDurations.count >= 128,
+               self.knownDurations[video.url] == nil,
+               let oldKey = self.knownDurations.keys.first {
+                self.knownDurations.removeValue(forKey: oldKey)
+            }
+            self.knownDurations[video.url] = duration
             TVLocalProgress.shared.record(
                 video.url, positionMs: mark ? Int64(duration) * 1_000 : 0
             )
@@ -792,7 +819,7 @@ private struct TVHomeCardMenuContents: View {
                 // long-press presents this menu or a library action changes
                 // the snapshot. No extra work during focus-only navigation.
                 let state = TVHomeCardMenuState(
-                    video: video,
+                    video: model.videoWithKnownDuration(video),
                     positionMs: localProgress.position(for: video.url) ??
                         video.watchPositionMs,
                     watchLater: watchLaterMembership.menuStatus(
