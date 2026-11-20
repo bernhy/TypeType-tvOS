@@ -2,22 +2,43 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVRailVisualFocusTests: XCTestCase {
-    func testMainNavigationSharesOneWidthTransitionAcrossAllSections() {
-        // The rail's width is the only layout input. The adjacent page
-        // receives its remaining width in the same animated HStack pass,
-        // instead of reserving 214 points through a second completion phase.
+    func testMainNavigationZoomNeverReflowsTheVideoGrid() {
         XCTAssertEqual(TVMainNavigationLayout.duration, 0.28)
-        for destination in TVSection.allCases {
-            XCTAssertEqual(TVMainNavigationLayout.width(expanded: true),
-                           214, "\(destination): menu open")
-            XCTAssertEqual(TVMainNavigationLayout.width(expanded: false),
-                           56, "\(destination): menu closed")
+        XCTAssertEqual(TVMainNavigationLayout.width(expanded: false), 56)
+        XCTAssertEqual(TVMainNavigationLayout.width(expanded: true), 214)
+        let viewportWidth: CGFloat = 1920
+        let laidOutPageWidth = viewportWidth - TVMainNavigationLayout.collapsedWidth
+
+        for section in TVSection.allCases {
+            let closedScale = TVMainNavigationLayout.contentScale(
+                viewportWidth: viewportWidth, expanded: false
+            )
+            let openScale = TVMainNavigationLayout.contentScale(
+                viewportWidth: viewportWidth, expanded: true
+            )
+            XCTAssertEqual(closedScale, 1, "\(section)")
+            XCTAssertLessThan(openScale, 1, "\(section): full page must zoom out")
+            XCTAssertEqual(TVMainNavigationLayout.contentShift(expanded: false), 0)
+            XCTAssertEqual(TVMainNavigationLayout.contentShift(expanded: true), 158)
+            // The fixed layout still uses all 1864 points; only the GPU
+            // transform makes it *look* 1706 points wide beside the rail.
             XCTAssertEqual(
-                TVMainNavigationLayout.width(expanded: true) -
-                TVMainNavigationLayout.width(expanded: false),
-                158, "\(destination): content gains the same freed width"
+                laidOutPageWidth * openScale,
+                viewportWidth - TVMainNavigationLayout.expandedWidth,
+                accuracy: 0.0001, "\(section)"
+            )
+            XCTAssertEqual(
+                TVMainNavigationLayout.collapsedWidth +
+                TVMainNavigationLayout.contentShift(expanded: true) +
+                laidOutPageWidth * openScale,
+                viewportWidth, accuracy: 0.0001, "\(section)"
             )
         }
+        // Defensive geometry for very small/incomplete layout proposals.
+        XCTAssertEqual(
+            TVMainNavigationLayout.contentScale(viewportWidth: 0, expanded: true),
+            1
+        )
     }
 
     func testReturningFromAboutDoesNotPaintNearbyAccountInMainRail() {
@@ -54,6 +75,23 @@ final class TVRailVisualFocusTests: XCTestCase {
         XCTAssertFalse(TVRailVisualFocus.highlights(
             "playlist-a", focused: "playlist-b", selected: "playlist-a",
             browsingWithinRail: true))
+    }
+
+    func testRepeatedHomeRailRoundTripsCannotDriftTowardFirstRow() {
+        let original = "recommendation-row-4"
+        let available: Set<String> = [
+            "recommendation-row-0", "recommendation-row-4",
+            "recommendation-row-8"
+        ]
+        var current = original
+        for _ in 0..<12 {
+            current = TVHomeReturnFocusPolicy.target(
+                saved: current,
+                visibleIDs: available,
+                fallback: "recommendation-row-0"
+            )
+            XCTAssertEqual(current, original)
+        }
     }
 
     func testHomeLeftRailReentryRestoresCardButBackKeepsFirst() {
