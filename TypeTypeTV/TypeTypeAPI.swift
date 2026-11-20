@@ -697,7 +697,19 @@ struct TypeTypeAPI {
         guard accountToken != nil else { throw TypeTypeError.http(401, path) }
         request.httpBody = try JSONEncoder().encode(payload)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        #if DEBUG
+        let traceStart = ProcessInfo.processInfo.systemUptime
+        if path == "progress/batch" {
+            NSLog("TypeType HomePerf HTTP POST %@ begin", path)
+        }
+        #endif
         let (data, response) = try await authenticatedData(for: request)
+        #if DEBUG
+        if path == "progress/batch" {
+            NSLog("TypeType HomePerf HTTP POST %@ done %.0f ms",
+                  path, (ProcessInfo.processInfo.systemUptime - traceStart) * 1000)
+        }
+        #endif
         guard let http = response as? HTTPURLResponse else {
             throw TypeTypeError.unexpectedResponse
         }
@@ -1042,7 +1054,21 @@ struct TypeTypeAPI {
         if let bearer = accountToken {
             request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         }
+        #if DEBUG
+        let traceRoute = endpoint == "recommendations/home" ||
+            endpoint == "history" || endpoint == "streams/youtube/sabr"
+        let traceStart = ProcessInfo.processInfo.systemUptime
+        if traceRoute {
+            NSLog("TypeType HomePerf HTTP GET %@ begin", endpoint)
+        }
+        #endif
         let (data, response) = try await authenticatedData(for: request)
+        #if DEBUG
+        if traceRoute {
+            NSLog("TypeType HomePerf HTTP GET %@ done %.0f ms",
+                  endpoint, (ProcessInfo.processInfo.systemUptime - traceStart) * 1000)
+        }
+        #endif
         guard let response = response as? HTTPURLResponse else { throw TypeTypeError.unexpectedResponse }
         guard (200..<300).contains(response.statusCode) else {
             throw TVServerErrorMapping.apiError(

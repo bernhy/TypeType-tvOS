@@ -2,6 +2,25 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVHomeCardEqualityTests: XCTestCase {
+    func testDiagnosticModesIsolateHomeWorkWithoutReduccingImageQuality() {
+        XCTAssertEqual(TVHomeExperimentMode.allCases.count, 4)
+        XCTAssertEqual(TVHomeExperimentMode.full.next,
+                       .noStreamMetadata)
+        XCTAssertEqual(TVHomeExperimentMode.noStreamMetadata.next,
+                       .recommendationsOnly)
+        XCTAssertEqual(TVHomeExperimentMode.recommendationsOnly.next,
+                       .twelveRecommendations)
+        XCTAssertEqual(TVHomeExperimentMode.twelveRecommendations.next,
+                       .full)
+        XCTAssertTrue(TVHomeExperimentMode.full.includesResume)
+        XCTAssertTrue(TVHomeExperimentMode.full.enrichesResumeMetadata)
+        XCTAssertFalse(TVHomeExperimentMode.noStreamMetadata.enrichesResumeMetadata)
+        XCTAssertTrue(TVHomeExperimentMode.noStreamMetadata.includesResume)
+        XCTAssertFalse(TVHomeExperimentMode.recommendationsOnly.includesResume)
+        XCTAssertNil(TVHomeExperimentMode.recommendationsOnly.recommendationLimit)
+        XCTAssertEqual(TVHomeExperimentMode.twelveRecommendations.recommendationLimit, 12)
+    }
+
     func testSingleTargetRailHandoffNeverPermitsNeighborFocus() throws {
         let first = "recommendation-" + "https://youtu.be/ABCDEFGHIJK"
         let second = "recommendation-" + "https://youtu.be/LMNOPQRSTUV"

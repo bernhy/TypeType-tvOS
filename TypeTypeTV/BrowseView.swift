@@ -537,6 +537,43 @@ struct BrowseView: View {
 /// Keep the four Home grid columns at the same measured layout width
 /// while the global navigation moves. This prevents thumbnails and text
 /// changing row heights and pushing deep-scroll content up/down.
+// Experimental diagnostic modes; exposed only on this performance branch.
+/// A/B variants isolate the nested resume rail, background stream enrichment,
+/// and recommendation grid size without reducing any thumbnail resolution.
+enum TVHomeExperimentMode: String, CaseIterable {
+    case full
+    case noStreamMetadata
+    case recommendationsOnly
+    case twelveRecommendations
+
+    var title: String {
+        switch self {
+        case .full: return "Normal"
+        case .noStreamMetadata: return "Ohne Stream-Metadaten"
+        case .recommendationsOnly: return "Nur Empfehlungen"
+        case .twelveRecommendations: return "12 Empfehlungen"
+        }
+    }
+
+    var includesResume: Bool {
+        self == .full || self == .noStreamMetadata
+    }
+
+    var enrichesResumeMetadata: Bool {
+        self != .noStreamMetadata
+    }
+
+    var recommendationLimit: Int? {
+        self == .twelveRecommendations ? 12 : nil
+    }
+
+    var next: Self {
+        let modes = Self.allCases
+        guard let index = modes.firstIndex(of: self) else { return .full }
+        return modes[(index + 1) % modes.count]
+    }
+}
+
 enum TVHomeViewportPolicy {
     static func widest(_ previous: CGFloat, measured: CGFloat) -> CGFloat {
         guard measured.isFinite, measured > 0 else { return previous }
@@ -614,6 +651,11 @@ struct HomeView: View {
     let api: TypeTypeAPI
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
     @ObservedObject private var localProgress = TVLocalProgress.shared
+    @AppStorage("typetype.experiment.homeDiagnosticMode")
+    private var diagnosticModeRaw = TVHomeExperimentMode.full.rawValue
+    private var diagnosticMode: TVHomeExperimentMode {
+        TVHomeExperimentMode(rawValue: diagnosticModeRaw) ?? .full
+    }
     let onRevealMenu: () -> Void
     let onOpenAccount: () -> Void
     let onInitialFocusReady: () -> Void
@@ -685,8 +727,17 @@ struct HomeView: View {
             )
         }
     }
-    private var visibleRecommendations: [VideoItem] { contentPreferences.displayed(videos) }
-    private var showRecent: Bool { contentPreferences.settings?.hideContinueWatching != true }
+    private var visibleRecommendations: [VideoItem] {
+        let displayed = contentPreferences.displayed(videos)
+        if let limit = diagnosticMode.recommendationLimit {
+            return Array(displayed.prefix(limit))
+        }
+        return displayed
+    }
+    private var showRecent: Bool {
+        diagnosticMode.includesResume &&
+        contentPreferences.settings?.hideContinueWatching != true
+    }
     private var showRecommendations: Bool { contentPreferences.settings?.hideHomeRecommendations != true }
     private var firstVisible: (video: VideoItem, recommendation: Bool)? {
         if showRecommendations, let v = visibleRecommendations.first { return (v, true) }
@@ -720,7 +771,7 @@ struct HomeView: View {
         ScrollViewReader { scroll in
             // Reuse each filtered collection within one render instead of
             // rescanning 100+ history/recommendation entries several times.
-            let homeRecent = visibleRecent
+            let homeRecent = showRecent ? visibleRecent : []
             let homeRecommendations = visibleRecommendations
             GeometryReader { viewport in
             let layoutWidth = TVHomeViewportPolicy.contentWidth(
@@ -738,6 +789,25 @@ struct HomeView: View {
                             .font(.system(size: 48, weight: .bold))
                     }
                     Spacer()
+                    // Temporary diagnostic control, excluded from Preview UI
+                    // tests and removed before any future main merge.
+                    if previewVideos == nil {
+                        Button {
+                            diagnosticModeRaw = diagnosticMode.next.rawValue
+                            #if DEBUG
+                            NSLog("TypeType HomePerf A/B mode=%@",
+                                  diagnosticMode.title)
+                            #endif
+                        } label: {
+                            Label {
+                                Text(verbatim: "Home-Test: " + diagnosticMode.title)
+                            } icon: {
+                                Image(systemName: "chart.bar.xaxis")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("home-performance-mode")
+                    }
                     Button {
                         Task { await refresh() }
                     } label: {
@@ -808,17 +878,19 @@ struct HomeView: View {
                         videoGrid(homeRecommendations, scroll: scroll, paginate: true)
                             .disabled(homeFocusRestoreTarget?.hasPrefix("recent-") == true ||
                                       railHandoffFocusTarget?.hasPrefix("recent-") == true)
-                        if loadingMore {
+                        if loadingMore && diagnosticMode.recommendationLimit == nil {
                             ProgressView("home.loadingMore")
                                 .frame(maxWidth: .infinity)
-                        } else if hasMoreRecommendations || loadMoreError != nil {
+                        } else if diagnosticMode.recommendationLimit == nil &&
+                                  (hasMoreRecommendations || loadMoreError != nil) {
                             Button("home.loadMore") {
                                 Task { await loadMoreRecommendations() }
                             }
                             .buttonStyle(.bordered)
                             .frame(maxWidth: .infinity)
                         }
-                        if let loadMoreError {
+                        if diagnosticMode.recommendationLimit == nil,
+                           let loadMoreError {
                             Text(loadMoreError)
                                 .font(.callout)
                                 .foregroundStyle(.orange)
@@ -890,6 +962,17 @@ struct HomeView: View {
                     // as Right/OK begins, before releasing @FocusState.
                     // Arm the target before UIKit calculates next focus.
                     _ = armRailHandoffIfNeeded()
+                }
+            }
+            .onChange(of: diagnosticModeRaw) { old, new in
+                // If the first launch used a recommendation-only mode, the
+                // history request was intentionally skipped. Fetch it only
+                // when the diagnostic user switches back to a resume mode.
+                let previous = TVHomeExperimentMode(rawValue: old) ?? .full
+                let current = TVHomeExperimentMode(rawValue: new) ?? .full
+                if current.includesResume && !previous.includesResume &&
+                   recentVideos.isEmpty && !loadingRecent {
+                    Task { await loadHistory() }
                 }
             }
             .onChange(of: recentVideos.count) { _, _ in
@@ -1102,7 +1185,8 @@ struct HomeView: View {
                         } label: {
                             TVHomeCardContent(
                                 api: api, video: video,
-                                lookupMissingMetadata: true
+                                lookupMissingMetadata:
+                                    diagnosticMode.enrichesResumeMetadata
                             ).equatable()
                         }
                         .buttonStyle(TVRailButtonStyle())
@@ -1225,7 +1309,8 @@ struct HomeView: View {
                     // LazyVGrid renders only the rows approaching the viewport.
                     // Prefetch the following page when nearing the last row,
                     // never during initial Home appearance.
-                    if paginate, index >= items.count - columns.count - 1,
+                    if paginate, diagnosticMode.recommendationLimit == nil,
+                       index >= items.count - columns.count - 1,
                        hasMoreRecommendations, !loading, !loadingMore {
                         Task { await loadMoreRecommendations() }
                     }
@@ -1238,9 +1323,15 @@ struct HomeView: View {
     @MainActor
     private func refresh() async {
         await contentPreferences.ensureLoaded(api: api)
-        async let recommendations: Void = loadRecommendations()
-        async let history: Void = loadHistory()
-        _ = await (recommendations, history)
+        if diagnosticMode.includesResume {
+            async let recommendations: Void = loadRecommendations()
+            async let history: Void = loadHistory()
+            _ = await (recommendations, history)
+        } else {
+            // A/B: isolate the recommendation grid and its network activity
+            // from the horizontal watch-progress shelf.
+            await loadRecommendations()
+        }
     }
 
     @MainActor
@@ -1562,7 +1653,9 @@ struct VideoCard: View {
                 radius: 19, y: 10)
         .animation(.easeOut(duration: 0.13), value: isFocused)
         .foregroundStyle(.white)
-        .task(id: video.url) {
+        .task(id: "\(video.url)|\(lookupMissingMetadata)") {
+            // A/B mode changes must cancel in-flight Home-only metadata
+            // enrichment instead of keeping the previous .task(id: video.url).
             metadataVideoURL = video.url
             streamMetadata = nil
             guard lookupMissingMetadata &&
