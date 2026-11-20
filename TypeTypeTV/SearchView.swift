@@ -4,6 +4,8 @@ import SwiftUI
 /// opaque; only values advertised by /search/filters are sent back.
 struct SearchView: View {
     let api: TypeTypeAPI
+    var fixedLayoutWidth: CGFloat?
+    var onRevealMenu: () -> Void = {}
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
     @State private var recentEntries: [TVSearchHistoryItem] = []
     @State private var historyError: String?
@@ -29,6 +31,7 @@ struct SearchView: View {
     @State private var requestID = UUID()
     var focusRequest = 0
     @State private var handledFocusRequest: Int?
+    @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @FocusState private var focusedVideoURL: String?
     @FocusState private var searchFieldFocused: Bool
     @FocusState private var focusedRecent: String?
@@ -47,6 +50,8 @@ struct SearchView: View {
     }
 
     var body: some View {
+        GeometryReader { viewport in
+        let layoutWidth = fixedLayoutWidth ?? viewport.size.width
         ScrollViewReader { scroll in
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
@@ -222,30 +227,35 @@ struct SearchView: View {
                             if !visibleVideos.isEmpty {
                                 Text(TVL10n.formatted("search.resultCount", visibleVideos.count, searchedTerm))
                                     .font(.title2.bold())
-                                LazyVGrid(columns: columns, spacing: 42) {
-                                    ForEach(visibleVideos) { video in
-                                        NavigationLink {
-                                            VideoDetailView(
-                                                api: api, video: video,
-                                                onReturnToList: {
-                                                    TVVideoFocusReturn.restore(
-                                                        $focusedVideoURL, id: video.url, scroll: scroll
-                                                    )
-                                                }
-                                            )
-                                        } label: {
-                                            VideoCard(api: api, video: video)
+                                TVSharedVideoGrid(
+                                    snapshot: TVSharedVideoGridSnapshot(
+                                        videos: visibleVideos,
+                                        scope: api.metadataCacheScope,
+                                        destination: "search-" + searchedTerm +
+                                            selectedFilters.joined(separator: ","),
+                                        focusPrefix: "",
+                                        accessibilityPrefix: "search-video-",
+                                        columns: columns.count, columnSpacing: 30,
+                                        rowSpacing: 42, canLoadMore: false,
+                                        loadAhead: columns.count + 1,
+                                        lookupMissingMetadata: false,
+                                        isWatchLaterEntry: false, playbackQueue: nil
+                                    ),
+                                    api: api, focus: $focusedVideoURL, menu: videoMenu,
+                                    onReturnToList: { id in
+                                        TVVideoFocusReturn.restore(
+                                            $focusedVideoURL, id: id, scroll: scroll
+                                        )
+                                    },
+                                    onLeftEdge: { _ in onRevealMenu() },
+                                    onChanged: {
+                                        Task {
+                                            await execute(searchedTerm, recordHistory: false)
                                         }
-                                        .buttonStyle(TVRailButtonStyle())
-                                        .focusEffectDisabled(true)
-                                        .videoActions(api: api, video: video, onChanged: {
-                                            Task { await execute(searchedTerm, recordHistory: false) }
-                                        }, focus: $focusedVideoURL, focusID: video.url)
-                                        .accessibilityLabel(TTTheme.accessibilityText(for: video))
-                                        .id(video.url)
-                                    }
-                                }
-                                .focusSection()
+                                    },
+                                    onApproachEnd: {}
+                                )
+                                .equatable()
                             }
                             if paging {
                                 ProgressView("search.loadingMore")
@@ -272,8 +282,18 @@ struct SearchView: View {
                 .padding(.horizontal, 75)
                 .padding(.top, 55)
                 .padding(.bottom, 110)
+                .frame(width: layoutWidth, alignment: .leading)
+                .scaleEffect(
+                    TVHomeNavigationZoom.scale(
+                        visibleWidth: viewport.size.width, layoutWidth: layoutWidth
+                    ),
+                    anchor: .topLeading
+                )
+                .frame(width: viewport.size.width, alignment: .topLeading)
             }
+            .frame(width: viewport.size.width, height: viewport.size.height)
             .background(TTTheme.ink)
+            .modifier(TVHomeMenuPresentation(model: videoMenu))
             .task {
                 await contentPreferences.ensureLoaded(api: api)
                 await loadFilterCapabilities()
@@ -322,6 +342,7 @@ struct SearchView: View {
                 searchFieldFocused = true
             }
         }
+        } // GeometryReader: constant grid width, unscaled scroll viewport.
     }
 
     @MainActor
