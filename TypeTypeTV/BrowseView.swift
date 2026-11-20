@@ -547,6 +547,7 @@ enum TVHomeExperimentMode: String, CaseIterable {
     case twelveRecommendations
     case twelveWithoutActions
     case twelveWithoutEffects
+    case twelveWithoutFocusHints
 
     var title: String {
         switch self {
@@ -556,6 +557,7 @@ enum TVHomeExperimentMode: String, CaseIterable {
         case .twelveRecommendations: return "12 Empfehlungen"
         case .twelveWithoutActions: return "12 ohne Kontextmenüs"
         case .twelveWithoutEffects: return "12 ohne Bildeffekte"
+        case .twelveWithoutFocusHints: return "12 ohne Fokuspriorität"
         }
     }
 
@@ -569,7 +571,8 @@ enum TVHomeExperimentMode: String, CaseIterable {
 
     var recommendationLimit: Int? {
         switch self {
-        case .twelveRecommendations, .twelveWithoutActions, .twelveWithoutEffects:
+        case .twelveRecommendations, .twelveWithoutActions, .twelveWithoutEffects,
+             .twelveWithoutFocusHints:
             return 12
         default:
             return nil
@@ -578,6 +581,8 @@ enum TVHomeExperimentMode: String, CaseIterable {
 
     var includesCardActionModifiers: Bool { self != .twelveWithoutActions }
     var includesCardVisualEffects: Bool { self != .twelveWithoutEffects }
+
+    var includesDefaultFocusHints: Bool { self != .twelveWithoutFocusHints }
 
     var next: Self {
         let modes = Self.allCases
@@ -664,6 +669,22 @@ struct TVHomeCardContent: View, Equatable {
 
 /// A/B-only: keep Home focus binding identical, but omit the full
 /// context-menu and shared progress observers in the lean mode.
+/// A/B-only: omit home-specific default-focus preferences while
+/// preserving the FocusState binding and the direct menu handoff target.
+private struct TVHomeDiagnosticFocusHint: ViewModifier {
+    let useHint: Bool
+    let preferred: Bool
+    let scope: Namespace.ID
+
+    func body(content: Content) -> some View {
+        if useHint {
+            content.prefersDefaultFocus(preferred, in: scope)
+        } else {
+            content
+        }
+    }
+}
+
 private struct TVHomeDiagnosticActions: ViewModifier {
     let api: TypeTypeAPI
     let video: VideoItem
@@ -1236,9 +1257,12 @@ struct HomeView: View {
                             focus: $focusedHomeVideo, focusID: focusID,
                             onChanged: { Task { await refresh() } }
                         ))
-                        .prefersDefaultFocus(
-                            preferredHomeCardID == focusID, in: homeFocusScope
-                        )
+                        .modifier(TVHomeDiagnosticFocusHint(
+                            useHint: diagnosticMode.includesDefaultFocusHints ||
+                                railHandoffFocusTarget != nil,
+                            preferred: preferredHomeCardID == focusID,
+                            scope: homeFocusScope
+                        ))
                         .disabled(!TVHomeRailHandoffPolicy.canFocus(
                             focusID, restoring: railHandoffFocusTarget
                         ))
@@ -1324,10 +1348,13 @@ struct HomeView: View {
                 // (recently watched) grid or the global rail on cold launch.
                 // Also gives resetFocus() a concrete deep-card destination
                 // after popping a video details screen.
-                .prefersDefaultFocus(
-                    preferredHomeCardID == homeCardID(video, recommended: paginate),
-                    in: homeFocusScope
-                )
+                .modifier(TVHomeDiagnosticFocusHint(
+                    useHint: diagnosticMode.includesDefaultFocusHints ||
+                        railHandoffFocusTarget != nil,
+                    preferred: preferredHomeCardID ==
+                        homeCardID(video, recommended: paginate),
+                    scope: homeFocusScope
+                ))
                 .disabled(!TVHomeRailHandoffPolicy.canFocus(
                     homeCardID(video, recommended: paginate),
                     restoring: railHandoffFocusTarget
