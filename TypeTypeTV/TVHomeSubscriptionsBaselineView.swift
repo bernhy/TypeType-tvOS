@@ -215,14 +215,8 @@ struct TVHomeSubscriptionsBaselineView: View {
             .onChange(of: homeMenu.focusRestoreRequest) { _, _ in
                 if let id = homeMenu.focusRestoreTarget { focusedVideo = id }
             }
-            // One account-level task for the entire Home, regardless of
-            // how many recommendation/resume cards are materialized.
-            // Do not tie this to focus or scrolling; shared badge objects
-            // publish their changes for cards already on screen.
-            .task(id: api.metadataCacheScope) {
+            .task {
                 await TVWatchLaterMembership.shared.ensureLoaded(api: api)
-                await TVPlaylistMembership.shared.ensureLoaded(api: api)
-                await TVFavoriteMembership.shared.ensureLoaded(api: api)
             }
             .task {
                 // Do not fetch /history before the settings have arrived.
@@ -288,7 +282,7 @@ struct TVHomeSubscriptionsBaselineView: View {
                 }
             )
         } label: {
-            VideoCard(api: api, video: video, loadMembershipOnAppear: false)
+            VideoCard(api: api, video: video)
         }
         .buttonStyle(TVRailButtonStyle())
         .focusEffectDisabled(true)
