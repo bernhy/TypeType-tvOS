@@ -312,7 +312,8 @@ struct VideoDetailView: View {
                     GeometryReader { proxy in
                         ZStack(alignment: .leading) {
                             TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
-                                        origin: api.origin, maximumPixelDimension: 2_048)
+                                        origin: api.origin, maximumPixelDimension: 2_048,
+                                        videoURL: video.url)
                                 .frame(width: proxy.size.width, height: proxy.size.height)
                                 .scaleEffect(heroVisible || reduceMotion ? 1 : 0.94)
                                 .opacity(heroVisible || reduceMotion ? 1 : 0)
