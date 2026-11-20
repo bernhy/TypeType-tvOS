@@ -13138,25 +13138,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Livestreams in Abos anzeigen"
+            "value": "Livestreams anzeigen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show live streams in subscriptions"
+            "value": "Show livestreams"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher les directs dans les abonnements"
+            "value": "Afficher les diffusions en direct"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar directos en suscripciones"
+            "value": "Mostrar transmisiones en directo"
           }
         }
       }
@@ -13362,25 +13362,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Blendet laufende Livestreams aus dem Neuigkeiten-Feed deiner Abonnements aus. In der direkten Kanalansicht und in deiner Bibliothek bleiben sie erreichbar."
+            "value": "Legt fest, ob laufende Livestreams in allen Videolisten angezeigt werden. Beendete Livestreams bleiben sichtbar."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hides live broadcasts from the subscriptions feed. They can still be opened directly from their channel or your library."
+            "value": "Controls whether ongoing livestreams appear in all video lists. Finished livestream recordings remain visible."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Masque les diffusions en direct du fil d’abonnements. Elles restent accessibles dans leur chaîne ou dans la bibliothèque."
+            "value": "Détermine si les directs en cours apparaissent dans toutes les listes de vidéos. Les rediffusions restent visibles."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oculta las emisiones en directo del feed de suscripciones. Siguen siendo accesibles en su canal o en la biblioteca."
+            "value": "Controla si los directos en curso aparecen en todas las listas de vídeos. Las grabaciones de directos finalizados siguen visibles."
           }
         }
       }

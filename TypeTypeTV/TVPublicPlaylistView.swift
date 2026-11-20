@@ -9,6 +9,10 @@ struct TVPublicPlaylistView: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focusedBack: Bool
     @State private var videos: [VideoItem] = []
+    @ObservedObject private var contentPreferences = TVContentPreferences.shared
+    private var visibleVideos: [VideoItem] {
+        contentPreferences.withoutHiddenLivestreams(videos)
+    }
     @State private var title = ""
     @State private var nextPage: String?
     @State private var loadedPlaylistURL: String?
@@ -34,9 +38,9 @@ struct TVPublicPlaylistView: View {
                             .font(.largeTitle.bold())
                     }
                     .focusSection()
-                    if !videos.isEmpty {
+                    if !visibleVideos.isEmpty {
                         NavigationLink {
-                            TVPlaylistPlaybackView(api: api, videos: videos)
+                            TVPlaylistPlaybackView(api: api, videos: visibleVideos)
                         } label: {
                             Label("playlist.playAll", systemImage: "play.fill")
                         }
@@ -50,10 +54,10 @@ struct TVPublicPlaylistView: View {
                             .buttonStyle(.bordered)
                     }
                     LazyVGrid(columns: columns, spacing: 34) {
-                        ForEach(videos) { video in
+                        ForEach(visibleVideos) { video in
                             NavigationLink {
                                 VideoDetailView(
-                                    api: api, video: video, playbackQueue: videos,
+                                    api: api, video: video, playbackQueue: visibleVideos,
                                     onReturnToList: {
                                         TVVideoFocusReturn.restore(
                                             $focusedVideo, id: video.url, scroll: scroll
@@ -85,6 +89,7 @@ struct TVPublicPlaylistView: View {
                 .padding(75)
             }
             .background(TTTheme.ink)
+            .task { await contentPreferences.ensureLoaded(api: api) }
             .task(id: playlistURL) {
                 // A pushed video detail returning to its playlist must not
                 // re-fetch the grid and focus the Back button again.

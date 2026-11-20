@@ -2,6 +2,35 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVHomeCardEqualityTests: XCTestCase {
+    func testLivestreamFilterWorksAcrossHomeAndOtherGrids() {
+        let normal = VideoItem(id: "normal", title: "Normal", url: "https://yt/normal",
+                               thumbnailUrl: nil, uploaderName: nil, duration: 120,
+                               isLive: false)
+        var live = VideoItem(id: "live", title: "Live", url: "https://yt/live",
+                             thumbnailUrl: nil, uploaderName: nil, duration: nil,
+                             isLive: true)
+        var stream = VideoItem(id: "stream", title: "Stream",
+                               url: "https://yt/stream", thumbnailUrl: nil,
+                               uploaderName: nil, duration: nil, isLive: false)
+        stream.isLiveContent = true
+        var archive = VideoItem(id: "archive", title: "Archive",
+                                url: "https://yt/archive", thumbnailUrl: nil,
+                                uploaderName: nil, duration: 500, isLive: false)
+        archive.isLiveContent = true
+        archive.isPostLive = true
+        live.isPostLive = false
+        XCTAssertTrue(TVLiveStreamDisplayPolicy.isOngoing(live))
+        XCTAssertTrue(TVLiveStreamDisplayPolicy.isOngoing(stream))
+        XCTAssertFalse(TVLiveStreamDisplayPolicy.isOngoing(archive))
+        XCTAssertEqual(TVLiveStreamDisplayPolicy.visible(
+            [normal, live, stream, archive], hideLiveStreams: true
+        ).map(\.id), ["normal", "archive"])
+        XCTAssertEqual(TVLiveStreamDisplayPolicy.visible(
+            [normal, live, stream, archive], hideLiveStreams: false
+        ).count, 4)
+    }
+
+
     func testWatchLaterMenuNeverGuessesFromUnloadedMembership() {
         XCTAssertEqual(TVWatchLaterMenuStatus.resolved(
             loaded: false, failed: false, saved: false

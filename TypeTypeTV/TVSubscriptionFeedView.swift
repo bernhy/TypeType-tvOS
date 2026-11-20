@@ -18,7 +18,7 @@ struct TVSubscriptionFeedView: View {
 
     @State private var videos: [VideoItem] = []
     private var visibleVideos: [VideoItem] {
-        contentPreferences.displayed(videos, subscriptionFeed: true)
+        contentPreferences.displayed(videos)
     }
     @State private var nextCursor: String?
     @State private var loading = false

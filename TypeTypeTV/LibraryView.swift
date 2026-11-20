@@ -32,6 +32,10 @@ struct LibraryView: View {
     @State private var mutationError: String?
     @State private var savingPlaylist = false
     @State private var videos: [VideoItem] = []
+    @ObservedObject private var contentPreferences = TVContentPreferences.shared
+    private var visibleVideos: [VideoItem] {
+        contentPreferences.withoutHiddenLivestreams(videos)
+    }
     @State private var statusMessage: String?
     @State private var railError: String?
     @State private var loading = false
@@ -65,7 +69,7 @@ struct LibraryView: View {
                                 .lineLimit(1)
                         }
                         Spacer()
-                        Text(TVL10n.formatted("common.videoCount", videos.count))
+                        Text(TVL10n.formatted("common.videoCount", visibleVideos.count))
                             .font(.callout)
                             .foregroundStyle(TTTheme.muted)
                         if let queue = playbackQueue, !queue.isEmpty {
@@ -120,7 +124,7 @@ struct LibraryView: View {
                             detail: TVL10n.value("library.loadHelp"),
                             action: { Task { await refresh() } }
                         )
-                    } else if videos.isEmpty {
+                    } else if visibleVideos.isEmpty {
                         TVContentMessage(
                             symbol: "rectangle.stack",
                             title: title,
@@ -128,7 +132,7 @@ struct LibraryView: View {
                         )
                     } else {
                         LazyVGrid(columns: columns, spacing: 28) {
-                            ForEach(videos) { video in
+                            ForEach(visibleVideos) { video in
                                 NavigationLink {
                                     VideoDetailView(
                                         api: api, video: video,
@@ -155,7 +159,7 @@ struct LibraryView: View {
                                 )
                                 .onMoveCommand { direction in
                                     if direction == .left,
-                                       let index = videos.firstIndex(where: { $0.id == video.id }),
+                                       let index = visibleVideos.firstIndex(where: { $0.id == video.id }),
                                        index % columns.count == 0 {
                                         focusedDestination = selected
                                     }
@@ -165,11 +169,11 @@ struct LibraryView: View {
                                 .onAppear {
                                     guard selected == .standard(.history),
                                           !loading && !historyLoadingMore && historyHasMore,
-                                          let index = videos.firstIndex(where: {
+                                          let index = visibleVideos.firstIndex(where: {
                                               TVHistoryDeduplicator.key(for: $0) ==
                                                   TVHistoryDeduplicator.key(for: video)
                                           }),
-                                          index >= videos.count - 8 else { return }
+                                          index >= visibleVideos.count - 8 else { return }
                                     Task { await loadMoreHistory() }
                                 }
                             }
@@ -200,6 +204,7 @@ struct LibraryView: View {
             }
         }
         .background(TTTheme.ink)
+        .task { await contentPreferences.ensureLoaded(api: api) }
         .task { await refresh() }
         .onChange(of: focusedDestination) { previous, next in
             if next == nil {
@@ -289,7 +294,7 @@ struct LibraryView: View {
     private var playbackQueue: [VideoItem]? {
         switch selected {
         case .playlist, .standard(.watchLater):
-            return videos
+            return visibleVideos
         case .standard:
             return nil
         }

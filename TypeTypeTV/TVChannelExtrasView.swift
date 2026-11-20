@@ -16,6 +16,10 @@ struct TVChannelExtrasView: View {
     @State private var unsupported = false
     @State private var playlists: [TVPublicPlaylistSummary] = []
     @State private var episodes: [VideoItem] = []
+    @ObservedObject private var contentPreferences = TVContentPreferences.shared
+    private var visibleEpisodes: [VideoItem] {
+        contentPreferences.withoutHiddenLivestreams(episodes)
+    }
     @State private var posts: [TVCommunityPost] = []
     @State private var nextPage: String?
     @State private var loadedExtraKey: String?
@@ -65,7 +69,7 @@ struct TVChannelExtrasView: View {
                         .focused($focusedCard, equals: playlist.url)
                         .zIndex(focusedCard == playlist.url ? 5 : 0)
                     }
-                    ForEach(episodes) { video in
+                    ForEach(visibleEpisodes) { video in
                         NavigationLink {
                             VideoDetailView(api: api, video: video)
                         } label: {
@@ -82,7 +86,7 @@ struct TVChannelExtrasView: View {
                 ForEach(posts) { post in
                     TVCommunityPostCard(api: api, post: post)
                 }
-                if !loading && playlists.isEmpty && episodes.isEmpty &&
+                if !loading && playlists.isEmpty && visibleEpisodes.isEmpty &&
                    posts.isEmpty && error == nil && !unsupported {
                     Text("channels.emptyExtra").foregroundStyle(TTTheme.muted)
                 }
@@ -95,6 +99,7 @@ struct TVChannelExtrasView: View {
             .padding(70)
         }
         .background(TTTheme.ink)
+        .task { await contentPreferences.ensureLoaded(api: api) }
         .task(id: channelURL + kind.rawValue) {
             let key = channelURL + "|" + kind.rawValue
             // NavigationStack can re-enter this task after popping details.
