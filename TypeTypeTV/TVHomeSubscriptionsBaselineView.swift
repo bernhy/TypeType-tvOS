@@ -431,15 +431,19 @@ struct TVHomeSubscriptionsBaselineView: View {
             let page = try await api.home(cursor: cursor)
             try Task.checkCancellation()
             guard nextCursor == cursor else { return }
+            // Avoid TWO full LazyVGrid updates for every page. First
+            // resolve progress off the UI path, then append only the new
+            // video rows in a single state mutation. Existing cards and
+            // their focus/thumbnail state are never replaced.
             var known = Set(videos.map(\.url))
             let added = page.items.filter { known.insert($0.url).inserted }
+            let enriched = await api.withProgress(added)
+            // A manual refresh or another navigation may invalidate this
+            // request while the progress/batch endpoint is in flight.
+            guard !Task.isCancelled, !loading, nextCursor == cursor else { return }
             nextCursor = page.nextCursor?.isEmpty == false &&
                 page.nextCursor != cursor ? page.nextCursor : nil
-            videos.append(contentsOf: added)
-            let enriched = await api.withProgress(added)
-            guard !Task.isCancelled else { return }
-            let latest = Dictionary(uniqueKeysWithValues: enriched.map { ($0.url, $0) })
-            videos = videos.map { latest[$0.url] ?? $0 }
+            videos.append(contentsOf: enriched)
         } catch is CancellationError {
             return
         } catch {
