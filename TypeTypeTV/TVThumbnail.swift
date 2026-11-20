@@ -170,7 +170,7 @@ struct TVThumbnail: View {
             .clipped()
         }
         .clipped()
-        .task(id: "\(origin.absoluteString)|\(url?.absoluteString ?? "")") {
+        .task(id: "\(origin.absoluteString)|\(url?.absoluteString ?? "")|\(maximumPixelDimension)") {
             // SwiftUI may reuse a card for a different URL. Do not keep the
             // previous video's artwork visible while the new image loads.
             bitmap = nil
