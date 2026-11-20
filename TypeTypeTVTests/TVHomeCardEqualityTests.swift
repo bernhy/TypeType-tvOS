@@ -501,13 +501,53 @@ final class TVHomeCardEqualityTests: XCTestCase {
         // snapshot. Directional focus changes update only the matching tile.
     }
 
-    func testOnlyListRemovingActionsRequireFeedReload() {
+    func testSuccessfulMenuMutationsNeverReloadEntireFeed() {
         XCTAssertFalse(TVHomeMenuReloadPolicy.watched.requiresFeedReload)
         XCTAssertFalse(TVHomeMenuReloadPolicy.watchLater.requiresFeedReload)
         XCTAssertFalse(TVHomeMenuReloadPolicy.playlist.requiresFeedReload)
-        XCTAssertTrue(TVHomeMenuReloadPolicy.block.requiresFeedReload)
-        XCTAssertTrue(TVHomeMenuReloadPolicy.watchLaterRemoval.requiresFeedReload)
-        XCTAssertTrue(TVHomeMenuReloadPolicy.playlistRemoval.requiresFeedReload)
+        XCTAssertFalse(TVHomeMenuReloadPolicy.block.requiresFeedReload)
+        XCTAssertFalse(TVHomeMenuReloadPolicy.watchLaterRemoval.requiresFeedReload)
+        XCTAssertFalse(TVHomeMenuReloadPolicy.playlistRemoval.requiresFeedReload)
+    }
+
+    @MainActor
+    func testTargetedMutationRemovesOnlyAffectedCardsAndListEntries() {
+        let first = VideoItem(
+            id: "one", title: "One", url: "https://youtu.be/AAAAAAAAAAA",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 90, isLive: false
+        )
+        var second = VideoItem(
+            id: "two", title: "Two", url: "https://youtu.be/BBBBBBBBBBB",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 120, isLive: false
+        )
+        second.uploaderUrl = "https://www.youtube.com/channel/UCtest"
+        func event(_ kind: TVVideoMutationCenter.Kind,
+                   video: VideoItem = first) -> TVVideoMutationCenter.Event {
+            TVVideoMutationCenter.Event(
+                id: 1, accountScope: "account-1",
+                videoURL: video.url, channelURL: video.uploaderUrl,
+                kind: kind
+            )
+        }
+        let blockVideo = event(.videoBlocked)
+        XCTAssertTrue(blockVideo.removes(first))
+        XCTAssertFalse(blockVideo.removes(second))
+        let blockChannel = event(.channelBlocked, video: second)
+        XCTAssertTrue(blockChannel.removes(second))
+        XCTAssertFalse(blockChannel.removes(first))
+        XCTAssertFalse(blockVideo.removesFromWatchLater(first))
+        let watchLaterRemoval = event(.watchLater(added: false))
+        XCTAssertTrue(watchLaterRemoval.removesFromWatchLater(first))
+        XCTAssertFalse(watchLaterRemoval.removesFromFavorites(first))
+        XCTAssertFalse(event(.watchLater(added: true)).removesFromWatchLater(first))
+        XCTAssertTrue(event(.favorite(added: false)).removesFromFavorites(first))
+        XCTAssertFalse(event(.favorite(added: true)).removesFromFavorites(first))
+        XCTAssertTrue(event(.playlist(id: "p1", added: false))
+                      .removesFromPlaylist(first, id: "p1"))
+        XCTAssertFalse(event(.playlist(id: "p1", added: false))
+                       .removesFromPlaylist(first, id: "p2"))
+        XCTAssertFalse(event(.playlist(id: "p1", added: true))
+                       .removesFromPlaylist(first, id: "p1"))
     }
 
 
