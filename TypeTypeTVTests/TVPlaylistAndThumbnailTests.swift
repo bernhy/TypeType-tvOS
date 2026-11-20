@@ -19,6 +19,68 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
         XCTAssertEqual(decoded.height, 32)
     }
 
+    func testThumbnailSizingAndAccountScopedOpaqueCacheKeys() throws {
+        let origin = try XCTUnwrap(URL(string: "https://typetype.example"))
+        let otherOrigin = try XCTUnwrap(URL(string: "https://other.example"))
+        let artwork = try XCTUnwrap(URL(string: "https://typetype.example/api/files/image"))
+        let external = try XCTUnwrap(URL(string: "https://cdn.example/image"))
+
+        XCTAssertEqual(TVThumbnailRequestPolicy.pixelLimit(1), 64)
+        XCTAssertEqual(TVThumbnailRequestPolicy.pixelLimit(1_024), 1_024)
+        XCTAssertEqual(TVThumbnailRequestPolicy.pixelLimit(9_999), 2_048)
+        let first = TVThumbnailRequestPolicy.cacheKey(
+            url: artwork, origin: origin, token: "secret-user-a",
+            firstParty: true, pixels: 1_024
+        )
+        let second = TVThumbnailRequestPolicy.cacheKey(
+            url: artwork, origin: origin, token: "secret-user-b",
+            firstParty: true, pixels: 1_024
+        )
+        XCTAssertEqual(first, TVThumbnailRequestPolicy.cacheKey(
+            url: artwork, origin: origin, token: "secret-user-a",
+            firstParty: true, pixels: 1_024
+        ))
+        XCTAssertNotEqual(first, second)
+        XCTAssertFalse(first.contains("secret-user-a"))
+        XCTAssertNotEqual(first, TVThumbnailRequestPolicy.cacheKey(
+            url: artwork, origin: origin, token: "secret-user-a",
+            firstParty: true, pixels: 2_048
+        ))
+        XCTAssertNotEqual(first, TVThumbnailRequestPolicy.cacheKey(
+            url: artwork, origin: otherOrigin, token: "secret-user-a",
+            firstParty: true, pixels: 1_024
+        ))
+        // A public image has no credentials, so token rotation must not
+        // create redundant third-party image cache entries.
+        XCTAssertEqual(
+            TVThumbnailRequestPolicy.cacheKey(
+                url: external, origin: origin, token: "old-token",
+                firstParty: false, pixels: 1_024
+            ),
+            TVThumbnailRequestPolicy.cacheKey(
+                url: external, origin: origin, token: "new-token",
+                firstParty: false, pixels: 1_024
+            )
+        )
+    }
+
+    func testThumbnailDecoderDownsamplesButPreservesAspectRatio() throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let data = UIGraphicsImageRenderer(
+            size: CGSize(width: 800, height: 400), format: format
+        ).pngData { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 800, height: 400))
+        }
+        let image = try XCTUnwrap(
+            TVThumbnailDecoder.decode(data, maximumDimension: 128)?.cgImage
+        )
+        XCTAssertLessThanOrEqual(image.width, 128)
+        XCTAssertLessThanOrEqual(image.height, 128)
+        XCTAssertEqual(Double(image.width) / Double(image.height), 2, accuracy: 0.02)
+    }
+
     func testMediaURLsCannotEscapeOriginViaProtocolRelativePath() throws {
         let https = try TypeTypeAPI(address: "https://typetype.example")
         XCTAssertEqual(
