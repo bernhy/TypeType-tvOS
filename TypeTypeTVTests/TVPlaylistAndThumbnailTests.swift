@@ -51,6 +51,44 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
         )
     }
 
+    func testYouTubeThumbnailFallbackPreservesServerArtworkAndRecoversMissingURL() throws {
+        let videoURL = "https://www.youtube.com/watch?v=ABCDEFGHIJK"
+        let fallback = try XCTUnwrap(URL(string:
+            "https://i.ytimg.com/vi/ABCDEFGHIJK/hqdefault.jpg"
+        ))
+        let original = try XCTUnwrap(URL(string:
+            "https://cdn.example.com/dearrow/ABCDEFGHIJK.jpg"
+        ))
+        // DeArrow and server-provided images have priority: fall back only
+        // when the image is missing or the request/decoder fails.
+        XCTAssertEqual(TVThumbnailSources.urls(primary: original, videoURL: videoURL),
+                       [original, fallback])
+        XCTAssertEqual(TVThumbnailSources.urls(primary: nil, videoURL: videoURL),
+                       [fallback])
+        XCTAssertEqual(TVThumbnailSources.urls(primary: fallback, videoURL: videoURL),
+                       [fallback])
+        XCTAssertEqual(TVThumbnailSources.urls(primary: original, videoURL: nil),
+                       [original])
+        XCTAssertTrue(TVThumbnailSources.urls(primary: nil, videoURL: nil).isEmpty)
+    }
+
+    func testThumbnailFallbackRejectsSpoofedOrUnsupportedVideoAddresses() throws {
+        let original = try XCTUnwrap(URL(string: "https://cdn.example.com/cover.webp"))
+        for videoURL in [
+            "https://youtube.com.evil.example/watch?v=ABCDEFGHIJK",
+            "https://www.youtube.com/watch?v=not-an-id",
+            "https://www.twitch.tv/videos/123456789",
+            "file:///private/ABCDEFGHIJK"
+        ] {
+            XCTAssertTrue(TVThumbnailSources.urls(primary: nil, videoURL: videoURL).isEmpty)
+            XCTAssertEqual(TVThumbnailSources.urls(primary: original, videoURL: videoURL),
+                           [original])
+        }
+        XCTAssertEqual(TVThumbnailSources.urls(
+            primary: nil, videoURL: "https://youtu.be/ABCDEFGHIJK"
+        ).first?.absoluteString, "https://i.ytimg.com/vi/ABCDEFGHIJK/hqdefault.jpg")
+    }
+
     func testThumbnailDecoderDownsamplesButPreservesAspectRatio() throws {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
