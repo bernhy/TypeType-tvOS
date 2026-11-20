@@ -18,7 +18,8 @@ struct TVPlaybackStartupPoster: View {
                 if transientImage {
                     TVTransientStartupImage(
                         url: api.relativeMediaURL(video.thumbnailUrl),
-                        origin: api.origin, retainsImage: retainsImage
+                        origin: api.origin, retainsImage: retainsImage,
+                        videoURL: video.url
                     )
                     .frame(width: geometry.size.width,
                            height: geometry.size.height)
