@@ -83,6 +83,7 @@ final class TVPlaylistMembership: ObservableObject {
                 self.playlistIDsByVideo = result
                 self.storedURLByVideoAndPlaylist = storedURLs
                 self.loaded = true
+                TVVideoCardStatusCenter.changedAll(scope: account)
                 self.error = nil
             } catch is CancellationError {
                 return
@@ -116,6 +117,7 @@ final class TVPlaylistMembership: ObservableObject {
         if !playlists.contains(where: { $0.id == playlist.id }) {
             playlists.append(playlist)
         }
+        TVVideoCardStatusCenter.changed(videoURL: videoURL, scope: api.metadataCacheScope)
     }
 
     func markRemoved(videoURL: String, playlistID: String, api: TypeTypeAPI) {
@@ -130,10 +132,12 @@ final class TVPlaylistMembership: ObservableObject {
         if playlistIDsByVideo[Self.videoKey(videoURL)]?.isEmpty == true {
             playlistIDsByVideo.removeValue(forKey: Self.videoKey(videoURL))
         }
+        TVVideoCardStatusCenter.changed(videoURL: videoURL, scope: api.metadataCacheScope)
     }
 
     func invalidate(api: TypeTypeAPI) {
         guard scope == api.metadataCacheScope else { return }
+        TVVideoCardStatusCenter.changedAll(scope: api.metadataCacheScope)
         loaded = false
         error = nil
         loadTask?.cancel()
