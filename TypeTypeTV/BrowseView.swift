@@ -43,6 +43,9 @@ enum TVSection: String, CaseIterable, Hashable {
 struct BrowseView: View {
     let instanceOrigin: String
     let onDisconnect: () -> Void
+    // Parse and validate the instance once per BrowseView construction;
+    // SwiftUI may re-evaluate body repeatedly while focus/progress changes.
+    private let configuredAPI: TypeTypeAPI?
     let previewVideos: [VideoItem]?
     let initialSettingsGroup: TVSettingsGroup
     @State private var section: TVSection
@@ -85,6 +88,7 @@ struct BrowseView: View {
          initialSettingsGroup: TVSettingsGroup = .playback) {
         self.instanceOrigin = instanceOrigin
         self.onDisconnect = onDisconnect
+        self.configuredAPI = try? TypeTypeAPI(address: instanceOrigin)
         self.previewVideos = previewVideos
         self.initialSettingsGroup = initialSettingsGroup
         _section = State(initialValue: initialSection)
@@ -101,7 +105,7 @@ struct BrowseView: View {
     }
 
     var body: some View {
-        if let api = try? TypeTypeAPI(address: instanceOrigin) {
+        if let api = configuredAPI {
             ZStack(alignment: .leading) {
                 TTTheme.ink.ignoresSafeArea()
                 HStack(spacing: 0) {
@@ -397,7 +401,7 @@ struct BrowseView: View {
         if let identity = sidebarIdentity {
             if identity.isGuest { return TVL10n.value("login.guestActive") }
             if let name = identity.visibleName { return name }
-            if let api = try? TypeTypeAPI(address: instanceOrigin),
+            if let api = configuredAPI,
                let known = TypeTypeCredentials.shared.displayIdentifier(for: api.origin) {
                 return known
             }
