@@ -173,9 +173,33 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
     }
 }
 
+
+/// The sidebar keeps the original HStack sizing. Zoom only Home's scroll
+/// *content*, while the ScrollView and its menu/dialog hosts remain full
+/// height and unscaled. The expanded content is laid out at the same width
+/// as the collapsed Home; a visual transform fits it in the smaller slot.
+enum TVHomeNavigationZoom {
+    static func layoutWidth(visibleWidth: CGFloat, expanded: Bool) -> CGFloat {
+        max(0, visibleWidth) + (expanded
+            ? TVMainNavigationLayout.expandedWidth -
+                TVMainNavigationLayout.collapsedWidth
+            : 0)
+    }
+
+    static func scale(visibleWidth: CGFloat, expanded: Bool) -> CGFloat {
+        let width = max(0, visibleWidth)
+        let layout = layoutWidth(visibleWidth: width, expanded: expanded)
+        guard width > 0, layout > 0 else { return 1 }
+        return width / layout
+    }
+}
+
 struct TVHomeSubscriptionsBaselineView: View {
     let api: TypeTypeAPI
     let previewVideos: [VideoItem]?
+    // Only the Home content layer is zoomed. Native nav, dialogs and
+    // ScrollView viewport are not transformed.
+    var navigationExpanded = false
     var focusRequest = 0
     var onRevealMenu: () -> Void = {}
     var onOpenAccount: () -> Void = {}
@@ -279,11 +303,13 @@ struct TVHomeSubscriptionsBaselineView: View {
     }
 
     init(api: TypeTypeAPI, previewVideos: [VideoItem]? = nil,
+         navigationExpanded: Bool = false,
          focusRequest: Int = 0, onRevealMenu: @escaping () -> Void = {},
          onOpenAccount: @escaping () -> Void = {},
          onInitialFocusReady: @escaping () -> Void = {}) {
         self.api = api
         self.previewVideos = previewVideos
+        self.navigationExpanded = navigationExpanded
         self.focusRequest = focusRequest
         self.onRevealMenu = onRevealMenu
         self.onOpenAccount = onOpenAccount
@@ -305,6 +331,7 @@ struct TVHomeSubscriptionsBaselineView: View {
             recent: recentVideos.count
         )
         #endif
+        GeometryReader { viewport in
         ScrollViewReader { scroll in
             ScrollView {
                 VStack(alignment: .leading, spacing: 27) {
@@ -400,7 +427,28 @@ struct TVHomeSubscriptionsBaselineView: View {
                 .padding(.horizontal, 65)
                 .padding(.top, 42)
                 .padding(.bottom, 120)
+                // Fixed four-column geometry: 1864pt at a 1920pt
+                // viewport, regardless of whether the rail is open.
+                .frame(
+                    width: TVHomeNavigationZoom.layoutWidth(
+                        visibleWidth: viewport.size.width,
+                        expanded: navigationExpanded
+                    ),
+                    alignment: .leading
+                )
+                .scaleEffect(
+                    TVHomeNavigationZoom.scale(
+                        visibleWidth: viewport.size.width,
+                        expanded: navigationExpanded
+                    ),
+                    anchor: .topLeading
+                )
+                // The transformed scroll content fits the real viewport.
+                // Critically, the ScrollView and its clipping/scroll height
+                // are NOT scaled: no black strip at the bottom.
+                .frame(width: viewport.size.width, alignment: .topLeading)
             }
+            .frame(width: viewport.size.width, height: viewport.size.height)
             .background(TTTheme.ink)
             // Shared by BOTH sources. No per-card dialog or toast state.
             .modifier(TVHomeMenuPresentation(model: homeMenu))
@@ -455,6 +503,7 @@ struct TVHomeSubscriptionsBaselineView: View {
             .onExitCommand { handleHomeBack(scroll: scroll) }
             .onDisappear { resumeMetadata.stop() }
         }
+        } // GeometryReader: original ScrollView height; zoom its content only.
     }
 
     /// The only Home entrypoint for recommendation and resume tiles.
