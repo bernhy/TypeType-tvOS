@@ -1328,8 +1328,9 @@ struct HomeView: View {
             async let history: Void = loadHistory()
             _ = await (recommendations, history)
         } else {
-            // A/B: isolate the recommendation grid and its network activity
-            // from the horizontal watch-progress shelf.
+            // A/B: isolate recommendations without initiating any /history
+            // requests. The next mode change may load history on demand.
+            loadingRecent = false
             await loadRecommendations()
         }
     }
