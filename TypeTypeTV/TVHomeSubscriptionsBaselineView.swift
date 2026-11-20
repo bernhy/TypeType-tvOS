@@ -52,14 +52,44 @@ struct TVHomeSubscriptionsBaselineView: View {
     private var showRecommendations: Bool {
         contentPreferences.settings?.hideHomeRecommendations != true
     }
-    private var visibleVideos: [VideoItem] { contentPreferences.displayed(videos) }
+    private var visibleVideos: [VideoItem] {
+        #if DEBUG
+        return TVHomeFocusDiagnostics.measure(.filterRecommendations) {
+            contentPreferences.displayed(videos)
+        }
+        #else
+        return contentPreferences.displayed(videos)
+        #endif
+    }
     private var visibleRecent: [VideoItem] {
+        #if DEBUG
+        return TVHomeFocusDiagnostics.measure(.filterRecent) {
+            filteredRecent()
+        }
+        #else
+        return filteredRecent()
+        #endif
+    }
+    private func filteredRecent() -> [VideoItem] {
         // Shared 90% threshold, finished-video logic and local progress override.
         contentPreferences.displayed(recentVideos).filter {
             TVContinueWatchingPolicy.isEligible(
                 $0, positionMs: localProgress.position(for: $0.url) ?? $0.watchPositionMs
             )
         }
+    }
+    private var visibleCardIDs: [String] {
+        #if DEBUG
+        return TVHomeFocusDiagnostics.measure(.buildFocusIDs) {
+            buildCardIDs()
+        }
+        #else
+        return buildCardIDs()
+        #endif
+    }
+    private func buildCardIDs() -> [String] {
+        visibleVideos.map { cardID($0, resume: false) } +
+            (showRecent ? visibleRecent.map { cardID($0, resume: true) } : [])
     }
 
     private func cardID(_ video: VideoItem, resume: Bool) -> String {
@@ -97,6 +127,12 @@ struct TVHomeSubscriptionsBaselineView: View {
     }
 
     var body: some View {
+        #if DEBUG
+        let _ = TVHomeFocusDiagnostics.homeBody(
+            focusedID: focusedVideo, recommendations: videos.count,
+            recent: recentVideos.count
+        )
+        #endif
         ScrollViewReader { scroll in
             ScrollView {
                 VStack(alignment: .leading, spacing: 27) {
@@ -177,6 +213,9 @@ struct TVHomeSubscriptionsBaselineView: View {
                                     }) { entry in
                                         videoTile(entry, resume: false, scroll: scroll)
                                             .onAppear {
+                                                #if DEBUG
+                                                TVHomeFocusDiagnostics.hit(.recommendationAppear)
+                                                #endif
                                                 if entry.index >=
                                                     visibleVideos.count - columns.count - 1,
                                                     nextCursor != nil && !loading &&
@@ -248,10 +287,7 @@ struct TVHomeSubscriptionsBaselineView: View {
                 await Task.yield()
                 claimInitialFocus()
             }
-            .onChange(of: visibleVideos.map { cardID($0, resume: false) } +
-                         (showRecent ? visibleRecent.map {
-                             cardID($0, resume: true)
-                         } : [])) { _, ids in
+            .onChange(of: visibleCardIDs) { _, ids in
                 if initialFocusPending {
                     claimInitialFocus()
                 } else if let current = focusedVideo, !ids.contains(current),
@@ -272,6 +308,9 @@ struct TVHomeSubscriptionsBaselineView: View {
     @ViewBuilder
     private func videoTile(_ entry: TVHomeBaselineGridEntry, resume: Bool,
                            scroll: ScrollViewProxy) -> some View {
+        #if DEBUG
+        let _ = TVHomeFocusDiagnostics.hit(.tileBuild)
+        #endif
         let video = entry.video
         let id = cardID(video, resume: resume)
         let link = NavigationLink {
@@ -327,6 +366,9 @@ struct TVHomeSubscriptionsBaselineView: View {
                 }) { entry in
                     videoTile(entry, resume: true, scroll: scroll)
                         .onAppear {
+                            #if DEBUG
+                            TVHomeFocusDiagnostics.hit(.resumeAppear)
+                            #endif
                             if entry.index >= items.count - 2 &&
                                historyHasMore && !loadingRecent &&
                                !historyLoadingMore {
@@ -424,6 +466,9 @@ struct TVHomeSubscriptionsBaselineView: View {
     @MainActor
     private func loadMore() async {
         guard !loading && !loadingMore, let cursor = nextCursor else { return }
+        #if DEBUG
+        TVHomeFocusDiagnostics.hit(.pageRequest)
+        #endif
         loadingMore = true
         pageError = nil
         defer { loadingMore = false }
@@ -444,6 +489,9 @@ struct TVHomeSubscriptionsBaselineView: View {
             nextCursor = page.nextCursor?.isEmpty == false &&
                 page.nextCursor != cursor ? page.nextCursor : nil
             videos.append(contentsOf: enriched)
+            #if DEBUG
+            TVHomeFocusDiagnostics.hit(.pageAppend)
+            #endif
         } catch is CancellationError {
             return
         } catch {
