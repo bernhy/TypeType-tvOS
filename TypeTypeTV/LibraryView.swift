@@ -22,6 +22,7 @@ struct LibraryView: View {
     // Set synchronously as the detail dismisses, before tvOS chooses its
     // next native focus target; does not trigger a second grid reload.
     @State private var detailReturnVideoID: String?
+    @State private var lastMutationID = 0
     @State private var selected: TVLibraryDestination = .standard(.watchLater)
     @FocusState private var focusedDestination: TVLibraryDestination?
     // Only Up/Down moves already within this rail may visually follow the
@@ -176,7 +177,8 @@ struct LibraryView: View {
                                 focusedVideoURL = id
                             },
                             onLeftEdge: { _ in focusedDestination = selected },
-                            onChanged: { Task { await refresh() } },
+                            // Mutations remove only affected cached entries.
+                            onChanged: {},
                             onApproachEnd: { Task { await loadMoreHistory() } },
                             onRemoveFromPlaylist: { removalAction(for: $0) }
                         )
@@ -225,6 +227,15 @@ struct LibraryView: View {
         }
         .background(TTTheme.ink)
         .modifier(TVHomeMenuPresentation(model: videoMenu))
+        .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
+        .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
+        .onChange(of: videoMenu.focusRestoreRequest) { _, _ in
+            if let id = videoMenu.focusRestoreTarget,
+               visibleVideos.contains(where: { $0.url == id }) {
+                focusedDestination = nil
+                focusedVideoURL = id
+            }
+        }
         .task { await TVWatchLaterMembership.shared.ensureLoaded(api: api) }
         .task { await contentPreferences.ensureLoaded(api: api) }
         .task {
@@ -334,6 +345,37 @@ struct LibraryView: View {
             await TVPlaylistMembership.shared.markRemoved(
                 videoURL: video.url, playlistID: id, api: api
             )
+            await TVVideoMutationCenter.shared.record(
+                api: api, video: video, kind: .playlist(id: id, added: false)
+            )
+        }
+    }
+
+    @MainActor
+    private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
+        let pending = events.filter {
+            $0.id > lastMutationID && $0.accountScope == api.metadataCacheScope
+        }
+        lastMutationID = max(lastMutationID, events.last?.id ?? 0)
+        guard !pending.isEmpty else { return }
+        let destination = selected
+        let shouldRemove: (VideoItem) -> Bool = { video in
+            pending.contains { event in
+                if event.removes(video) { return true }
+                switch destination {
+                case .standard(.watchLater):
+                    return event.removesFromWatchLater(video)
+                case .standard(.favorites):
+                    return event.removesFromFavorites(video)
+                case .playlist(let id):
+                    return event.removesFromPlaylist(video, id: id)
+                case .standard(.history):
+                    return false
+                }
+            }
+        }
+        if videos.contains(where: shouldRemove) {
+            videos.removeAll(where: shouldRemove)
         }
     }
 
