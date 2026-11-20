@@ -33,16 +33,21 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
         // discovered it, including a public image proxied by TypeType.
         let key = TVThumbnailRequestPolicy.cacheKey(url: image, pixels: 1_024)
         XCTAssertEqual(key, TVThumbnailRequestPolicy.cacheKey(url: sameURL, pixels: 1_024))
-        XCTAssertEqual(key.count, 64)
-        XCTAssertFalse(key.contains("typetype.example"))
+        XCTAssertEqual(key, image.absoluteString + "\n#pixels=1024")
 
         // Different delivered images and different decode sizes remain
         // separate; publicly available CDN thumbnails share the same key.
         XCTAssertNotEqual(key, TVThumbnailRequestPolicy.cacheKey(url: otherServer, pixels: 1_024))
         XCTAssertNotEqual(key, TVThumbnailRequestPolicy.cacheKey(url: image, pixels: 2_048))
+        let alternateQuality = try XCTUnwrap(
+            URL(string: "https://typetype.example/api/files/image?quality=high")
+        )
+        XCTAssertNotEqual(key, TVThumbnailRequestPolicy.cacheKey(
+            url: alternateQuality, pixels: 1_024
+        ))
         XCTAssertEqual(
             TVThumbnailRequestPolicy.cacheKey(url: external, pixels: 1_024),
-            TVThumbnailRequestPolicy.cacheKey(url: external, pixels: 1_024)
+            external.absoluteString + "\n#pixels=1024"
         )
     }
 
