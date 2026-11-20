@@ -34,7 +34,7 @@ struct SearchView: View {
     @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @FocusState private var focusedVideoURL: String?
     @State private var detailReturnVideoID: String?
-    @State private var lastMutationID = 0
+    @State private var mutationCursor = TVVideoMutationCursor()
     // A detail pop must not cause another filter/history GET unless the
     // user actually changes a filter or search-history entry.
     @State private var initializedSearchScope: String?
@@ -468,9 +468,9 @@ struct SearchView: View {
     @MainActor
     private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
         let pending = events.filter {
-            $0.id > lastMutationID && $0.accountScope == api.metadataCacheScope
+            $0.id > mutationCursor.lastID && $0.accountScope == api.metadataCacheScope
         }
-        lastMutationID = max(lastMutationID, events.last?.id ?? 0)
+        mutationCursor.lastID = max(mutationCursor.lastID, events.last?.id ?? 0)
         guard !pending.isEmpty else { return }
         if videos.contains(where: { item in pending.contains { $0.removes(item) } }) {
             videos.removeAll { item in pending.contains { $0.removes(item) } }
