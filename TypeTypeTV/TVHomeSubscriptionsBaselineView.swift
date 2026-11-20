@@ -664,6 +664,13 @@ struct TVHomeSubscriptionsBaselineView: View {
                 enriched, from: videos
             )
             resumeMetadata.reconcile(with: recentVideos)
+            // Do not wait for LazyHStack.onAppear. The first visible cards
+            // and three lookahead cards can start fetching as soon as the
+            // history/progress response is ready, even before TV focus moves.
+            resumeMetadata.prime(
+                visibleHistory: filteredRecent(), api: api,
+                onBatch: { details in applyResumeMetadata(details) }
+            )
             historyOffset = raw.count
             historyHasMore = raw.count == historyPageSize
             recentNeedsLogin = false
@@ -729,10 +736,12 @@ struct TVHomeSubscriptionsBaselineView: View {
 
 }
 
-/// No stream extraction is attached to VideoCard. Loading is driven solely by
-/// LazyHStack onAppear/onDisappear and runs only for a small, recent window.
+/// Metadata is primed from Home's loaded history, not by cell appearance.
+/// LazyHStack.onAppear is only needed when scrolling to additional videos.
 enum TVHomeResumeMetadataPolicy {
-    static let maxTrackedCards = 6
+    static let visibleCards = 4
+    static let preloadCards = 3
+    static let maxTrackedCards = visibleCards + preloadCards
     static func needsLookup(_ video: VideoItem) -> Bool {
         video.viewCount == nil || (video.viewCount ?? -1) <= 0 ||
             TVVideoMetadata.publicationDate(for: video) == nil
@@ -756,10 +765,8 @@ final class TVHomeResumeMetadataLoader {
     // The global TVStreamMetadataCache provides the broader 128-entry cache.
     private var known: [String: StreamInfo] = [:]
     private var completed: [String: StreamInfo] = [:]
-    // One start delay per Home appearance, then up to three independent
-    // asynchronous lookups. No task or observer is attached to VideoCard.
-    private var worker: Task<Void, Never>?
-    private var ready = false
+    // Three bounded concurrent lookups from the existing stream cache.
+    // No startup timer, SwiftUI per-card task or observer.
     private var inFlight: [String: Task<Void, Never>] = [:]
     private var flushTask: Task<Void, Never>?
     private var lastNavigation = Date.distantPast
@@ -772,6 +779,15 @@ final class TVHomeResumeMetadataLoader {
         self.fetch = fetch
     }
 
+    // Called after initial /history and progress enrichment; works even
+    // when SwiftUI has not emitted a single LazyHStack.onAppear event.
+    func prime(visibleHistory: [VideoItem], api: TypeTypeAPI,
+               onBatch: @escaping @MainActor ([String: StreamInfo]) -> Void) {
+        for video in visibleHistory.prefix(TVHomeResumeMetadataPolicy.maxTrackedCards) {
+            appear(video: video, api: api, onBatch: onBatch)
+        }
+    }
+
     func appear(video: VideoItem, api: TypeTypeAPI,
                 onBatch: @escaping @MainActor ([String: StreamInfo]) -> Void) {
         let nextScope = api.metadataCacheScope
@@ -781,10 +797,10 @@ final class TVHomeResumeMetadataLoader {
         }
         self.onBatch = onBatch
         let key = TVHistoryDeduplicator.key(for: video)
-        activeKeys.removeAll { $0 == key }
-        activeKeys.append(key)
-        // tvOS may pre-create cells ahead of the viewport. Retain only the
-        // four visible cards plus two likely neighbors, not all 100 history rows.
+        // A prefetched card may later receive onAppear. Do not reorder
+        // it and evict another visible card just for that appearance event.
+        if !activeKeys.contains(key) { activeKeys.append(key) }
+        // Keep just four visible cards plus three forward candidates.
         while activeKeys.count > TVHomeResumeMetadataPolicy.maxTrackedCards {
             let discarded = activeKeys.removeFirst()
             pending.removeAll { $0.key == discarded }
@@ -838,9 +854,6 @@ final class TVHomeResumeMetadataLoader {
 
     func stop() {
         generation &+= 1
-        worker?.cancel()
-        worker = nil
-        ready = false
         for task in inFlight.values { task.cancel() }
         inFlight.removeAll()
         flushTask?.cancel()
@@ -855,27 +868,9 @@ final class TVHomeResumeMetadataLoader {
     }
 
     private func start(api: TypeTypeAPI) {
-        guard !pending.isEmpty else { return }
-        if ready {
-            fillSlots(api: api)
-            return
-        }
-        guard worker == nil else { return }
-        let currentGeneration = generation
-        worker = Task(priority: .utility) { [weak self] in
-            // Preserve the one-time startup grace period from the prior
-            // experiment; concurrency is the only loading-policy change.
-            do {
-                try await Task.sleep(for: .milliseconds(350))
-            } catch {
-                return
-            }
-            guard let self, !Task.isCancelled,
-                  self.generation == currentGeneration else { return }
-            self.worker = nil
-            self.ready = true
-            self.fillSlots(api: api)
-        }
+        // Loading starts immediately from the /history completion, not
+        // from a remote movement or a 350-ms grace period.
+        fillSlots(api: api)
     }
 
     private func fillSlots(api: TypeTypeAPI) {
@@ -892,7 +887,9 @@ final class TVHomeResumeMetadataLoader {
             #endif
             let expected = generation
             inFlight[request.key] = Task(priority: .utility) { [weak self] in
-                guard let self else { return }
+                guard let self, !Task.isCancelled,
+                      self.generation == expected,
+                      self.activeKeys.contains(request.key) else { return }
                 // The await suspends this task, not the Home render or the
                 // other two lookups. Identical URLs share the existing cache.
                 let details = await self.fetch(request.video, api)
