@@ -3,6 +3,27 @@ import Foundation
 /// Metadata is supplied by TypeType Server: viewCount and publishedAt are
 /// first-class VideoItem fields. Avoid guessing from thumbnail text.
 enum TVVideoMetadata {
+    // Immutable formatter configurations are safe to share; building these
+    // objects for every frequently redrawn thumbnail costs CPU and memory.
+    private static let uploadDateParser: DateFormatter = {
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = TimeZone(secondsFromGMT: 0)
+        parser.dateFormat = "yyyy-MM-dd"
+        return parser
+    }()
+    private static let relativeFormatters = NSCache<NSString, RelativeDateTimeFormatter>()
+
+    private static func relativeFormatter(for language: String) -> RelativeDateTimeFormatter {
+        let key = language as NSString
+        if let cached = relativeFormatters.object(forKey: key) { return cached }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = TVLanguages.locale(for: language)
+        formatter.unitsStyle = .full
+        formatter.dateTimeStyle = .named
+        relativeFormatters.setObject(formatter, forKey: key)
+        return formatter
+    }
 
     /// Use provider-supplied channel URLs only. Never infer or synthesize
     /// a channel from the display name, and never open local/unsafe schemes.
@@ -43,11 +64,7 @@ enum TVVideoMetadata {
             return Date(timeIntervalSince1970: Double(timestamp) / 1_000)
         }
         guard let text = video.uploadDate, !text.isEmpty else { return nil }
-        let parser = DateFormatter()
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        parser.timeZone = TimeZone(secondsFromGMT: 0)
-        parser.dateFormat = "yyyy-MM-dd"
-        return parser.date(from: String(text.prefix(10)))
+        return uploadDateParser.date(from: String(text.prefix(10)))
     }
 
     static func subtitle(for video: VideoItem,
@@ -59,11 +76,8 @@ enum TVVideoMetadata {
             parts.append(label)
         }
         if let date = publicationDate(for: video) {
-            let formatter = RelativeDateTimeFormatter()
-            formatter.locale = TVLanguages.locale(for: language)
-            formatter.unitsStyle = .full
-            formatter.dateTimeStyle = .named
-            parts.append(formatter.localizedString(for: date, relativeTo: now))
+            parts.append(relativeFormatter(for: language)
+                .localizedString(for: date, relativeTo: now))
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -116,7 +130,11 @@ actor TVStreamMetadataCache {
     func details(for video: VideoItem, api: TypeTypeAPI) async -> StreamInfo? {
         let key = api.metadataCacheScope + "|" + video.url
         if let value = completed[key] { return value }
-        if let until = failedUntil[key], until > Date() { return nil }
+        if let until = failedUntil[key] {
+            if until > Date() { return nil }
+            // Expired negative-cache entries should not accumulate forever.
+            failedUntil[key] = nil
+        }
         if let task = pending[key] { return await task.value }
         let task = Task<StreamInfo?, Never> { await fetch(video: video, api: api) }
         pending[key] = task
@@ -129,7 +147,17 @@ actor TVStreamMetadataCache {
             completed[key] = result
             failedUntil[key] = nil
         } else {
-            failedUntil[key] = Date().addingTimeInterval(120)
+            // Bound the negative cache independently of successful entries.
+            // Prefer evicting expired failures, then the earliest expiry.
+            let now = Date()
+            if failedUntil.count >= 128 {
+                failedUntil = failedUntil.filter { $0.value > now }
+                if failedUntil.count >= 128,
+                   let earliest = failedUntil.min(by: { $0.value < $1.value }) {
+                    failedUntil[earliest.key] = nil
+                }
+            }
+            failedUntil[key] = now.addingTimeInterval(120)
         }
         return result
     }
