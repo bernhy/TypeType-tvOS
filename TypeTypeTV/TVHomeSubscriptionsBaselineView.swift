@@ -113,8 +113,10 @@ struct TVHomeSubscriptionsBaselineView: View {
                                 .focusEffectDisabled(true)
                                 .zIndex(focusedVideo == video.url ? 5 : 0)
                                 .id(video.url)
-                                .videoActions(api: api, video: video,
-                                              onChanged: { Task { await reload() } },
+                                // Match Abonnements exactly: actions keep their
+                                // own membership/progress updates; no Home
+                                // refresh triggered by a context-menu action.
+                                .videoActions(api: api, video: video, onChanged: {},
                                               focus: $focusedVideo, focusID: video.url)
                                 .onMoveCommand { direction in
                                     if direction == .left && index % columns.count == 0 {
