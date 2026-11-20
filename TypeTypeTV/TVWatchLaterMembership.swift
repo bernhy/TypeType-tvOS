@@ -88,6 +88,7 @@ final class TVWatchLaterMembership: ObservableObject {
                 urls = snapshot
                 indexedVideoKeys = Set(snapshot.map { TVPlaylistMembership.videoKey($0) })
                 loaded = true
+                TVVideoCardStatusCenter.changedAll(scope: key)
                 lastFailure = nil
                 pendingMutations.removeAll()
             } catch {
@@ -111,11 +112,13 @@ final class TVWatchLaterMembership: ObservableObject {
         urls = Set(urls.filter { !TVVideoIdentity.equivalent($0, url) })
         if present { urls.insert(url) }
         indexedVideoKeys = Set(urls.map { TVPlaylistMembership.videoKey($0) })
+        TVVideoCardStatusCenter.changed(videoURL: url, scope: scope)
         // Do not claim an incomplete membership snapshot is fully loaded:
         // other saved videos must remain discoverable by the next GET.
     }
 
     func invalidate() {
+        TVVideoCardStatusCenter.changedAll(scope: scope)
         fetch?.cancel()
         fetch = nil
         scope = ""
