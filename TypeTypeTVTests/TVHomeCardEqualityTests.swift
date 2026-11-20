@@ -8,7 +8,9 @@ final class TVHomeCardEqualityTests: XCTestCase {
             id: "a", title: "Resume", url: "https://youtu.be/ABCDEFGHIJK",
             thumbnailUrl: nil, uploaderName: "Channel", duration: 180, isLive: false
         )
-        XCTAssertEqual(TVHomeResumeMetadataPolicy.maxTrackedCards, 6)
+        XCTAssertEqual(TVHomeResumeMetadataPolicy.visibleCards, 4)
+        XCTAssertEqual(TVHomeResumeMetadataPolicy.preloadCards, 3)
+        XCTAssertEqual(TVHomeResumeMetadataPolicy.maxTrackedCards, 7)
         XCTAssertTrue(TVHomeResumeMetadataPolicy.needsLookup(video))
         video.viewCount = 1_230
         XCTAssertTrue(TVHomeResumeMetadataPolicy.needsLookup(video))
@@ -111,7 +113,54 @@ final class TVHomeCardEqualityTests: XCTestCase {
     }
 
     @MainActor
-    func testResumeMetadataLoaderStopsBeforeItStartsOffscreenWork() async throws {
+    func testResumeMetadataPrimesSevenCardsBeforeAnyOnAppear() async throws {
+        let api = try TypeTypeAPI(address: "https://example.com")
+        let metadata = try JSONDecoder().decode(StreamInfo.self, from: Data(
+            #"{"viewCount":515,"publishedAt":1800000000000}"#.utf8
+        ))
+        let ids = [
+            "ABCDEFGHIJK", "LMNOPQRSTUV", "WXYZabcdefg",
+            "hijkLMNopqr", "stuvwXYZabc", "defghXYZuvw",
+            "ABCDxyzEFGH", "pqrstUVWXYZ", "jklmnopQRSt"
+        ]
+        let rows = ids.map { id in
+            VideoItem(id: id, title: id, url: "https://youtu.be/\(id)",
+                      thumbnailUrl: nil, uploaderName: "Channel",
+                      duration: 120, isLive: false)
+        }
+        var requested: [String] = []
+        var active = 0
+        var peak = 0
+        let started = expectation(description: "Metadata started without focus or card onAppear")
+        let completed = expectation(description: "All seven preloaded metadata results received")
+        var delivered: [String: StreamInfo] = [:]
+        let loader = TVHomeResumeMetadataLoader(fetch: { video, _ in
+            active += 1
+            peak = max(active, peak)
+            requested.append(video.url)
+            if requested.count == 1 { started.fulfill() }
+            try? await Task.sleep(for: .milliseconds(50))
+            active -= 1
+            return metadata
+        })
+        loader.prime(visibleHistory: rows, api: api, onBatch: { batch in
+            delivered.merge(batch, uniquingKeysWith: { _, new in new })
+            if delivered.count == 7 { completed.fulfill() }
+        })
+        // Deliberately do NOT call appear(), scroll or change focus.
+        await fulfillment(of: [started, completed], timeout: 5)
+        XCTAssertEqual(requested.count, 7, "Only the four visible and three ahead")
+        XCTAssertEqual(Set(requested), Set(rows.prefix(7).map(\.url)))
+        XCTAssertEqual(peak, 3)
+        // The later LazyHStack.onAppear must not reorder this window or refetch.
+        loader.appear(video: rows[0], api: api, onBatch: { _ in })
+        XCTAssertEqual(requested.count, 7)
+        XCTAssertEqual(active, 0)
+        loader.stop()
+    }
+
+    @MainActor
+    func testImmediateLoaderDoesNotStartCancelledFetchBeforeFirstScheduling() async throws {
         let api = try TypeTypeAPI(address: "https://example.com")
         let video = VideoItem(
             id: "ABCDEFGHIJK", title: "Resume",
@@ -124,10 +173,10 @@ final class TVHomeCardEqualityTests: XCTestCase {
             lookups += 1
             return nil
         })
-        loader.appear(video: video, api: api, onBatch: { _ in })
+        loader.prime(visibleHistory: [video], api: api, onBatch: { _ in })
         loader.stop()
-        try await Task.sleep(for: .milliseconds(550))
-        XCTAssertEqual(lookups, 0, "Closing Home cancels pending extraction")
+        try await Task.sleep(for: .milliseconds(120))
+        XCTAssertEqual(lookups, 0, "Immediate stop cancels unscheduled lookups")
     }
 
     @MainActor
