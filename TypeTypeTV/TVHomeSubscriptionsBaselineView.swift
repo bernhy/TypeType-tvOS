@@ -23,7 +23,7 @@ private struct TVHomeBaselineTile: View {
     let columns: Int
     let focus: FocusState<String?>.Binding
     let homeMenu: TVHomeMenuCoordinator
-    let onRevealMenu: () -> Void
+    let onRevealMenu: (String) -> Void
     let onReturnToList: () -> Void
     let onChanged: () -> Void
     let onNavigation: () -> Void
@@ -64,7 +64,7 @@ private struct TVHomeBaselineTile: View {
             onNavigation()
             if direction == .left &&
                (resume ? entry.index == 0 : entry.index % columns == 0) {
-                onRevealMenu()
+                onRevealMenu(id)
             }
         }
         .accessibilityIdentifier(resume
@@ -100,7 +100,7 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
     let api: TypeTypeAPI
     let focus: FocusState<String?>.Binding
     let homeMenu: TVHomeMenuCoordinator
-    let onRevealMenu: () -> Void
+    let onRevealMenu: (String) -> Void
     let onReturnToList: (String) -> Void
     let onChanged: () -> Void
     let onApproachEnd: () -> Void
@@ -189,6 +189,9 @@ struct TVHomeSubscriptionsBaselineView: View {
     // Reference state is intentionally not observable: queue activity must
     // never invalidate Home or its Equatable card collections.
     @State private var resumeMetadata = TVHomeResumeMetadataLoader()
+    // Updated once on leaving Home for the sidebar, never on each focus move.
+    // The same card becomes the target when pressing Right to return.
+    @State private var railReturnCardID: String?
     @State private var videos: [VideoItem]
     @State private var recentVideos: [VideoItem]
     @State private var historyLoadedOnce = false
@@ -469,7 +472,11 @@ struct TVHomeSubscriptionsBaselineView: View {
         )
         return TVHomeBaselineVideoCollection(
             snapshot: snapshot, api: api, focus: $focusedVideo,
-            homeMenu: homeMenu, onRevealMenu: onRevealMenu,
+            homeMenu: homeMenu,
+            onRevealMenu: { id in
+                railReturnCardID = id
+                onRevealMenu()
+            },
             onReturnToList: { id in
                 TVVideoFocusReturn.restore($focusedVideo, id: id, scroll: scroll)
             },
@@ -505,7 +512,13 @@ struct TVHomeSubscriptionsBaselineView: View {
         guard initialFocusPending else { return }
         if let firstCardID {
             initialFocusPending = false
-            focusedVideo = firstCardID
+            // Re-enter the exact row/card we left; use the first only if
+            // that video disappeared from the newly loaded collection.
+            focusedVideo = TVHomeReturnFocusPolicy.target(
+                saved: railReturnCardID,
+                visibleIDs: Set(visibleCardIDs),
+                fallback: firstCardID
+            )
             onInitialFocusReady()
         } else if recommendationsLoaded &&
                   (!showRecent || (!loadingRecent && historyLoadedOnce)) {
@@ -518,6 +531,7 @@ struct TVHomeSubscriptionsBaselineView: View {
     private func handleHomeBack(scroll: ScrollViewProxy) {
         guard let firstCardID else { onRevealMenu(); return }
         if focusedVideo == firstCardID {
+            railReturnCardID = firstCardID
             onRevealMenu()
         } else {
             TVVideoFocusReturn.restore($focusedVideo, id: firstCardID,
