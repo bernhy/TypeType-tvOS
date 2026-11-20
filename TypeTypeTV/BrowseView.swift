@@ -40,9 +40,8 @@ enum TVSection: String, CaseIterable, Hashable {
     }
 }
 
-/// The content keeps its collapsed-rail width throughout the menu transition.
-/// Animating a real HStack width causes every thumbnail/grid cell to be
-/// remeasured on every frame; translate the page as a layer instead.
+/// Rail and page share a single SwiftUI layout animation: no reserved
+/// viewport, completion callback, or follow-up resizing phase is needed.
 enum TVMainNavigationLayout {
     static let collapsedWidth: CGFloat = 56
     static let expandedWidth: CGFloat = 214
@@ -50,10 +49,6 @@ enum TVMainNavigationLayout {
 
     static func width(expanded: Bool) -> CGFloat {
         expanded ? expandedWidth : collapsedWidth
-    }
-
-    static func pageShift(expanded: Bool) -> CGFloat {
-        expanded ? expandedWidth - collapsedWidth : 0
     }
 }
 
@@ -126,10 +121,15 @@ struct BrowseView: View {
             ZStack(alignment: .leading) {
                 TTTheme.ink.ignoresSafeArea()
                 HStack(spacing: 0) {
-                    // Reserve a CONSTANT rail width. The expanding rail is
-                    // an overlay; it never shrinks or reflows the lazy grid.
                     if !playbackVisibility.isVisible {
-                        Color.clear.frame(width: TVMainNavigationLayout.collapsedWidth)
+                        sidebar
+                            // Home's first-column Left/Back handlers reveal
+                            // the menu explicitly. While collapsed, its
+                            // focusable icons must never steal focus during
+                            // lazy-grid updates or scroll changes.
+                            .disabled(homeStartupFocusPending ||
+                                      (section == .home && !expanded))
+                            .zIndex(1)
                     }
                 NavigationStack {
                     Group {
@@ -189,21 +189,10 @@ struct BrowseView: View {
                 }
                 .id("\(section.rawValue)-\(accountGeneration)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    // GPU translation, not another full page-grid layout.
-                    .offset(x: playbackVisibility.isVisible ? 0 :
-                        TVMainNavigationLayout.pageShift(expanded: expanded))
                     .focusSection()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea(.container, edges: .leading)
-                .overlay(alignment: .leading) {
-                    if !playbackVisibility.isVisible {
-                        sidebar
-                            .disabled(homeStartupFocusPending ||
-                                      (section == .home && !expanded))
-                            .zIndex(1)
-                    }
-                }
                 // Keep the entire existing navigation screen visible beneath
                 // the picker instead of presenting an opaque tvOS sheet.
                 .disabled(playlistPopup.request != nil)
@@ -580,9 +569,6 @@ struct HomeView: View {
     // Only Left-to-rail remembers the current card; Home/Back keeps its
     // existing first-card-then-navigation behavior.
     @State private var leftRailReturnCardID: String?
-    // During a deep-card restore, keep the unrelated resume shelf out of
-    // UIKit's early automatic focus choice until the intended card mounts.
-    @State private var homeFocusRestoreTarget: String?
     @Namespace private var homeFocusScope
     @Environment(\.resetFocus) private var resetFocus
     @State private var needsHomeFocus = false
@@ -696,7 +682,6 @@ struct HomeView: View {
                             .frame(maxWidth: .infinity, minHeight: 135)
                     } else if !visibleRecent.isEmpty {
                         continueWatchingRail(visibleRecent, scroll: scroll)
-                            .disabled(homeFocusRestoreTarget?.hasPrefix("recommendation-") == true)
                     } else if recentNeedsLogin {
                         VStack(alignment: .leading, spacing: 15) {
                             Text("home.signInForHistory")
@@ -742,7 +727,6 @@ struct HomeView: View {
                         )
                     } else {
                         videoGrid(visibleRecommendations, scroll: scroll, paginate: true)
-                            .disabled(homeFocusRestoreTarget?.hasPrefix("recent-") == true)
                         if loadingMore {
                             ProgressView("home.loadingMore")
                                 .frame(maxWidth: .infinity)
@@ -837,17 +821,13 @@ struct HomeView: View {
         // Keep the preferred target stable even while FocusState is cleared
         // for NavigationStack's pop animation.
         preferredHomeCardID = target
-        homeFocusRestoreTarget = target
         if target.hasPrefix("recent-") {
             resumeScrollTarget = target
             resumeScrollRequest &+= 1
         }
         pendingHomeFocus = Task { @MainActor in
             defer {
-                if homeFocusGeneration == generation {
-                    pendingHomeFocus = nil
-                    homeFocusRestoreTarget = nil
-                }
+                if homeFocusGeneration == generation { pendingHomeFocus = nil }
             }
             // The pushed detail temporarily owns UIKit focus. Clearing our
             // old FocusState is necessary even when returning to the exact
@@ -859,12 +839,11 @@ struct HomeView: View {
                 try? await Task.sleep(for: .milliseconds(450))
             }
             guard !Task.isCancelled else { return }
-            // Scroll first, WITHOUT moving the full grid in the same animated
-            // transaction as the native focus switch. A mid-animation reset
-            // could select the first Continue Watching tile instead.
-            scroll.scrollTo(target.hasPrefix("recent-")
-                ? "home-continue-watching-row" : target, anchor: .center)
-            try? await Task.sleep(for: .milliseconds(returningFromDetails ? 220 : 160))
+            withAnimation(.easeOut(duration: 0.18)) {
+                scroll.scrollTo(target.hasPrefix("recent-")
+                    ? "home-continue-watching-row" : target, anchor: .center)
+            }
+            try? await Task.sleep(for: .milliseconds(returningFromDetails ? 220 : 140))
             guard !Task.isCancelled, homeFocusGeneration == generation else { return }
             focusedHomeVideo = target
             resetFocus(in: homeFocusScope)
@@ -876,8 +855,10 @@ struct HomeView: View {
                 try? await Task.sleep(for: .milliseconds(350))
                 guard !Task.isCancelled else { return }
                 if focusedHomeVideo != target {
-                    scroll.scrollTo(target.hasPrefix("recent-")
-                        ? "home-continue-watching-row" : target, anchor: .center)
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        scroll.scrollTo(target.hasPrefix("recent-")
+                            ? "home-continue-watching-row" : target, anchor: .center)
+                    }
                     if target.hasPrefix("recent-") {
                         resumeScrollTarget = target
                         resumeScrollRequest &+= 1
@@ -893,23 +874,19 @@ struct HomeView: View {
 
     @MainActor
     private func userMovedWithinHome() {
-        // Do NOT mutate HomeView's @State on every remote movement: doing so
-        // invalidates every rail/grid label in a 100+ video screen. Only a
-        // real in-flight focus restore needs cancelling.
-        guard pendingHomeFocus != nil else { return }
+        // Explicit directional input takes precedence over delayed startup
+        // and post-detail focus restoration. Otherwise the pending timer
+        // can send the cursor back to the first tile mid-navigation.
         homeFocusGeneration &+= 1
         pendingHomeFocus?.cancel()
         pendingHomeFocus = nil
-        homeFocusRestoreTarget = nil
     }
 
     @MainActor
     private func focusFirstHomeVideo(scroll: ScrollViewProxy) {
         guard needsHomeFocus else { return }
-        // Both cold launch and rail re-entry must wait for recommendations
-        // before accepting the resume shelf as a fallback focus target.
-        // Otherwise a late recommendation response moves focus twice.
-        guard !showRecommendations || !loading else { return }
+        // Wait for recommendations to arrive. Recent history may load first
+        // but must never steal the initial Home focus.
         guard let first = firstVisible else { return }
         let firstID = homeCardID(first.video, recommended: first.recommendation)
         let visibleIDs = Set(
