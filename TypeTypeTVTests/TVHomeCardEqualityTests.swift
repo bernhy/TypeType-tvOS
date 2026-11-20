@@ -3,7 +3,7 @@ import XCTest
 
 final class TVHomeCardEqualityTests: XCTestCase {
     func testDiagnosticModesIsolateHomeWorkWithoutReduccingImageQuality() {
-        XCTAssertEqual(TVHomeExperimentMode.allCases.count, 7)
+        XCTAssertEqual(TVHomeExperimentMode.allCases.count, 9)
         XCTAssertEqual(TVHomeExperimentMode.full.next,
                        .noStreamMetadata)
         XCTAssertEqual(TVHomeExperimentMode.noStreamMetadata.next,
@@ -17,6 +17,10 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertEqual(TVHomeExperimentMode.twelveWithoutEffects.next,
                        .twelveWithoutFocusHints)
         XCTAssertEqual(TVHomeExperimentMode.twelveWithoutFocusHints.next,
+                       .twelveLightweightMenu)
+        XCTAssertEqual(TVHomeExperimentMode.twelveLightweightMenu.next,
+                       .fullLightweightMenu)
+        XCTAssertEqual(TVHomeExperimentMode.fullLightweightMenu.next,
                        .full)
         XCTAssertTrue(TVHomeExperimentMode.full.includesResume)
         XCTAssertTrue(TVHomeExperimentMode.full.enrichesResumeMetadata)
@@ -28,6 +32,9 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertEqual(TVHomeExperimentMode.twelveWithoutActions.recommendationLimit, 12)
         XCTAssertEqual(TVHomeExperimentMode.twelveWithoutEffects.recommendationLimit, 12)
         XCTAssertEqual(TVHomeExperimentMode.twelveWithoutFocusHints.recommendationLimit, 12)
+        XCTAssertEqual(TVHomeExperimentMode.twelveLightweightMenu.recommendationLimit, 12)
+        XCTAssertNil(TVHomeExperimentMode.fullLightweightMenu.recommendationLimit)
+        XCTAssertTrue(TVHomeExperimentMode.fullLightweightMenu.includesResume)
         XCTAssertFalse(TVHomeExperimentMode.twelveWithoutActions.includesCardActionModifiers)
         XCTAssertTrue(TVHomeExperimentMode.twelveWithoutActions.includesCardVisualEffects)
         XCTAssertTrue(TVHomeExperimentMode.twelveWithoutEffects.includesCardActionModifiers)
@@ -38,6 +45,10 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertFalse(TVHomeExperimentMode.twelveWithoutFocusHints.includesDefaultFocusHints)
         XCTAssertTrue(TVHomeExperimentMode.twelveWithoutFocusHints.includesCardActionModifiers)
         XCTAssertTrue(TVHomeExperimentMode.twelveWithoutFocusHints.includesCardVisualEffects)
+        XCTAssertTrue(TVHomeExperimentMode.twelveLightweightMenu.usesLightweightMenu)
+        XCTAssertTrue(TVHomeExperimentMode.fullLightweightMenu.usesLightweightMenu)
+        XCTAssertFalse(TVHomeExperimentMode.full.usesLightweightMenu)
+        XCTAssertTrue(TVHomeExperimentMode.fullLightweightMenu.includesCardActionModifiers)
     }
 
     func testSingleTargetRailHandoffNeverPermitsNeighborFocus() throws {

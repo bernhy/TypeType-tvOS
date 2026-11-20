@@ -548,6 +548,8 @@ enum TVHomeExperimentMode: String, CaseIterable {
     case twelveWithoutActions
     case twelveWithoutEffects
     case twelveWithoutFocusHints
+    case twelveLightweightMenu
+    case fullLightweightMenu
 
     var title: String {
         switch self {
@@ -558,11 +560,13 @@ enum TVHomeExperimentMode: String, CaseIterable {
         case .twelveWithoutActions: return "12 ohne Kontextmenüs"
         case .twelveWithoutEffects: return "12 ohne Bildeffekte"
         case .twelveWithoutFocusHints: return "12 ohne Fokuspriorität"
+        case .twelveLightweightMenu: return "12 – schlankes Kontextmenü"
+        case .fullLightweightMenu: return "Alle – schlankes Kontextmenü"
         }
     }
 
     var includesResume: Bool {
-        self == .full || self == .noStreamMetadata
+        self == .full || self == .noStreamMetadata || self == .fullLightweightMenu
     }
 
     var enrichesResumeMetadata: Bool {
@@ -572,7 +576,7 @@ enum TVHomeExperimentMode: String, CaseIterable {
     var recommendationLimit: Int? {
         switch self {
         case .twelveRecommendations, .twelveWithoutActions, .twelveWithoutEffects,
-             .twelveWithoutFocusHints:
+             .twelveWithoutFocusHints, .twelveLightweightMenu:
             return 12
         default:
             return nil
@@ -583,6 +587,10 @@ enum TVHomeExperimentMode: String, CaseIterable {
     var includesCardVisualEffects: Bool { self != .twelveWithoutEffects }
 
     var includesDefaultFocusHints: Bool { self != .twelveWithoutFocusHints }
+
+    var usesLightweightMenu: Bool {
+        self == .twelveLightweightMenu || self == .fullLightweightMenu
+    }
 
     var next: Self {
         let modes = Self.allCases
@@ -689,12 +697,22 @@ private struct TVHomeDiagnosticActions: ViewModifier {
     let api: TypeTypeAPI
     let video: VideoItem
     let includeActions: Bool
+    let lightweightMenu: Bool
+    let homeMenu: TVHomeMenuCoordinator
     let focus: FocusState<String?>.Binding
     let focusID: String
     let onChanged: () -> Void
 
     func body(content: Content) -> some View {
-        if includeActions {
+        if includeActions && lightweightMenu {
+            // Stable NavigationLink and FocusState in every frame; menu
+            // buttons are generated on demand from a coordinator shared
+            // by Home, not from a per-card @ObservedObject or @State graph.
+            content.modifier(TVHomeLightweightVideoActions(
+                api: api, video: video, model: homeMenu,
+                focus: focus, focusID: focusID, onChanged: onChanged
+            ))
+        } else if includeActions {
             content.videoActions(api: api, video: video, onChanged: onChanged,
                                  focus: focus, focusID: focusID)
         } else {
@@ -707,6 +725,7 @@ struct HomeView: View {
     let api: TypeTypeAPI
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
     @ObservedObject private var localProgress = TVLocalProgress.shared
+    @StateObject private var homeMenu = TVHomeMenuCoordinator()
     @AppStorage("typetype.experiment.homeDiagnosticMode")
     private var diagnosticModeRaw = TVHomeExperimentMode.full.rawValue
     private var diagnosticMode: TVHomeExperimentMode {
@@ -967,6 +986,7 @@ struct HomeView: View {
                    alignment: .leading)
             .background(TTTheme.ink)
             .focusScope(homeFocusScope)
+            .modifier(TVHomeMenuPresentation(model: homeMenu))
             .task {
                 await contentPreferences.ensureLoaded(api: api)
                 // A detail push/pop can restart .task while the user is on
@@ -1036,6 +1056,11 @@ struct HomeView: View {
             }
             .onChange(of: videos.count) { _, _ in
                 focusFirstHomeVideo(scroll: scroll)
+            }
+            .onChange(of: homeMenu.focusRestoreRequest) { _, _ in
+                if let id = homeMenu.focusRestoreTarget {
+                    focusedHomeVideo = id
+                }
             }
             .onChange(of: focusedHomeVideo) { _, current in
                 guard let current else { return }
@@ -1254,6 +1279,8 @@ struct HomeView: View {
                         .modifier(TVHomeDiagnosticActions(
                             api: api, video: video,
                             includeActions: diagnosticMode.includesCardActionModifiers,
+                            lightweightMenu: diagnosticMode.usesLightweightMenu,
+                            homeMenu: homeMenu,
                             focus: $focusedHomeVideo, focusID: focusID,
                             onChanged: { Task { await refresh() } }
                         ))
@@ -1340,6 +1367,8 @@ struct HomeView: View {
                 .modifier(TVHomeDiagnosticActions(
                     api: api, video: video,
                     includeActions: diagnosticMode.includesCardActionModifiers,
+                    lightweightMenu: diagnosticMode.usesLightweightMenu,
+                    homeMenu: homeMenu,
                     focus: $focusedHomeVideo,
                     focusID: homeCardID(video, recommended: paginate),
                     onChanged: { Task { await refresh() } }

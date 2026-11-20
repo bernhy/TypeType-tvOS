@@ -496,3 +496,307 @@ enum TVVideoFocusReturn {
     }
 }
 
+
+
+// MARK: - Home performance experiment: stable focus with on-demand actions
+
+/// The old approach conditionally inserted/removed a heavy modifier on the
+/// focused NavigationLink. UIKit dropped that focus owner, breaking the Left
+/// transition and the card zoom. This model lives ONCE for the whole Home
+/// screen; individual links keep a stable, observer-free contextMenu modifier.
+@MainActor
+final class TVHomeMenuCoordinator: ObservableObject {
+    enum BlockTarget { case video, channel }
+
+    struct BlockRequest {
+        let target: BlockTarget
+        let api: TypeTypeAPI
+        let video: VideoItem
+        let focusID: String
+        let onChanged: () -> Void
+    }
+
+    @Published var blockRequest: BlockRequest?
+    @Published var errorMessage: String?
+    @Published var feedback: String?
+    @Published private(set) var focusRestoreRequest = 0
+    private(set) var focusRestoreTarget: String?
+    private var lastFocusID: String?
+    private var working = false
+    private var feedbackTask: Task<Void, Never>?
+
+    func restoreFocus(_ id: String) {
+        Task { @MainActor in
+            await Task.yield()
+            focusRestoreTarget = id
+            focusRestoreRequest &+= 1
+        }
+    }
+
+    private func showFeedback(_ message: String) {
+        feedbackTask?.cancel()
+        feedback = message
+        feedbackTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.4))
+            guard !Task.isCancelled else { return }
+            feedback = nil
+        }
+    }
+
+    private func refreshAfterFeedback(_ onChanged: @escaping () -> Void) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1_200))
+            guard !Task.isCancelled else { return }
+            onChanged()
+        }
+    }
+
+    private func run(focusID: String, refresh: Bool = true,
+                     onChanged: @escaping () -> Void,
+                     action: @escaping () async throws -> String) {
+        guard !working else { return }
+        lastFocusID = focusID
+        working = true
+        Task { @MainActor in
+            defer { working = false }
+            do {
+                let result = try await action()
+                showFeedback(result)
+                if refresh { refreshAfterFeedback(onChanged) }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func markWatched(api: TypeTypeAPI, video: VideoItem, focusID: String,
+                     onChanged: @escaping () -> Void) {
+        run(focusID: focusID, refresh: false, onChanged: onChanged) {
+            var target = video
+            if (target.duration ?? 0) <= 0 {
+                let details = await TVStreamMetadataCache.shared.details(for: video, api: api)
+                target = TVVideoMetadata.merged(video, stream: details)
+            }
+            guard let duration = target.duration, duration > 0,
+                  duration <= Int64.max / 1_000 else {
+                throw TypeTypeError.missingVideoDuration
+            }
+            let currentPosition = TVLocalProgress.shared.position(for: video.url) ??
+                video.watchPositionMs
+            let mark = !TVWatchedState.isWatched(target, positionMs: currentPosition)
+            try await api.setWatched(mark, video: target)
+            TVLocalProgress.shared.record(
+                video.url, positionMs: mark ? Int64(duration) * 1_000 : 0
+            )
+            return TVL10n.value(mark ? "action.markWatchedSuccess"
+                                    : "action.markUnwatchedSuccess")
+        }
+    }
+
+    func updateWatchLater(api: TypeTypeAPI, video: VideoItem,
+                          focusID: String, enabled: Bool,
+                          onChanged: @escaping () -> Void) {
+        run(focusID: focusID, onChanged: onChanged) {
+            try await api.setWatchLater(video: video, enabled: enabled)
+            TVWatchLaterMembership.shared.mark(video.url, present: enabled, api: api)
+            return TVL10n.value(enabled ? "action.savedWatchLater"
+                                        : "action.removedWatchLater")
+        }
+    }
+
+    func presentPlaylist(api: TypeTypeAPI, video: VideoItem,
+                         focusID: String, onChanged: @escaping () -> Void) {
+        lastFocusID = focusID
+        TVPlaylistPopupPresenter.shared.present(
+            api: api, video: video,
+            onSaved: { result in
+                self.showFeedback(result)
+                if result == TVL10n.value("action.removedPlaylist") {
+                    self.refreshAfterFeedback(onChanged)
+                }
+            },
+            onDismiss: { self.restoreFocus(focusID) }
+        )
+    }
+
+    func requestBlock(_ target: BlockTarget, api: TypeTypeAPI,
+                      video: VideoItem, focusID: String,
+                      onChanged: @escaping () -> Void) {
+        lastFocusID = focusID
+        guard target != .channel || video.uploaderUrl?.isEmpty == false else {
+            errorMessage = TVL10n.value("action.channelUnavailable")
+            return
+        }
+        blockRequest = BlockRequest(target: target, api: api, video: video,
+                                    focusID: focusID, onChanged: onChanged)
+    }
+
+    func dismissBlock() {
+        guard let request = blockRequest else { return }
+        blockRequest = nil
+        restoreFocus(request.focusID)
+    }
+
+    func confirmBlock() {
+        guard let request = blockRequest else { return }
+        blockRequest = nil
+        run(focusID: request.focusID, onChanged: request.onChanged) {
+            switch request.target {
+            case .video:
+                try await request.api.blockVideo(request.video)
+                TVBlockedNameCache.remember(title: request.video.title,
+                                            url: request.video.url, api: request.api)
+            case .channel:
+                try await request.api.blockChannel(request.video)
+            }
+            return TVL10n.value("action.blocked")
+        }
+        restoreFocus(request.focusID)
+    }
+
+    func dismissError() {
+        errorMessage = nil
+        if let lastFocusID { restoreFocus(lastFocusID) }
+    }
+}
+
+/// Stable per-card modifier: the focused NavigationLink is never replaced.
+/// Unlike TVVideoActionModifier, this has no @ObservedObject, @State, .task,
+/// dialog, toast, or animation for each thumbnail.
+struct TVHomeLightweightVideoActions: ViewModifier {
+    let api: TypeTypeAPI
+    let video: VideoItem
+    let model: TVHomeMenuCoordinator
+    let focus: FocusState<String?>.Binding
+    let focusID: String
+    let onChanged: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .focused(focus, equals: focusID)
+            .contextMenu {
+                // Read the current shared state only when the menu is built.
+                // Do not subscribe every Home card to progress/membership.
+                let position = TVLocalProgress.shared.position(for: video.url) ??
+                    video.watchPositionMs
+                let watched = TVWatchedState.isWatched(video, positionMs: position)
+                let saved = TVWatchLaterMembership.shared.contains(video.url)
+
+                if let position, position > 0 {
+                    Button {} label: {
+                        Label(
+                            TVL10n.formatted("action.playedUntil",
+                                           TTTheme.time(Int(position / 1_000))),
+                            systemImage: "clock.arrow.circlepath"
+                        )
+                    }
+                    .disabled(true)
+                }
+                if video.isLive != true &&
+                   ((video.duration ?? 0) > 0 || video.isShort) {
+                    Button {
+                        model.markWatched(api: api, video: video,
+                                          focusID: focusID, onChanged: onChanged)
+                    } label: {
+                        Label(
+                            watched ? "action.markUnwatched" : "action.markWatched",
+                            systemImage: watched
+                                ? "arrow.uturn.backward.circle" : "checkmark.circle"
+                        )
+                    }
+                }
+                if saved {
+                    Button(role: .destructive) {
+                        model.updateWatchLater(api: api, video: video,
+                            focusID: focusID, enabled: false, onChanged: onChanged)
+                    } label: {
+                        Label("action.removeWatchLater", systemImage: "bookmark.slash")
+                    }
+                } else {
+                    Button {
+                        model.updateWatchLater(api: api, video: video,
+                            focusID: focusID, enabled: true, onChanged: onChanged)
+                    } label: {
+                        Label("action.watchLater", systemImage: "bookmark")
+                    }
+                }
+                Button {
+                    model.presentPlaylist(api: api, video: video,
+                        focusID: focusID, onChanged: onChanged)
+                } label: {
+                    Label("action.addPlaylist", systemImage: "text.badge.plus")
+                }
+                Button(role: .destructive) {
+                    model.requestBlock(.video, api: api, video: video,
+                                       focusID: focusID, onChanged: onChanged)
+                } label: {
+                    Label("action.blockVideo", systemImage: "hand.raised")
+                }
+                Button(role: .destructive) {
+                    model.requestBlock(.channel, api: api, video: video,
+                                       focusID: focusID, onChanged: onChanged)
+                } label: {
+                    Label("action.blockChannel",
+                          systemImage: "person.crop.circle.badge.xmark")
+                }
+            }
+    }
+}
+
+/// Exactly one dialog/toast host, instead of one per visible Home thumbnail.
+struct TVHomeMenuPresentation: ViewModifier {
+    @ObservedObject var model: TVHomeMenuCoordinator
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                if let feedback = model.feedback {
+                    Label(feedback, systemImage: "checkmark.circle.fill")
+                        .font(.callout.bold())
+                        .foregroundStyle(.white)
+                        .padding(12)
+                        .background(.black.opacity(0.88),
+                                    in: RoundedRectangle(cornerRadius: 12))
+                        .padding(12)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+            .confirmationDialog(
+                TVL10n.formatted(
+                    "action.confirmBlockNamed",
+                    model.blockRequest?.target == .channel
+                        ? (model.blockRequest?.video.uploaderName ??
+                           TVL10n.value("action.channelUnavailable"))
+                        : (model.blockRequest?.video.title ?? "")
+                ),
+                isPresented: Binding(
+                    get: { model.blockRequest != nil },
+                    set: { if !$0 { model.dismissBlock() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                if let request = model.blockRequest {
+                    Button(TVL10n.value(request.target == .video
+                        ? "action.blockVideo" : "action.blockChannel"),
+                        role: .destructive) {
+                        model.confirmBlock()
+                    }
+                }
+                Button("common.cancel", role: .cancel) {
+                    model.dismissBlock()
+                }
+            }
+            .alert(
+                TVL10n.value("action.failed"),
+                isPresented: Binding(
+                    get: { model.errorMessage != nil },
+                    set: { if !$0 { model.dismissError() } }
+                )
+            ) {
+                Button("common.ok") { model.dismissError() }
+            } message: {
+                Text(model.errorMessage ?? "")
+            }
+    }
+}
