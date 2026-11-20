@@ -538,6 +538,9 @@ struct TVHomeCardToastAnchorKey: PreferenceKey {
 
     static func reduce(value: inout [String: Anchor<CGRect>],
                        nextValue: () -> [String: Anchor<CGRect>]) {
+        #if DEBUG
+        TVHomeFocusDiagnostics.hit(.anchorReduce)
+        #endif
         value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
     }
 }
