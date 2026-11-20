@@ -10,6 +10,7 @@ private enum TVLibraryDestination: Hashable {
 
 struct LibraryView: View {
     let api: TypeTypeAPI
+    var fixedLayoutWidth: CGFloat?
     var preferPlaylists = false
     var focusRequest = 0
     var onRevealMenu: () -> Void = {}
@@ -21,6 +22,7 @@ struct LibraryView: View {
     // Only Up/Down moves already within this rail may visually follow the
     // native focus. Left from content is pinned to the selected destination.
     @State private var railBrowsingVertically = false
+    @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @FocusState private var focusedVideoURL: String?
     @FocusState private var focusedRefresh: Bool
     @FocusState private var focusedEditPlaylist: Bool
@@ -56,6 +58,12 @@ struct LibraryView: View {
                 .environment(\.isFocusEffectEnabled, false)
                 .focusEffectDisabled(true)
                 .focusSection()
+            GeometryReader { viewport in
+            // Keep the library subrail in its original 240pt slot. Only
+            // its neighboring video content visually scales as the global
+            // sidebar expands, never the library's own navigation controls.
+            let layoutWidth = max(0, (fixedLayoutWidth ??
+                (viewport.size.width + 260)) - 260)
             ScrollViewReader { scroll in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 23) {
@@ -131,54 +139,33 @@ struct LibraryView: View {
                             detail: TVL10n.value("library.historyEmpty")
                         )
                     } else {
-                        LazyVGrid(columns: columns, spacing: 28) {
-                            ForEach(visibleVideos) { video in
-                                NavigationLink {
-                                    VideoDetailView(
-                                        api: api, video: video,
-                                        playbackQueue: playbackQueue,
-                                        onReturnToList: {
-                                            TVVideoFocusReturn.restore(
-                                                $focusedVideoURL, id: video.url, scroll: scroll
-                                            )
-                                        }
-                                    )
-                                } label: {
-                                    VideoCard(api: api, video: video,
-                                              lookupMissingMetadata: selected == .standard(.history))
-                                }
-                                .buttonStyle(TVRailButtonStyle())
-                                .focusEffectDisabled(true)
-                                .zIndex(focusedVideoURL == video.url ? 5 : 0)
-                                .videoActions(
-                                    api: api, video: video,
-                                    onChanged: { Task { await refresh() } },
-                                    onRemoveFromPlaylist: removalAction(for: video),
-                                    isWatchLaterEntry: selected == .standard(.watchLater),
-                                    focus: $focusedVideoURL, focusID: video.url
+                        TVSharedVideoGrid(
+                            snapshot: TVSharedVideoGridSnapshot(
+                                videos: visibleVideos, scope: api.metadataCacheScope,
+                                destination: "library-" + String(describing: selected),
+                                focusPrefix: "",
+                                accessibilityPrefix: "library-video-",
+                                columns: columns.count, columnSpacing: 25,
+                                rowSpacing: 28,
+                                canLoadMore: selected == .standard(.history) &&
+                                    historyHasMore && !loading && !historyLoadingMore,
+                                loadAhead: 8,
+                                lookupMissingMetadata: selected == .standard(.history),
+                                isWatchLaterEntry: selected == .standard(.watchLater),
+                                playbackQueue: playbackQueue
+                            ),
+                            api: api, focus: $focusedVideoURL, menu: videoMenu,
+                            onReturnToList: { id in
+                                TVVideoFocusReturn.restore(
+                                    $focusedVideoURL, id: id, scroll: scroll
                                 )
-                                .onMoveCommand { direction in
-                                    if direction == .left,
-                                       let index = visibleVideos.firstIndex(where: { $0.id == video.id }),
-                                       index % columns.count == 0 {
-                                        focusedDestination = selected
-                                    }
-                                }
-                                .accessibilityLabel(TTTheme.accessibilityText(for: video))
-                                .id(video.url)
-                                .onAppear {
-                                    guard selected == .standard(.history),
-                                          !loading && !historyLoadingMore && historyHasMore,
-                                          let index = visibleVideos.firstIndex(where: {
-                                              TVHistoryDeduplicator.key(for: $0) ==
-                                                  TVHistoryDeduplicator.key(for: video)
-                                          }),
-                                          index >= visibleVideos.count - 8 else { return }
-                                    Task { await loadMoreHistory() }
-                                }
-                            }
-                        }
-                        .focusSection()
+                            },
+                            onLeftEdge: { _ in focusedDestination = selected },
+                            onChanged: { Task { await refresh() } },
+                            onApproachEnd: { Task { await loadMoreHistory() } },
+                            onRemoveFromPlaylist: { removalAction(for: $0) }
+                        )
+                        .equatable()
                         if selected == .standard(.history) && historyHasMore {
                             HStack(spacing: 16) {
                                 if historyLoadingMore { ProgressView() }
@@ -200,10 +187,22 @@ struct LibraryView: View {
                 .padding(.top, 38)
                 .padding(.trailing, 38)
                 .padding(.bottom, 100)
+                .frame(width: layoutWidth, alignment: .leading)
+                .scaleEffect(
+                    TVHomeNavigationZoom.scale(
+                        visibleWidth: viewport.size.width,
+                        layoutWidth: layoutWidth
+                    ),
+                    anchor: .topLeading
+                )
+                .frame(width: viewport.size.width, alignment: .topLeading)
                 }
+                .frame(width: viewport.size.width, height: viewport.size.height)
             }
+            } // GeometryReader: library rail stays native; grid zooms.
         }
         .background(TTTheme.ink)
+        .modifier(TVHomeMenuPresentation(model: videoMenu))
         .task { await contentPreferences.ensureLoaded(api: api) }
         .task { await refresh() }
         .onChange(of: focusedDestination) { previous, next in
