@@ -75,6 +75,93 @@ private struct TVHomeBaselineTile: View {
     }
 }
 
+/// A real data snapshot for SwiftUI's EquatableView. Equality intentionally
+/// ignores focus position, which is a *dynamic* binding in each existing tile.
+/// Playlist/status/local progress changes still reach VideoCard through its
+/// own @ObservedObject dependencies, independently of this snapshot.
+struct TVHomeCollectionSnapshot: Equatable {
+    let items: [VideoItem]
+    let scope: String
+    let resume: Bool
+    let columns: Int
+    let canLoadMore: Bool
+}
+
+/// The Home parent owns @FocusState and is reevaluated on each navigation
+/// step. Crucially, the card factory is now inside an .equatable() content
+/// boundary: it is NOT reexecuted for every visible cell on focus changes.
+/// The two section layouts use the same TVHomeBaselineTile.
+private struct TVHomeBaselineVideoCollection: View, Equatable {
+    let snapshot: TVHomeCollectionSnapshot
+    let api: TypeTypeAPI
+    let focus: FocusState<String?>.Binding
+    let homeMenu: TVHomeMenuCoordinator
+    let onRevealMenu: () -> Void
+    let onReturnToList: (String) -> Void
+    let onChanged: () -> Void
+    let onApproachEnd: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.snapshot == rhs.snapshot && lhs.homeMenu === rhs.homeMenu
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if snapshot.resume {
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .center, spacing: 26) {
+                    entries
+                }
+                .padding(.vertical, 20)
+                .scrollTargetLayout()
+            }
+            .scrollIndicators(.hidden)
+            .scrollClipDisabled()
+            .scrollTargetBehavior(.viewAligned)
+            .frame(height: 445)
+            .id("home-continue-watching-row")
+            .focusSection()
+        } else {
+            LazyVGrid(columns: Array(repeating:
+                GridItem(.flexible(), spacing: 26), count: snapshot.columns),
+                spacing: 32) {
+                entries
+            }
+            .focusSection()
+        }
+    }
+
+    private var entries: some View {
+        ForEach(snapshot.items.enumerated().map {
+            TVHomeBaselineGridEntry(index: $0.offset, video: $0.element)
+        }) { entry in
+            let id = (snapshot.resume ? "recent-" : "recommendation-") +
+                entry.video.url
+            #if DEBUG
+            let _ = TVHomeFocusDiagnostics.hit(.tileBuild)
+            #endif
+            TVHomeBaselineTile(
+                api: api, entry: entry, resume: snapshot.resume,
+                columns: snapshot.columns, focus: focus, homeMenu: homeMenu,
+                onRevealMenu: onRevealMenu,
+                onReturnToList: { onReturnToList(id) },
+                onChanged: onChanged
+            )
+            .onAppear {
+                #if DEBUG
+                TVHomeFocusDiagnostics.hit(snapshot.resume
+                    ? .resumeAppear : .recommendationAppear)
+                #endif
+                let threshold = snapshot.resume ? 2 : snapshot.columns + 1
+                if snapshot.canLoadMore &&
+                    entry.index >= snapshot.items.count - threshold {
+                    onApproachEnd()
+                }
+            }
+        }
+    }
+}
+
 struct TVHomeSubscriptionsBaselineView: View {
     let api: TypeTypeAPI
     let previewVideos: [VideoItem]?
@@ -228,7 +315,7 @@ struct TVHomeSubscriptionsBaselineView: View {
                                 TVPulsingPlaceholder()
                                     .frame(maxWidth: .infinity, minHeight: 135)
                             } else if !visibleRecent.isEmpty {
-                                continueWatchingShelf(visibleRecent, scroll: scroll)
+                                videoCollection(visibleRecent, resume: true, scroll: scroll)
                             } else if recentNeedsLogin {
                                 VStack(alignment: .leading, spacing: 15) {
                                     Text("home.signInForHistory")
@@ -273,27 +360,8 @@ struct TVHomeSubscriptionsBaselineView: View {
                                     detail: TVL10n.value("home.emptyHelp")
                                 )
                             } else {
-                                LazyVGrid(columns: columns, spacing: 32) {
-                                    ForEach(visibleVideos.enumerated().map {
-                                        TVHomeBaselineGridEntry(
-                                            index: $0.offset, video: $0.element
-                                        )
-                                    }) { entry in
-                                        videoTile(entry, resume: false, scroll: scroll)
-                                            .onAppear {
-                                                #if DEBUG
-                                                TVHomeFocusDiagnostics.hit(.recommendationAppear)
-                                                #endif
-                                                if entry.index >=
-                                                    visibleVideos.count - columns.count - 1,
-                                                    nextCursor != nil && !loading &&
-                                                    !loadingMore && pageError == nil {
-                                                    Task { await loadMore() }
-                                                }
-                                            }
-                                    }
-                                }
-                                .focusSection()
+                                videoCollection(visibleVideos, resume: false,
+                                                scroll: scroll)
                                 if loadingMore {
                                     ProgressView("settings.remoteLoading")
                                         .frame(maxWidth: .infinity)
@@ -370,23 +438,23 @@ struct TVHomeSubscriptionsBaselineView: View {
         }
     }
 
-    // A SINGLE tile factory. The resume shelf uses the same VideoCard,
-    // stable NavigationLink, shared lazy context actions and toast anchors
-    // as recommendations. Only layout and focus ID differ.
-    // A single shared tile builder for both resume and recommendation rows.
-    // Only stable data and a FocusState binding are passed; Home itself does
-    // not read the changing focus value on ordinary Siri Remote movement.
-    private func videoTile(_ entry: TVHomeBaselineGridEntry, resume: Bool,
-                           scroll: ScrollViewProxy) -> some View {
-        #if DEBUG
-        let _ = TVHomeFocusDiagnostics.hit(.tileBuild)
-        #endif
-        let id = cardID(entry.video, resume: resume)
-        return TVHomeBaselineTile(
-            api: api, entry: entry, resume: resume, columns: columns.count,
-            focus: $focusedVideo, homeMenu: homeMenu,
-            onRevealMenu: onRevealMenu,
-            onReturnToList: {
+    /// The only Home entrypoint for recommendation and resume tiles.
+    /// .equatable() prevents rebuilding the entire lazy card factory when
+    /// @FocusState changes, while each tile's own focus binding and badges
+    /// continue updating normally. Never compare closure identities.
+    private func videoCollection(_ items: [VideoItem], resume: Bool,
+                                 scroll: ScrollViewProxy) -> some View {
+        let snapshot = TVHomeCollectionSnapshot(
+            items: items, scope: api.metadataCacheScope, resume: resume,
+            columns: columns.count,
+            canLoadMore: resume
+                ? (historyHasMore && !loadingRecent && !historyLoadingMore)
+                : (nextCursor != nil && !loading && !loadingMore && pageError == nil)
+        )
+        return TVHomeBaselineVideoCollection(
+            snapshot: snapshot, api: api, focus: $focusedVideo,
+            homeMenu: homeMenu, onRevealMenu: onRevealMenu,
+            onReturnToList: { id in
                 TVVideoFocusReturn.restore($focusedVideo, id: id, scroll: scroll)
             },
             onChanged: {
@@ -394,41 +462,15 @@ struct TVHomeSubscriptionsBaselineView: View {
                     if resume { await loadHistory() }
                     else { await reload() }
                 }
-            }
-        )
-    }
-
-    // Lazy, horizontal, exactly four visible tile slots. No per-tile focus
-    // restoration state and no metadata enrichment when merely browsing.
-    private func continueWatchingShelf(_ items: [VideoItem],
-                                       scroll: ScrollViewProxy) -> some View {
-        ScrollView(.horizontal) {
-            LazyHStack(alignment: .center, spacing: 26) {
-                ForEach(items.enumerated().map {
-                    TVHomeBaselineGridEntry(index: $0.offset, video: $0.element)
-                }) { entry in
-                    videoTile(entry, resume: true, scroll: scroll)
-                        .onAppear {
-                            #if DEBUG
-                            TVHomeFocusDiagnostics.hit(.resumeAppear)
-                            #endif
-                            if entry.index >= items.count - 2 &&
-                               historyHasMore && !loadingRecent &&
-                               !historyLoadingMore {
-                                Task { await loadMoreHistory() }
-                            }
-                        }
+            },
+            onApproachEnd: {
+                Task {
+                    if resume { await loadMoreHistory() }
+                    else { await loadMore() }
                 }
             }
-            .padding(.vertical, 20)
-            .scrollTargetLayout()
-        }
-        .scrollIndicators(.hidden)
-        .scrollClipDisabled()
-        .scrollTargetBehavior(.viewAligned)
-        .frame(height: 445)
-        .id("home-continue-watching-row")
-        .focusSection()
+        )
+        .equatable()
     }
 
     @MainActor

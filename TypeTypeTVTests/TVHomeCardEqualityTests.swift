@@ -2,6 +2,35 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVHomeCardEqualityTests: XCTestCase {
+    func testHomeCollectionSnapshotIgnoresFocusButTracksRealChanges() {
+        let first = VideoItem(
+            id: "focus-a", title: "Example", url: "https://youtu.be/ABCDEFGHIJK",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 300,
+            isLive: false
+        )
+        let reference = TVHomeCollectionSnapshot(
+            items: [first], scope: "account-one", resume: false,
+            columns: 4, canLoadMore: true
+        )
+        XCTAssertEqual(reference, reference,
+                       "Remote focus moves must not invalidate card data")
+        var watched = first
+        watched.watchPositionMs = 60_000
+        XCTAssertNotEqual(reference, TVHomeCollectionSnapshot(
+            items: [watched], scope: "account-one", resume: false,
+            columns: 4, canLoadMore: true
+        ), "Progress changes must update card data")
+        XCTAssertNotEqual(reference, TVHomeCollectionSnapshot(
+            items: [first], scope: "account-two", resume: false,
+            columns: 4, canLoadMore: true
+        ), "A different server account must update membership context")
+        XCTAssertNotEqual(reference, TVHomeCollectionSnapshot(
+            items: [first], scope: "account-one", resume: false,
+            columns: 4, canLoadMore: false
+        ), "Pagination eligibility must refresh the shelf")
+    }
+
+
     func testHomeCardsSkipMetadataTasksUnlessLookupIsReallyNeeded() {
         var video = VideoItem(
             id: "test", title: "Title", url: "https://youtu.be/abcdefghijk",
