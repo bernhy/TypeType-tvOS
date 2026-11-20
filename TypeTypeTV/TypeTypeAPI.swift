@@ -1060,15 +1060,17 @@ struct TypeTypeAPI {
             endpoint == "favorites" || endpoint == "watch-later" ||
             endpoint == "playlists" || endpoint.hasPrefix("playlists/")
         let traceStart = ProcessInfo.processInfo.systemUptime
+        // Redact account-specific playlist identifiers from diagnostic logs.
+        let traceName = endpoint.hasPrefix("playlists/") ? "playlists/{id}" : endpoint
         if traceRoute {
-            NSLog("TypeType HomePerf HTTP GET %@ begin", endpoint)
+            NSLog("TypeType HomePerf HTTP GET %@ begin", traceName)
         }
         #endif
         let (data, response) = try await authenticatedData(for: request)
         #if DEBUG
         if traceRoute {
             NSLog("TypeType HomePerf HTTP GET %@ done %.0f ms",
-                  endpoint, (ProcessInfo.processInfo.systemUptime - traceStart) * 1000)
+                  traceName, (ProcessInfo.processInfo.systemUptime - traceStart) * 1000)
         }
         #endif
         guard let response = response as? HTTPURLResponse else { throw TypeTypeError.unexpectedResponse }
