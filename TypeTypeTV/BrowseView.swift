@@ -548,8 +548,6 @@ enum TVHomeExperimentMode: String, CaseIterable {
     case twelveWithoutActions
     case twelveWithoutEffects
     case twelveWithoutFocusHints
-    case twelveFocusedActions
-    case fullFocusedActions
 
     var title: String {
         switch self {
@@ -560,13 +558,11 @@ enum TVHomeExperimentMode: String, CaseIterable {
         case .twelveWithoutActions: return "12 ohne Kontextmenüs"
         case .twelveWithoutEffects: return "12 ohne Bildeffekte"
         case .twelveWithoutFocusHints: return "12 ohne Fokuspriorität"
-        case .twelveFocusedActions: return "12 – Kontextmenü nur Fokus"
-        case .fullFocusedActions: return "Alle – Kontextmenü nur Fokus"
         }
     }
 
     var includesResume: Bool {
-        self == .full || self == .noStreamMetadata || self == .fullFocusedActions
+        self == .full || self == .noStreamMetadata
     }
 
     var enrichesResumeMetadata: Bool {
@@ -576,7 +572,7 @@ enum TVHomeExperimentMode: String, CaseIterable {
     var recommendationLimit: Int? {
         switch self {
         case .twelveRecommendations, .twelveWithoutActions, .twelveWithoutEffects,
-             .twelveWithoutFocusHints, .twelveFocusedActions:
+             .twelveWithoutFocusHints:
             return 12
         default:
             return nil
@@ -587,10 +583,6 @@ enum TVHomeExperimentMode: String, CaseIterable {
     var includesCardVisualEffects: Bool { self != .twelveWithoutEffects }
 
     var includesDefaultFocusHints: Bool { self != .twelveWithoutFocusHints }
-
-    var focusesActionModifiers: Bool {
-        self == .twelveFocusedActions || self == .fullFocusedActions
-    }
 
     var next: Self {
         let modes = Self.allCases
@@ -693,38 +685,18 @@ private struct TVHomeDiagnosticFocusHint: ViewModifier {
     }
 }
 
-/// Keep the same FocusState attachment on the NavigationLink even when
-/// the expensive action modifier comes and goes. The selected action card is
-/// sticky across a temporary nil focus (native context menu presentation).
-/// This prevents an opened menu from unmounting its own event handlers.
 private struct TVHomeDiagnosticActions: ViewModifier {
     let api: TypeTypeAPI
     let video: VideoItem
     let includeActions: Bool
-    let focusOnly: Bool
-    let actionCardID: String?
     let focus: FocusState<String?>.Binding
     let focusID: String
     let onChanged: () -> Void
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if includeActions && !focusOnly {
+        if includeActions {
             content.videoActions(api: api, video: video, onChanged: onChanged,
                                  focus: focus, focusID: focusID)
-        } else if includeActions && focusOnly {
-            Group {
-                if actionCardID == focusID {
-                    content.modifier(TVVideoActionModifier(
-                        api: api, video: video, onChanged: onChanged,
-                        onRemoveFromPlaylist: nil, isWatchLaterEntry: false,
-                        externalFocus: nil, focusID: nil, attachFocus: false
-                    ))
-                } else {
-                    content
-                }
-            }
-            .focused(focus, equals: focusID)
         } else {
             content.focused(focus, equals: focusID)
         }
@@ -757,10 +729,6 @@ struct HomeView: View {
     // handoff, ONLY this card may accept focus so tvOS cannot scroll to a
     // geometrically nearer card first.
     @State private var railHandoffFocusTarget: String?
-    // Last card with native Home focus retains its context-menu attachment
-    // while the menu temporarily owns focus. At most one Home card carries
-    // the full per-card action ViewModifier in the focused-only A/B modes.
-    @State private var activeHomeActionCardID: String?
     // During a deep-card restore, keep the unrelated resume shelf out of
     // UIKit's early automatic focus choice until the intended card mounts.
     @State private var homeFocusRestoreTarget: String?
@@ -1062,12 +1030,6 @@ struct HomeView: View {
                    recentVideos.isEmpty && !loadingRecent {
                     Task { await loadHistory() }
                 }
-                // The A/B button can switch modes without moving the current
-                // Siri Remote focus. Ensure its menu is available immediately.
-                if current.focusesActionModifiers {
-                    activeHomeActionCardID = focusedHomeVideo ??
-                        railHandoffFocusTarget ?? leftRailReturnCardID
-                }
             }
             .onChange(of: recentVideos.count) { _, _ in
                 focusFirstHomeVideo(scroll: scroll)
@@ -1077,10 +1039,6 @@ struct HomeView: View {
             }
             .onChange(of: focusedHomeVideo) { _, current in
                 guard let current else { return }
-                if diagnosticMode.focusesActionModifiers,
-                   activeHomeActionCardID != current {
-                    activeHomeActionCardID = current
-                }
                 // Never mistake a transient wrong tile selected during a
                 // programmatic scroll/return for user navigation. User remote
                 // moves cancel the pending restore in videoGrid below.
@@ -1127,7 +1085,6 @@ struct HomeView: View {
         pendingHomeFocus = nil
         homeFocusRestoreTarget = nil
         railHandoffFocusTarget = target
-        activeHomeActionCardID = target
         preferredHomeCardID = target
         focusedHomeVideo = target
         #if DEBUG
@@ -1297,8 +1254,6 @@ struct HomeView: View {
                         .modifier(TVHomeDiagnosticActions(
                             api: api, video: video,
                             includeActions: diagnosticMode.includesCardActionModifiers,
-                            focusOnly: diagnosticMode.focusesActionModifiers,
-                            actionCardID: activeHomeActionCardID,
                             focus: $focusedHomeVideo, focusID: focusID,
                             onChanged: { Task { await refresh() } }
                         ))
@@ -1385,8 +1340,6 @@ struct HomeView: View {
                 .modifier(TVHomeDiagnosticActions(
                     api: api, video: video,
                     includeActions: diagnosticMode.includesCardActionModifiers,
-                    focusOnly: diagnosticMode.focusesActionModifiers,
-                    actionCardID: activeHomeActionCardID,
                     focus: $focusedHomeVideo,
                     focusID: homeCardID(video, recommended: paginate),
                     onChanged: { Task { await refresh() } }
