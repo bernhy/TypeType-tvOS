@@ -229,7 +229,7 @@ struct TVHomeSubscriptionsBaselineView: View {
     // Updated once on leaving Home for the sidebar, never on each focus move.
     // The same card becomes the target when pressing Right to return.
     @State private var railReturnCardID: String?
-    @State private var lastMutationID = 0
+    @State private var mutationCursor = TVVideoMutationCursor()
     @State private var videos: [VideoItem]
     @State private var recentVideos: [VideoItem]
     @State private var historyLoadedOnce = false
@@ -616,9 +616,9 @@ struct TVHomeSubscriptionsBaselineView: View {
     @MainActor
     private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
         let pending = events.filter {
-            $0.id > lastMutationID && $0.accountScope == api.metadataCacheScope
+            $0.id > mutationCursor.lastID && $0.accountScope == api.metadataCacheScope
         }
-        lastMutationID = max(lastMutationID, events.last?.id ?? 0)
+        mutationCursor.lastID = max(mutationCursor.lastID, events.last?.id ?? 0)
         guard !pending.isEmpty else { return }
         if videos.contains(where: { item in pending.contains { $0.removes(item) } }) {
             videos.removeAll { item in pending.contains { $0.removes(item) } }
