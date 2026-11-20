@@ -860,8 +860,11 @@ struct TVHomeMenuPresentation: ViewModifier {
                                 .font(.callout.bold())
                                 .foregroundStyle(.white)
                                 .padding(10)
-                                .background(.black.opacity(0.88),
-                                            in: RoundedRectangle(cornerRadius: 12))
+                                // Native tvOS Liquid Glass; only this single
+                                // shared toast surface changes. Card focus,
+                                // anchor geometry and feedback lifetime stay intact.
+                                .glassEffect(.regular,
+                                             in: RoundedRectangle(cornerRadius: 12))
                                 .offset(x: position.x, y: position.y)
                                 .onDisappear {
                                     model.dismissFeedback(matching: toast.id)
