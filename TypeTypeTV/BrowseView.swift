@@ -1786,7 +1786,7 @@ struct VideoCard: View {
                         .padding(7)
                 }
                 Group {
-                    if video.isLive == true {
+                    if TVLiveStreamDisplayPolicy.isOngoing(metadataVideo) {
                         Text("video.liveBadge")
                             .font(.caption.bold())
                             .padding(8)
