@@ -2,42 +2,22 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVRailVisualFocusTests: XCTestCase {
-    func testMainNavigationKeepsOriginalSidebarWidthAndFixedPageLayout() {
+    func testMainNavigationSharesOneWidthTransitionAcrossAllSections() {
+        // The rail's width is the only layout input. The adjacent page
+        // receives its remaining width in the same animated HStack pass,
+        // instead of reserving 214 points through a second completion phase.
         XCTAssertEqual(TVMainNavigationLayout.duration, 0.28)
-        XCTAssertEqual(TVMainNavigationLayout.width(expanded: false), 56)
-        XCTAssertEqual(TVMainNavigationLayout.width(expanded: true), 214)
-        let viewportWidth: CGFloat = 1920
-        let fixedPageWidth = viewportWidth - TVMainNavigationLayout.collapsedWidth
-
-        for section in TVSection.allCases {
-            let closedScale = TVMainNavigationLayout.contentScale(
-                viewportWidth: viewportWidth, expanded: false
-            )
-            let openScale = TVMainNavigationLayout.contentScale(
-                viewportWidth: viewportWidth, expanded: true
-            )
-            XCTAssertEqual(closedScale, 1, "\(section)")
-            XCTAssertLessThan(openScale, 1, "\(section): content zooms out")
-            // The original HStack still measures the sidebar at 214 points.
-            // The fixed page remains 1864 layout points in BOTH states.
-            XCTAssertEqual(fixedPageWidth, 1864)
+        for destination in TVSection.allCases {
+            XCTAssertEqual(TVMainNavigationLayout.width(expanded: true),
+                           214, "\(destination): menu open")
+            XCTAssertEqual(TVMainNavigationLayout.width(expanded: false),
+                           56, "\(destination): menu closed")
             XCTAssertEqual(
-                TVMainNavigationLayout.width(expanded: false) +
-                    fixedPageWidth * closedScale,
-                viewportWidth,
-                accuracy: 0.0001, "\(section): closed page fills viewport"
-            )
-            XCTAssertEqual(
-                TVMainNavigationLayout.width(expanded: true) +
-                    fixedPageWidth * openScale,
-                viewportWidth,
-                accuracy: 0.0001, "\(section): zoomed page fits beside rail"
+                TVMainNavigationLayout.width(expanded: true) -
+                TVMainNavigationLayout.width(expanded: false),
+                158, "\(destination): content gains the same freed width"
             )
         }
-        XCTAssertEqual(
-            TVMainNavigationLayout.contentScale(viewportWidth: 0, expanded: true),
-            1
-        )
     }
 
     func testReturningFromAboutDoesNotPaintNearbyAccountInMainRail() {
