@@ -517,7 +517,7 @@ enum TVVideoFocusReturn {
 
 
 
-// MARK: - Home performance experiment: stable focus with on-demand actions
+// MARK: - Home lightweight context actions
 
 /// The old approach conditionally inserted/removed a heavy modifier on the
 /// focused NavigationLink. UIKit dropped that focus owner, breaking the Left
@@ -678,6 +678,15 @@ final class TVHomeMenuCoordinator: ObservableObject {
         return result
     }
 
+    func rememberKnownDuration(_ duration: Int, for url: String) {
+        guard duration > 0 else { return }
+        if knownDurations.count >= 128, knownDurations[url] == nil,
+           let oldKey = knownDurations.keys.first {
+            knownDurations.removeValue(forKey: oldKey)
+        }
+        knownDurations[url] = duration
+    }
+
     func markWatched(api: TypeTypeAPI, video: VideoItem, focusID: String,
                      onChanged: @escaping () -> Void) {
         run(focusID: focusID, kind: .watched, onChanged: onChanged) {
@@ -697,12 +706,7 @@ final class TVHomeMenuCoordinator: ObservableObject {
             // This is mutated only after a menu action, never when focus
             // moves. A later menu opening now sees the correct toggle even
             // if the original shorts/history row omitted duration.
-            if self.knownDurations.count >= 128,
-               self.knownDurations[video.url] == nil,
-               let oldKey = self.knownDurations.keys.first {
-                self.knownDurations.removeValue(forKey: oldKey)
-            }
-            self.knownDurations[video.url] = duration
+            self.rememberKnownDuration(duration, for: video.url)
             TVLocalProgress.shared.record(
                 video.url, positionMs: mark ? Int64(duration) * 1_000 : 0
             )
