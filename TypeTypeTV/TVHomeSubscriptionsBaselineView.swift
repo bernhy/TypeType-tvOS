@@ -752,6 +752,9 @@ final class TVHomeResumeMetadataLoader {
     private var activeKeys: [String] = []
     private var pending: [Request] = []
     private var attempted = Set<String>()
+    // Keep metadata for the tiny visible window across history refreshes.
+    // The global TVStreamMetadataCache provides the broader 128-entry cache.
+    private var known: [String: StreamInfo] = [:]
     private var completed: [String: StreamInfo] = [:]
     private var worker: Task<Void, Never>?
     private var flushTask: Task<Void, Never>?
@@ -782,10 +785,16 @@ final class TVHomeResumeMetadataLoader {
             let discarded = activeKeys.removeFirst()
             pending.removeAll { $0.key == discarded }
             completed[discarded] = nil
+            known[discarded] = nil
         }
         guard TVHomeResumeMetadataPolicy.needsLookup(video) else {
             pending.removeAll { $0.key == key }
             completed[key] = nil
+            return
+        }
+        if let cached = known[key] {
+            completed[key] = cached
+            scheduleFlush()
             return
         }
         guard !attempted.contains(key), !pending.contains(where: { $0.key == key }) else {
@@ -805,9 +814,17 @@ final class TVHomeResumeMetadataLoader {
     func reconcile(with history: [VideoItem]) {
         let complete = Set(history.filter { !TVHomeResumeMetadataPolicy.needsLookup($0) }
             .map { TVHistoryDeduplicator.key(for: $0) })
-        guard !complete.isEmpty else { return }
         pending.removeAll { complete.contains($0.key) }
         for key in complete { completed[key] = nil }
+        // History refreshes do not promise metadata. Reapply just the small
+        // visible cache without fetching or depending on cell reappearance.
+        for row in history where TVHomeResumeMetadataPolicy.needsLookup(row) {
+            let key = TVHistoryDeduplicator.key(for: row)
+            if activeKeys.contains(key), let details = known[key] {
+                completed[key] = details
+            }
+        }
+        scheduleFlush()
     }
 
     func noteNavigation() {
@@ -824,6 +841,7 @@ final class TVHomeResumeMetadataLoader {
         pending.removeAll()
         activeKeys.removeAll()
         attempted.removeAll()
+        known.removeAll()
         completed.removeAll()
         onBatch = nil
         scope = ""
@@ -857,6 +875,7 @@ final class TVHomeResumeMetadataLoader {
             let details = await fetch(request.video, api)
             guard generation == expected && !Task.isCancelled else { return }
             if let details, activeKeys.contains(request.key) {
+                known[request.key] = details
                 completed[request.key] = details
                 scheduleFlush()
             } else if !activeKeys.contains(request.key) {
