@@ -16,6 +16,7 @@ final class TVLocalProgress: ObservableObject {
         if let id = VideoAddress.youtubeID(url) {
             positions["youtube:" + id] = positionMs
         }
+        TVVideoCardStatusCenter.changed(videoURL: url)
     }
 
     /// A YouTube video may enter the app through youtube.com or youtu.be.
@@ -30,6 +31,7 @@ final class TVLocalProgress: ObservableObject {
         // Prevent playback progress from another account leaking into the
         // next account's thumbnail grid during a same-app sign-out/sign-in.
         positions.removeAll()
+        TVVideoCardStatusCenter.changedAll()
     }
 }
 
