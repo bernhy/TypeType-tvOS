@@ -40,9 +40,8 @@ enum TVSection: String, CaseIterable, Hashable {
     }
 }
 
-/// The rail and the page still animate together. Only the page's *visual*
-/// scale and translation change: its layout width never shrinks, so tvOS does
-/// not repeatedly remeasure the four-column grids while the menu opens.
+/// Rail and page share a single SwiftUI layout animation. Preserve the
+/// baseline geometry while testing Home-specific performance changes.
 enum TVMainNavigationLayout {
     static let collapsedWidth: CGFloat = 56
     static let expandedWidth: CGFloat = 214
@@ -50,12 +49,6 @@ enum TVMainNavigationLayout {
 
     static func width(expanded: Bool) -> CGFloat {
         expanded ? expandedWidth : collapsedWidth
-    }
-
-    static func contentScale(viewportWidth: CGFloat, expanded: Bool) -> CGFloat {
-        guard expanded, viewportWidth > expandedWidth else { return 1 }
-        return (viewportWidth - expandedWidth) /
-            (viewportWidth - collapsedWidth)
     }
 }
 
@@ -127,13 +120,9 @@ struct BrowseView: View {
 
     var body: some View {
         if let api = configuredAPI {
-            GeometryReader { viewport in
             ZStack(alignment: .leading) {
                 TTTheme.ink.ignoresSafeArea()
                 HStack(spacing: 0) {
-                    // Keep the ORIGINAL, directly sized navigation rail.
-                    // The page width below is constant; only its drawn layer
-                    // shrinks as this existing sidebar expands.
                     if !playbackVisibility.isVisible {
                         sidebar
                             .disabled(homeStartupFocusPending ||
@@ -208,27 +197,10 @@ struct BrowseView: View {
                     }
                 }
                 .id("\(section.rawValue)-\(accountGeneration)")
-                    // The content keeps its collapsed-menu layout width,
-                    // even though the real sibling sidebar expands. This
-                    // avoids lazy-grid line wrapping and vertical scroll drift.
-                    .frame(
-                        width: playbackVisibility.isVisible
-                            ? viewport.size.width
-                            : max(0, viewport.size.width -
-                                TVMainNavigationLayout.collapsedWidth)
-                    )
-                    .frame(maxHeight: .infinity)
-                    .scaleEffect(
-                        TVMainNavigationLayout.contentScale(
-                            viewportWidth: viewport.size.width,
-                            expanded: expanded && !playbackVisibility.isVisible
-                        ),
-                        anchor: .topLeading
-                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .focusSection()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity,
-                       alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea(.container, edges: .leading)
                 // Keep the entire existing navigation screen visible beneath
                 // the picker instead of presenting an opaque tvOS sheet.
@@ -259,7 +231,6 @@ struct BrowseView: View {
                     Task { await reloadSidebarIdentity(api: api) }
                 }
             }
-            } // GeometryReader supplies stable content width only.
         } else {
             TVContentMessage(symbol: "exclamationmark.triangle",
                              title: TVL10n.value("server.invalidStored"),
@@ -317,7 +288,7 @@ struct BrowseView: View {
         // Disable it for the entire rail; only our pill is allowed to render.
         .environment(\.isFocusEffectEnabled, false)
         .focusEffectDisabled(true)
-        // Preserve the original navigation width, height and safe areas.
+        // The sibling page resizes in this same animated HStack transaction.
         .focusSection()
         .onExitCommand {
             // Back while the global rail is focused goes to Home. The final
