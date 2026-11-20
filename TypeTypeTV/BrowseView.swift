@@ -1165,7 +1165,7 @@ struct VideoCard: View {
         guard video.isLive != true,
               let duration = metadataVideo.duration, duration > 0,
               let progress = effectivePosition, progress > 0 else { return nil }
-        return max(0, min(1, Double(progress) / Double(Int64(duration) * 1_000)))
+        return max(0, min(1, Double(progress) / (Double(duration) * 1_000)))
     }
     private var completed: Bool {
         // Some server versions expose a 'watched' convenience flag whose
