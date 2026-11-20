@@ -35,19 +35,15 @@ private struct TVHomeBaselineTile: View {
     var body: some View {
         let video = entry.video
         let id = focusID
-        // Use one read for both zIndex and the DEBUG counter. The Home
-        // parent never reads this binding during ordinary navigation.
+        // Keep focus isolation local to this tile, not in the Home parent.
         let activeFocusID = focus.wrappedValue
-        #if DEBUG
-        let _ = TVHomeFocusDiagnostics.tileBody(focusedID: activeFocusID)
-        #endif
         let link = NavigationLink {
             VideoDetailView(
                 api: api, video: video,
                 onReturnToList: onReturnToList
             )
         } label: {
-            VideoCard(api: api, video: video, diagnoseHomeFocus: true)
+            VideoCard(api: api, video: video)
         }
         .buttonStyle(TVRailButtonStyle())
         .focusEffectDisabled(true)
@@ -144,9 +140,6 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
         }) { entry in
             let id = (snapshot.resume ? "recent-" : "recommendation-") +
                 entry.video.url
-            #if DEBUG
-            let _ = TVHomeFocusDiagnostics.hit(.tileBuild)
-            #endif
             TVHomeBaselineTile(
                 api: api, entry: entry, resume: snapshot.resume,
                 columns: snapshot.columns, focus: focus, homeMenu: homeMenu,
@@ -156,10 +149,6 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
             )
             .onAppear {
                 if snapshot.resume { onResumeAppear(entry.index, snapshot.items) }
-                #if DEBUG
-                TVHomeFocusDiagnostics.hit(snapshot.resume
-                    ? .resumeAppear : .recommendationAppear)
-                #endif
                 let threshold = snapshot.resume ? 2 : snapshot.columns + 1
                 if snapshot.canLoadMore &&
                     entry.index >= snapshot.items.count - threshold {
@@ -241,22 +230,10 @@ struct TVHomeSubscriptionsBaselineView: View {
         contentPreferences.settings?.hideHomeRecommendations != true
     }
     private var visibleVideos: [VideoItem] {
-        #if DEBUG
-        return TVHomeFocusDiagnostics.measure(.filterRecommendations) {
-            contentPreferences.displayed(videos)
-        }
-        #else
-        return contentPreferences.displayed(videos)
-        #endif
+        contentPreferences.displayed(videos)
     }
     private var visibleRecent: [VideoItem] {
-        #if DEBUG
-        return TVHomeFocusDiagnostics.measure(.filterRecent) {
-            filteredRecent()
-        }
-        #else
-        return filteredRecent()
-        #endif
+        filteredRecent()
     }
     private func filteredRecent() -> [VideoItem] {
         // Shared 90% threshold, finished-video logic and local progress override.
@@ -267,13 +244,7 @@ struct TVHomeSubscriptionsBaselineView: View {
         }
     }
     private var visibleCardIDs: [String] {
-        #if DEBUG
-        return TVHomeFocusDiagnostics.measure(.buildFocusIDs) {
-            buildCardIDs()
-        }
-        #else
-        return buildCardIDs()
-        #endif
+        buildCardIDs()
     }
     private func buildCardIDs() -> [String] {
         visibleVideos.map { cardID($0, resume: false) } +
@@ -317,15 +288,6 @@ struct TVHomeSubscriptionsBaselineView: View {
     }
 
     var body: some View {
-        #if DEBUG
-        // Only count the parent render. Reading focusedVideo here would
-        // itself force the parent to update on each focus change, corrupting
-        // the result of this focus-isolation experiment.
-        let _ = TVHomeFocusDiagnostics.homeBody(
-            focusedID: nil, recommendations: videos.count,
-            recent: recentVideos.count
-        )
-        #endif
         GeometryReader { viewport in
         let layoutWidth = fixedLayoutWidth ?? viewport.size.width
         ScrollViewReader { scroll in
@@ -677,9 +639,6 @@ struct TVHomeSubscriptionsBaselineView: View {
     @MainActor
     private func loadMore() async {
         guard !loading && !loadingMore, let cursor = nextCursor else { return }
-        #if DEBUG
-        TVHomeFocusDiagnostics.hit(.pageRequest)
-        #endif
         loadingMore = true
         pageError = nil
         defer { loadingMore = false }
@@ -708,9 +667,6 @@ struct TVHomeSubscriptionsBaselineView: View {
                 recentVideos = updated
                 resumeMetadata.reconcile(with: updated)
             }
-            #if DEBUG
-            TVHomeFocusDiagnostics.hit(.pageAppend)
-            #endif
         } catch is CancellationError {
             return
         } catch {
@@ -972,9 +928,6 @@ final class TVHomeResumeMetadataLoader {
             guard activeKeys.contains(request.key),
                   !attempted.contains(request.key) else { continue }
             attempted.insert(request.key)
-            #if DEBUG
-            TVHomeFocusDiagnostics.hit(.resumeMetadataLookup)
-            #endif
             let expected = generation
             inFlight[request.key] = Task(priority: .utility) { [weak self] in
                 guard let self, self.generation == expected else { return }
@@ -1031,9 +984,6 @@ final class TVHomeResumeMetadataLoader {
             self.completed.removeAll()
             self.flushTask = nil
             if !batch.isEmpty {
-                #if DEBUG
-                TVHomeFocusDiagnostics.hit(.resumeMetadataBatch)
-                #endif
                 self.onBatch?(batch)
             }
         }
