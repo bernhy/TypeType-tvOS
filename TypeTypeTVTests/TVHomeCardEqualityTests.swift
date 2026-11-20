@@ -463,11 +463,13 @@ final class TVHomeCardEqualityTests: XCTestCase {
     }
 
 
-    func testOnlyBlockingRequiresHomeFeedReload() {
+    func testOnlyListRemovingActionsRequireFeedReload() {
         XCTAssertFalse(TVHomeMenuReloadPolicy.watched.requiresFeedReload)
         XCTAssertFalse(TVHomeMenuReloadPolicy.watchLater.requiresFeedReload)
         XCTAssertFalse(TVHomeMenuReloadPolicy.playlist.requiresFeedReload)
         XCTAssertTrue(TVHomeMenuReloadPolicy.block.requiresFeedReload)
+        XCTAssertTrue(TVHomeMenuReloadPolicy.watchLaterRemoval.requiresFeedReload)
+        XCTAssertTrue(TVHomeMenuReloadPolicy.playlistRemoval.requiresFeedReload)
     }
 
 
