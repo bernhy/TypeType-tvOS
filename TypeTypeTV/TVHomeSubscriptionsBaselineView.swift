@@ -34,6 +34,12 @@ private struct TVHomeBaselineTile: View {
     var body: some View {
         let video = entry.video
         let id = focusID
+        // Use one read for both zIndex and the DEBUG counter. The Home
+        // parent never reads this binding during ordinary navigation.
+        let activeFocusID = focus.wrappedValue
+        #if DEBUG
+        let _ = TVHomeFocusDiagnostics.tileBody(focusedID: activeFocusID)
+        #endif
         let link = NavigationLink {
             VideoDetailView(
                 api: api, video: video,
@@ -44,7 +50,7 @@ private struct TVHomeBaselineTile: View {
         }
         .buttonStyle(TVRailButtonStyle())
         .focusEffectDisabled(true)
-        .zIndex(focus.wrappedValue == id ? 5 : 0)
+        .zIndex(activeFocusID == id ? 5 : 0)
         .id(id)
         .modifier(TVHomeLightweightVideoActions(
             api: api, video: video, model: homeMenu,

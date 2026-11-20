@@ -1,23 +1,19 @@
 #if DEBUG
 import Foundation
 
-/// Opt-in Home focus diagnostics. Enable in Xcode's scheme launch arguments:
-///     -typetype.debug.homeFocusMetrics YES
-///
-/// Disabled by default. No timer, observer, view layer, background task or
-/// logging runs in the normal app. Counter accumulation is cheap, and only
-/// one aggregate console line is emitted per ~3 seconds of Home activity.
+/// Automatically enabled in all DEBUG builds. No launch argument.
+/// The entire feature compiles out of Release builds. No timer, observer,
+/// view layer or background task: one aggregate console line is emitted
+/// per ~3 seconds while the user is actively navigating Home.
 enum TVHomeFocusDiagnostics {
     enum Metric: Int, CaseIterable {
-        case homeBody, focusChange, tileBuild, videoCardBody, thumbnailBody
+        case homeBody, focusChange, tileBuild, tileBody, videoCardBody, thumbnailBody
         case thumbnailTask, thumbnailCacheHit, recommendationAppear, resumeAppear
         case anchorReduce, filterRecommendations, filterRecent, buildFocusIDs
         case pageRequest, pageAppend
     }
 
-    static let enabled = UserDefaults.standard.bool(
-        forKey: "typetype.debug.homeFocusMetrics"
-    )
+    static let enabled = true
     private static let recorder = Recorder()
 
     static func hit(_ metric: Metric) {
@@ -39,11 +35,16 @@ enum TVHomeFocusDiagnostics {
                           recent: recent)
     }
 
-    /// Uses the focus state already observed by the visible VideoCard;
-    /// no extra view, focus modifier or listener is installed.
+    /// Reads the FocusState value already needed by each tile's zIndex.
+    /// No additional observer, task or FocusState dependency.
+    static func tileBody(focusedID: String?) {
+        guard enabled else { return }
+        recorder.tileBody(focusedID: focusedID)
+    }
+
     static func videoCardBody(isFocused: Bool, videoURL: String) {
         guard enabled else { return }
-        recorder.videoCardBody(isFocused: isFocused, videoURL: videoURL)
+        recorder.hit(.videoCardBody)
     }
 
     // PreferenceKey.reduce is not guaranteed to execute on the main actor.
@@ -64,14 +65,16 @@ enum TVHomeFocusDiagnostics {
             lock.unlock()
         }
 
-        func videoCardBody(isFocused: Bool, videoURL: String) {
+        func tileBody(focusedID: String?) {
             let now = CFAbsoluteTimeGetCurrent()
             lock.lock()
-            counts[Metric.videoCardBody.rawValue] += 1
-            if isFocused && videoURL != lastFocusID {
-                lastFocusID = videoURL
+            counts[Metric.tileBody.rawValue] += 1
+            if let focusedID, focusedID != lastFocusID {
+                lastFocusID = focusedID
                 counts[Metric.focusChange.rawValue] += 1
             }
+            // Flush from the tile whose focus binding actually changes,
+            // not the Home parent (which should remain untouched).
             let summary = snapshotIfDue(now: now)
             lock.unlock()
             logIfNeeded(summary)
@@ -109,7 +112,8 @@ enum TVHomeFocusDiagnostics {
             let summary =
                 "HomeFocus \(String(format: "%.1f", elapsed))s " +
                 "focus=\(count(.focusChange)) home=\(count(.homeBody)) " +
-                "tile=\(count(.tileBuild)) videoBody=\(count(.videoCardBody)) " +
+                "tile=\(count(.tileBuild)) tileBody=\(count(.tileBody)) " +
+                "videoBody=\(count(.videoCardBody)) " +
                 "thumbnailBody=\(count(.thumbnailBody)) " +
                 "thumbnailTask=\(count(.thumbnailTask)) " +
                 "cacheHit=\(count(.thumbnailCacheHit)) " +
