@@ -64,6 +64,10 @@ actor SabrFragmentCache {
     private var used = 0
     private var clock: UInt64 = 0
     private var invalidated = false
+    #if DEBUG
+    private var verifiedDiskReads = 0
+    private var verifiedDiskReadMilliseconds = 0.0
+    #endif
 
     init(maxMiB: Int, cacheDirectory: URL? = nil) {
         capacityBytes = max(64, min(1024, maxMiB)) * 1_048_576
@@ -112,10 +116,29 @@ actor SabrFragmentCache {
             // Never hand altered or truncated compressed media to the native fMP4 parser.
             // The server does not supply content hashes, so this only proves
             // that the on-disk bytes still equal the successful HTTP payload.
-            let bytes = try? Data(contentsOf: entry.file)
-            if let bytes, SabrCachedPayloadIntegrity.matches(
-                bytes, count: entry.count, sha256: entry.sha256
-            ) {
+            #if DEBUG
+            let verificationStarted = ProcessInfo.processInfo.systemUptime
+            #endif
+            // Map immutable on-disk fragments when possible to avoid an
+            // additional heap allocation on each cache hit. Still hash the
+            // complete file: disk corruption must never reach CoreMedia.
+            let bytes = try? Data(contentsOf: entry.file, options: .mappedIfSafe)
+            let verified = bytes.map {
+                SabrCachedPayloadIntegrity.matches(
+                    $0, count: entry.count, sha256: entry.sha256
+                )
+            } ?? false
+            #if DEBUG
+            verifiedDiskReads += 1
+            verifiedDiskReadMilliseconds +=
+                (ProcessInfo.processInfo.systemUptime - verificationStarted) * 1_000
+            if verifiedDiskReads.isMultiple(of: 128) {
+                NSLog("TypeType SABR CACHE perf verifiedReads=%d avgReadHashMs=%.2f",
+                      verifiedDiskReads,
+                      verifiedDiskReadMilliseconds / Double(verifiedDiskReads))
+            }
+            #endif
+            if let bytes, verified {
                 entry.access = clock
                 entries[key] = entry
                 return bytes
