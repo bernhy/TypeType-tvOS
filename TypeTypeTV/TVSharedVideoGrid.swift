@@ -60,7 +60,8 @@ private struct TVSharedVideoGridTile: View {
         } label: {
             VideoCard(
                 api: api, video: video,
-                lookupMissingMetadata: lookupMissingMetadata
+                lookupMissingMetadata: lookupMissingMetadata,
+                loadMemberships: false
             )
         }
         .buttonStyle(TVRailButtonStyle())
