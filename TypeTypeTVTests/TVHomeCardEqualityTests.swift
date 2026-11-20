@@ -160,6 +160,58 @@ final class TVHomeCardEqualityTests: XCTestCase {
     }
 
     @MainActor
+    func testResumeScrollKeepsThreeAheadWithoutRefetchingInitialWindow() async throws {
+        let api = try TypeTypeAPI(address: "https://example.com")
+        let rows = [
+            "ABCDEFGHIJK", "LMNOPQRSTUV", "WXYZabcdefg",
+            "hijkLMNopqr", "stuvwXYZabc", "defghXYZuvw",
+            "ABCDxyzEFGH", "pqrstUVWXYZ", "jklmnopQRSt",
+            "aaaaBBBcccc", "ddddEEEffff"
+        ].map { id in
+            VideoItem(id: id, title: id, url: "https://youtu.be/\(id)",
+                      thumbnailUrl: nil, uploaderName: "Channel",
+                      duration: 120, isLive: false)
+        }
+        let metadata = try JSONDecoder().decode(StreamInfo.self, from: Data(
+            #"{"viewCount":515,"publishedAt":1800000000000}"#.utf8
+        ))
+        var requested: [String] = []
+        var delivered: [String: StreamInfo] = [:]
+        var reportedInitial = false
+        var reportedExtended = false
+        let initial = expectation(description: "Initial seven metadata results")
+        let extended = expectation(description: "Three lookahead results after scrolling")
+        let loader = TVHomeResumeMetadataLoader(fetch: { video, _ in
+            requested.append(video.url)
+            try? await Task.sleep(for: .milliseconds(25))
+            return metadata
+        })
+        let onBatch: ([String: StreamInfo]) -> Void = { batch in
+            delivered.merge(batch, uniquingKeysWith: { _, new in new })
+            if delivered.count == 7 && !reportedInitial {
+                reportedInitial = true
+                initial.fulfill()
+            }
+            if delivered.count == 11 && !reportedExtended {
+                reportedExtended = true
+                extended.fulfill()
+            }
+        }
+        loader.prime(visibleHistory: rows, api: api, onBatch: onBatch)
+        await fulfillment(of: [initial], timeout: 5)
+        XCTAssertEqual(requested.count, 7)
+        // Lazy appearance of an already primed tile is a no-op for requests.
+        loader.cardAppeared(at: 3, visibleHistory: rows, api: api, onBatch: onBatch)
+        XCTAssertEqual(requested.count, 7)
+        // First newly visible tile shifts the window to cards 4...10.
+        loader.cardAppeared(at: 7, visibleHistory: rows, api: api, onBatch: onBatch)
+        await fulfillment(of: [extended], timeout: 5)
+        XCTAssertEqual(requested.count, 11, "Card 7 plus three ahead are fetched")
+        XCTAssertEqual(Set(requested).count, requested.count)
+        loader.stop()
+    }
+
+    @MainActor
     func testImmediateLoaderDoesNotStartCancelledFetchBeforeFirstScheduling() async throws {
         let api = try TypeTypeAPI(address: "https://example.com")
         let video = VideoItem(
