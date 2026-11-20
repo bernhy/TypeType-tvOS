@@ -1,14 +1,15 @@
-import Combine
 import SwiftUI
+import Observation
 
 /// One shared presentation flag for actual player screens, not video details.
 /// The browser's navigation rail must not remain alongside playback or its
 /// recovery/error overlays. The counter also handles playlist item changes.
 @MainActor
-final class TVPlaybackVisibility: ObservableObject {
+@Observable
+final class TVPlaybackVisibility {
     static let shared = TVPlaybackVisibility()
-    @Published private(set) var isVisible = false
-    private var presentationCount = 0
+    private(set) var isVisible = false
+    @ObservationIgnored private var presentationCount = 0
 
     func enter() {
         presentationCount += 1
