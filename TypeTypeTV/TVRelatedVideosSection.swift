@@ -10,6 +10,8 @@ struct TVRelatedVideosSection: View {
     @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @FocusState private var focusedRelatedID: String?
     @State private var detailReturnID: String?
+    @State private var lastMutationID = 0
+    @State private var hiddenVideoIDs = Set<String>()
 
     var body: some View {
         if !videos.isEmpty {
@@ -19,7 +21,9 @@ struct TVRelatedVideosSection: View {
                     .font(.title2.bold())
                 TVSharedVideoGrid(
                     snapshot: TVSharedVideoGridSnapshot(
-                        videos: Array(videos.prefix(24)),
+                        videos: Array(videos.filter {
+                            !hiddenVideoIDs.contains(TVPlaylistMembership.videoKey($0.url))
+                        }.prefix(24)),
                         scope: api.metadataCacheScope,
                         destination: "video-related",
                         focusPrefix: "",
@@ -50,9 +54,29 @@ struct TVRelatedVideosSection: View {
                 priority: detailReturnID == nil ? .automatic : .userInitiated
             )
             .modifier(TVHomeMenuPresentation(model: videoMenu))
+            .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
+            .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
+            .onChange(of: videoMenu.focusRestoreRequest) { _, _ in
+                if let id = videoMenu.focusRestoreTarget,
+                   videos.contains(where: { $0.url == id }) {
+                    focusedRelatedID = id
+                }
+            }
             .task {
                 await TVWatchLaterMembership.shared.ensureLoaded(api: api)
             }
+        }
+    }
+
+    @MainActor
+    private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
+        let pending = events.filter {
+            $0.id > lastMutationID && $0.accountScope == api.metadataCacheScope
+        }
+        lastMutationID = max(lastMutationID, events.last?.id ?? 0)
+        guard !pending.isEmpty else { return }
+        for item in videos where pending.contains(where: { $0.removes(item) }) {
+            hiddenVideoIDs.insert(TVPlaylistMembership.videoKey(item.url))
         }
     }
 }
