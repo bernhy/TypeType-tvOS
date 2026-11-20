@@ -230,9 +230,6 @@ struct TVThumbnail: View {
     @State private var bitmap: UIImage?
 
     var body: some View {
-        #if DEBUG
-        let _ = TVHomeFocusDiagnostics.hit(.thumbnailBody)
-        #endif
         // Both axes stay bounded to the thumbnail viewport. For video
         // cards we use .fit to preserve the whole picture when a focused
         // card grows; hero artwork may still use the default .fill.
@@ -258,9 +255,6 @@ struct TVThumbnail: View {
         }
         .clipped()
         .task(id: "\(origin.absoluteString)|\(url?.absoluteString ?? "")|\(maximumPixelDimension)|\(videoURL ?? "")|\(quality.rawValue)") {
-            #if DEBUG
-            TVHomeFocusDiagnostics.hit(.thumbnailTask)
-            #endif
             // SwiftUI may reuse a card for a different URL. Do not keep the
             // previous video's artwork visible while the new image loads.
             bitmap = nil
@@ -283,7 +277,7 @@ struct TVThumbnail: View {
             return
         }
         let pixels = TVThumbnailRequestPolicy.pixelLimit(maximumPixelDimension)
-        for (index, candidate) in candidates.enumerated() {
+        for candidate in candidates {
             guard !Task.isCancelled else { return }
             let firstParty = candidate.host?.lowercased() == origin.host?.lowercased() &&
                 candidate.scheme == origin.scheme && candidate.port == origin.port
@@ -295,9 +289,6 @@ struct TVThumbnail: View {
             ) as NSString
             if let cached = TVThumbnailMemory.shared.configuredCache().object(forKey: key) {
                 if TVThumbnailSources.accepts(cached, from: candidate, quality: quality) {
-                    #if DEBUG
-                    TVHomeFocusDiagnostics.hit(.thumbnailCacheHit)
-                    #endif
                     bitmap = cached
                     return
                 }
@@ -323,12 +314,6 @@ struct TVThumbnail: View {
                 )
             }
             bitmap = decoded.image
-            #if DEBUG
-            if index > 0 || url == nil {
-                NSLog("TypeType thumbnail recovered via YouTube fallback reason=%@",
-                      index > 0 ? "primary-unavailable" : "missing-primary")
-            }
-            #endif
             return
         }
     }
