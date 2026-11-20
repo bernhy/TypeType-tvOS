@@ -230,6 +230,9 @@ struct TVThumbnail: View {
     @State private var bitmap: UIImage?
 
     var body: some View {
+        #if DEBUG
+        let _ = TVHomeFocusDiagnostics.hit(.thumbnailBody)
+        #endif
         // Both axes stay bounded to the thumbnail viewport. For video
         // cards we use .fit to preserve the whole picture when a focused
         // card grows; hero artwork may still use the default .fill.
@@ -255,6 +258,9 @@ struct TVThumbnail: View {
         }
         .clipped()
         .task(id: "\(origin.absoluteString)|\(url?.absoluteString ?? "")|\(maximumPixelDimension)|\(videoURL ?? "")|\(quality.rawValue)") {
+            #if DEBUG
+            TVHomeFocusDiagnostics.hit(.thumbnailTask)
+            #endif
             // SwiftUI may reuse a card for a different URL. Do not keep the
             // previous video's artwork visible while the new image loads.
             bitmap = nil
@@ -289,6 +295,9 @@ struct TVThumbnail: View {
             ) as NSString
             if let cached = TVThumbnailMemory.shared.configuredCache().object(forKey: key) {
                 if TVThumbnailSources.accepts(cached, from: candidate, quality: quality) {
+                    #if DEBUG
+                    TVHomeFocusDiagnostics.hit(.thumbnailCacheHit)
+                    #endif
                     bitmap = cached
                     return
                 }
