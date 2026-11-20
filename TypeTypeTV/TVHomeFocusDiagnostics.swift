@@ -35,16 +35,20 @@ enum TVHomeFocusDiagnostics {
                           recent: recent)
     }
 
-    /// Reads the FocusState value already needed by each tile's zIndex.
-    /// No additional observer, task or FocusState dependency.
+    /// The tile may not re-evaluate when an Equatable section shields
+    /// its parent. Count only its body evaluations; never infer focus from
+    /// the parent binding here.
     static func tileBody(focusedID: String?) {
         guard enabled else { return }
-        recorder.tileBody(focusedID: focusedID)
+        recorder.hit(.tileBody)
     }
 
+    /// VideoCard already reads @Environment(\.isFocused) to draw its zoom.
+    /// Count focus transitions from that existing read, without introducing
+    /// an extra observer or invalidating the optimized collection.
     static func videoCardBody(isFocused: Bool, videoURL: String) {
         guard enabled else { return }
-        recorder.hit(.videoCardBody)
+        recorder.videoCardBody(isFocused: isFocused, videoURL: videoURL)
     }
 
     // PreferenceKey.reduce is not guaranteed to execute on the main actor.
@@ -65,16 +69,16 @@ enum TVHomeFocusDiagnostics {
             lock.unlock()
         }
 
-        func tileBody(focusedID: String?) {
+        func videoCardBody(isFocused: Bool, videoURL: String) {
             let now = CFAbsoluteTimeGetCurrent()
             lock.lock()
-            counts[Metric.tileBody.rawValue] += 1
-            if let focusedID, focusedID != lastFocusID {
-                lastFocusID = focusedID
+            counts[Metric.videoCardBody.rawValue] += 1
+            if isFocused && videoURL != lastFocusID {
+                lastFocusID = videoURL
                 counts[Metric.focusChange.rawValue] += 1
             }
-            // Flush from the tile whose focus binding actually changes,
-            // not the Home parent (which should remain untouched).
+            // Flush on each focused card update: an Equatable collection
+            // rightly suppresses parent/tile body calls on remote moves.
             let summary = snapshotIfDue(now: now)
             lock.unlock()
             logIfNeeded(summary)
@@ -86,12 +90,8 @@ enum TVHomeFocusDiagnostics {
             counts[Metric.homeBody.rawValue] += 1
             self.recommendations = recommendations
             self.recent = recent
-            // Keeping this optional lets the focus-isolation A/B avoid a
-            // diagnostic read of focusedVideo inside the Home parent's body.
-            if let focusedID, focusedID != lastFocusID {
-                lastFocusID = focusedID
-                counts[Metric.focusChange.rawValue] += 1
-            }
+            // Parent focus is deliberately not observed in this experiment.
+            // VideoCard's existing environment supplies the focus changes.
             let summary = snapshotIfDue(now: now)
             lock.unlock()
             logIfNeeded(summary)

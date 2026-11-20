@@ -46,7 +46,7 @@ private struct TVHomeBaselineTile: View {
                 onReturnToList: onReturnToList
             )
         } label: {
-            VideoCard(api: api, video: video)
+            VideoCard(api: api, video: video, diagnoseHomeFocus: true)
         }
         .buttonStyle(TVRailButtonStyle())
         .focusEffectDisabled(true)
