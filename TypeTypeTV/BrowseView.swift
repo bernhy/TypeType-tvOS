@@ -1062,6 +1062,12 @@ struct HomeView: View {
                    recentVideos.isEmpty && !loadingRecent {
                     Task { await loadHistory() }
                 }
+                // The A/B button can switch modes without moving the current
+                // Siri Remote focus. Ensure its menu is available immediately.
+                if current.focusesActionModifiers {
+                    activeHomeActionCardID = focusedHomeVideo ??
+                        railHandoffFocusTarget ?? leftRailReturnCardID
+                }
             }
             .onChange(of: recentVideos.count) { _, _ in
                 focusFirstHomeVideo(scroll: scroll)
