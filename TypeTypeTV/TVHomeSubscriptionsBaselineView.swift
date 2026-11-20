@@ -441,6 +441,14 @@ struct TVHomeSubscriptionsBaselineView: View {
             }
             .frame(width: viewport.size.width, height: viewport.size.height)
             .background(TTTheme.ink)
+            // tvOS can choose the saved tile on the first user-initiated
+            // Right movement from the main rail. Do not allow geometric
+            // focus search to pick an adjacent tile first, then overwrite it.
+            // No per-card observer, Task or focus-state rewrite is required.
+            .defaultFocus(
+                $focusedVideo, railReturnCardID,
+                priority: railReturnCardID == nil ? .automatic : .userInitiated
+            )
             // Shared by BOTH sources. No per-card dialog or toast state.
             .modifier(TVHomeMenuPresentation(model: homeMenu))
             .onChange(of: homeMenu.focusRestoreRequest) { _, _ in
@@ -476,6 +484,21 @@ struct TVHomeSubscriptionsBaselineView: View {
                 guard focusRequest > 0,
                       handledFocusRequest != focusRequest else { return }
                 handledFocusRequest = focusRequest
+                if let saved = railReturnCardID {
+                    // Default focus is already installed BEFORE UIKit begins
+                    // navigating Right into Home. A later focus assignment
+                    // would visibly jump from its geometric first choice.
+                    // Check availability only on an explicit rail entry,
+                    // never on each ordinary card-to-card focus movement.
+                    if visibleCardIDs.contains(saved) {
+                        initialFocusPending = false
+                        onInitialFocusReady()
+                        return
+                    }
+                    // The saved item was removed/hidden while the menu was
+                    // open; retain the original first-card fallback instead.
+                    railReturnCardID = nil
+                }
                 initialFocusPending = true
                 await Task.yield()
                 claimInitialFocus()
