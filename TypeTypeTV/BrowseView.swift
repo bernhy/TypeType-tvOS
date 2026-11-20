@@ -499,7 +499,7 @@ struct BrowseView: View {
             guard generation == railAnimationGeneration, !expanded else { return }
             // Second stage: only now grow the selected page. This is
             // deliberately shared by *every* main navigation destination.
-            withAnimation(.easeOut(duration: 0.18)) {
+            withAnimation(.easeInOut(duration: TVMainNavigationLayout.collapseDuration)) {
                 contentExpansionDeferred = false
             }
         }
