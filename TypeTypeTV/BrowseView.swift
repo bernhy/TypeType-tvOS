@@ -1060,6 +1060,11 @@ struct HomeView: View {
             .background(TTTheme.ink)
             .focusScope(homeFocusScope)
             .modifier(TVHomeMenuPresentation(model: homeMenu))
+            // Shared membership is fetched once per Home appearance, not
+            // once per recommendation card or on directional focus changes.
+            .task {
+                await TVWatchLaterMembership.shared.ensureLoaded(api: api)
+            }
             .task {
                 await contentPreferences.ensureLoaded(api: api)
                 // A detail push/pop can restart .task while the user is on

@@ -116,6 +116,8 @@ struct TVHomeSubscriptionsBaselineView: View {
                                 .modifier(TVHomeLightweightVideoActions(
                                     api: api, video: video, model: homeMenu,
                                     focus: $focusedVideo, focusID: video.url,
+                                    // Only blocking a video/channel may
+                                    // trigger a full Home fetch.
                                     onChanged: { Task { await reload() } }
                                 ))
                                 .onMoveCommand { direction in
@@ -157,6 +159,11 @@ struct TVHomeSubscriptionsBaselineView: View {
                 if let id = homeMenu.focusRestoreTarget {
                     focusedVideo = id
                 }
+            }
+            // A single account-scoped load for all lightweight menus;
+            // the original per-card videoActions does this in every tile.
+            .task {
+                await TVWatchLaterMembership.shared.ensureLoaded(api: api)
             }
             .task {
                 await contentPreferences.ensureLoaded(api: api)

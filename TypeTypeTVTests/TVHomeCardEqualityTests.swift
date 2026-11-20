@@ -2,6 +2,14 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVHomeCardEqualityTests: XCTestCase {
+    func testOnlyBlockingRequiresHomeFeedReload() {
+        XCTAssertFalse(TVHomeMenuReloadPolicy.watched.requiresFeedReload)
+        XCTAssertFalse(TVHomeMenuReloadPolicy.watchLater.requiresFeedReload)
+        XCTAssertFalse(TVHomeMenuReloadPolicy.playlist.requiresFeedReload)
+        XCTAssertTrue(TVHomeMenuReloadPolicy.block.requiresFeedReload)
+    }
+
+
     func testComparisonMenuHasOnlyTwoVisibleChoices() {
         XCTAssertEqual(TVHomeComparisonPolicy.previous,
                        TVHomeExperimentMode.fullLightweightStableFocus.rawValue)

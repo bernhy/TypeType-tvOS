@@ -504,6 +504,18 @@ enum TVVideoFocusReturn {
 /// focused NavigationLink. UIKit dropped that focus owner, breaking the Left
 /// transition and the card zoom. This model lives ONCE for the whole Home
 /// screen; individual links keep a stable, observer-free contextMenu modifier.
+/// Only removing videos/channels from the displayed feed needs a full
+/// recommendations fetch. All other Home menu actions update the shared
+/// progress, watch-later or playlist state directly.
+enum TVHomeMenuReloadPolicy {
+    case watched
+    case watchLater
+    case playlist
+    case block
+
+    var requiresFeedReload: Bool { self == .block }
+}
+
 @MainActor
 final class TVHomeMenuCoordinator: ObservableObject {
     enum BlockTarget { case video, channel }
@@ -551,7 +563,7 @@ final class TVHomeMenuCoordinator: ObservableObject {
         }
     }
 
-    private func run(focusID: String, refresh: Bool = true,
+    private func run(focusID: String, kind: TVHomeMenuReloadPolicy,
                      onChanged: @escaping () -> Void,
                      action: @escaping () async throws -> String) {
         guard !working else { return }
@@ -562,7 +574,7 @@ final class TVHomeMenuCoordinator: ObservableObject {
             do {
                 let result = try await action()
                 showFeedback(result)
-                if refresh { refreshAfterFeedback(onChanged) }
+                if kind.requiresFeedReload { refreshAfterFeedback(onChanged) }
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -571,7 +583,7 @@ final class TVHomeMenuCoordinator: ObservableObject {
 
     func markWatched(api: TypeTypeAPI, video: VideoItem, focusID: String,
                      onChanged: @escaping () -> Void) {
-        run(focusID: focusID, refresh: false, onChanged: onChanged) {
+        run(focusID: focusID, kind: .watched, onChanged: onChanged) {
             var target = video
             if (target.duration ?? 0) <= 0 {
                 let details = await TVStreamMetadataCache.shared.details(for: video, api: api)
@@ -596,7 +608,7 @@ final class TVHomeMenuCoordinator: ObservableObject {
     func updateWatchLater(api: TypeTypeAPI, video: VideoItem,
                           focusID: String, enabled: Bool,
                           onChanged: @escaping () -> Void) {
-        run(focusID: focusID, onChanged: onChanged) {
+        run(focusID: focusID, kind: .watchLater, onChanged: onChanged) {
             try await api.setWatchLater(video: video, enabled: enabled)
             TVWatchLaterMembership.shared.mark(video.url, present: enabled, api: api)
             return TVL10n.value(enabled ? "action.savedWatchLater"
@@ -605,15 +617,14 @@ final class TVHomeMenuCoordinator: ObservableObject {
     }
 
     func presentPlaylist(api: TypeTypeAPI, video: VideoItem,
-                         focusID: String, onChanged: @escaping () -> Void) {
+                         focusID: String) {
         lastFocusID = focusID
         TVPlaylistPopupPresenter.shared.present(
             api: api, video: video,
             onSaved: { result in
+                // TVPlaylistPickerView updates the shared membership state.
+                // Do not discard/re-fetch the recommendations grid.
                 self.showFeedback(result)
-                if result == TVL10n.value("action.removedPlaylist") {
-                    self.refreshAfterFeedback(onChanged)
-                }
             },
             onDismiss: { self.restoreFocus(focusID) }
         )
@@ -640,7 +651,8 @@ final class TVHomeMenuCoordinator: ObservableObject {
     func confirmBlock() {
         guard let request = blockRequest else { return }
         blockRequest = nil
-        run(focusID: request.focusID, onChanged: request.onChanged) {
+        run(focusID: request.focusID, kind: .block,
+            onChanged: request.onChanged) {
             switch request.target {
             case .video:
                 try await request.api.blockVideo(request.video)
@@ -722,7 +734,7 @@ struct TVHomeLightweightVideoActions: ViewModifier {
                 }
                 Button {
                     model.presentPlaylist(api: api, video: video,
-                        focusID: focusID, onChanged: onChanged)
+                        focusID: focusID)
                 } label: {
                     Label("action.addPlaylist", systemImage: "text.badge.plus")
                 }
