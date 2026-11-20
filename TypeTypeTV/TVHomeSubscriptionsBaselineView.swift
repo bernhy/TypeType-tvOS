@@ -26,6 +26,7 @@ private struct TVHomeBaselineTile: View {
     let onRevealMenu: () -> Void
     let onReturnToList: () -> Void
     let onChanged: () -> Void
+    let onNavigation: () -> Void
 
     private var focusID: String {
         (resume ? "recent-" : "recommendation-") + entry.video.url
@@ -58,6 +59,9 @@ private struct TVHomeBaselineTile: View {
             onChanged: onChanged
         ))
         .onMoveCommand { direction in
+            // No SwiftUI state change: just defer metadata-driven row updates
+            // while remote navigation is active.
+            onNavigation()
             if direction == .left &&
                (resume ? entry.index == 0 : entry.index % columns == 0) {
                 onRevealMenu()
@@ -100,6 +104,9 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
     let onReturnToList: (String) -> Void
     let onChanged: () -> Void
     let onApproachEnd: () -> Void
+    let onResumeAppear: (VideoItem) -> Void
+    let onResumeDisappear: (VideoItem) -> Void
+    let onNavigation: () -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.snapshot == rhs.snapshot && lhs.homeMenu === rhs.homeMenu
@@ -145,9 +152,10 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
                 columns: snapshot.columns, focus: focus, homeMenu: homeMenu,
                 onRevealMenu: onRevealMenu,
                 onReturnToList: { onReturnToList(id) },
-                onChanged: onChanged
+                onChanged: onChanged, onNavigation: onNavigation
             )
             .onAppear {
+                if snapshot.resume { onResumeAppear(entry.video) }
                 #if DEBUG
                 TVHomeFocusDiagnostics.hit(snapshot.resume
                     ? .resumeAppear : .recommendationAppear)
@@ -157,6 +165,9 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
                     entry.index >= snapshot.items.count - threshold {
                     onApproachEnd()
                 }
+            }
+            .onDisappear {
+                if snapshot.resume { onResumeDisappear(entry.video) }
             }
         }
     }
@@ -175,6 +186,9 @@ struct TVHomeSubscriptionsBaselineView: View {
     // One shared state host for Home menu dialogs/actions. Every card keeps
     // the same NavigationLink + FocusState chain throughout focus movement.
     @StateObject private var homeMenu = TVHomeMenuCoordinator()
+    // Reference state is intentionally not observable: queue activity must
+    // never invalidate Home or its Equatable card collections.
+    @State private var resumeMetadata = TVHomeResumeMetadataLoader()
     @State private var videos: [VideoItem]
     @State private var recentVideos: [VideoItem]
     @State private var historyLoadedOnce = false
@@ -401,6 +415,7 @@ struct TVHomeSubscriptionsBaselineView: View {
                 await refresh()
             }
             .onChange(of: showRecent) { _, enabled in
+                if !enabled { resumeMetadata.stop() }
                 if enabled && !historyLoadedOnce && previewVideos == nil {
                     Task { await loadHistory() }
                 }
@@ -435,6 +450,7 @@ struct TVHomeSubscriptionsBaselineView: View {
             .onChange(of: loadingRecent) { _, _ in claimInitialFocus() }
             .onChange(of: recommendationsLoaded) { _, _ in claimInitialFocus() }
             .onExitCommand { handleHomeBack(scroll: scroll) }
+            .onDisappear { resumeMetadata.stop() }
         }
     }
 
@@ -468,7 +484,18 @@ struct TVHomeSubscriptionsBaselineView: View {
                     if resume { await loadMoreHistory() }
                     else { await loadMore() }
                 }
-            }
+            },
+            onResumeAppear: { video in
+                guard previewVideos == nil else { return }
+                resumeMetadata.appear(
+                    video: video, api: api,
+                    onBatch: { details in applyResumeMetadata(details) }
+                )
+            },
+            onResumeDisappear: { video in
+                resumeMetadata.disappear(video)
+            },
+            onNavigation: { resumeMetadata.noteNavigation() }
         )
         .equatable()
     }
@@ -516,6 +543,20 @@ struct TVHomeSubscriptionsBaselineView: View {
         }
     }
 
+    // One data mutation per idle metadata batch. This runs only after
+    // background extraction and never from the focus/event rendering path.
+    @MainActor
+    private func applyResumeMetadata(_ details: [String: StreamInfo]) {
+        guard !details.isEmpty, showRecent else { return }
+        let updated = recentVideos.map { video in
+            guard let stream = details[TVHistoryDeduplicator.key(for: video)] else {
+                return video
+            }
+            return TVVideoMetadata.merged(video, stream: stream)
+        }
+        if updated != recentVideos { recentVideos = updated }
+    }
+
     @MainActor
     private func reload() async {
         guard !loading else { return }
@@ -545,7 +586,10 @@ struct TVHomeSubscriptionsBaselineView: View {
             let updated = TVVideoMetadata.reusingRecommendationMetadata(
                 recentVideos, from: enriched
             )
-            if updated != recentVideos { recentVideos = updated }
+            if updated != recentVideos {
+                recentVideos = updated
+                resumeMetadata.reconcile(with: updated)
+            }
         } catch is CancellationError {
             return
         } catch {
@@ -583,7 +627,10 @@ struct TVHomeSubscriptionsBaselineView: View {
             let updated = TVVideoMetadata.reusingRecommendationMetadata(
                 recentVideos, from: enriched
             )
-            if updated != recentVideos { recentVideos = updated }
+            if updated != recentVideos {
+                recentVideos = updated
+                resumeMetadata.reconcile(with: updated)
+            }
             #if DEBUG
             TVHomeFocusDiagnostics.hit(.pageAppend)
             #endif
@@ -616,6 +663,7 @@ struct TVHomeSubscriptionsBaselineView: View {
             recentVideos = TVVideoMetadata.reusingRecommendationMetadata(
                 enriched, from: videos
             )
+            resumeMetadata.reconcile(with: recentVideos)
             historyOffset = raw.count
             historyHasMore = raw.count == historyPageSize
             recentNeedsLogin = false
@@ -670,6 +718,7 @@ struct TVHomeSubscriptionsBaselineView: View {
             recentVideos.append(contentsOf:
                 TVVideoMetadata.reusingRecommendationMetadata(enriched, from: videos)
             )
+            resumeMetadata.reconcile(with: recentVideos)
         } catch is CancellationError {
             return
         } catch {
@@ -679,3 +728,170 @@ struct TVHomeSubscriptionsBaselineView: View {
     }
 
 }
+
+/// No stream extraction is attached to VideoCard. Loading is driven solely by
+/// LazyHStack onAppear/onDisappear and runs only for a small, recent window.
+enum TVHomeResumeMetadataPolicy {
+    static let maxTrackedCards = 6
+    static func needsLookup(_ video: VideoItem) -> Bool {
+        video.viewCount == nil || (video.viewCount ?? -1) <= 0 ||
+            TVVideoMetadata.publicationDate(for: video) == nil
+    }
+}
+
+@MainActor
+final class TVHomeResumeMetadataLoader {
+    private struct Request {
+        let key: String
+        let video: VideoItem
+    }
+
+    private let fetch: @MainActor (VideoItem, TypeTypeAPI) async -> StreamInfo?
+    private var scope = ""
+    private var generation = 0
+    private var activeKeys: [String] = []
+    private var pending: [Request] = []
+    private var attempted = Set<String>()
+    private var completed: [String: StreamInfo] = [:]
+    private var worker: Task<Void, Never>?
+    private var flushTask: Task<Void, Never>?
+    private var lastNavigation = Date.distantPast
+    private var onBatch: (([String: StreamInfo]) -> Void)?
+
+    init(fetch: @escaping @MainActor (VideoItem, TypeTypeAPI) async -> StreamInfo? = {
+        video, api in
+        await TVStreamMetadataCache.shared.details(for: video, api: api)
+    }) {
+        self.fetch = fetch
+    }
+
+    func appear(video: VideoItem, api: TypeTypeAPI,
+                onBatch: @escaping ([String: StreamInfo]) -> Void) {
+        let nextScope = api.metadataCacheScope
+        if scope != nextScope {
+            stop()
+            scope = nextScope
+        }
+        self.onBatch = onBatch
+        let key = TVHistoryDeduplicator.key(for: video)
+        activeKeys.removeAll { $0 == key }
+        activeKeys.append(key)
+        // tvOS may pre-create cells ahead of the viewport. Retain only the
+        // four visible cards plus two likely neighbors, not all 100 history rows.
+        while activeKeys.count > TVHomeResumeMetadataPolicy.maxTrackedCards {
+            let discarded = activeKeys.removeFirst()
+            pending.removeAll { $0.key == discarded }
+            completed[discarded] = nil
+        }
+        guard TVHomeResumeMetadataPolicy.needsLookup(video) else {
+            pending.removeAll { $0.key == key }
+            completed[key] = nil
+            return
+        }
+        guard !attempted.contains(key), !pending.contains(where: { $0.key == key }) else {
+            return
+        }
+        pending.append(Request(key: key, video: video))
+        start(api: api)
+    }
+
+    func disappear(_ video: VideoItem) {
+        let key = TVHistoryDeduplicator.key(for: video)
+        activeKeys.removeAll { $0 == key }
+        pending.removeAll { $0.key == key }
+        completed[key] = nil
+    }
+
+    func reconcile(with history: [VideoItem]) {
+        let complete = Set(history.filter { !TVHomeResumeMetadataPolicy.needsLookup($0) }
+            .map { TVHistoryDeduplicator.key(for: $0) })
+        guard !complete.isEmpty else { return }
+        pending.removeAll { complete.contains($0.key) }
+        for key in complete { completed[key] = nil }
+    }
+
+    func noteNavigation() {
+        // Plain reference mutation, no @Published, @State or new Task.
+        lastNavigation = Date()
+    }
+
+    func stop() {
+        generation &+= 1
+        worker?.cancel()
+        worker = nil
+        flushTask?.cancel()
+        flushTask = nil
+        pending.removeAll()
+        activeKeys.removeAll()
+        attempted.removeAll()
+        completed.removeAll()
+        onBatch = nil
+        scope = ""
+    }
+
+    private func start(api: TypeTypeAPI) {
+        guard worker == nil, !pending.isEmpty else { return }
+        let currentGeneration = generation
+        worker = Task(priority: .utility) { [weak self] in
+            // Allow initial recommendations to finish and scrolling to settle.
+            try? await Task.sleep(for: .milliseconds(350))
+            guard let self, !Task.isCancelled,
+                  self.generation == currentGeneration else { return }
+            await self.drain(api: api, generation: currentGeneration)
+        }
+    }
+
+    private func drain(api: TypeTypeAPI, generation expected: Int) async {
+        defer {
+            if generation == expected { worker = nil }
+        }
+        // Exactly one sequential fetch, even when the system cache permits
+        // three other callers. Never fetch merely because focus changed.
+        while generation == expected && !Task.isCancelled && !pending.isEmpty {
+            let request = pending.removeFirst()
+            guard activeKeys.contains(request.key) else { continue }
+            attempted.insert(request.key)
+            #if DEBUG
+            TVHomeFocusDiagnostics.hit(.resumeMetadataLookup)
+            #endif
+            let details = await fetch(request.video, api)
+            guard generation == expected && !Task.isCancelled else { return }
+            if let details, activeKeys.contains(request.key) {
+                completed[request.key] = details
+                scheduleFlush()
+            } else if !activeKeys.contains(request.key) {
+                // An abandoned attempt may be retried if the card reappears.
+                attempted.remove(request.key)
+            }
+        }
+        scheduleFlush()
+    }
+
+    private func scheduleFlush() {
+        guard !completed.isEmpty, flushTask == nil else { return }
+        let expected = generation
+        flushTask = Task(priority: .utility) { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard let self, !Task.isCancelled, self.generation == expected else {
+                return
+            }
+            // Do not invalidate EquatableView while the remote is moving.
+            // Navigation just updates a timestamp; only this one task waits.
+            while self.generation == expected && !Task.isCancelled &&
+                  Date().timeIntervalSince(self.lastNavigation) < 0.55 {
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            guard self.generation == expected && !Task.isCancelled else { return }
+            let batch = self.completed.filter { self.activeKeys.contains($0.key) }
+            self.completed.removeAll()
+            self.flushTask = nil
+            if !batch.isEmpty {
+                #if DEBUG
+                TVHomeFocusDiagnostics.hit(.resumeMetadataBatch)
+                #endif
+                self.onBatch?(batch)
+            }
+        }
+    }
+}
+
