@@ -548,9 +548,6 @@ struct TVHomeCardToastAnchorKey: PreferenceKey {
 
     static func reduce(value: inout [TVHomeCardToastAnchor],
                        nextValue: () -> [TVHomeCardToastAnchor]) {
-        #if DEBUG
-        TVHomeFocusDiagnostics.hit(.anchorReduce)
-        #endif
         value.append(contentsOf: nextValue())
     }
 }
