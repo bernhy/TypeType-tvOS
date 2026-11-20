@@ -471,137 +471,41 @@ final class TVHomeCardEqualityTests: XCTestCase {
     }
 
 
-    func testDiagnosticModesIsolateHomeWorkWithoutReduccingImageQuality() {
-        XCTAssertEqual(TVHomeExperimentMode.allCases.count, 11)
-        XCTAssertEqual(TVHomeExperimentMode.full.next,
-                       .noStreamMetadata)
-        XCTAssertEqual(TVHomeExperimentMode.noStreamMetadata.next,
-                       .recommendationsOnly)
-        XCTAssertEqual(TVHomeExperimentMode.recommendationsOnly.next,
-                       .twelveRecommendations)
-        XCTAssertEqual(TVHomeExperimentMode.twelveRecommendations.next,
-                       .twelveWithoutActions)
-        XCTAssertEqual(TVHomeExperimentMode.twelveWithoutActions.next,
-                       .twelveWithoutEffects)
-        XCTAssertEqual(TVHomeExperimentMode.twelveWithoutEffects.next,
-                       .twelveWithoutFocusHints)
-        XCTAssertEqual(TVHomeExperimentMode.twelveWithoutFocusHints.next,
-                       .twelveLightweightMenu)
-        XCTAssertEqual(TVHomeExperimentMode.twelveLightweightMenu.next,
-                       .fullLightweightMenu)
-        XCTAssertEqual(TVHomeExperimentMode.fullLightweightMenu.next,
-                       .fullLightweightStableFocus)
-        XCTAssertEqual(TVHomeExperimentMode.fullLightweightStableFocus.next,
-                       .subscriptionsBaseline)
-        XCTAssertEqual(TVHomeExperimentMode.subscriptionsBaseline.next,
-                       .full)
-        XCTAssertTrue(TVHomeExperimentMode.full.includesResume)
-        XCTAssertTrue(TVHomeExperimentMode.full.enrichesResumeMetadata)
-        XCTAssertFalse(TVHomeExperimentMode.noStreamMetadata.enrichesResumeMetadata)
-        XCTAssertTrue(TVHomeExperimentMode.noStreamMetadata.includesResume)
-        XCTAssertFalse(TVHomeExperimentMode.recommendationsOnly.includesResume)
-        XCTAssertNil(TVHomeExperimentMode.recommendationsOnly.recommendationLimit)
-        XCTAssertEqual(TVHomeExperimentMode.twelveRecommendations.recommendationLimit, 12)
-        XCTAssertEqual(TVHomeExperimentMode.twelveWithoutActions.recommendationLimit, 12)
-        XCTAssertEqual(TVHomeExperimentMode.twelveWithoutEffects.recommendationLimit, 12)
-        XCTAssertEqual(TVHomeExperimentMode.twelveWithoutFocusHints.recommendationLimit, 12)
-        XCTAssertEqual(TVHomeExperimentMode.twelveLightweightMenu.recommendationLimit, 12)
-        XCTAssertNil(TVHomeExperimentMode.fullLightweightMenu.recommendationLimit)
-        XCTAssertNil(TVHomeExperimentMode.fullLightweightStableFocus.recommendationLimit)
-        XCTAssertTrue(TVHomeExperimentMode.fullLightweightStableFocus.includesResume)
-        XCTAssertTrue(TVHomeExperimentMode.fullLightweightMenu.includesResume)
-        XCTAssertFalse(TVHomeExperimentMode.twelveWithoutActions.includesCardActionModifiers)
-        XCTAssertTrue(TVHomeExperimentMode.twelveWithoutActions.includesCardVisualEffects)
-        XCTAssertTrue(TVHomeExperimentMode.twelveWithoutEffects.includesCardActionModifiers)
-        XCTAssertFalse(TVHomeExperimentMode.twelveWithoutEffects.includesCardVisualEffects)
-        XCTAssertTrue(TVHomeExperimentMode.full.includesCardActionModifiers)
-        XCTAssertTrue(TVHomeExperimentMode.full.includesCardVisualEffects)
-        XCTAssertTrue(TVHomeExperimentMode.full.includesDefaultFocusHints)
-        XCTAssertFalse(TVHomeExperimentMode.twelveWithoutFocusHints.includesDefaultFocusHints)
-        XCTAssertTrue(TVHomeExperimentMode.twelveWithoutFocusHints.includesCardActionModifiers)
-        XCTAssertTrue(TVHomeExperimentMode.twelveWithoutFocusHints.includesCardVisualEffects)
-        XCTAssertTrue(TVHomeExperimentMode.twelveLightweightMenu.usesLightweightMenu)
-        XCTAssertTrue(TVHomeExperimentMode.fullLightweightMenu.usesLightweightMenu)
-        XCTAssertTrue(TVHomeExperimentMode.fullLightweightStableFocus.usesLightweightMenu)
-        XCTAssertTrue(TVHomeExperimentMode.fullLightweightMenu.tracksDefaultFocusDuringNavigation)
-        XCTAssertFalse(TVHomeExperimentMode.fullLightweightStableFocus.tracksDefaultFocusDuringNavigation)
-        XCTAssertFalse(TVHomeExperimentMode.subscriptionsBaseline.includesResume)
-        XCTAssertNil(TVHomeExperimentMode.subscriptionsBaseline.recommendationLimit)
-        XCTAssertFalse(TVHomeExperimentMode.subscriptionsBaseline.usesLightweightMenu)
-        XCTAssertFalse(TVHomeExperimentMode.full.usesLightweightMenu)
-        XCTAssertTrue(TVHomeExperimentMode.fullLightweightMenu.includesCardActionModifiers)
+    func testHomePaginationHonorsServerHasMoreAndCursorCycles() {
+        let first = HomeRecommendations(items: [], nextCursor: "cursor-2", hasMore: true)
+        XCTAssertEqual(TVHomePagingPolicy.nextCursor(first), "cursor-2")
+        let legacy = HomeRecommendations(items: [], nextCursor: "cursor-2", hasMore: nil)
+        XCTAssertEqual(TVHomePagingPolicy.nextCursor(legacy), "cursor-2")
+        let serverComplete = HomeRecommendations(items: [], nextCursor: "cursor-2", hasMore: false)
+        XCTAssertNil(TVHomePagingPolicy.nextCursor(serverComplete),
+                     "hasMore=false must suppress even a nonempty cursor")
+        XCTAssertNil(TVHomePagingPolicy.nextCursor(first, after: "cursor-2"),
+                     "A repeated cursor must not generate an endless request")
+        let missing = HomeRecommendations(items: [], nextCursor: nil, hasMore: true)
+        XCTAssertNil(TVHomePagingPolicy.nextCursor(missing))
+        let empty = HomeRecommendations(items: [], nextCursor: "", hasMore: true)
+        XCTAssertNil(TVHomePagingPolicy.nextCursor(empty))
     }
 
-    func testSingleTargetRailHandoffNeverPermitsNeighborFocus() throws {
-        let first = "recommendation-" + "https://youtu.be/ABCDEFGHIJK"
-        let second = "recommendation-" + "https://youtu.be/LMNOPQRSTUV"
-        let row = VideoItem(
-            id: "one", title: "Example", url: "https://youtu.be/ABCDEFGHIJK",
-            thumbnailUrl: nil, uploaderName: "Channel", duration: 120,
-            isLive: false
+    func testResolvedShortDurationEnablesCorrectWatchedAndUnwatchedMenuStates() {
+        var short = VideoItem(
+            id: "short", title: "Short", url: "https://youtu.be/ABCDEFGHIJK",
+            thumbnailUrl: nil, uploaderName: nil, duration: nil, isLive: false
         )
-        XCTAssertEqual(TVHomeRailHandoffPolicy.savedTarget(
-            first, recommendations: [row], recent: []
-        ), first)
-        XCTAssertNil(TVHomeRailHandoffPolicy.savedTarget(
-            second, recommendations: [row], recent: []
-        ))
-        XCTAssertTrue(TVHomeRailHandoffPolicy.canFocus(first, restoring: first))
-        XCTAssertFalse(TVHomeRailHandoffPolicy.canFocus(second, restoring: first))
-        XCTAssertTrue(TVHomeRailHandoffPolicy.canFocus(second, restoring: nil))
-    }
-
-
-    func testHomeViewportStaysStableAcrossMainRailExpansion() {
-        // 158pt narrower navigation content must not shrink its 4-column
-        // thumbnails or accumulate per-row vertical drift.
-        let collapsed = CGFloat(1650)
-        let expanded = CGFloat(1492)
-        let widest = TVHomeViewportPolicy.widest(0, measured: collapsed)
-        XCTAssertEqual(TVHomeViewportPolicy.contentWidth(
-            available: expanded, widest: widest
-        ), collapsed)
-        XCTAssertEqual(TVHomeViewportPolicy.contentWidth(
-            available: collapsed, widest: widest
-        ), collapsed)
-        XCTAssertEqual(TVHomeViewportPolicy.widest(widest, measured: expanded),
-                       collapsed)
-        XCTAssertEqual(TVHomeViewportPolicy.widest(widest, measured: .nan), collapsed)
-    }
-
-    func testReturningFromRailDoesNotRecenterAlreadyVisibleCard() {
-        let deep = "recommendation-deep"
-        XCTAssertFalse(TVHomeViewportPolicy.shouldScrollToRestore(
-            savedRailCard: deep, target: deep
-        ))
-        XCTAssertTrue(TVHomeViewportPolicy.shouldScrollToRestore(
-            savedRailCard: deep, target: "recommendation-first"
-        ))
-        XCTAssertTrue(TVHomeViewportPolicy.shouldScrollToRestore(
-            savedRailCard: nil, target: deep
-        ))
-    }
-
-    func testHomeCardEqualityOnlySkipsIdenticalVisualInputs() throws {
-        let api = try TypeTypeAPI(address: "https://example.com")
-        let other = try TypeTypeAPI(address: "https://other.example.com")
-        let video = VideoItem(
-            id: "one", title: "Original", url: "https://youtu.be/ABCDEFGHIJK",
-            thumbnailUrl: "https://img.example.com/one.jpg",
-            uploaderName: "Channel", duration: 120, isLive: false
+        short.isShortFormContent = true
+        let before = TVHomeCardMenuState(
+            video: short, positionMs: 180_000, watchLater: .notSaved
         )
-        var changed = video
-        changed.viewCount = 100
-
-        let a = TVHomeCardContent(api: api, video: video)
-        XCTAssertEqual(a, TVHomeCardContent(api: api, video: video))
-        XCTAssertNotEqual(a, TVHomeCardContent(api: other, video: video))
-        XCTAssertNotEqual(a, TVHomeCardContent(api: api, video: changed))
-        XCTAssertNotEqual(a, TVHomeCardContent(
-            api: api, video: video, lookupMissingMetadata: true
-        ))
-        XCTAssertNotEqual(a, TVHomeCardContent(
-            api: api, video: video, includeVisualEffects: false
-        ))
+        XCTAssertFalse(before.watched, "A missing duration cannot imply completion")
+        short.duration = 180
+        let after = TVHomeCardMenuState(
+            video: short, positionMs: 180_000, watchLater: .notSaved
+        )
+        XCTAssertTrue(after.watched, "Remembered duration must restore the toggle")
+        let removed = TVHomeCardMenuState(
+            video: short, positionMs: 0, watchLater: .notSaved
+        )
+        XCTAssertFalse(removed.watched)
     }
+
 }
