@@ -759,7 +759,7 @@ final class TVHomeResumeMetadataLoader {
     private var worker: Task<Void, Never>?
     private var flushTask: Task<Void, Never>?
     private var lastNavigation = Date.distantPast
-    private var onBatch: (([String: StreamInfo]) -> Void)?
+    private var onBatch: (@MainActor ([String: StreamInfo]) -> Void)?
 
     init(fetch: @escaping @MainActor (VideoItem, TypeTypeAPI) async -> StreamInfo? = {
         video, api in
@@ -769,7 +769,7 @@ final class TVHomeResumeMetadataLoader {
     }
 
     func appear(video: VideoItem, api: TypeTypeAPI,
-                onBatch: @escaping ([String: StreamInfo]) -> Void) {
+                onBatch: @escaping @MainActor ([String: StreamInfo]) -> Void) {
         let nextScope = api.metadataCacheScope
         if scope != nextScope {
             stop()
