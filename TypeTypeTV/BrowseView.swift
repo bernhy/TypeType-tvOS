@@ -1729,7 +1729,9 @@ struct VideoCard: View {
 
     var body: some View {
         #if DEBUG
-        let _ = TVHomeFocusDiagnostics.hit(.videoCardBody)
+        let _ = TVHomeFocusDiagnostics.videoCardBody(
+            isFocused: isFocused, videoURL: video.url
+        )
         #endif
         // One card surface, no transparent 10-point gap between artwork
         // and the info panel. That gap used to reveal the black grid behind.

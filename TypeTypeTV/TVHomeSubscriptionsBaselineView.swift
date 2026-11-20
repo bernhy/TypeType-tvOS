@@ -10,6 +10,66 @@ private struct TVHomeBaselineGridEntry: Identifiable {
     var id: String { video.url }
 }
 
+/**
+ A stable focus-isolated tile. The parent Home no longer reads the global
+ focus value to assign zIndex for every LazyVGrid cell on each remote move.
+ Only this tile evaluates focus.wrappedValue for its own layering. The
+ NavigationLink, focus binding and lazy context menu stay exactly as before.
+ */
+private struct TVHomeBaselineTile: View {
+    let api: TypeTypeAPI
+    let entry: TVHomeBaselineGridEntry
+    let resume: Bool
+    let columns: Int
+    let scroll: ScrollViewProxy
+    let focus: FocusState<String?>.Binding
+    let homeMenu: TVHomeMenuCoordinator
+    let onRevealMenu: () -> Void
+    let onReturnToList: () -> Void
+    let onChanged: () -> Void
+
+    private var focusID: String {
+        (resume ? "recent-" : "recommendation-") + entry.video.url
+    }
+
+    var body: some View {
+        let video = entry.video
+        let id = focusID
+        let link = NavigationLink {
+            VideoDetailView(
+                api: api, video: video,
+                onReturnToList: onReturnToList
+            )
+        } label: {
+            VideoCard(api: api, video: video)
+        }
+        .buttonStyle(TVRailButtonStyle())
+        .focusEffectDisabled(true)
+        .zIndex(focus.wrappedValue == id ? 5 : 0)
+        .id(id)
+        .modifier(TVHomeLightweightVideoActions(
+            api: api, video: video, model: homeMenu,
+            focus: focus, focusID: id,
+            onChanged: onChanged
+        ))
+        .onMoveCommand { direction in
+            if direction == .left &&
+               (resume ? entry.index == 0 : entry.index % columns == 0) {
+                onRevealMenu()
+            }
+        }
+        .accessibilityIdentifier(resume
+            ? "home-baseline-recent-\(entry.index)"
+            : "home-baseline-video-\(entry.index)")
+
+        if resume {
+            link.containerRelativeFrame(.horizontal, count: 4, spacing: 26)
+        } else {
+            link
+        }
+    }
+}
+
 struct TVHomeSubscriptionsBaselineView: View {
     let api: TypeTypeAPI
     let previewVideos: [VideoItem]?
@@ -128,8 +188,11 @@ struct TVHomeSubscriptionsBaselineView: View {
 
     var body: some View {
         #if DEBUG
+        // Only count the parent render. Reading focusedVideo here would
+        // itself force the parent to update on each focus change, corrupting
+        // the result of this focus-isolation experiment.
         let _ = TVHomeFocusDiagnostics.homeBody(
-            focusedID: focusedVideo, recommendations: videos.count,
+            focusedID: nil, recommendations: videos.count,
             recent: recentVideos.count
         )
         #endif
@@ -305,54 +368,29 @@ struct TVHomeSubscriptionsBaselineView: View {
     // A SINGLE tile factory. The resume shelf uses the same VideoCard,
     // stable NavigationLink, shared lazy context actions and toast anchors
     // as recommendations. Only layout and focus ID differ.
-    @ViewBuilder
+    // A single shared tile builder for both resume and recommendation rows.
+    // Only stable data and a FocusState binding are passed; Home itself does
+    // not read the changing focus value on ordinary Siri Remote movement.
     private func videoTile(_ entry: TVHomeBaselineGridEntry, resume: Bool,
                            scroll: ScrollViewProxy) -> some View {
         #if DEBUG
         let _ = TVHomeFocusDiagnostics.hit(.tileBuild)
         #endif
-        let video = entry.video
-        let id = cardID(video, resume: resume)
-        let link = NavigationLink {
-            VideoDetailView(
-                api: api, video: video,
-                onReturnToList: {
-                    TVVideoFocusReturn.restore($focusedVideo, id: id, scroll: scroll)
-                }
-            )
-        } label: {
-            VideoCard(api: api, video: video)
-        }
-        .buttonStyle(TVRailButtonStyle())
-        .focusEffectDisabled(true)
-        .zIndex(focusedVideo == id ? 5 : 0)
-        .id(id)
-        .modifier(TVHomeLightweightVideoActions(
-            api: api, video: video, model: homeMenu,
-            focus: $focusedVideo, focusID: id,
+        let id = cardID(entry.video, resume: resume)
+        return TVHomeBaselineTile(
+            api: api, entry: entry, resume: resume, columns: columns.count,
+            scroll: scroll, focus: $focusedVideo, homeMenu: homeMenu,
+            onRevealMenu: onRevealMenu,
+            onReturnToList: {
+                TVVideoFocusReturn.restore($focusedVideo, id: id, scroll: scroll)
+            },
             onChanged: {
                 Task {
-                    // Only a successful Block action invokes this callback.
                     if resume { await loadHistory() }
                     else { await reload() }
                 }
             }
-        ))
-        .onMoveCommand { direction in
-            if direction == .left &&
-               (resume ? entry.index == 0 : entry.index % columns.count == 0) {
-                onRevealMenu()
-            }
-        }
-        .accessibilityIdentifier(resume
-            ? "home-baseline-recent-\(entry.index)"
-            : "home-baseline-video-\(entry.index)")
-
-        if resume {
-            link.containerRelativeFrame(.horizontal, count: 4, spacing: 26)
-        } else {
-            link
-        }
+        )
     }
 
     // Lazy, horizontal, exactly four visible tile slots. No per-tile focus

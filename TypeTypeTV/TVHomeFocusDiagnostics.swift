@@ -39,6 +39,13 @@ enum TVHomeFocusDiagnostics {
                           recent: recent)
     }
 
+    /// Uses the focus state already observed by the visible VideoCard;
+    /// no extra view, focus modifier or listener is installed.
+    static func videoCardBody(isFocused: Bool, videoURL: String) {
+        guard enabled else { return }
+        recorder.videoCardBody(isFocused: isFocused, videoURL: videoURL)
+    }
+
     // PreferenceKey.reduce is not guaranteed to execute on the main actor.
     // Use one lock; all work outside profiling mode is gated by 'enabled'.
     private final class Recorder {
@@ -47,6 +54,8 @@ enum TVHomeFocusDiagnostics {
         private var milliseconds = [Double](repeating: 0, count: Metric.allCases.count)
         private var lastFocusID: String?
         private var windowStart = CFAbsoluteTimeGetCurrent()
+        private var recommendations = 0
+        private var recent = 0
 
         func hit(_ metric: Metric, milliseconds duration: Double = 0) {
             lock.lock()
@@ -55,46 +64,73 @@ enum TVHomeFocusDiagnostics {
             lock.unlock()
         }
 
+        func videoCardBody(isFocused: Bool, videoURL: String) {
+            let now = CFAbsoluteTimeGetCurrent()
+            lock.lock()
+            counts[Metric.videoCardBody.rawValue] += 1
+            if isFocused && videoURL != lastFocusID {
+                lastFocusID = videoURL
+                counts[Metric.focusChange.rawValue] += 1
+            }
+            let summary = snapshotIfDue(now: now)
+            lock.unlock()
+            logIfNeeded(summary)
+        }
+
         func homeBody(focusedID: String?, recommendations: Int, recent: Int) {
             let now = CFAbsoluteTimeGetCurrent()
-            var summary: String?
             lock.lock()
             counts[Metric.homeBody.rawValue] += 1
-            if focusedID != lastFocusID {
+            self.recommendations = recommendations
+            self.recent = recent
+            // Keeping this optional lets the focus-isolation A/B avoid a
+            // diagnostic read of focusedVideo inside the Home parent's body.
+            if let focusedID, focusedID != lastFocusID {
                 lastFocusID = focusedID
                 counts[Metric.focusChange.rawValue] += 1
             }
-            let elapsed = now - windowStart
-            if elapsed >= 3 && counts[Metric.focusChange.rawValue] > 0 {
-                func count(_ metric: Metric) -> Int { counts[metric.rawValue] }
-                func cost(_ metric: Metric) -> String {
-                    String(format: "%.2f", milliseconds[metric.rawValue])
-                }
-                summary =
-                    "HomeFocus \(String(format: "%.1f", elapsed))s " +
-                    "focus=\(count(.focusChange)) home=\(count(.homeBody)) " +
-                    "tile=\(count(.tileBuild)) videoBody=\(count(.videoCardBody)) " +
-                    "thumbnailBody=\(count(.thumbnailBody)) " +
-                    "thumbnailTask=\(count(.thumbnailTask)) " +
-                    "cacheHit=\(count(.thumbnailCacheHit)) " +
-                    "appear=\(count(.recommendationAppear))/\(count(.resumeAppear)) " +
-                    "anchorReduce=\(count(.anchorReduce)) " +
-                    "pages=\(count(.pageRequest))/\(count(.pageAppend)) " +
-                    "filterMs=\(cost(.filterRecommendations))/\(cost(.filterRecent)) " +
-                    "focusIDsMs=\(cost(.buildFocusIDs)) " +
-                    "items=\(recommendations)/\(recent)"
-                counts = [Int](repeating: 0, count: Metric.allCases.count)
-                milliseconds = [Double](repeating: 0, count: Metric.allCases.count)
-                windowStart = now
-            }
+            let summary = snapshotIfDue(now: now)
             lock.unlock()
-            if let summary {
-                // Logging itself must not steal a frame from a fast swipe.
-                // One low-priority submission every ~3s, and ONLY in the
-                // explicitly enabled DEBUG tracing mode.
-                DispatchQueue.global(qos: .utility).async {
-                    NSLog("TypeType %@", summary)
-                }
+            logIfNeeded(summary)
+        }
+
+        /// Called only while holding the lock. Emit from either a Home
+        /// render or a focused card, so isolating the parent does not
+        /// accidentally silence the diagnostic output.
+        private func snapshotIfDue(now: Double) -> String? {
+            let elapsed = now - windowStart
+            guard elapsed >= 3, counts[Metric.focusChange.rawValue] > 0 else {
+                return nil
+            }
+            func count(_ metric: Metric) -> Int { counts[metric.rawValue] }
+            func cost(_ metric: Metric) -> String {
+                String(format: "%.2f", milliseconds[metric.rawValue])
+            }
+            let summary =
+                "HomeFocus \(String(format: "%.1f", elapsed))s " +
+                "focus=\(count(.focusChange)) home=\(count(.homeBody)) " +
+                "tile=\(count(.tileBuild)) videoBody=\(count(.videoCardBody)) " +
+                "thumbnailBody=\(count(.thumbnailBody)) " +
+                "thumbnailTask=\(count(.thumbnailTask)) " +
+                "cacheHit=\(count(.thumbnailCacheHit)) " +
+                "appear=\(count(.recommendationAppear))/\(count(.resumeAppear)) " +
+                "anchorReduce=\(count(.anchorReduce)) " +
+                "pages=\(count(.pageRequest))/\(count(.pageAppend)) " +
+                "filterMs=\(cost(.filterRecommendations))/\(cost(.filterRecent)) " +
+                "focusIDsMs=\(cost(.buildFocusIDs)) " +
+                "items=\(recommendations)/\(recent)"
+            counts = [Int](repeating: 0, count: Metric.allCases.count)
+            milliseconds = [Double](repeating: 0, count: Metric.allCases.count)
+            windowStart = now
+            return summary
+        }
+
+        private func logIfNeeded(_ summary: String?) {
+            guard let summary else { return }
+            // As before, never write to the console synchronously during
+            // the focus animation.
+            DispatchQueue.global(qos: .utility).async {
+                NSLog("TypeType %@", summary)
             }
         }
     }
