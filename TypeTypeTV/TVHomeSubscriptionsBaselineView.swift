@@ -127,12 +127,26 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
                 .focusSection()
             }
         } else {
-            LazyVGrid(columns: Array(repeating:
-                GridItem(.flexible(), spacing: 26), count: snapshot.columns),
-                spacing: 32) {
-                entries()
-            }
-            .focusSection()
+            // Exactly the same video grid, focus-isolated tiles and lazy
+            // context-menu host used by subscriptions, search and library.
+            TVSharedVideoGrid(
+                snapshot: TVSharedVideoGridSnapshot(
+                    videos: snapshot.items, scope: snapshot.scope,
+                    destination: "home", focusPrefix: "recommendation-",
+                    accessibilityPrefix: "home-baseline-video-",
+                    columns: snapshot.columns, columnSpacing: 26,
+                    rowSpacing: 32, canLoadMore: snapshot.canLoadMore,
+                    loadAhead: snapshot.columns + 1,
+                    lookupMissingMetadata: false, isWatchLaterEntry: false,
+                    playbackQueue: nil
+                ),
+                api: api, focus: focus, menu: homeMenu,
+                onReturnToList: { onReturnToList($0, nil) },
+                onLeftEdge: onRevealMenu,
+                onChanged: onChanged, onApproachEnd: onApproachEnd,
+                onNavigation: onNavigation
+            )
+            .equatable()
         }
     }
 
