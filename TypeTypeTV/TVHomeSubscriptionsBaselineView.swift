@@ -451,7 +451,10 @@ struct TVHomeSubscriptionsBaselineView: View {
             .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
             .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
             .onChange(of: homeMenu.focusRestoreRequest) { _, _ in
-                if let id = homeMenu.focusRestoreTarget { focusedVideo = id }
+                if let id = homeMenu.focusRestoreTarget,
+                   visibleCardIDs.contains(id) {
+                    focusedVideo = id
+                }
             }
             .task {
                 await TVWatchLaterMembership.shared.ensureLoaded(api: api)
