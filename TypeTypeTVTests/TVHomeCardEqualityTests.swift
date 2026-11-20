@@ -463,6 +463,41 @@ final class TVHomeCardEqualityTests: XCTestCase {
     }
 
 
+    func testSharedVideoGridInvalidatesForDataAndDestinationNotFocus() {
+        let video = VideoItem(
+            id: "sample", title: "Item", url: "https://youtu.be/ABCDEFGHIJK",
+            thumbnailUrl: nil, uploaderName: "Channel",
+            duration: 120, isLive: false
+        )
+        func snapshot(destination: String, rows: [VideoItem] = [],
+                      watchLater: Bool = false) -> TVSharedVideoGridSnapshot {
+            TVSharedVideoGridSnapshot(
+                videos: rows.isEmpty ? [video] : rows,
+                scope: "account-1", destination: destination,
+                focusPrefix: "", accessibilityPrefix: "library-video-",
+                columns: 4, columnSpacing: 25, rowSpacing: 28,
+                canLoadMore: false, loadAhead: 8,
+                lookupMissingMetadata: false,
+                isWatchLaterEntry: watchLater,
+                reloadPlaylistOnRemoval: false, playbackQueue: nil
+            )
+        }
+        let original = snapshot(destination: "library-history")
+        XCTAssertEqual(original, snapshot(destination: "library-history"))
+        XCTAssertNotEqual(original, snapshot(destination: "library-watchLater"),
+                          "Switching tabs must refresh tile action closures")
+        XCTAssertNotEqual(original, snapshot(destination: "library-history",
+                                            watchLater: true),
+                          "Watch Later menus differ from other lists")
+        var renamed = video
+        renamed.title = "Updated"
+        XCTAssertNotEqual(original, snapshot(destination: "library-history",
+                                            rows: [renamed]),
+                          "Visible video metadata changes must still redraw")
+        // SwiftUI FocusState is deliberately NOT included in this immutable
+        // snapshot. Directional focus changes update only the matching tile.
+    }
+
     func testOnlyListRemovingActionsRequireFeedReload() {
         XCTAssertFalse(TVHomeMenuReloadPolicy.watched.requiresFeedReload)
         XCTAssertFalse(TVHomeMenuReloadPolicy.watchLater.requiresFeedReload)
