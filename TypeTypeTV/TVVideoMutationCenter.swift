@@ -5,6 +5,14 @@ import Combine
 /// screen-level event; video cards themselves do not subscribe or fetch.
 /// The bounded log also covers a pushed detail temporarily suspending its
 /// parent view: the parent can reconcile missed changes on return.
+/// The journal cursor is deliberately NOT observable. A playlist badge
+/// update must not invalidate an entire parent screen just to advance its
+/// last-seen event ID. Only a real local row removal mutates SwiftUI @State.
+@MainActor
+final class TVVideoMutationCursor {
+    var lastID = 0
+}
+
 @MainActor
 final class TVVideoMutationCenter: ObservableObject {
     static let shared = TVVideoMutationCenter()
