@@ -333,11 +333,16 @@ struct SearchView: View {
             .task(id: api.metadataCacheScope) {
                 await contentPreferences.ensureLoaded(api: api)
                 guard initializedSearchScope != api.metadataCacheScope else { return }
-                initializedSearchScope = api.metadataCacheScope
                 await loadFilterCapabilities()
+                guard !Task.isCancelled else { return }
                 // Do not upload stale device-local searches into any account.
                 UserDefaults.standard.removeObject(forKey: "typetype.recentSearches")
                 await loadSearchHistory()
+                // A cancelled first load must retry after returning. A
+                // completed load must not issue fresh GETs on every detail pop.
+                if !Task.isCancelled {
+                    initializedSearchScope = api.metadataCacheScope
+                }
             }
             .onChange(of: contentFilter) { _, _ in
                 groupSelections = [:]
