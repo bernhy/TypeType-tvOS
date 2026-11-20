@@ -231,9 +231,16 @@ struct LibraryView: View {
             // A SwiftUI .task restarts after returning from a pushed detail.
             // Never replace the visible LazyVGrid with a loading placeholder
             // or refetch playlists/history unless explicitly requested.
-            guard !initialLoadStarted else { return }
+            guard !initialLoadStarted, !initialLoadFinished else { return }
             initialLoadStarted = true
             await refresh()
+            if Task.isCancelled {
+                // A detail push can cancel an initial load that has not
+                // finished. Unlike a normal completed load, that must be
+                // eligible for retry when the Library becomes visible again.
+                initialLoadStarted = false
+                return
+            }
             lastLoadedDestination = selected
             initialLoadFinished = true
         }
