@@ -26,7 +26,7 @@ struct TVSubscriptionFeedView: View {
     @FocusState private var focusedVideo: String?
     @State private var railReturnVideoID: String?
     @State private var detailReturnVideoID: String?
-    @State private var lastMutationID = 0
+    @State private var mutationCursor = TVVideoMutationCursor()
     @StateObject private var videoMenu = TVHomeMenuCoordinator()
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 4)
 
@@ -197,9 +197,9 @@ struct TVSubscriptionFeedView: View {
     @MainActor
     private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
         let pending = events.filter {
-            $0.id > lastMutationID && $0.accountScope == api.metadataCacheScope
+            $0.id > mutationCursor.lastID && $0.accountScope == api.metadataCacheScope
         }
-        lastMutationID = max(lastMutationID, events.last?.id ?? 0)
+        mutationCursor.lastID = max(mutationCursor.lastID, events.last?.id ?? 0)
         guard !pending.isEmpty else { return }
         if videos.contains(where: { item in pending.contains { $0.removes(item) } }) {
             videos.removeAll { item in pending.contains { $0.removes(item) } }
