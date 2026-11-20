@@ -534,6 +534,26 @@ struct BrowseView: View {
 /// Stable identity survives history/recommendation enrichment, filtering,
 /// and pagination. Index-based ForEach identity remounts the wrong card when
 /// a preceding video disappears, which can reset focus to item zero.
+/// Keep the four Home grid columns at the same measured layout width
+/// while the global navigation moves. This prevents thumbnails and text
+/// changing row heights and pushing deep-scroll content up/down.
+enum TVHomeViewportPolicy {
+    static func widest(_ previous: CGFloat, measured: CGFloat) -> CGFloat {
+        guard measured.isFinite, measured > 0 else { return previous }
+        return max(previous, measured)
+    }
+
+    static func contentWidth(available: CGFloat, widest: CGFloat) -> CGFloat {
+        max(0, widest > 0 ? max(available, widest) : available)
+    }
+
+    /// Returning from the rail should select the remembered visible card,
+    /// NOT re-center its scroll row. Detail returns and Home/Back still scroll.
+    static func shouldScrollToRestore(savedRailCard: String?, target: String) -> Bool {
+        savedRailCard != target
+    }
+}
+
 enum TVHomeReturnFocusPolicy {
     static func target(saved: String?, visibleIDs: Set<String>,
                        fallback: String) -> String {
@@ -587,6 +607,10 @@ struct HomeView: View {
     // During a deep-card restore, keep the unrelated resume shelf out of
     // UIKit's early automatic focus choice until the intended card mounts.
     @State private var homeFocusRestoreTarget: String?
+    // A full-width Home viewport prevents the four flexible columns from
+    // changing height when the global rail expands. It is local to Home,
+    // leaving the sidebar in its original position and other pages untouched.
+    @State private var widestHomeViewport: CGFloat = 0
     @Namespace private var homeFocusScope
     @Environment(\.resetFocus) private var resetFocus
     @State private var needsHomeFocus = false
@@ -671,6 +695,10 @@ struct HomeView: View {
             // rescanning 100+ history/recommendation entries several times.
             let homeRecent = visibleRecent
             let homeRecommendations = visibleRecommendations
+            GeometryReader { viewport in
+            let layoutWidth = TVHomeViewportPolicy.contentWidth(
+                available: viewport.size.width, widest: widestHomeViewport
+            )
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
                 HStack {
@@ -774,6 +802,12 @@ struct HomeView: View {
             .padding(.top, 42)
             .padding(.bottom, 120)
         }
+            // The outer GeometryReader keeps the HStack's normal flexible
+            // width, but the inner vertical ScrollView retains its wider
+            // measured content layout when the menu opens. Clip the overflow
+            // inside Home, never overlay or move the main navigation rail.
+            .frame(width: layoutWidth, height: viewport.size.height,
+                   alignment: .leading)
             .background(TTTheme.ink)
             .focusScope(homeFocusScope)
             .task {
@@ -806,7 +840,8 @@ struct HomeView: View {
                 // Never mistake a transient wrong tile selected during a
                 // programmatic scroll/return for user navigation. User remote
                 // moves cancel the pending restore in videoGrid below.
-                if pendingHomeFocus == nil && preferredHomeCardID != current {
+                if !sidebarFocused && pendingHomeFocus == nil &&
+                   preferredHomeCardID != current {
                     preferredHomeCardID = current
                 }
                 if let first = firstVisible,
@@ -818,6 +853,16 @@ struct HomeView: View {
                 // An empty or unavailable recommendation feed must never
                 // permanently lock the user out of the main navigation.
                 if !stillLoading && firstVisible == nil { onInitialFocusReady() }
+            }
+            } // GeometryReader: only Home uses a stable internal width.
+            .clipped()
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                let updated = TVHomeViewportPolicy.widest(
+                    widestHomeViewport, measured: width
+                )
+                if updated > widestHomeViewport + 1 {
+                    widestHomeViewport = updated
+                }
             }
         }
     }
@@ -838,7 +883,8 @@ struct HomeView: View {
 
     @MainActor
     private func focusHomeCard(_ target: String, scroll: ScrollViewProxy,
-                               returningFromDetails: Bool = false) {
+                               returningFromDetails: Bool = false,
+                               preserveScrollPosition: Bool = false) {
         pendingHomeFocus?.cancel()
         homeFocusGeneration &+= 1
         let generation = homeFocusGeneration
@@ -870,8 +916,10 @@ struct HomeView: View {
             // Scroll first, WITHOUT moving the full grid in the same animated
             // transaction as the native focus switch. A mid-animation reset
             // could select the first Continue Watching tile instead.
-            scroll.scrollTo(target.hasPrefix("recent-")
-                ? "home-continue-watching-row" : target, anchor: .center)
+            if !preserveScrollPosition {
+                scroll.scrollTo(target.hasPrefix("recent-")
+                    ? "home-continue-watching-row" : target, anchor: .center)
+            }
             try? await Task.sleep(for: .milliseconds(returningFromDetails ? 220 : 160))
             guard !Task.isCancelled, homeFocusGeneration == generation else { return }
             focusedHomeVideo = target
@@ -924,12 +972,17 @@ struct HomeView: View {
             visibleRecommendations.map { homeCardID($0, recommended: true) } +
             visibleRecent.map { homeCardID($0, recommended: false) }
         )
+        let saved = leftRailReturnCardID
         let target = TVHomeReturnFocusPolicy.target(
-            saved: leftRailReturnCardID, visibleIDs: visibleIDs, fallback: firstID
+            saved: saved, visibleIDs: visibleIDs, fallback: firstID
+        )
+        let preservePosition = !TVHomeViewportPolicy.shouldScrollToRestore(
+            savedRailCard: saved, target: target
         )
         leftRailReturnCardID = nil
         needsHomeFocus = false
-        focusHomeCard(target, scroll: scroll)
+        focusHomeCard(target, scroll: scroll,
+                      preserveScrollPosition: preservePosition)
     }
 
     /// A single Siri Remote-scrollable horizontal shelf. containerRelativeFrame

@@ -662,6 +662,35 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertFalse(app.buttons["main-nav-home"].hasFocus)
     }
 
+    func testHomeRailExpandKeepsTheVisibleRecommendationRowInPlace() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCTAssertTrue(waitForFocus(app.buttons["home-video-recommendation-0"], timeout: 8))
+        // Move to a lower recommendation row, where a column-width reflow
+        // would otherwise move the visible content vertically.
+        XCUIRemote.shared.press(.down)
+        XCUIRemote.shared.press(.down)
+        let selected = app.buttons["home-video-recommendation-8"]
+        let neighbor = app.buttons["home-video-recommendation-9"]
+        XCTAssertTrue(waitForFocus(selected), "Second Down should reach row 3")
+        XCTAssertTrue(neighbor.waitForExistence(timeout: 5))
+        let before = neighbor.frame.midY
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(app.buttons["main-nav-home"]))
+        let after = neighbor.frame.midY
+        XCTAssertLessThan(abs(after - before), 12,
+                          "Opening the sidebar must not shift the Home scroll row")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(selected),
+                      "Re-enter Home on the remembered row without scrolling to top")
+        let finalY = neighbor.frame.midY
+        XCTAssertLessThan(abs(finalY - before), 12,
+                          "Returning from the rail must not re-center the card")
+    }
+
     func testBackFromDeepHomeRecommendationRestoresTileAndThenTopRecommendation() throws {
         let app = XCUIApplication()
         app.launchArguments = [
