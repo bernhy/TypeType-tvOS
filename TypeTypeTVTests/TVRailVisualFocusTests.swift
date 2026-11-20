@@ -2,6 +2,24 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVRailVisualFocusTests: XCTestCase {
+    func testMainNavigationSharesOneWidthTransitionAcrossAllSections() {
+        // The rail's width is the only layout input. The adjacent page
+        // receives its remaining width in the same animated HStack pass,
+        // instead of reserving 214 points through a second completion phase.
+        XCTAssertEqual(TVMainNavigationLayout.duration, 0.28)
+        for destination in TVSection.allCases {
+            XCTAssertEqual(TVMainNavigationLayout.width(expanded: true),
+                           214, "\(destination): menu open")
+            XCTAssertEqual(TVMainNavigationLayout.width(expanded: false),
+                           56, "\(destination): menu closed")
+            XCTAssertEqual(
+                TVMainNavigationLayout.width(expanded: true) -
+                TVMainNavigationLayout.width(expanded: false),
+                158, "\(destination): content gains the same freed width"
+            )
+        }
+    }
+
     func testReturningFromAboutDoesNotPaintNearbyAccountInMainRail() {
         // tvOS may first report Account because it lies next to About.
         // The app must paint the white pill on the current Settings icon.

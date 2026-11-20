@@ -61,7 +61,8 @@ struct TVChannelAvatar: View {
             Circle().fill(TTTheme.surface)
             if let url = api.relativeMediaURL(imageURL) {
                 TVThumbnail(url: url, origin: api.origin,
-                            placeholderSymbol: "person.crop.circle.fill")
+                            placeholderSymbol: "person.crop.circle.fill",
+                            maximumPixelDimension: 256)
                     .frame(width: size, height: size)
                     .clipShape(Circle())
             } else {
@@ -91,7 +92,8 @@ struct TVChannelHeroBackdrop: View {
             if let raw = (bannerURL?.isEmpty == false ? bannerURL : avatarURL),
                let url = api.relativeMediaURL(raw) {
                 TVThumbnail(url: url, origin: api.origin,
-                            placeholderSymbol: "person.crop.circle.fill")
+                            placeholderSymbol: "person.crop.circle.fill",
+                            maximumPixelDimension: bannerURL?.isEmpty == false ? 2_048 : 512)
                     .blur(radius: bannerURL?.isEmpty == false ? 0 : 18)
                     .scaleEffect(bannerURL?.isEmpty == false ? 1 : 1.14)
             }

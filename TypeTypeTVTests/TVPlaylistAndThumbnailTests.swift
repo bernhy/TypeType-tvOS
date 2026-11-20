@@ -19,6 +19,113 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
         XCTAssertEqual(decoded.height, 32)
     }
 
+    func testThumbnailSizingAndSharedPublicImageKeys() throws {
+        let image = try XCTUnwrap(URL(string: "https://typetype.example/api/files/image"))
+        let sameURL = try XCTUnwrap(URL(string: "https://typetype.example/api/files/image"))
+        let otherServer = try XCTUnwrap(URL(string: "https://other.example/api/files/image"))
+        let external = try XCTUnwrap(URL(string: "https://cdn.example/image"))
+
+        XCTAssertEqual(TVThumbnailRequestPolicy.pixelLimit(1), 64)
+        XCTAssertEqual(TVThumbnailRequestPolicy.pixelLimit(1_024), 1_024)
+        XCTAssertEqual(TVThumbnailRequestPolicy.pixelLimit(9_999), 2_048)
+
+        // The same public image is shared regardless of which account
+        // discovered it, including a public image proxied by TypeType.
+        let key = TVThumbnailRequestPolicy.cacheKey(url: image, pixels: 1_024)
+        XCTAssertEqual(key, TVThumbnailRequestPolicy.cacheKey(url: sameURL, pixels: 1_024))
+        XCTAssertEqual(key, image.absoluteString + "\n#pixels=1024")
+
+        // Different delivered images and different decode sizes remain
+        // separate; publicly available CDN thumbnails share the same key.
+        XCTAssertNotEqual(key, TVThumbnailRequestPolicy.cacheKey(url: otherServer, pixels: 1_024))
+        XCTAssertNotEqual(key, TVThumbnailRequestPolicy.cacheKey(url: image, pixels: 2_048))
+        let alternateQuality = try XCTUnwrap(
+            URL(string: "https://typetype.example/api/files/image?quality=high")
+        )
+        XCTAssertNotEqual(key, TVThumbnailRequestPolicy.cacheKey(
+            url: alternateQuality, pixels: 1_024
+        ))
+        XCTAssertEqual(
+            TVThumbnailRequestPolicy.cacheKey(url: external, pixels: 1_024),
+            external.absoluteString + "\n#pixels=1024"
+        )
+    }
+
+    func testYouTubeThumbnailFallbackPreservesServerArtworkAndRecoversMissingURL() throws {
+        let videoURL = "https://www.youtube.com/watch?v=ABCDEFGHIJK"
+        let fallback = try XCTUnwrap(URL(string:
+            "https://i.ytimg.com/vi/ABCDEFGHIJK/hqdefault.jpg"
+        ))
+        let original = try XCTUnwrap(URL(string:
+            "https://cdn.example.com/dearrow/ABCDEFGHIJK.jpg"
+        ))
+        // DeArrow and server-provided images have priority: fall back only
+        // when the image is missing or the request/decoder fails.
+        XCTAssertEqual(TVThumbnailSources.urls(primary: original, videoURL: videoURL),
+                       [original, fallback])
+        XCTAssertEqual(TVThumbnailSources.urls(primary: nil, videoURL: videoURL),
+                       [fallback])
+        XCTAssertEqual(TVThumbnailSources.urls(primary: fallback, videoURL: videoURL),
+                       [fallback])
+        XCTAssertEqual(TVThumbnailSources.urls(primary: original, videoURL: nil),
+                       [original])
+        XCTAssertTrue(TVThumbnailSources.urls(primary: nil, videoURL: nil).isEmpty)
+    }
+
+    func testEmptyStoredWatchLaterAndPlaylistThumbnailsCanRecover() throws {
+        let watchLater = try JSONDecoder().decode(TVWatchLaterDTO.self, from: Data(#"""
+        {"url":"https://www.youtube.com/watch?v=ABCDEFGHIJK",
+         "title":"Missing persisted thumbnail","thumbnail":"","channelName":"Author",
+         "duration":120}
+        """#.utf8))
+        let playlist = try JSONDecoder().decode(TVPlaylistVideoDTO.self, from: Data(#"""
+        {"url":"https://youtu.be/ABCDEFGHIJK",
+         "title":"Missing persisted thumbnail","thumbnail":"","duration":120}
+        """#.utf8))
+        for video in [watchLater.video, playlist.video] {
+            XCTAssertEqual(TVThumbnailSources.urls(
+                primary: URL(string: video.thumbnailUrl ?? ""),
+                videoURL: video.url
+            ).map(\.absoluteString), [
+                "https://i.ytimg.com/vi/ABCDEFGHIJK/hqdefault.jpg"
+            ])
+        }
+    }
+
+    func testThumbnailFallbackRejectsSpoofedOrUnsupportedVideoAddresses() throws {
+        let original = try XCTUnwrap(URL(string: "https://cdn.example.com/cover.webp"))
+        for videoURL in [
+            "https://youtube.com.evil.example/watch?v=ABCDEFGHIJK",
+            "https://www.youtube.com/watch?v=not-an-id",
+            "https://www.twitch.tv/videos/123456789",
+            "file:///private/ABCDEFGHIJK"
+        ] {
+            XCTAssertTrue(TVThumbnailSources.urls(primary: nil, videoURL: videoURL).isEmpty)
+            XCTAssertEqual(TVThumbnailSources.urls(primary: original, videoURL: videoURL),
+                           [original])
+        }
+        XCTAssertEqual(TVThumbnailSources.urls(
+            primary: nil, videoURL: "https://youtu.be/ABCDEFGHIJK"
+        ).first?.absoluteString, "https://i.ytimg.com/vi/ABCDEFGHIJK/hqdefault.jpg")
+    }
+
+    func testThumbnailDecoderDownsamplesButPreservesAspectRatio() throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let data = UIGraphicsImageRenderer(
+            size: CGSize(width: 800, height: 400), format: format
+        ).pngData { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 800, height: 400))
+        }
+        let image = try XCTUnwrap(
+            TVThumbnailDecoder.decode(data, maximumDimension: 128)?.cgImage
+        )
+        XCTAssertLessThanOrEqual(image.width, 128)
+        XCTAssertLessThanOrEqual(image.height, 128)
+        XCTAssertEqual(Double(image.width) / Double(image.height), 2, accuracy: 0.02)
+    }
+
     func testMediaURLsCannotEscapeOriginViaProtocolRelativePath() throws {
         let https = try TypeTypeAPI(address: "https://typetype.example")
         XCTAssertEqual(

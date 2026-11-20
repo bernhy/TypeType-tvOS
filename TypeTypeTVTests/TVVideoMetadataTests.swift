@@ -56,6 +56,30 @@ final class TVVideoMetadataTests: XCTestCase {
         XCTAssertTrue(text.contains(" · "))
     }
 
+    func testReusableFormattersPreserveDateAndLanguage() throws {
+        var video = VideoItem(
+            id: "date", title: "Sample", url: "https://youtu.be/abc123def45",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 120,
+            isLive: false
+        )
+        video.uploadDate = "2026-11-18"
+        let parsed = try XCTUnwrap(TVVideoMetadata.publicationDate(for: video))
+        let calendar = Calendar(identifier: .gregorian)
+        let fields = calendar.dateComponents(in: TimeZone(secondsFromGMT: 0)!, from: parsed)
+        XCTAssertEqual(fields.year, 2026)
+        XCTAssertEqual(fields.month, 11)
+        XCTAssertEqual(fields.day, 18)
+
+        video.viewCount = 18_000
+        let now = parsed.addingTimeInterval(2 * 86_400)
+        let german = TVVideoMetadata.subtitle(for: video, now: now, language: "de")
+        let english = TVVideoMetadata.subtitle(for: video, now: now, language: "en")
+        XCTAssertNotNil(german)
+        XCTAssertNotNil(english)
+        XCTAssertEqual(TVVideoMetadata.subtitle(for: video, now: now, language: "de"), german)
+        XCTAssertEqual(TVVideoMetadata.subtitle(for: video, now: now, language: "en"), english)
+    }
+
     func testUnknownViewsAndPublicationDateNeverInvented() throws {
         let json = Data(#"""
         {"id":"abc123def45","title":"Video","url":"https://youtu.be/abc123def45",

@@ -8,20 +8,152 @@ import ImageIO
 enum TVThumbnailDecoder {
     static let maximumPixelDimension = 2_048
 
-    static func decode(_ data: Data) -> UIImage? {
+    static func decode(_ data: Data, maximumDimension: Int = maximumPixelDimension) -> UIImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
             return nil
         }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maximumPixelDimension,
+            kCGImageSourceThumbnailMaxPixelSize: TVThumbnailRequestPolicy.pixelLimit(maximumDimension),
             kCGImageSourceShouldCacheImmediately: true
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(
             source, 0, options as CFDictionary
         ) else { return nil }
         return UIImage(cgImage: image)
+    }
+}
+
+/// A decoded UIImage is immutable after its CGImage-backed creation and can
+/// safely cross from a worker task to the MainActor for display.
+private struct TVThumbnailDecoded: @unchecked Sendable {
+    let image: UIImage
+}
+
+/// Public TypeType/YouTube artwork is independent of account membership.
+/// Reuse identical images across accounts, keyed by the complete source URL
+/// (including query parameters) and the requested decode size.
+enum TVThumbnailRequestPolicy {
+    static func pixelLimit(_ requested: Int) -> Int {
+        min(TVThumbnailDecoder.maximumPixelDimension, max(64, requested))
+    }
+
+    static func cacheKey(url: URL, pixels: Int) -> String {
+        "\(url.absoluteString)\n#pixels=\(pixelLimit(pixels))"
+    }
+}
+
+/// Resolve thumbnail sources once: prefer the exact TypeType-provided image
+/// (which may be a DeArrow replacement), but recover from missing/stale
+/// stored artwork in older history, playlist or watch-later rows. Only a
+/// validated YouTube video URL qualifies for the canonical fallback.
+enum TVThumbnailSources {
+    static func urls(primary: URL?, videoURL: String?) -> [URL] {
+        guard let id = videoURL.flatMap(VideoAddress.youtubeID),
+              let fallback = URL(string: "https://i.ytimg.com/vi/\(id)/hqdefault.jpg") else {
+            return primary.map { [$0] } ?? []
+        }
+        if let primary, primary != fallback { return [primary, fallback] }
+        return [fallback]
+    }
+}
+
+/// A single in-flight HTTP fetch/thumbnail decode per public URL and size.
+/// Limit work across the whole TV, not once per lazily materialized card.
+/// The URLSession download is asynchronous; ImageIO runs on a detached
+/// utility worker, never in SwiftUI's MainActor image-loading task.
+private actor TVThumbnailWorkPool {
+    static let shared = TVThumbnailWorkPool()
+    private struct Entry {
+        let task: Task<TVThumbnailDecoded?, Never>
+        var subscribers: Set<UUID>
+    }
+    private var pending: [String: Entry] = [:]
+    private var active = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private let maximumConcurrent = 4
+
+    func image(key: String, request: URLRequest, origin: URL,
+               firstParty: Bool, pixels: Int) async -> TVThumbnailDecoded? {
+        let subscriber = UUID()
+        let task: Task<TVThumbnailDecoded?, Never>
+        if var existing = pending[key] {
+            existing.subscribers.insert(subscriber)
+            pending[key] = existing
+            task = existing.task
+        } else {
+            task = Task.detached(priority: .utility) { () -> TVThumbnailDecoded? in
+                await TVThumbnailWorkPool.shared.acquire()
+                let result: TVThumbnailDecoded?
+                if Task.isCancelled {
+                    result = nil
+                } else {
+                    result = await Self.download(
+                        request: request, origin: origin, firstParty: firstParty,
+                        pixels: pixels
+                    )
+                }
+                await TVThumbnailWorkPool.shared.release()
+                return result
+            }
+            pending[key] = Entry(task: task, subscribers: [subscriber])
+        }
+        // SwiftUI cancels .task when a card scrolls out or a view disappears.
+        // Drop that subscriber immediately; only cancel the shared network
+        // request once its *last* interested view has gone away.
+        return await withTaskCancellationHandler {
+            let result = await task.value
+            releaseSubscriber(key: key, subscriber: subscriber)
+            return Task.isCancelled ? nil : result
+        } onCancel: {
+            Task { await self.releaseSubscriber(key: key, subscriber: subscriber) }
+        }
+    }
+
+    private func releaseSubscriber(key: String, subscriber: UUID) {
+        guard var entry = pending[key],
+              entry.subscribers.remove(subscriber) != nil else { return }
+        if entry.subscribers.isEmpty {
+            entry.task.cancel()
+            pending[key] = nil
+        } else {
+            pending[key] = entry
+        }
+    }
+
+    private func acquire() async {
+        if active < maximumConcurrent {
+            active += 1
+        } else {
+            await withCheckedContinuation { waiter in waiters.append(waiter) }
+        }
+    }
+
+    private func release() {
+        if waiters.isEmpty {
+            active -= 1
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+
+    private nonisolated static func download(
+        request: URLRequest, origin: URL, firstParty: Bool, pixels: Int
+    ) async -> TVThumbnailDecoded? {
+        do {
+            let session = firstParty ? TVNetwork.session(for: origin) : URLSession.shared
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  http.statusCode == 200, data.count <= 8_000_000,
+                  let image = TVThumbnailDecoder.decode(
+                    data, maximumDimension: pixels
+                  ) else { return nil }
+            return TVThumbnailDecoded(image: image)
+        } catch {
+            // A failed thumbnail must never block browsing or video playback.
+            return nil
+        }
     }
 }
 
@@ -53,6 +185,10 @@ struct TVThumbnail: View {
     // focusing it never cuts off faces/text along the edges.
     var contentMode: ContentMode = .fill
     var placeholderSymbol = "play.rectangle.fill"
+    // Cards are displayed well below 1024px; larger hero artwork can opt
+    // into 2048px without forcing every grid cell to decode a full image.
+    var maximumPixelDimension = 1_024
+    var videoURL: String? = nil
     @State private var bitmap: UIImage?
 
     var body: some View {
@@ -80,7 +216,7 @@ struct TVThumbnail: View {
             .clipped()
         }
         .clipped()
-        .task(id: url?.absoluteString) {
+        .task(id: "\(origin.absoluteString)|\(url?.absoluteString ?? "")|\(maximumPixelDimension)|\(videoURL ?? "")") {
             // SwiftUI may reuse a card for a different URL. Do not keep the
             // previous video's artwork visible while the new image loads.
             bitmap = nil
@@ -90,44 +226,51 @@ struct TVThumbnail: View {
 
     @MainActor
     private func load() async {
-        guard let url else {
+        let candidates = TVThumbnailSources.urls(primary: url, videoURL: videoURL)
+        guard !candidates.isEmpty else {
             bitmap = nil
             return
         }
-        let firstParty = url.host?.lowercased() == origin.host?.lowercased() &&
-            url.scheme == origin.scheme && url.port == origin.port
-        // A first-party media route can be account-specific. Keep the image
-        // cache scoped to its bearer token, even on a shared household Apple TV.
-        let accountToken = firstParty ? TypeTypeCredentials.shared.token(for: origin) : nil
-        let key = (url.absoluteString +
-            (firstParty ? "|account:" + (accountToken ?? "guest") : "")) as NSString
-        if let cached = TVThumbnailMemory.shared.configuredCache().object(forKey: key) {
-            bitmap = cached
-            return
-        }
-        guard url.scheme == "https" || (firstParty && url.scheme == "http") else {
-            bitmap = nil
-            return
-        }
+        let pixels = TVThumbnailRequestPolicy.pixelLimit(maximumPixelDimension)
+        for (index, candidate) in candidates.enumerated() {
+            guard !Task.isCancelled else { return }
+            let firstParty = candidate.host?.lowercased() == origin.host?.lowercased() &&
+                candidate.scheme == origin.scheme && candidate.port == origin.port
+            guard candidate.scheme == "https" ||
+                  (firstParty && candidate.scheme == "http") else { continue }
 
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 20
-        request.setValue("image/avif,image/webp,image/png,image/jpeg,*/*", forHTTPHeaderField: "Accept")
-        if firstParty, let accountToken {
-            request.setValue("Bearer \(accountToken)", forHTTPHeaderField: "Authorization")
-        }
-        do {
-            let session = firstParty ? TVNetwork.session(for: origin) : URLSession.shared
-            let (data, response) = try await session.data(for: request)
-            guard !Task.isCancelled, let http = response as? HTTPURLResponse,
-                  http.statusCode == 200, data.count <= 8_000_000,
-                  let decoded = TVThumbnailDecoder.decode(data),
-                  let image = decoded.cgImage else { return }
-            let size = image.bytesPerRow * image.height
-            TVThumbnailMemory.shared.configuredCache().setObject(decoded, forKey: key, cost: size)
-            bitmap = decoded
-        } catch {
-            // Images may be unavailable before authentication; text stays usable.
+            let key = TVThumbnailRequestPolicy.cacheKey(
+                url: candidate, pixels: pixels
+            ) as NSString
+            if let cached = TVThumbnailMemory.shared.configuredCache().object(forKey: key) {
+                bitmap = cached
+                return
+            }
+            var request = URLRequest(url: candidate)
+            request.timeoutInterval = 20
+            request.setValue("image/avif,image/webp,image/png,image/jpeg,*/*",
+                             forHTTPHeaderField: "Accept")
+            if firstParty, let token = TypeTypeCredentials.shared.token(for: origin) {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            guard let decoded = await TVThumbnailWorkPool.shared.image(
+                key: key as String, request: request, origin: origin,
+                firstParty: firstParty, pixels: pixels
+            ), !Task.isCancelled else { continue }
+            if let image = decoded.image.cgImage {
+                let size = image.bytesPerRow * image.height
+                TVThumbnailMemory.shared.configuredCache().setObject(
+                    decoded.image, forKey: key, cost: size
+                )
+            }
+            bitmap = decoded.image
+            #if DEBUG
+            if index > 0 || url == nil {
+                NSLog("TypeType thumbnail recovered via YouTube fallback reason=%@",
+                      index > 0 ? "primary-unavailable" : "missing-primary")
+            }
+            #endif
+            return
         }
     }
 }
@@ -142,6 +285,7 @@ struct TVTransientStartupImage: UIViewRepresentable {
     let url: URL?
     let origin: URL
     let retainsImage: Bool
+    var videoURL: String? = nil
 
     @MainActor
     final class Coordinator: NSObject {
@@ -175,54 +319,59 @@ struct TVTransientStartupImage: UIViewRepresentable {
 
     func updateUIView(_ view: UIImageView, context: Context) {
         let coordinator = context.coordinator
-        guard retainsImage, let url else {
+        let urls = TVThumbnailSources.urls(primary: url, videoURL: videoURL)
+        guard retainsImage, !urls.isEmpty else {
             if coordinator.requestKey != nil || view.image != nil {
                 coordinator.release(view)
             }
             return
         }
-
-        let firstParty = url.host?.lowercased() == origin.host?.lowercased() &&
-            url.scheme == origin.scheme && url.port == origin.port
-        let token = firstParty ? TypeTypeCredentials.shared.token(for: origin) : nil
-        let key = url.absoluteString +
-            (firstParty ? "|account:" + (token ?? "guest") : "")
-        guard coordinator.requestKey != key else { return }
+        // Track the whole ordered source list so a changed thumbnail URL
+        // invalidates the poster even when both videos share a fallback.
+        let requestKey = urls.map(\.absoluteString).joined(separator: "\n") +
+            "\n#pixels=\(TVThumbnailDecoder.maximumPixelDimension)"
+        guard coordinator.requestKey != requestKey else { return }
 
         coordinator.release(view, evictCachedImage: false)
-        coordinator.requestKey = key
-        if let cached = TVThumbnailMemory.shared.configuredCache()
-            .object(forKey: key as NSString) {
-            view.image = cached
-            return
-        }
-        guard url.scheme == "https" || (firstParty && url.scheme == "http") else {
-            coordinator.requestKey = nil
-            return
+        coordinator.requestKey = requestKey
+        for source in urls {
+            let key = TVThumbnailRequestPolicy.cacheKey(
+                url: source, pixels: TVThumbnailDecoder.maximumPixelDimension
+            ) as NSString
+            if let cached = TVThumbnailMemory.shared.configuredCache()
+                .object(forKey: key) {
+                view.image = cached
+                return
+            }
         }
 
         coordinator.task = Task { @MainActor [weak view, weak coordinator] in
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 20
-            request.setValue("image/avif,image/webp,image/png,image/jpeg,*/*",
-                             forHTTPHeaderField: "Accept")
-            if firstParty, let token {
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            }
-            do {
-                let session = firstParty ? TVNetwork.session(for: origin) : URLSession.shared
-                let (bytes, response) = try await session.data(for: request)
+            for source in urls {
                 guard !Task.isCancelled,
-                      let http = response as? HTTPURLResponse,
-                      http.statusCode == 200, bytes.count <= 8_000_000,
-                      let bitmap = TVThumbnailDecoder.decode(bytes),
-                      !Task.isCancelled,
-                      coordinator?.requestKey == key else { return }
-                // No insertion into NSCache: this UIImage is owned by the
-                // poster surface and discarded after its fade completes.
-                view?.image = bitmap
-            } catch {
-                // The existing black backdrop still works without artwork.
+                      coordinator?.requestKey == requestKey else { return }
+                let firstParty = source.host?.lowercased() == origin.host?.lowercased() &&
+                    source.scheme == origin.scheme && source.port == origin.port
+                guard source.scheme == "https" ||
+                      (firstParty && source.scheme == "http") else { continue }
+
+                var request = URLRequest(url: source)
+                request.timeoutInterval = 20
+                request.setValue("image/avif,image/webp,image/png,image/jpeg,*/*",
+                                 forHTTPHeaderField: "Accept")
+                if firstParty, let token = TypeTypeCredentials.shared.token(for: origin) {
+                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                }
+                let key = TVThumbnailRequestPolicy.cacheKey(
+                    url: source, pixels: TVThumbnailDecoder.maximumPixelDimension
+                )
+                guard let decoded = await TVThumbnailWorkPool.shared.image(
+                    key: key, request: request, origin: origin, firstParty: firstParty,
+                    pixels: TVThumbnailDecoder.maximumPixelDimension
+                ), !Task.isCancelled,
+                      coordinator?.requestKey == requestKey else { continue }
+                // Startup images remain transient; no shared-cache insertion.
+                view?.image = decoded.image
+                return
             }
         }
     }

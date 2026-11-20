@@ -40,9 +40,24 @@ enum TVSection: String, CaseIterable, Hashable {
     }
 }
 
+/// Rail and page share a single SwiftUI layout animation: no reserved
+/// viewport, completion callback, or follow-up resizing phase is needed.
+enum TVMainNavigationLayout {
+    static let collapsedWidth: CGFloat = 56
+    static let expandedWidth: CGFloat = 214
+    static let duration = 0.28
+
+    static func width(expanded: Bool) -> CGFloat {
+        expanded ? expandedWidth : collapsedWidth
+    }
+}
+
 struct BrowseView: View {
     let instanceOrigin: String
     let onDisconnect: () -> Void
+    // Parse and validate the instance once per BrowseView construction;
+    // SwiftUI may re-evaluate body repeatedly while focus/progress changes.
+    private let configuredAPI: TypeTypeAPI?
     let previewVideos: [VideoItem]?
     let initialSettingsGroup: TVSettingsGroup
     @State private var section: TVSection
@@ -57,7 +72,7 @@ struct BrowseView: View {
     @State private var returnToRailGeneration = 0
     @State private var searchFocusRequest = 0
     @State private var sidebarIdentity: TVAccountIdentity?
-    @ObservedObject private var playbackVisibility = TVPlaybackVisibility.shared
+    private var playbackVisibility = TVPlaybackVisibility.shared
     @ObservedObject private var playlistPopup = TVPlaylistPopupPresenter.shared
     @State private var settingsEntryGroup: TVSettingsGroup
     @State private var settingsFocusRequest = 0
@@ -85,6 +100,7 @@ struct BrowseView: View {
          initialSettingsGroup: TVSettingsGroup = .playback) {
         self.instanceOrigin = instanceOrigin
         self.onDisconnect = onDisconnect
+        self.configuredAPI = try? TypeTypeAPI(address: instanceOrigin)
         self.previewVideos = previewVideos
         self.initialSettingsGroup = initialSettingsGroup
         _section = State(initialValue: initialSection)
@@ -101,7 +117,7 @@ struct BrowseView: View {
     }
 
     var body: some View {
-        if let api = try? TypeTypeAPI(address: instanceOrigin) {
+        if let api = configuredAPI {
             ZStack(alignment: .leading) {
                 TTTheme.ink.ignoresSafeArea()
                 HStack(spacing: 0) {
@@ -249,7 +265,7 @@ struct BrowseView: View {
         // actual visible screen (roughly like the YouTube TV sidebar).
         .padding(.top, 72)
         .padding(.bottom, 72)
-        .frame(width: expanded ? 214 : 56)
+        .frame(width: TVMainNavigationLayout.width(expanded: expanded))
         .frame(maxHeight: .infinity)
         // Paint behind the actual sidebar, not behind the entire HStack.
         // Color.ignoresSafeArea expands the background's paint region above
@@ -263,7 +279,7 @@ struct BrowseView: View {
         // Disable it for the entire rail; only our pill is allowed to render.
         .environment(\.isFocusEffectEnabled, false)
         .focusEffectDisabled(true)
-        .animation(navigationAnimations ? .easeInOut(duration: 0.28) : nil, value: expanded)
+        // The sibling page resizes in this same animated HStack transaction.
         .focusSection()
         .onExitCommand {
             // Back while the global rail is focused goes to Home. The final
@@ -274,7 +290,7 @@ struct BrowseView: View {
             } else {
                 section = .home
                 menuFocus = .home
-                expanded = true
+                setRailExpanded(true)
             }
         }
         .onChange(of: menuFocus) { previous, focused in
@@ -295,13 +311,13 @@ struct BrowseView: View {
                 // focus callback while the destination is mounting.
                 if focused == nil {
                     enteringFromMenu = false
-                    expanded = false
+                    setRailExpanded(false)
                 }
                 return
             }
 
             if let focused {
-                expanded = true
+                setRailExpanded(true)
                 if previous == nil, focused != section {
                     // Left from content returns to the section we left,
                     // not to whichever icon is geometrically nearest.
@@ -397,7 +413,7 @@ struct BrowseView: View {
         if let identity = sidebarIdentity {
             if identity.isGuest { return TVL10n.value("login.guestActive") }
             if let name = identity.visibleName { return name }
-            if let api = try? TypeTypeAPI(address: instanceOrigin),
+            if let api = configuredAPI,
                let known = TypeTypeCredentials.shared.displayIdentifier(for: api.origin) {
                 return known
             }
@@ -433,6 +449,17 @@ struct BrowseView: View {
         }
     }
 
+    private func setRailExpanded(_ shouldExpand: Bool) {
+        guard expanded != shouldExpand else { return }
+        // Animate both the rail width and the available content width
+        // together. Keep the existing focus-handoff delays separate.
+        withAnimation(navigationAnimations
+                      ? .easeInOut(duration: TVMainNavigationLayout.duration)
+                      : nil) {
+            expanded = shouldExpand
+        }
+    }
+
     private func open(_ destination: TVSection) {
         // Cancel any pending Left-to-rail handoff before a Right/OK enter.
         returnToRailGeneration &+= 1
@@ -442,7 +469,7 @@ struct BrowseView: View {
         let wasInMenu = menuFocus != nil
         enteringFromMenu = wasInMenu
         section = destination
-        expanded = false
+        setRailExpanded(false)
 
         // Right can still be resolved by UIKit after onMoveCommand returns.
         // Make the old sidebar icon temporarily ineligible for focus, or a
@@ -456,7 +483,7 @@ struct BrowseView: View {
                 try? await Task.sleep(for: .milliseconds(360))
                 guard generation == menuHandoffGeneration else { return }
                 menuFocus = nil
-                expanded = false
+                setRailExpanded(false)
                 enteringFromMenu = false
                 menuHandoffActive = false
                 // Search is already mounted during menu preview. Re-issue
@@ -492,7 +519,7 @@ struct BrowseView: View {
         let generation = returnToRailGeneration
         returnToRailTarget = target
         menuFocus = target
-        expanded = true
+        setRailExpanded(true)
 
         // UIKit may finish its Left move after this handler returns. Keep
         // other rail icons out of the focus search until the remote movement
@@ -1165,7 +1192,7 @@ struct VideoCard: View {
         guard video.isLive != true,
               let duration = metadataVideo.duration, duration > 0,
               let progress = effectivePosition, progress > 0 else { return nil }
-        return max(0, min(1, Double(progress) / Double(Int64(duration) * 1_000)))
+        return max(0, min(1, Double(progress) / (Double(duration) * 1_000)))
     }
     private var completed: Bool {
         // Some server versions expose a 'watched' convenience flag whose
@@ -1188,7 +1215,8 @@ struct VideoCard: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomTrailing) {
                 TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
-                            origin: api.origin, contentMode: .fit)
+                            origin: api.origin, contentMode: .fit,
+                            videoURL: video.url)
                     .grayscale(completed ? 1 : 0)
                     // Never scale thumbnail content: on tvOS the duration
                     // badge at the bottom-right otherwise appears enlarged
