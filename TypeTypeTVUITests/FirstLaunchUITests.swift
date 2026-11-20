@@ -662,6 +662,36 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertFalse(app.buttons["main-nav-home"].hasFocus)
     }
 
+    func testHomeLazyContextMenusKeepNativeRailFocusStable() throws {
+        for mode in ["twelveLightweightMenu", "fullLightweightMenu"] {
+            let app = XCUIApplication()
+            app.launchArguments = [
+                "-TypeTypeTVPreview", "home",
+                "-typetype.experiment.homeDiagnosticMode", mode,
+                "-typetype.uiLanguage", "de"
+            ]
+            app.launch()
+            let video = app.buttons["home-video-recommendation-0"]
+            XCTAssertTrue(waitForFocus(video, timeout: 10),
+                          "Startup focus failed for lazy menu mode: \(mode)")
+            // The previous experiment showed a one-frame zoom and then lost
+            // focus altogether. Verify focus survives beyond the animation.
+            Thread.sleep(forTimeInterval: 0.45)
+            XCTAssertTrue(video.hasFocus,
+                          "Native focused link was replaced in mode: \(mode)")
+            XCUIRemote.shared.press(.left)
+            XCTAssertTrue(waitForFocus(app.buttons["main-nav-home"]),
+                          "Left must still reveal the global rail in mode: \(mode)")
+            XCUIRemote.shared.press(.right)
+            XCTAssertTrue(waitForFocus(video),
+                          "Right must restore the original link in mode: \(mode)")
+            Thread.sleep(forTimeInterval: 0.45)
+            XCTAssertTrue(video.hasFocus,
+                          "Focus must remain stable after rail handoff in mode: \(mode)")
+            app.terminate()
+        }
+    }
+
     func testHomeRailRightReturnsDirectlyToTheSavedDeepCard() throws {
         let app = XCUIApplication()
         app.launchArguments = [
