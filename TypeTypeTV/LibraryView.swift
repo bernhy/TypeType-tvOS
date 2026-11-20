@@ -152,6 +152,7 @@ struct LibraryView: View {
                                 loadAhead: 8,
                                 lookupMissingMetadata: selected == .standard(.history),
                                 isWatchLaterEntry: selected == .standard(.watchLater),
+                                reloadPlaylistOnRemoval: isPlaylistSelected,
                                 playbackQueue: playbackQueue
                             ),
                             api: api, focus: $focusedVideoURL, menu: videoMenu,
@@ -203,6 +204,7 @@ struct LibraryView: View {
         }
         .background(TTTheme.ink)
         .modifier(TVHomeMenuPresentation(model: videoMenu))
+        .task { await TVWatchLaterMembership.shared.ensureLoaded(api: api) }
         .task { await contentPreferences.ensureLoaded(api: api) }
         .task { await refresh() }
         .onChange(of: focusedDestination) { previous, next in
@@ -288,6 +290,11 @@ struct LibraryView: View {
             }
             Button("common.cancel", role: .cancel) { playlistToDelete = nil }
         }
+    }
+
+    private var isPlaylistSelected: Bool {
+        if case .playlist = selected { return true }
+        return false
     }
 
     private var playbackQueue: [VideoItem]? {
