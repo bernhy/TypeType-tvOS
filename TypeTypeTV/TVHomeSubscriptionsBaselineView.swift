@@ -104,7 +104,7 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
     let onReturnToList: (String) -> Void
     let onChanged: () -> Void
     let onApproachEnd: () -> Void
-    let onResumeAppear: (VideoItem) -> Void
+    let onResumeAppear: (Int, [VideoItem]) -> Void
     let onResumeDisappear: (VideoItem) -> Void
     let onNavigation: () -> Void
 
@@ -155,7 +155,7 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
                 onChanged: onChanged, onNavigation: onNavigation
             )
             .onAppear {
-                if snapshot.resume { onResumeAppear(entry.video) }
+                if snapshot.resume { onResumeAppear(entry.index, snapshot.items) }
                 #if DEBUG
                 TVHomeFocusDiagnostics.hit(snapshot.resume
                     ? .resumeAppear : .recommendationAppear)
@@ -485,10 +485,10 @@ struct TVHomeSubscriptionsBaselineView: View {
                     else { await loadMore() }
                 }
             },
-            onResumeAppear: { video in
+            onResumeAppear: { index, items in
                 guard previewVideos == nil else { return }
-                resumeMetadata.appear(
-                    video: video, api: api,
+                resumeMetadata.cardAppeared(
+                    at: index, visibleHistory: items, api: api,
                     onBatch: { details in applyResumeMetadata(details) }
                 )
             },
@@ -788,6 +788,19 @@ final class TVHomeResumeMetadataLoader {
         }
     }
 
+    // Scrolling extends the already-prefetched window by three more
+    // candidates. Before the first seven have appeared, no extra work is
+    // scheduled: the initial prime() already handles that entire window.
+    func cardAppeared(at index: Int, visibleHistory: [VideoItem], api: TypeTypeAPI,
+                      onBatch: @escaping @MainActor ([String: StreamInfo]) -> Void) {
+        guard index >= 0, index < visibleHistory.count else { return }
+        let count = index < TVHomeResumeMetadataPolicy.maxTrackedCards
+            ? 1 : TVHomeResumeMetadataPolicy.preloadCards + 1
+        for video in visibleHistory.dropFirst(index).prefix(count) {
+            appear(video: video, api: api, onBatch: onBatch)
+        }
+    }
+
     func appear(video: VideoItem, api: TypeTypeAPI,
                 onBatch: @escaping @MainActor ([String: StreamInfo]) -> Void) {
         let nextScope = api.metadataCacheScope
@@ -887,9 +900,17 @@ final class TVHomeResumeMetadataLoader {
             #endif
             let expected = generation
             inFlight[request.key] = Task(priority: .utility) { [weak self] in
-                guard let self, !Task.isCancelled,
-                      self.generation == expected,
-                      self.activeKeys.contains(request.key) else { return }
+                guard let self, self.generation == expected else { return }
+                // A cell can disappear before this task gets CPU time.
+                // Free its reserved slot instead of permanently stalling
+                // the remaining visible window.
+                guard !Task.isCancelled,
+                      self.activeKeys.contains(request.key) else {
+                    self.inFlight[request.key] = nil
+                    self.attempted.remove(request.key)
+                    self.fillSlots(api: api)
+                    return
+                }
                 // The await suspends this task, not the Home render or the
                 // other two lookups. Identical URLs share the existing cache.
                 let details = await self.fetch(request.video, api)
