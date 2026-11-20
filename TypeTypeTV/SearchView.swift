@@ -203,8 +203,6 @@ struct SearchView: View {
                                         .focusEffectDisabled(true)
                                         .focused($focusedNamedResult, equals:
                                             "channel-" + channel.url)
-                                        .zIndex(focusedNamedResult ==
-                                            "channel-" + channel.url ? 5 : 0)
                                         .accessibilityIdentifier(
                                             "search-channel-" + channel.id)
                                     }
@@ -231,8 +229,6 @@ struct SearchView: View {
                                         .focusEffectDisabled(true)
                                         .focused($focusedNamedResult, equals:
                                             "playlist-" + playlist.url)
-                                        .zIndex(focusedNamedResult ==
-                                            "playlist-" + playlist.url ? 5 : 0)
                                         .accessibilityIdentifier(
                                             "search-playlist-" + playlist.id)
                                     }
