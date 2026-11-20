@@ -2,6 +2,29 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVHomeCardEqualityTests: XCTestCase {
+    func testHomeCardsSkipMetadataTasksUnlessLookupIsReallyNeeded() {
+        var video = VideoItem(
+            id: "test", title: "Title", url: "https://youtu.be/abcdefghijk",
+            thumbnailUrl: nil, uploaderName: "Channel",
+            duration: 300, isLive: false
+        )
+        // Both Home sections use the default (no metadata enrichment).
+        XCTAssertFalse(TVVideoCardMetadataTaskPolicy.needsTask(
+            for: video, enabled: false
+        ))
+        // Diagnostics may request metadata enrichment for missing fields.
+        XCTAssertTrue(TVVideoCardMetadataTaskPolicy.needsTask(
+            for: video, enabled: true
+        ))
+        // Fully populated feed rows need no background task either.
+        video.viewCount = 500
+        video.publishedAt = 1_720_000_000_000
+        XCTAssertFalse(TVVideoCardMetadataTaskPolicy.needsTask(
+            for: video, enabled: true
+        ))
+    }
+
+
     func testContinueWatchingRespectsAccountSetting() {
         let hidden = try? JSONDecoder().decode(
             TVServerSettings.self,

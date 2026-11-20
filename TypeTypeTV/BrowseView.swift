@@ -1643,6 +1643,43 @@ struct HomeView: View {
     }
 }
 
+/// A normal grid card has all data it needs from the feed. In that
+/// case do not even attach a SwiftUI .task: no needless task scheduling,
+/// MainActor state reset, or state-driven rerender while scrolling.
+enum TVVideoCardMetadataTaskPolicy {
+    static func needsTask(for video: VideoItem, enabled: Bool) -> Bool {
+        enabled && (video.viewCount == nil ||
+                    TVVideoMetadata.publicationDate(for: video) == nil)
+    }
+}
+
+private struct TVVideoCardMetadataTask: ViewModifier {
+    let video: VideoItem
+    let api: TypeTypeAPI
+    let enabled: Bool
+    @Binding var metadataVideoURL: String?
+    @Binding var streamMetadata: StreamInfo?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if TVVideoCardMetadataTaskPolicy.needsTask(for: video, enabled: enabled) {
+            content.task(id: video.url) {
+                // Reset ONLY if a genuine enrichment is required. The task
+                // is removed entirely when regular Home cards are drawn.
+                metadataVideoURL = video.url
+                streamMetadata = nil
+                let fetched = await TVStreamMetadataCache.shared.details(
+                    for: video, api: api
+                )
+                guard !Task.isCancelled else { return }
+                streamMetadata = fetched
+            }
+        } else {
+            content
+        }
+    }
+}
+
 struct VideoCard: View {
     let api: TypeTypeAPI
     let video: VideoItem
@@ -1661,7 +1698,8 @@ struct VideoCard: View {
         // SwiftUI recycles cards in grids. Never show the previous video's
         // stream metadata on a newly reused thumbnail cell.
         TVVideoMetadata.merged(
-            video, stream: metadataVideoURL == video.url ? streamMetadata : nil
+            video, stream: lookupMissingMetadata &&
+                metadataVideoURL == video.url ? streamMetadata : nil
         )
     }
 
@@ -1838,18 +1876,11 @@ struct VideoCard: View {
                 radius: includeVisualEffects ? 19 : 0, y: 10)
         .animation(.easeOut(duration: 0.13), value: isFocused)
         .foregroundStyle(.white)
-        .task(id: "\(video.url)|\(lookupMissingMetadata)") {
-            // A/B mode changes must cancel in-flight Home-only metadata
-            // enrichment instead of keeping the previous .task(id: video.url).
-            metadataVideoURL = video.url
-            streamMetadata = nil
-            guard lookupMissingMetadata &&
-                (video.viewCount == nil || TVVideoMetadata.publicationDate(for: video) == nil)
-            else { return }
-            let fetched = await TVStreamMetadataCache.shared.details(for: video, api: api)
-            guard !Task.isCancelled else { return }
-            streamMetadata = fetched
-        }
+        .modifier(TVVideoCardMetadataTask(
+            video: video, api: api, enabled: lookupMissingMetadata,
+            metadataVideoURL: $metadataVideoURL,
+            streamMetadata: $streamMetadata
+        ))
         .task(id: api.metadataCacheScope) {
             await playlistMembership.ensureLoaded(api: api)
         }
