@@ -57,7 +57,7 @@ struct BrowseView: View {
     @State private var returnToRailGeneration = 0
     @State private var searchFocusRequest = 0
     @State private var sidebarIdentity: TVAccountIdentity?
-    @ObservedObject private var playbackVisibility = TVPlaybackVisibility.shared
+    private var playbackVisibility = TVPlaybackVisibility.shared
     @ObservedObject private var playlistPopup = TVPlaylistPopupPresenter.shared
     @State private var settingsEntryGroup: TVSettingsGroup
     @State private var settingsFocusRequest = 0
