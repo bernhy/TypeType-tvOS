@@ -2,6 +2,23 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVRailVisualFocusTests: XCTestCase {
+    func testMainNavigationGrowsContentOnlyAfterRailCloseInEverySection() {
+        // The collapse has two phases. Immediately after expanded becomes
+        // false, contentExpansionDeferred must still reserve the full
+        // menu width; only the animation completion frees that space.
+        for destination in TVSection.allCases {
+            XCTAssertEqual(TVMainNavigationLayout.reservedWidth(
+                menuExpanded: true, releasePending: false
+            ), 214, "\(destination): expanded rail")
+            XCTAssertEqual(TVMainNavigationLayout.reservedWidth(
+                menuExpanded: false, releasePending: true
+            ), 214, "\(destination): closing rail holds page width")
+            XCTAssertEqual(TVMainNavigationLayout.reservedWidth(
+                menuExpanded: false, releasePending: false
+            ), 56, "\(destination): page grows after close")
+        }
+    }
+
     func testReturningFromAboutDoesNotPaintNearbyAccountInMainRail() {
         // tvOS may first report Account because it lies next to About.
         // The app must paint the white pill on the current Settings icon.
