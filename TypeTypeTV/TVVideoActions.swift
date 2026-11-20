@@ -529,19 +529,29 @@ enum TVHomeMenuReloadPolicy {
     var requiresFeedReload: Bool { self == .block }
 }
 
-/// Each lightweight Home card publishes only a layout anchor. There is
-/// still exactly one presentation/observer for the entire grid. Unlike
-/// attaching a toast to every card, preferences do not add card state,
-/// tasks or a focus-affecting wrapper to NavigationLink.
-struct TVHomeCardToastAnchorKey: PreferenceKey {
-    static var defaultValue: [String: Anchor<CGRect>] { [:] }
+/// Each lightweight Home card publishes one layout anchor, without
+/// attaching state/observers/animations to NavigationLink. Prefer ordered,
+/// append-only storage: PreferenceKey.reduce is called thousands of times
+/// while lazy grids materialize and hashing/merging dictionaries for each
+/// partial subtree is unnecessary. Resolve the single desired focusID only
+/// when a toast actually needs to appear.
+///
+/// Duplicate IDs retain the previous dictionary's "latest wins" semantics:
+/// lookup deliberately searches the array from the end.
+struct TVHomeCardToastAnchor {
+    let focusID: String
+    let anchor: Anchor<CGRect>
+}
 
-    static func reduce(value: inout [String: Anchor<CGRect>],
-                       nextValue: () -> [String: Anchor<CGRect>]) {
+struct TVHomeCardToastAnchorKey: PreferenceKey {
+    static var defaultValue: [TVHomeCardToastAnchor] { [] }
+
+    static func reduce(value: inout [TVHomeCardToastAnchor],
+                       nextValue: () -> [TVHomeCardToastAnchor]) {
         #if DEBUG
         TVHomeFocusDiagnostics.hit(.anchorReduce)
         #endif
-        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+        value.append(contentsOf: nextValue())
     }
 }
 
@@ -838,7 +848,7 @@ struct TVHomeLightweightVideoActions: ViewModifier {
                 }
             }
             .anchorPreference(key: TVHomeCardToastAnchorKey.self, value: .bounds) {
-                [focusID: $0]
+                [TVHomeCardToastAnchor(focusID: focusID, anchor: $0)]
             }
     }
 }
@@ -858,8 +868,12 @@ struct TVHomeMenuPresentation: ViewModifier {
                 GeometryReader { geometry in
                     let toast = model.feedback
                     let sourceID = toast?.focusID ?? toastAnchorID
-                    let cardFrame = sourceID.flatMap { cardAnchors[$0] }
-                        .map { geometry[$0] }
+                    // Only scan when a toast is visible or sliding out;
+                    // the normal Home does not perform per-card dictionary
+                    // lookups or hashing during directional focus movement.
+                    let cardFrame = sourceID.flatMap { id in
+                        cardAnchors.last(where: { $0.focusID == id })?.anchor
+                    }.map { geometry[$0] }
                     let viewport = CGRect(origin: .zero, size: geometry.size)
                     let visible = cardFrame.map {
                         TVHomeCardToastPosition.isVisible($0, in: viewport)
