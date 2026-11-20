@@ -182,3 +182,56 @@ actor TVStreamMetadataCache {
         else { waiters.removeFirst().resume() }
     }
 }
+
+// Only reuse fields from Home recommendations that are already in memory.
+// No network requests, SwiftUI tasks, view observers or focus-dependent work.
+extension TVVideoMetadata {
+    static func reusingRecommendationMetadata(
+        _ history: [VideoItem], from recommendations: [VideoItem]
+    ) -> [VideoItem] {
+        guard !history.isEmpty, !recommendations.isEmpty else { return history }
+        var byVideoKey: [String: VideoItem] = [:]
+        byVideoKey.reserveCapacity(recommendations.count)
+        for candidate in recommendations {
+            let key = TVHistoryDeduplicator.key(for: candidate)
+            if byVideoKey[key] == nil { byVideoKey[key] = candidate }
+        }
+        return history.map { row in
+            guard let source = byVideoKey[TVHistoryDeduplicator.key(for: row)] else {
+                return row
+            }
+            var merged = row
+            // Never replace history progress, duration, watched state or title.
+            if (merged.viewCount ?? -1) <= 0, let views = source.viewCount, views >= 0 {
+                merged.viewCount = views
+            }
+            if (merged.publishedAt ?? 0) <= 0, let timestamp = source.publishedAt,
+               timestamp > 0 {
+                merged.publishedAt = timestamp
+            }
+            if (merged.uploaded ?? 0) <= 0, let timestamp = source.uploaded,
+               timestamp > 0 {
+                merged.uploaded = timestamp
+            }
+            if merged.uploadDate?.isEmpty != false, let date = source.uploadDate,
+               !date.isEmpty {
+                merged.uploadDate = date
+            }
+            if merged.uploaderUrl?.isEmpty != false {
+                merged.uploaderUrl = source.uploaderUrl
+            }
+            if merged.isLiveContent == nil {
+                merged.isLiveContent = source.isLiveContent ??
+                    (source.isLive == true ? true : nil)
+            }
+            if merged.isPostLive == nil { merged.isPostLive = source.isPostLive }
+            if merged.isShortFormContent == nil {
+                merged.isShortFormContent = source.isShortFormContent
+            }
+            if merged.requiresMembership == nil {
+                merged.requiresMembership = source.requiresMembership
+            }
+            return merged
+        }
+    }
+}
