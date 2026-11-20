@@ -29,7 +29,7 @@ final class TVRailVisualFocusTests: XCTestCase {
 
         // Check intermediate HStack widths too: none may recompute the
         // four-column LazyVGrid's logical width.
-        for railWidth: CGFloat in [56, 80, 130, 168, 190, 214] {
+        for railWidth in [CGFloat(56), 80, 130, 168, 190, 214] {
             let availableWidth = screenWidth - railWidth
             let scale = TVHomeNavigationZoom.scale(
                 visibleWidth: availableWidth, layoutWidth: gridWidth
