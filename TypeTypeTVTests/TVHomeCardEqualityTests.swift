@@ -511,6 +511,34 @@ final class TVHomeCardEqualityTests: XCTestCase {
     }
 
     @MainActor
+    func testVideoBadgeSignalsAreSpecificToVideoAndAccount() {
+        let first = "https://youtu.be/AAAAAAAAAAA"
+        let second = "https://youtu.be/BBBBBBBBBBB"
+        let a = TVVideoCardStatusCenter.signal(url: first, scope: "test-account-A")
+        let b = TVVideoCardStatusCenter.signal(url: second, scope: "test-account-A")
+        let otherAccount = TVVideoCardStatusCenter.signal(
+            url: first, scope: "test-account-B"
+        )
+        XCTAssertTrue(a === TVVideoCardStatusCenter.signal(
+            url: "https://www.youtube.com/watch?v=AAAAAAAAAAA", scope: "test-account-A"
+        ))
+        let initialA = a.revision
+        let initialB = b.revision
+        let initialOther = otherAccount.revision
+        TVVideoCardStatusCenter.changed(videoURL: first, scope: "test-account-A")
+        XCTAssertEqual(a.revision, initialA + 1)
+        XCTAssertEqual(b.revision, initialB,
+                       "Unrelated thumbnails must not rebuild for a badge change")
+        XCTAssertEqual(otherAccount.revision, initialOther,
+                       "A saved-video badge may never leak across accounts")
+        TVVideoCardStatusCenter.changedAll(scope: "test-account-A")
+        XCTAssertEqual(a.revision, initialA + 2)
+        XCTAssertEqual(b.revision, initialB + 1,
+                       "Initial membership snapshot may refresh all visible cards")
+        XCTAssertEqual(otherAccount.revision, initialOther)
+    }
+
+    @MainActor
     func testTargetedMutationRemovesOnlyAffectedCardsAndListEntries() {
         let first = VideoItem(
             id: "one", title: "One", url: "https://youtu.be/AAAAAAAAAAA",
