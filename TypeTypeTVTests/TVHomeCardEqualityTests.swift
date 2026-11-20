@@ -2,6 +2,25 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVHomeCardEqualityTests: XCTestCase {
+    func testWatchLaterMenuNeverGuessesFromUnloadedMembership() {
+        XCTAssertEqual(TVWatchLaterMenuStatus.resolved(
+            loaded: false, failed: false, saved: false
+        ), .loading)
+        XCTAssertEqual(TVWatchLaterMenuStatus.resolved(
+            loaded: false, failed: false, saved: true
+        ), .loading)
+        XCTAssertEqual(TVWatchLaterMenuStatus.resolved(
+            loaded: false, failed: true, saved: false
+        ), .failed)
+        XCTAssertEqual(TVWatchLaterMenuStatus.resolved(
+            loaded: true, failed: false, saved: false
+        ), .notSaved)
+        XCTAssertEqual(TVWatchLaterMenuStatus.resolved(
+            loaded: true, failed: false, saved: true
+        ), .saved)
+    }
+
+
     func testOnlyBlockingRequiresHomeFeedReload() {
         XCTAssertFalse(TVHomeMenuReloadPolicy.watched.requiresFeedReload)
         XCTAssertFalse(TVHomeMenuReloadPolicy.watchLater.requiresFeedReload)

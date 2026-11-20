@@ -100,7 +100,9 @@ struct TVVideoActionModifier: ViewModifier {
                         )
                     }
                 }
-                if isWatchLaterEntry || watchLaterMembership.contains(video.url) {
+                let watchLaterStatus: TVWatchLaterMenuStatus = isWatchLaterEntry
+                    ? .saved : watchLaterMembership.menuStatus(for: video.url, api: api)
+                if watchLaterStatus == .saved {
                     Button(role: .destructive) {
                         perform {
                             try await api.setWatchLater(video: video, enabled: false)
@@ -112,7 +114,7 @@ struct TVVideoActionModifier: ViewModifier {
                     } label: {
                         Label("action.removeWatchLater", systemImage: "bookmark.slash")
                     }
-                } else {
+                } else if watchLaterStatus == .notSaved {
                     Button {
                         perform {
                             try await api.setWatchLater(video: video, enabled: true)
@@ -123,6 +125,17 @@ struct TVVideoActionModifier: ViewModifier {
                         }
                     } label: {
                         Label("action.watchLater", systemImage: "bookmark")
+                    }
+                } else if watchLaterStatus == .loading {
+                    Button {} label: {
+                        Label("action.watchLaterLoading", systemImage: "clock")
+                    }
+                    .disabled(true)
+                } else {
+                    Button {
+                        Task { await watchLaterMembership.retryLoading(api: api) }
+                    } label: {
+                        Label("action.watchLaterRetry", systemImage: "arrow.clockwise")
                     }
                 }
                 Button {
@@ -692,7 +705,9 @@ struct TVHomeLightweightVideoActions: ViewModifier {
                 let position = TVLocalProgress.shared.position(for: video.url) ??
                     video.watchPositionMs
                 let watched = TVWatchedState.isWatched(video, positionMs: position)
-                let saved = TVWatchLaterMembership.shared.contains(video.url)
+                let watchLaterStatus = TVWatchLaterMembership.shared.menuStatus(
+                    for: video.url, api: api
+                )
 
                 if let position, position > 0 {
                     Button {} label: {
@@ -717,19 +732,30 @@ struct TVHomeLightweightVideoActions: ViewModifier {
                         )
                     }
                 }
-                if saved {
+                if watchLaterStatus == .saved {
                     Button(role: .destructive) {
                         model.updateWatchLater(api: api, video: video,
                             focusID: focusID, enabled: false, onChanged: onChanged)
                     } label: {
                         Label("action.removeWatchLater", systemImage: "bookmark.slash")
                     }
-                } else {
+                } else if watchLaterStatus == .notSaved {
                     Button {
                         model.updateWatchLater(api: api, video: video,
                             focusID: focusID, enabled: true, onChanged: onChanged)
                     } label: {
                         Label("action.watchLater", systemImage: "bookmark")
+                    }
+                } else if watchLaterStatus == .loading {
+                    Button {} label: {
+                        Label("action.watchLaterLoading", systemImage: "clock")
+                    }
+                    .disabled(true)
+                } else {
+                    Button {
+                        Task { await TVWatchLaterMembership.shared.retryLoading(api: api) }
+                    } label: {
+                        Label("action.watchLaterRetry", systemImage: "arrow.clockwise")
                     }
                 }
                 Button {
