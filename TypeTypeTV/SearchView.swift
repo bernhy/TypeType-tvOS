@@ -33,6 +33,8 @@ struct SearchView: View {
     @State private var handledFocusRequest: Int?
     @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @FocusState private var focusedVideoURL: String?
+    @State private var detailReturnVideoID: String?
+    @State private var lastMutationID = 0
     // Named results also need an explicit tvOS focus target when the
     // enclosing search content is visually scaled. Video results already
     // have this via TVSharedVideoGrid.
@@ -256,16 +258,14 @@ struct SearchView: View {
                                     ),
                                     api: api, focus: $focusedVideoURL, menu: videoMenu,
                                     onReturnToList: { id in
-                                        TVVideoFocusReturn.restore(
-                                            $focusedVideoURL, id: id, scroll: scroll
-                                        )
+                                        detailReturnVideoID = id
+                                        focusedVideoURL = id
                                     },
                                     onLeftEdge: { _ in onRevealMenu() },
-                                    onChanged: {
-                                        Task {
-                                            await execute(searchedTerm, recordHistory: false)
-                                        }
-                                    },
+                                    // Membership badges update in VideoCard.
+                                    // Blocked rows are removed by the mutation
+                                    // journal, never by clearing all search results.
+                                    onChanged: {},
                                     onApproachEnd: {}
                                 )
                                 .equatable()
@@ -307,6 +307,18 @@ struct SearchView: View {
             .frame(width: viewport.size.width, height: viewport.size.height)
             .background(TTTheme.ink)
             .modifier(TVHomeMenuPresentation(model: videoMenu))
+            .defaultFocus(
+                $focusedVideoURL, detailReturnVideoID,
+                priority: detailReturnVideoID == nil ? .automatic : .userInitiated
+            )
+            .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
+            .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
+            .onChange(of: videoMenu.focusRestoreRequest) { _, _ in
+                if let id = videoMenu.focusRestoreTarget,
+                   visibleVideos.contains(where: { $0.url == id }) {
+                    focusedVideoURL = id
+                }
+            }
             .task {
                 await TVWatchLaterMembership.shared.ensureLoaded(api: api)
             }
@@ -437,6 +449,35 @@ struct SearchView: View {
         } catch {
             // Older servers may not support search filters; basic search works.
             capabilities = nil
+        }
+    }
+
+    @MainActor
+    private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
+        let pending = events.filter {
+            $0.id > lastMutationID && $0.accountScope == api.metadataCacheScope
+        }
+        lastMutationID = max(lastMutationID, events.last?.id ?? 0)
+        guard !pending.isEmpty else { return }
+        if videos.contains(where: { item in pending.contains { $0.removes(item) } }) {
+            videos.removeAll { item in pending.contains { $0.removes(item) } }
+        }
+        if channels.contains(where: { channel in
+            pending.contains { event in
+                if case .channelBlocked = event.kind {
+                    return event.channelURL == channel.url
+                }
+                return false
+            }
+        }) {
+            channels.removeAll { channel in
+                pending.contains { event in
+                    if case .channelBlocked = event.kind {
+                        return event.channelURL == channel.url
+                    }
+                    return false
+                }
+            }
         }
     }
 
