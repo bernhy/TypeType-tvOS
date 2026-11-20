@@ -19,48 +19,30 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
         XCTAssertEqual(decoded.height, 32)
     }
 
-    func testThumbnailSizingAndAccountScopedOpaqueCacheKeys() throws {
-        let origin = try XCTUnwrap(URL(string: "https://typetype.example"))
-        let otherOrigin = try XCTUnwrap(URL(string: "https://other.example"))
-        let artwork = try XCTUnwrap(URL(string: "https://typetype.example/api/files/image"))
+    func testThumbnailSizingAndSharedPublicImageKeys() throws {
+        let image = try XCTUnwrap(URL(string: "https://typetype.example/api/files/image"))
+        let sameURL = try XCTUnwrap(URL(string: "https://typetype.example/api/files/image"))
+        let otherServer = try XCTUnwrap(URL(string: "https://other.example/api/files/image"))
         let external = try XCTUnwrap(URL(string: "https://cdn.example/image"))
 
         XCTAssertEqual(TVThumbnailRequestPolicy.pixelLimit(1), 64)
         XCTAssertEqual(TVThumbnailRequestPolicy.pixelLimit(1_024), 1_024)
         XCTAssertEqual(TVThumbnailRequestPolicy.pixelLimit(9_999), 2_048)
-        let first = TVThumbnailRequestPolicy.cacheKey(
-            url: artwork, origin: origin, token: "secret-user-a",
-            firstParty: true, pixels: 1_024
-        )
-        let second = TVThumbnailRequestPolicy.cacheKey(
-            url: artwork, origin: origin, token: "secret-user-b",
-            firstParty: true, pixels: 1_024
-        )
-        XCTAssertEqual(first, TVThumbnailRequestPolicy.cacheKey(
-            url: artwork, origin: origin, token: "secret-user-a",
-            firstParty: true, pixels: 1_024
-        ))
-        XCTAssertNotEqual(first, second)
-        XCTAssertFalse(first.contains("secret-user-a"))
-        XCTAssertNotEqual(first, TVThumbnailRequestPolicy.cacheKey(
-            url: artwork, origin: origin, token: "secret-user-a",
-            firstParty: true, pixels: 2_048
-        ))
-        XCTAssertNotEqual(first, TVThumbnailRequestPolicy.cacheKey(
-            url: artwork, origin: otherOrigin, token: "secret-user-a",
-            firstParty: true, pixels: 1_024
-        ))
-        // A public image has no credentials, so token rotation must not
-        // create redundant third-party image cache entries.
+
+        // The same public image is shared regardless of which account
+        // discovered it, including a public image proxied by TypeType.
+        let key = TVThumbnailRequestPolicy.cacheKey(url: image, pixels: 1_024)
+        XCTAssertEqual(key, TVThumbnailRequestPolicy.cacheKey(url: sameURL, pixels: 1_024))
+        XCTAssertEqual(key.count, 64)
+        XCTAssertFalse(key.contains("typetype.example"))
+
+        // Different delivered images and different decode sizes remain
+        // separate; publicly available CDN thumbnails share the same key.
+        XCTAssertNotEqual(key, TVThumbnailRequestPolicy.cacheKey(url: otherServer, pixels: 1_024))
+        XCTAssertNotEqual(key, TVThumbnailRequestPolicy.cacheKey(url: image, pixels: 2_048))
         XCTAssertEqual(
-            TVThumbnailRequestPolicy.cacheKey(
-                url: external, origin: origin, token: "old-token",
-                firstParty: false, pixels: 1_024
-            ),
-            TVThumbnailRequestPolicy.cacheKey(
-                url: external, origin: origin, token: "new-token",
-                firstParty: false, pixels: 1_024
-            )
+            TVThumbnailRequestPolicy.cacheKey(url: external, pixels: 1_024),
+            TVThumbnailRequestPolicy.cacheKey(url: external, pixels: 1_024)
         )
     }
 
