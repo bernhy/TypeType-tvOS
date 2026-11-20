@@ -453,6 +453,9 @@ struct TVPlaylistPickerView: View {
             let playlist = try await api.createPlaylist(name: name)
             try await api.addToPlaylist(playlist.id, video: video)
             playlistMembership.markAdded(videoURL: video.url, playlist: playlist, api: api)
+            TVVideoMutationCenter.shared.record(
+                api: api, video: video, kind: .playlist(id: playlist.id, added: true)
+            )
             onSaved(TVL10n.value("action.addedPlaylist"))
         } catch { self.error = error.localizedDescription }
     }
@@ -471,11 +474,18 @@ struct TVPlaylistPickerView: View {
                 playlistMembership.markRemoved(
                     videoURL: video.url, playlistID: playlist.id, api: api
                 )
+                TVVideoMutationCenter.shared.record(
+                    api: api, video: video,
+                    kind: .playlist(id: playlist.id, added: false)
+                )
                 onSaved(TVL10n.value("action.removedPlaylist"))
             } else {
                 try await api.addToPlaylist(playlist.id, video: video)
                 playlistMembership.markAdded(
                     videoURL: video.url, playlist: playlist, api: api
+                )
+                TVVideoMutationCenter.shared.record(
+                    api: api, video: video, kind: .playlist(id: playlist.id, added: true)
                 )
                 onSaved(TVL10n.value("action.addedPlaylist"))
             }
@@ -531,10 +541,9 @@ enum TVHomeMenuReloadPolicy {
     case playlistRemoval
     case block
 
-    var requiresFeedReload: Bool {
-        self == .block || self == .playlistRemoval ||
-            self == .watchLaterRemoval
-    }
+    // Successful mutations are handled by the screen-level change
+    // journal; only the affected cached rows are removed. No timed GET.
+    var requiresFeedReload: Bool { false }
 }
 
 /// Each lightweight Home card publishes one layout anchor, without
@@ -735,6 +744,9 @@ final class TVHomeMenuCoordinator: ObservableObject {
         run(focusID: focusID, kind: kind, onChanged: onChanged) {
             try await api.setWatchLater(video: video, enabled: enabled)
             TVWatchLaterMembership.shared.mark(video.url, present: enabled, api: api)
+            TVVideoMutationCenter.shared.record(
+                api: api, video: video, kind: .watchLater(added: enabled)
+            )
             return TVL10n.value(enabled ? "action.savedWatchLater"
                                         : "action.removedWatchLater")
         }
@@ -750,11 +762,10 @@ final class TVHomeMenuCoordinator: ObservableObject {
                 // Membership updates are shared. Only a library screen
                 // showing the affected playlist needs its own list reloaded.
                 self.showFeedback(result, on: focusID)
-                if reloadOnRemoval &&
-                   result == TVL10n.value("action.removedPlaylist"),
-                   let onChanged {
-                    self.refreshAfterFeedback(onChanged)
-                }
+                // The picker itself records the precise playlist ID.
+                // Its containing library screen removes only that row.
+                _ = onChanged
+                _ = reloadOnRemoval
             },
             onDismiss: { self.restoreFocus(focusID) }
         )
@@ -788,8 +799,14 @@ final class TVHomeMenuCoordinator: ObservableObject {
                 try await request.api.blockVideo(request.video)
                 TVBlockedNameCache.remember(title: request.video.title,
                                             url: request.video.url, api: request.api)
+                TVVideoMutationCenter.shared.record(
+                    api: request.api, video: request.video, kind: .videoBlocked
+                )
             case .channel:
                 try await request.api.blockChannel(request.video)
+                TVVideoMutationCenter.shared.record(
+                    api: request.api, video: request.video, kind: .channelBlocked
+                )
             }
             return TVL10n.value("action.blocked")
         }
