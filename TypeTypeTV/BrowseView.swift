@@ -120,6 +120,9 @@ struct BrowseView: View {
 
     var body: some View {
         if let api = configuredAPI {
+            // Outer size stays constant while the native HStack rail grows.
+            // Only Home's scrolled content uses this as its layout baseline.
+            GeometryReader { outerViewport in
             ZStack(alignment: .leading) {
                 TTTheme.ink.ignoresSafeArea()
                 HStack(spacing: 0) {
@@ -137,6 +140,9 @@ struct BrowseView: View {
                                 TVHomeExperimentMode.subscriptionsBaseline.rawValue {
                                 TVHomeSubscriptionsBaselineView(
                                     api: api, previewVideos: previewVideos,
+                                    fixedLayoutWidth: TVHomeNavigationZoom.layoutWidth(
+                                        outerWidth: outerViewport.size.width
+                                    ),
                                     focusRequest: menuPreviewVisible ? -1 : homeFocusRequest,
                                     onRevealMenu: revealMenu,
                                     onOpenAccount: { open(.account) },
@@ -231,6 +237,7 @@ struct BrowseView: View {
                     Task { await reloadSidebarIdentity(api: api) }
                 }
             }
+            } // outerViewport: sidebar geometry and dialogs remain original.
         } else {
             TVContentMessage(symbol: "exclamationmark.triangle",
                              title: TVL10n.value("server.invalidStored"),
