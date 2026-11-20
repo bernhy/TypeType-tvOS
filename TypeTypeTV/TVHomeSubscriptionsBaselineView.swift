@@ -230,6 +230,16 @@ struct TVHomeSubscriptionsBaselineView: View {
                     Task { await loadHistory() }
                 }
             }
+            .onChange(of: showRecommendations) { _, enabled in
+                if !enabled {
+                    // An intentionally hidden source must never keep Home's
+                    // startup focus gate waiting on a request we did not make.
+                    recommendationsLoaded = true
+                    claimInitialFocus()
+                } else if videos.isEmpty && loadedOnce && previewVideos == nil {
+                    Task { await reload() }
+                }
+            }
             .task(id: focusRequest) {
                 guard focusRequest > 0,
                       handledFocusRequest != focusRequest else { return }
@@ -364,6 +374,10 @@ struct TVHomeSubscriptionsBaselineView: View {
     @MainActor
     private func refresh() async {
         await contentPreferences.ensureLoaded(api: api)
+        if !showRecommendations {
+            // Honor the setting without ever querying /recommendations/home.
+            recommendationsLoaded = true
+        }
         if showRecent && showRecommendations {
             async let recommendations: Void = reload()
             async let history: Void = loadHistory()
