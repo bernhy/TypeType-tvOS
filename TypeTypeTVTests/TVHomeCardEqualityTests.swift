@@ -130,6 +130,31 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertEqual(lookups, 0, "Closing Home cancels pending extraction")
     }
 
+    @MainActor
+    func testResumeMetadataLoaderIgnoresLateResultsAfterLeavingHome() async throws {
+        let api = try TypeTypeAPI(address: "https://example.com")
+        let metadata = try JSONDecoder().decode(StreamInfo.self, from: Data(
+            #"{"viewCount":777,"publishedAt":1800000000000}"#.utf8
+        ))
+        let started = expectation(description: "Request started")
+        var delivered = false
+        let loader = TVHomeResumeMetadataLoader(fetch: { _, _ in
+            started.fulfill()
+            // Simulate a provider that returns even after caller cancellation.
+            try? await Task.sleep(for: .milliseconds(250))
+            return metadata
+        })
+        let video = VideoItem(
+            id: "ABCDEFGHIJK", title: "Resume", url: "https://youtu.be/ABCDEFGHIJK",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 120, isLive: false
+        )
+        loader.appear(video: video, api: api, onBatch: { _ in delivered = true })
+        await fulfillment(of: [started], timeout: 3)
+        loader.stop()
+        try await Task.sleep(for: .milliseconds(450))
+        XCTAssertFalse(delivered, "Old Home results must not update a new view")
+    }
+
     func testHomeContextMenuReflectsWatchLaterAndWatchedStateChanges() {
         let video = VideoItem(
             id: "menu-a", title: "Example",
