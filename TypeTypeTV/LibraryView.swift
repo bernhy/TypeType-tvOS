@@ -172,9 +172,15 @@ struct LibraryView: View {
                                 // mounted. Preserve their natural scroll
                                 // position instead of centering the card
                                 // after an arbitrary 180+140ms delay.
-                                detailReturnVideoID = id
-                                focusedDestination = nil
-                                focusedVideoURL = id
+                                // If this exact video was removed from the
+                                // currently displayed list while in detail,
+                                // the old focus target no longer exists.
+                                let target = visibleVideos.first(where: {
+                                    TVVideoIdentity.equivalent($0.url, id)
+                                })?.url ?? visibleVideos.first?.url
+                                detailReturnVideoID = target
+                                focusedDestination = target == nil ? selected : nil
+                                focusedVideoURL = target
                             },
                             onLeftEdge: { _ in focusedDestination = selected },
                             // Mutations remove only affected cached entries.
