@@ -487,25 +487,32 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertNil(TVHomePagingPolicy.nextCursor(empty))
     }
 
+    @MainActor
     func testResolvedShortDurationEnablesCorrectWatchedAndUnwatchedMenuStates() {
         var short = VideoItem(
             id: "short", title: "Short", url: "https://youtu.be/ABCDEFGHIJK",
             thumbnailUrl: nil, uploaderName: nil, duration: nil, isLive: false
         )
         short.isShortFormContent = true
+        let model = TVHomeMenuCoordinator()
         let before = TVHomeCardMenuState(
-            video: short, positionMs: 180_000, watchLater: .notSaved
+            video: model.videoWithKnownDuration(short),
+            positionMs: 180_000, watchLater: .notSaved
         )
-        XCTAssertFalse(before.watched, "A missing duration cannot imply completion")
-        short.duration = 180
+        XCTAssertFalse(before.watched, "Missing duration cannot imply completion")
+        // One metadata lookup from the first menu action is retained by the
+        // shared host, not published to every card of the Home LazyVGrid.
+        model.rememberKnownDuration(180, for: short.url)
+        let cached = model.videoWithKnownDuration(short)
+        XCTAssertEqual(cached.duration, 180)
         let after = TVHomeCardMenuState(
-            video: short, positionMs: 180_000, watchLater: .notSaved
+            video: cached, positionMs: 180_000, watchLater: .notSaved
         )
-        XCTAssertTrue(after.watched, "Remembered duration must restore the toggle")
+        XCTAssertTrue(after.watched, "Reopening the menu must offer Unwatched")
         let removed = TVHomeCardMenuState(
-            video: short, positionMs: 0, watchLater: .notSaved
+            video: cached, positionMs: 0, watchLater: .notSaved
         )
-        XCTAssertFalse(removed.watched)
+        XCTAssertFalse(removed.watched, "Unwatching must restore Watched")
     }
 
 }
