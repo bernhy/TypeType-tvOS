@@ -541,6 +541,11 @@ struct TVHomeSubscriptionsBaselineView: View {
             let enriched = await api.withProgress(page.items)
             guard !Task.isCancelled else { return }
             videos = enriched
+            // A feed can finish after history: enrich only on completed loads.
+            let updated = TVVideoMetadata.reusingRecommendationMetadata(
+                recentVideos, from: enriched
+            )
+            if updated != recentVideos { recentVideos = updated }
         } catch is CancellationError {
             return
         } catch {
@@ -574,6 +579,11 @@ struct TVHomeSubscriptionsBaselineView: View {
             nextCursor = page.nextCursor?.isEmpty == false &&
                 page.nextCursor != cursor ? page.nextCursor : nil
             videos.append(contentsOf: enriched)
+            // Paginated recommendations may match older resume entries.
+            let updated = TVVideoMetadata.reusingRecommendationMetadata(
+                recentVideos, from: enriched
+            )
+            if updated != recentVideos { recentVideos = updated }
             #if DEBUG
             TVHomeFocusDiagnostics.hit(.pageAppend)
             #endif
@@ -603,7 +613,9 @@ struct TVHomeSubscriptionsBaselineView: View {
             let unique = TVHistoryDeduplicator.unique(raw)
             let enriched = await api.withProgress(unique)
             guard !Task.isCancelled && historyRequestID == request else { return }
-            recentVideos = enriched
+            recentVideos = TVVideoMetadata.reusingRecommendationMetadata(
+                enriched, from: videos
+            )
             historyOffset = raw.count
             historyHasMore = raw.count == historyPageSize
             recentNeedsLogin = false
@@ -655,7 +667,9 @@ struct TVHomeSubscriptionsBaselineView: View {
             guard !fresh.isEmpty else { return }
             let enriched = await api.withProgress(fresh)
             guard !Task.isCancelled && historyRequestID == request else { return }
-            recentVideos.append(contentsOf: enriched)
+            recentVideos.append(contentsOf:
+                TVVideoMetadata.reusingRecommendationMetadata(enriched, from: videos)
+            )
         } catch is CancellationError {
             return
         } catch {
