@@ -302,7 +302,6 @@ struct TVHomeSubscriptionsBaselineView: View {
                                 .font(.system(size: 45, weight: .bold))
                         }
                         Spacer()
-                        if previewVideos == nil { TVHomeComparisonMenu() }
                         Button("common.refresh") { Task { await refresh() } }
                             .buttonStyle(.bordered)
                             .disabled(loading || loadingMore || loadingRecent ||
