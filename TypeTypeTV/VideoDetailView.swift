@@ -21,8 +21,12 @@ struct VideoDetailView: View {
     @State private var progressError: String?
     @ObservedObject private var localProgress = TVLocalProgress.shared
 
-    private enum DetailFocus: Hashable {
-        case play, channel, markWatched, playlist, descriptionEntry, descriptionBody, commentsTab
+    // One explicit tvOS focus graph for every hero action. Leaving some
+    // buttons to automatic proximity selection produced erratic jumps between
+    // the two action rows, especially when metadata updated during navigation.
+    enum DetailFocus: Hashable {
+        case play, back, favorite, watchLater, channel
+        case markWatched, playlist, descriptionEntry, descriptionBody, commentsTab
     }
 
     private enum DetailPane {
@@ -36,6 +40,16 @@ struct VideoDetailView: View {
     @State private var fullDescriptionPresented = false
 
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
+    private var showsMarkWatched: Bool {
+        video.isLive != true &&
+        ((detailedVideo.duration ?? 0) > 0 || detailedVideo.isShort)
+    }
+    private var hasDetailDescription: Bool {
+        descriptionText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+    private var showsCommentsTab: Bool {
+        contentPreferences.settings?.hideComments != true
+    }
 
     private var channelName: String? {
         let fromVideo = video.uploaderName?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -119,6 +133,10 @@ struct VideoDetailView: View {
                                 .tint(TTTheme.muted)
                                 .accessibilityIdentifier("video-open-channel")
                                 .focused($focusedDetail, equals: .channel)
+                                .onMoveCommand { direction in
+                                    moveDetailFocus(from: .channel, direction: direction,
+                                                    using: page)
+                                }
                             } else {
                                 HStack(spacing: 10) {
                                     TVChannelAvatar(
@@ -185,20 +203,20 @@ struct VideoDetailView: View {
                                     .focused($focusedDetail, equals: .play)
                                     .accessibilityIdentifier("video-play")
                                     .onMoveCommand { direction in
-                                        guard direction == .down else { return }
-                                        if video.isLive != true,
-                                           ((detailedVideo.duration ?? 0) > 0 || detailedVideo.isShort) {
-                                            focusedDetail = .markWatched
-                                        } else {
-                                            // A live stream has no watched action.
-                                            focusedDetail = .playlist
-                                        }
+                                        moveDetailFocus(from: .play, direction: direction,
+                                                        using: page)
                                     }
 
                                     Button { returnToList() } label: {
                                         Label("common.back", systemImage: "chevron.left")
                                     }
                                     .buttonStyle(.bordered)
+                                    .focused($focusedDetail, equals: .back)
+                                    .accessibilityIdentifier("video-detail-back")
+                                    .onMoveCommand { direction in
+                                        moveDetailFocus(from: .back, direction: direction,
+                                                        using: page)
+                                    }
 
                                     Button {
                                         Task { await changeFavorite() }
@@ -210,7 +228,17 @@ struct VideoDetailView: View {
                                     .accessibilityAddTraits(favorite ? .isSelected : [])
                                     .buttonStyle(.bordered)
                                     .tint(favorite ? TTTheme.accent : TTTheme.muted)
-                                    .disabled(!activityLoaded || activitySaving)
+                                    // Keep a focused action eligible while its
+                                    // write is in flight. Disabling it transfers
+                                    // native focus to the nearest second-row
+                                    // button (often "Mark watched").
+                                    .disabled(!activityLoaded)
+                                    .focused($focusedDetail, equals: .favorite)
+                                    .accessibilityIdentifier("video-detail-favorite")
+                                    .onMoveCommand { direction in
+                                        moveDetailFocus(from: .favorite, direction: direction,
+                                                        using: page)
+                                    }
 
                                     Button {
                                         Task { await changeWatchLater() }
@@ -222,14 +250,19 @@ struct VideoDetailView: View {
                                     .accessibilityAddTraits(watchLater ? .isSelected : [])
                                     .buttonStyle(.bordered)
                                     .tint(watchLater ? TTTheme.accent : TTTheme.muted)
-                                    .disabled(!activityLoaded || activitySaving)
+                                    .disabled(!activityLoaded)
+                                    .focused($focusedDetail, equals: .watchLater)
+                                    .accessibilityIdentifier("video-detail-watch-later")
+                                    .onMoveCommand { direction in
+                                        moveDetailFocus(from: .watchLater, direction: direction,
+                                                        using: page)
+                                    }
                                 }
 
                                 // Keep "Mark watched" directly below Play,
                                 // first and leftmost in the second action row.
                                 HStack(spacing: 18) {
-                                    if video.isLive != true,
-                                       ((detailedVideo.duration ?? 0) > 0 || detailedVideo.isShort) {
+                                    if showsMarkWatched {
                                         Button {
                                             Task { await changeWatched() }
                                         } label: {
@@ -239,13 +272,14 @@ struct VideoDetailView: View {
                                                       ? "arrow.uturn.backward.circle" : "checkmark.circle")
                                         }
                                         .buttonStyle(.bordered)
-                                        .disabled(progressSaving)
+                                        // The async save guard remains in
+                                        // changeWatched(); don't disable the
+                                        // focused control while writing.
                                         .focused($focusedDetail, equals: .markWatched)
+                                        .accessibilityIdentifier("video-mark-watched")
                                         .onMoveCommand { direction in
-                                            if direction == .down,
-                                               descriptionText?.isEmpty == false {
-                                                revealDescription(using: page)
-                                            }
+                                            moveDetailFocus(from: .markWatched,
+                                                            direction: direction, using: page)
                                         }
                                     }
                                     Button {
@@ -262,10 +296,8 @@ struct VideoDetailView: View {
                                     .focused($focusedDetail, equals: .playlist)
                                     .accessibilityIdentifier("video-add-playlist")
                                     .onMoveCommand { direction in
-                                        if direction == .down,
-                                           descriptionText?.isEmpty == false {
-                                            revealDescription(using: page)
-                                        }
+                                        moveDetailFocus(from: .playlist,
+                                                        direction: direction, using: page)
                                     }
                                 }
                                 if let progressError {
@@ -376,10 +408,8 @@ struct VideoDetailView: View {
                                     selectedPane == .description ? .isSelected : []
                                 )
                                 .onMoveCommand { direction in
-                                    if direction == .down {
-                                        selectedPane = .description
-                                        focusedDetail = .descriptionBody
-                                    }
+                                    moveDetailFocus(from: .descriptionEntry,
+                                                    direction: direction, using: page)
                                 }
                             }
                             if contentPreferences.settings?.hideComments != true {
@@ -406,6 +436,10 @@ struct VideoDetailView: View {
                                     selectedPane == .comments ? .isSelected : []
                                 )
                                 .accessibilityIdentifier("video-comments-tab")
+                                .onMoveCommand { direction in
+                                    moveDetailFocus(from: .commentsTab,
+                                                    direction: direction, using: page)
+                                }
                             }
                         }
                         .focusSection()
@@ -442,6 +476,10 @@ struct VideoDetailView: View {
                             .focusEffectDisabled(true)
                             .focused($focusedDetail, equals: .descriptionBody)
                             .accessibilityIdentifier("video-description-focus")
+                            .onMoveCommand { direction in
+                                moveDetailFocus(from: .descriptionBody,
+                                                direction: direction, using: page)
+                            }
                             .focusSection()
                         }
                     }
@@ -490,15 +528,9 @@ struct VideoDetailView: View {
                     focusedDetail = .descriptionEntry
                 }
             }
-            .onChange(of: focusedDetail) { _, next in
-                guard next == .descriptionEntry || next == .descriptionBody ||
-                      next == .commentsTab else { return }
-                // Moving into either tab must scroll the parent into view
-                // before tvOS resolves the nested focus destination.
-                withAnimation(.easeOut(duration: 0.24)) {
-                    page.scrollTo("video-detail-tabs", anchor: .center)
-                }
-            }
+            // Focus changes must not animate the entire ScrollView while
+            // tvOS is performing its own focus geometry update. Navigation
+            // into the tabs scrolls once in moveDetailFocus instead.
         }
         .sheet(isPresented: $fullDescriptionPresented, onDismiss: {
             focusedDetail = .descriptionBody
@@ -521,17 +553,35 @@ struct VideoDetailView: View {
     }
 
     @MainActor
-    private func revealDescription(using page: ScrollViewProxy) {
-        guard descriptionText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        else { return }
-        selectedPane = .description
-        withAnimation(.easeOut(duration: 0.24)) {
-            page.scrollTo("video-detail-tabs", anchor: .center)
+    private func moveDetailFocus(from source: DetailFocus,
+                                 direction: MoveCommandDirection,
+                                 using page: ScrollViewProxy) {
+        guard let next = TVDetailFocusPolicy.next(
+            from: source, direction: direction,
+            hasChannel: channelURL != nil,
+            canMarkWatched: showsMarkWatched,
+            libraryActionsAvailable: activityLoaded && !activitySaving,
+            hasDescription: hasDetailDescription,
+            hasComments: showsCommentsTab
+        ) else { return }
+
+        // First reveal the target area, then focus it. Never combine a
+        // ScrollView animation with a focus change: tvOS can otherwise jump
+        // back to "Mark watched" when recalculating offscreen candidates.
+        if next == .descriptionEntry || next == .descriptionBody ||
+           next == .commentsTab {
+            if next == .descriptionEntry || next == .descriptionBody {
+                selectedPane = .description
+            } else {
+                selectedPane = .comments
+            }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                page.scrollTo("video-detail-tabs", anchor: .center)
+            }
         }
-        Task { @MainActor in
-            await Task.yield()
-            focusedDetail = .descriptionEntry
-        }
+        focusedDetail = next
     }
 
     @MainActor
@@ -627,3 +677,67 @@ struct VideoDetailView: View {
     }
 }
 
+
+// Explicit remote navigation avoids tvOS proximity guesses across changing
+// content heights, loading badges and the two differently sized action rows.
+enum TVDetailFocusPolicy {
+    typealias Node = VideoDetailView.DetailFocus
+
+    static func next(from source: Node, direction: MoveCommandDirection,
+                     hasChannel: Bool, canMarkWatched: Bool,
+                     libraryActionsAvailable: Bool, hasDescription: Bool,
+                     hasComments: Bool) -> Node? {
+        let lowerAction: Node = canMarkWatched ? .markWatched : .playlist
+        let lowerContent: Node? = hasDescription ? .descriptionEntry :
+            (hasComments ? .commentsTab : nil)
+
+        switch (source, direction) {
+        case (.play, .right): return .back
+        case (.play, .down): return lowerAction
+        case (.play, .up): return hasChannel ? .channel : nil
+
+        case (.back, .left): return .play
+        case (.back, .right):
+            return libraryActionsAvailable ? .favorite : nil
+        case (.back, .down): return .playlist
+        case (.back, .up): return hasChannel ? .channel : nil
+
+        case (.favorite, .left): return .back
+        case (.favorite, .right):
+            return libraryActionsAvailable ? .watchLater : nil
+        case (.favorite, .down): return .playlist
+        case (.favorite, .up): return hasChannel ? .channel : nil
+
+        case (.watchLater, .left): return .favorite
+        case (.watchLater, .down): return .playlist
+        case (.watchLater, .up): return hasChannel ? .channel : nil
+
+        case (.channel, .down): return .play
+
+        case (.markWatched, .up): return .play
+        case (.markWatched, .right): return .playlist
+        case (.markWatched, .down): return lowerContent
+
+        case (.playlist, .left):
+            return canMarkWatched ? .markWatched : nil
+        case (.playlist, .up): return .back
+        case (.playlist, .down): return lowerContent
+
+        case (.descriptionEntry, .up): return lowerAction
+        case (.descriptionEntry, .right):
+            return hasComments ? .commentsTab : nil
+        case (.descriptionEntry, .down):
+            return hasDescription ? .descriptionBody : nil
+
+        case (.descriptionBody, .up): return .descriptionEntry
+        case (.descriptionBody, .right):
+            return hasComments ? .commentsTab : nil
+
+        case (.commentsTab, .up): return .playlist
+        case (.commentsTab, .left):
+            return hasDescription ? .descriptionEntry : nil
+
+        default: return nil
+        }
+    }
+}

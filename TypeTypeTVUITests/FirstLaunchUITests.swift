@@ -419,6 +419,37 @@ final class TypeTypeTVUITests: XCTestCase {
         add(attachment)
     }
 
+    func testVideoDetailFocusTravelsPredictablyBetweenActionRows() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "details", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let play = app.buttons["video-play"]
+        let back = app.buttons["video-detail-back"]
+        let watched = app.buttons["video-mark-watched"]
+        let playlist = app.buttons["video-add-playlist"]
+        let description = app.buttons["video-description-entry"]
+        XCTAssertTrue(waitForFocus(play, timeout: 10))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(back), "Right from Play goes to Back")
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(playlist), "Down from Back goes to Playlist")
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(back), "Up from Playlist must not jump to Mark Watched")
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(play))
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(watched))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(playlist))
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(description), "Down from Playlist goes to Description tab")
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(watched),
+                      "Up from Description follows the actual preceding action row")
+    }
+
     func testVideoDetailsLayoutWithoutServer() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-TypeTypeTVPreview", "details", "-typetype.uiLanguage", "de"]
