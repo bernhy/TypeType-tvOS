@@ -2,6 +2,21 @@ import XCTest
 @testable import TypeTypeTV
 
 final class SabrCacheCoverageTests: XCTestCase {
+    func testMappedDiskCacheHitReturnsIdenticalVerifiedMedia() async throws {
+        let cache = SabrFragmentCache(maxMiB: 64)
+        let key = "https://example.invalid/media/test"
+        let payload = Data(repeating: 0xA5, count: 8_192)
+        let first = try await cache.data(for: key) { payload }
+        let second = try await cache.data(for: key) {
+            XCTFail("Valid mapped disk cache hit should not refetch media")
+            return Data()
+        }
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(second, payload)
+        XCTAssertEqual(await cache.itemCount, 1)
+        await cache.clear()
+    }
+
     func testDiscardMalformedFragmentRemovesCachedBytesAndCoverage() async throws {
         let cache = SabrFragmentCache(maxMiB: 64)
         let key = "https://example.invalid/segment/1"
