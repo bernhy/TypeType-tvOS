@@ -89,7 +89,12 @@ enum TVHomeFocusDiagnostics {
             }
             lock.unlock()
             if let summary {
-                NSLog("TypeType %@", summary)
+                // Logging itself must not steal a frame from a fast swipe.
+                // One low-priority submission every ~3s, and ONLY in the
+                // explicitly enabled DEBUG tracing mode.
+                DispatchQueue.global(qos: .utility).async {
+                    NSLog("TypeType %@", summary)
+                }
             }
         }
     }
