@@ -1192,7 +1192,8 @@ struct VideoCard: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomTrailing) {
                 TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
-                            origin: api.origin, contentMode: .fit)
+                            origin: api.origin, contentMode: .fit,
+                            videoURL: video.url)
                     .grayscale(completed ? 1 : 0)
                     // Never scale thumbnail content: on tvOS the duration
                     // badge at the bottom-right otherwise appears enlarged
