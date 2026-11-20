@@ -138,6 +138,9 @@ final class TVPlaylistMembership: ObservableObject {
         error = nil
         loadTask?.cancel()
         loadTask = nil
+        // Cancellation may exit the loader before its normal cleanup;
+        // don't leave a stale loading spinner after invalidation.
+        loading = false
         playlists = []
         playlistIDsByVideo = [:]
         storedURLByVideoAndPlaylist = [:]

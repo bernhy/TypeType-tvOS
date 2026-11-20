@@ -467,10 +467,16 @@ struct SearchView: View {
             var seen = Set(videos.map(\.url))
             let fresh = result.items.filter { seen.insert($0.url).inserted }
             videos += fresh
-            let knownChannels = Set(channels.map(\.url))
-            channels += (result.channels ?? []).filter { !knownChannels.contains($0.url) }
-            let knownPlaylists = Set(playlists.map(\.url))
-            playlists += (result.playlists ?? []).filter { !knownPlaylists.contains($0.url) }
+            // Deduplicate both against older pages and *within* the new
+            // page. A fixed pre-page Set lets duplicate search hits through.
+            var knownChannels = Set(channels.map(\.url))
+            channels += (result.channels ?? []).filter {
+                knownChannels.insert($0.url).inserted
+            }
+            var knownPlaylists = Set(playlists.map(\.url))
+            playlists += (result.playlists ?? []).filter {
+                knownPlaylists.insert($0.url).inserted
+            }
             nextPage = result.nextpage == cursor ? nil : result.nextpage
             let enriched = await api.withProgress(fresh)
             guard requestID == identifier && !Task.isCancelled else { return }

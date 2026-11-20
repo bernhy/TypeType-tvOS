@@ -24,6 +24,29 @@ final class TVPlaybackProgressContractTests: XCTestCase {
         XCTAssertEqual(history?["url"] as? String, video.url)
     }
 
+    func testNowPlayingPayloadSafelyHandlesUntrustedDuration() {
+        let identity = TVPlaybackPresenceIdentity(
+            clientName: "test", clientVersion: "1", deviceId: "device",
+            deviceName: "Apple TV", deviceType: "apple_tv"
+        )
+        var video = VideoItem(
+            id: "large", title: "Large duration", url: "https://youtu.be/abc123def45",
+            thumbnailUrl: nil, uploaderName: "Channel",
+            duration: Int.max, isLive: false
+        )
+        let invalid = TVPlaybackPresenceVideo(
+            identity: identity, video: video, positionMs: 10_000, paused: false
+        )
+        XCTAssertNil(invalid.durationMs)
+        XCTAssertEqual(invalid.positionMs, 10_000)
+
+        video.duration = 250
+        let valid = TVPlaybackPresenceVideo(
+            identity: identity, video: video, positionMs: 10_000, paused: false
+        )
+        XCTAssertEqual(valid.durationMs, 250_000)
+    }
+
     func testGetProgressPathEncodesVideoURL() throws {
         let url = try TVLibraryRoutes.mediaURL(
             base: URL(string: "https://example.com/api/")!,

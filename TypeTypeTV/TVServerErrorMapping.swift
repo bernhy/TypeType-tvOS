@@ -51,7 +51,10 @@ enum TVServerErrorMapping {
         if let header = response.value(forHTTPHeaderField: "Retry-After"),
            let seconds = SabrRetryAfter.seconds(header) { return seconds }
         if let ms = problem?.retryAfterMs, ms > 0 {
-            return max(1, min(3600, (ms + 999) / 1000))
+            // JSON can contain Int.max; clamp before adding for ceil-divide
+            // so a malformed Retry-After value cannot overflow and crash.
+            let cappedMs = min(ms, 3_600_000)
+            return max(1, (cappedMs + 999) / 1_000)
         }
         return nil
     }
