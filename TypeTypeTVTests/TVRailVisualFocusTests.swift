@@ -20,6 +20,15 @@ final class TVRailVisualFocusTests: XCTestCase {
         }
     }
 
+    func testExpandingMainRailDoesNotResizeTheVideoGrid() {
+        XCTAssertEqual(TVMainNavigationLayout.pageShift(expanded: false), 0)
+        XCTAssertEqual(TVMainNavigationLayout.pageShift(expanded: true), 158)
+        XCTAssertEqual(
+            TVMainNavigationLayout.pageShift(expanded: true),
+            TVMainNavigationLayout.expandedWidth - TVMainNavigationLayout.collapsedWidth
+        )
+    }
+
     func testReturningFromAboutDoesNotPaintNearbyAccountInMainRail() {
         // tvOS may first report Account because it lies next to About.
         // The app must paint the white pill on the current Settings icon.
