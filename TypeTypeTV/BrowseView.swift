@@ -633,66 +633,6 @@ enum TVHomeExperimentMode: String, CaseIterable {
     }
 }
 
-/// One intentionally small selector for the only A/B comparison that
-/// remains relevant: the previous full Home versus the native
-/// subscriptions-style baseline. Older experiment variants are preserved
-/// in the branch history but no longer clutter the TV interface.
-enum TVHomeComparisonPolicy {
-    static let previous = TVHomeExperimentMode.fullLightweightStableFocus.rawValue
-    static let baseline = TVHomeExperimentMode.subscriptionsBaseline.rawValue
-
-    static func label(for value: String) -> String {
-        value == baseline ? "Home wie Abonnements" : "Bisheriges Home"
-    }
-
-    static func isChosen(_ option: String, selected: String) -> Bool {
-        if option == baseline { return selected == baseline }
-        // Map saved values from older A/B experiments into the sole
-        // previous-Home choice without losing the persisted comparison.
-        return selected != baseline
-    }
-}
-
-struct TVHomeComparisonMenu: View {
-    @AppStorage("typetype.experiment.homeDiagnosticMode")
-    private var selected = TVHomeComparisonPolicy.previous
-
-    var body: some View {
-        Menu {
-            Button {
-                selected = TVHomeComparisonPolicy.previous
-            } label: {
-                if TVHomeComparisonPolicy.isChosen(
-                    TVHomeComparisonPolicy.previous, selected: selected
-                ) {
-                    Label("Bisheriges Home", systemImage: "checkmark")
-                } else {
-                    Text("Bisheriges Home")
-                }
-            }
-            Button {
-                selected = TVHomeComparisonPolicy.baseline
-            } label: {
-                if TVHomeComparisonPolicy.isChosen(
-                    TVHomeComparisonPolicy.baseline, selected: selected
-                ) {
-                    Label("Home wie Abonnements", systemImage: "checkmark")
-                } else {
-                    Text("Home wie Abonnements")
-                }
-            }
-        } label: {
-            Label {
-                Text(verbatim: "Home-Test: " + TVHomeComparisonPolicy.label(for: selected))
-            } icon: {
-                Image(systemName: "chevron.down.circle")
-            }
-        }
-        .buttonStyle(.bordered)
-        .accessibilityIdentifier("home-comparison-menu")
-    }
-}
-
 enum TVHomeViewportPolicy {
     static func widest(_ previous: CGFloat, measured: CGFloat) -> CGFloat {
         guard measured.isFinite, measured > 0 else { return previous }
@@ -961,9 +901,6 @@ struct HomeView: View {
                     // Only the two meaningful A/B screens remain visible.
                     // Other experimental modes are retained in branch code
                     // temporarily, but are no longer reachable from the UI.
-                    if previewVideos == nil {
-                        TVHomeComparisonMenu()
-                    }
                     Button {
                         Task { await refresh() }
                     } label: {
