@@ -22,7 +22,7 @@ final class TVHomeCardEqualityTests: XCTestCase {
     func testResumeMetadataLoaderDeduplicatesVisibleRequestsAndBatches() async throws {
         let api = try TypeTypeAPI(address: "https://example.com")
         let metadata = try JSONDecoder().decode(StreamInfo.self, from: Data(
-            #"{\"viewCount\":5123,\"publishedAt\":1800000000000}"#.utf8
+            #"{"viewCount":5123,"publishedAt":1800000000000}"#.utf8
         ))
         func row(_ id: String) -> VideoItem {
             VideoItem(
