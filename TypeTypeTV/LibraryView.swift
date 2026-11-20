@@ -237,6 +237,11 @@ struct LibraryView: View {
             }
         }
         .task { await TVWatchLaterMembership.shared.ensureLoaded(api: api) }
+        .task {
+            async let playlists: Void = TVPlaylistMembership.shared.ensureLoaded(api: api)
+            async let favorites: Void = TVFavoriteMembership.shared.ensureLoaded(api: api)
+            _ = await (playlists, favorites)
+        }
         .task { await contentPreferences.ensureLoaded(api: api) }
         .task {
             // A SwiftUI .task restarts after returning from a pushed detail.
