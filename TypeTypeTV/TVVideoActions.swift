@@ -585,11 +585,17 @@ final class TVHomeMenuCoordinator: ObservableObject {
 
     private func showFeedback(_ message: String, on focusID: String) {
         feedbackTask?.cancel()
-        feedback = TVHomeCardToast(message: message, focusID: focusID)
+        // Animate only the toast state. Never apply a feedback animation
+        // to the parent ScrollView: that can animate the entire Home grid.
+        withAnimation(.easeInOut(duration: 0.23)) {
+            feedback = TVHomeCardToast(message: message, focusID: focusID)
+        }
         feedbackTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(2.4))
             guard !Task.isCancelled else { return }
-            feedback = nil
+            withAnimation(.easeInOut(duration: 0.23)) {
+                feedback = nil
+            }
         }
     }
 
@@ -848,7 +854,6 @@ struct TVHomeMenuPresentation: ViewModifier {
                 }
                 .allowsHitTesting(false)
             }
-            .animation(.easeInOut(duration: 0.23), value: model.feedback?.id)
             .confirmationDialog(
                 TVL10n.formatted(
                     "action.confirmBlockNamed",
