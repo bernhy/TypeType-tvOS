@@ -239,7 +239,8 @@ struct SearchView: View {
                                         rowSpacing: 42, canLoadMore: false,
                                         loadAhead: columns.count + 1,
                                         lookupMissingMetadata: false,
-                                        isWatchLaterEntry: false, playbackQueue: nil
+                                        isWatchLaterEntry: false, reloadPlaylistOnRemoval: false,
+                                        playbackQueue: nil
                                     ),
                                     api: api, focus: $focusedVideoURL, menu: videoMenu,
                                     onReturnToList: { id in
@@ -294,6 +295,9 @@ struct SearchView: View {
             .frame(width: viewport.size.width, height: viewport.size.height)
             .background(TTTheme.ink)
             .modifier(TVHomeMenuPresentation(model: videoMenu))
+            .task {
+                await TVWatchLaterMembership.shared.ensureLoaded(api: api)
+            }
             .task {
                 await contentPreferences.ensureLoaded(api: api)
                 await loadFilterCapabilities()
