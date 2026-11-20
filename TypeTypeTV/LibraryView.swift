@@ -17,6 +17,11 @@ struct LibraryView: View {
 
     @State private var handledFocusRequest: Int?
     @State private var lastLoadedDestination: TVLibraryDestination?
+    @State private var initialLoadStarted = false
+    @State private var initialLoadFinished = false
+    // Set synchronously as the detail dismisses, before tvOS chooses its
+    // next native focus target; does not trigger a second grid reload.
+    @State private var detailReturnVideoID: String?
     @State private var selected: TVLibraryDestination = .standard(.watchLater)
     @FocusState private var focusedDestination: TVLibraryDestination?
     // Only Up/Down moves already within this rail may visually follow the
@@ -58,6 +63,11 @@ struct LibraryView: View {
                 .environment(\.isFocusEffectEnabled, false)
                 .focusEffectDisabled(true)
                 .focusSection()
+                // Enter the currently selected library destination directly;
+                // no Task.yield correction after tvOS chose a neighbor.
+                .defaultFocus(
+                    $focusedDestination, selected, priority: .userInitiated
+                )
             GeometryReader { viewport in
             // Keep the library subrail in its original 240pt slot. Only
             // its neighboring video content visually scales as the global
@@ -157,9 +167,13 @@ struct LibraryView: View {
                             ),
                             api: api, focus: $focusedVideoURL, menu: videoMenu,
                             onReturnToList: { id in
-                                TVVideoFocusReturn.restore(
-                                    $focusedVideoURL, id: id, scroll: scroll
-                                )
+                                // The ScrollView and its LazyVGrid are still
+                                // mounted. Preserve their natural scroll
+                                // position instead of centering the card
+                                // after an arbitrary 180+140ms delay.
+                                detailReturnVideoID = id
+                                focusedDestination = nil
+                                focusedVideoURL = id
                             },
                             onLeftEdge: { _ in focusedDestination = selected },
                             onChanged: { Task { await refresh() } },
@@ -199,6 +213,13 @@ struct LibraryView: View {
                 .frame(width: viewport.size.width, alignment: .topLeading)
                 }
                 .frame(width: viewport.size.width, height: viewport.size.height)
+                // The user explicitly returned from this detail tile. Give
+                // its current position first priority during the pop.
+                .defaultFocus(
+                    $focusedVideoURL, detailReturnVideoID,
+                    priority: detailReturnVideoID == nil
+                        ? .automatic : .userInitiated
+                )
             }
             } // GeometryReader: library rail stays native; grid zooms.
         }
@@ -206,25 +227,18 @@ struct LibraryView: View {
         .modifier(TVHomeMenuPresentation(model: videoMenu))
         .task { await TVWatchLaterMembership.shared.ensureLoaded(api: api) }
         .task { await contentPreferences.ensureLoaded(api: api) }
-        .task { await refresh() }
+        .task {
+            // A SwiftUI .task restarts after returning from a pushed detail.
+            // Never replace the visible LazyVGrid with a loading placeholder
+            // or refetch playlists/history unless explicitly requested.
+            guard !initialLoadStarted else { return }
+            initialLoadStarted = true
+            await refresh()
+            lastLoadedDestination = selected
+            initialLoadFinished = true
+        }
         .onChange(of: focusedDestination) { previous, next in
-            if next == nil {
-                railBrowsingVertically = false
-            } else if previous == nil {
-                railBrowsingVertically = false
-                if let next, next != selected {
-                    // The nearest playlist/section can win the first native
-                    // focus frame. Restore the page that is actually shown.
-                    let expected = selected
-                    Task { @MainActor in
-                        await Task.yield()
-                        guard selected == expected, focusedDestination == next else { return }
-                        focusedDestination = expected
-                    }
-                }
-            } else {
-                railBrowsingVertically = true
-            }
+            railBrowsingVertically = previous != nil && next != nil
         }
         .task(id: focusRequest) {
             guard focusRequest >= 0, handledFocusRequest != focusRequest else { return }
@@ -234,10 +248,10 @@ struct LibraryView: View {
             focusedDestination = selected
         }
         .task(id: selected) {
-            // NavigationStack can rerun .task on popping a video detail.
-            // A page already loaded for this destination retains its grid
-            // identity, scroll position and last focused tile.
-            guard lastLoadedDestination != selected else { return }
+            // Initial refresh owns the first load. Later only an actual tab
+            // change may fetch and replace this grid.
+            guard initialLoadFinished,
+                  lastLoadedDestination != selected else { return }
             lastLoadedDestination = selected
             await loadSelected()
         }
