@@ -2,6 +2,26 @@ import XCTest
 @testable import TypeTypeTV
 
 final class TVHomeCardEqualityTests: XCTestCase {
+    func testSingleTargetRailHandoffNeverPermitsNeighborFocus() throws {
+        let first = "recommendation-" + "https://youtu.be/ABCDEFGHIJK"
+        let second = "recommendation-" + "https://youtu.be/LMNOPQRSTUV"
+        let row = VideoItem(
+            id: "one", title: "Example", url: "https://youtu.be/ABCDEFGHIJK",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 120,
+            isLive: false
+        )
+        XCTAssertEqual(TVHomeRailHandoffPolicy.savedTarget(
+            first, recommendations: [row], recent: []
+        ), first)
+        XCTAssertNil(TVHomeRailHandoffPolicy.savedTarget(
+            second, recommendations: [row], recent: []
+        ))
+        XCTAssertTrue(TVHomeRailHandoffPolicy.canFocus(first, restoring: first))
+        XCTAssertFalse(TVHomeRailHandoffPolicy.canFocus(second, restoring: first))
+        XCTAssertTrue(TVHomeRailHandoffPolicy.canFocus(second, restoring: nil))
+    }
+
+
     func testHomeViewportStaysStableAcrossMainRailExpansion() {
         // 158pt narrower navigation content must not shrink its 4-column
         // thumbnails or accumulate per-row vertical drift.

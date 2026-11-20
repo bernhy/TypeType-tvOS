@@ -662,6 +662,27 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertFalse(app.buttons["main-nav-home"].hasFocus)
     }
 
+    func testHomeRailRightReturnsDirectlyToTheSavedDeepCard() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        XCTAssertTrue(waitForFocus(app.buttons["home-video-recommendation-0"], timeout: 8))
+        XCUIRemote.shared.press(.down)
+        XCUIRemote.shared.press(.down)
+        let target = app.buttons["home-video-recommendation-8"]
+        XCTAssertTrue(waitForFocus(target))
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(app.buttons["main-nav-home"]))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(target),
+                      "Home must restore the original focus without choosing a nearby tile")
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertTrue(target.hasFocus,
+                      "Focus must remain on the original card after rail animation")
+    }
+
     func testHomeRailExpandKeepsTheVisibleRecommendationRowInPlace() throws {
         let app = XCUIApplication()
         app.launchArguments = [

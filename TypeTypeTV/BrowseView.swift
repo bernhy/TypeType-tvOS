@@ -554,6 +554,29 @@ enum TVHomeViewportPolicy {
     }
 }
 
+/// Prevent the tvOS focus engine from auto-selecting an unrelated tile to
+/// the right of the menu while our original Home tile is being restored.
+enum TVHomeRailHandoffPolicy {
+    static func canFocus(_ card: String, restoring target: String?) -> Bool {
+        guard let target else { return true }
+        return card == target
+    }
+
+    static func savedTarget(_ saved: String?, recommendations: [VideoItem],
+                            recent: [VideoItem]) -> String? {
+        guard let saved else { return nil }
+        if saved.hasPrefix("recommendation-") {
+            return recommendations.contains(where: {
+                "recommendation-" + $0.url == saved
+            }) ? saved : nil
+        }
+        if saved.hasPrefix("recent-") {
+            return recent.contains(where: { "recent-" + $0.url == saved }) ? saved : nil
+        }
+        return nil
+    }
+}
+
 enum TVHomeReturnFocusPolicy {
     static func target(saved: String?, visibleIDs: Set<String>,
                        fallback: String) -> String {
@@ -604,6 +627,10 @@ struct HomeView: View {
     // Only Left-to-rail remembers the current card; Home/Back keeps its
     // existing first-card-then-navigation behavior.
     @State private var leftRailReturnCardID: String?
+    // Armed as the global menu releases focus. During the native focus
+    // handoff, ONLY this card may accept focus so tvOS cannot scroll to a
+    // geometrically nearer card first.
+    @State private var railHandoffFocusTarget: String?
     // During a deep-card restore, keep the unrelated resume shelf out of
     // UIKit's early automatic focus choice until the intended card mounts.
     @State private var homeFocusRestoreTarget: String?
@@ -732,7 +759,8 @@ struct HomeView: View {
                             .frame(maxWidth: .infinity, minHeight: 135)
                     } else if !homeRecent.isEmpty {
                         continueWatchingRail(homeRecent, scroll: scroll)
-                            .disabled(homeFocusRestoreTarget?.hasPrefix("recommendation-") == true)
+                            .disabled(homeFocusRestoreTarget?.hasPrefix("recommendation-") == true ||
+                                      railHandoffFocusTarget?.hasPrefix("recommendation-") == true)
                     } else if recentNeedsLogin {
                         VStack(alignment: .leading, spacing: 15) {
                             Text("home.signInForHistory")
@@ -778,7 +806,8 @@ struct HomeView: View {
                         )
                     } else {
                         videoGrid(homeRecommendations, scroll: scroll, paginate: true)
-                            .disabled(homeFocusRestoreTarget?.hasPrefix("recent-") == true)
+                            .disabled(homeFocusRestoreTarget?.hasPrefix("recent-") == true ||
+                                      railHandoffFocusTarget?.hasPrefix("recent-") == true)
                         if loadingMore {
                             ProgressView("home.loadingMore")
                                 .frame(maxWidth: .infinity)
@@ -825,9 +854,43 @@ struct HomeView: View {
                 guard focusRequest > 0,
                       processedHomeFocusRequest != focusRequest else { return }
                 processedHomeFocusRequest = focusRequest
+
+                // Moving Right/OK from the global rail is NOT a generic
+                // initial-focus request. Preselect the saved visible tile
+                // immediately; the old 160ms sleep allowed UIKit to choose
+                // and auto-scroll to a different neighboring tile first.
+                if railHandoffFocusTarget != nil || armRailHandoffIfNeeded() {
+                    let target = railHandoffFocusTarget
+                    if let target {
+                        needsHomeFocus = false
+                        leftRailReturnCardID = nil
+                        focusedHomeVideo = target
+                        resetFocus(in: homeFocusScope)
+                        // Retain the single-target focus gate until the
+                        // 0.28s rail animation has completed.
+                        try? await Task.sleep(for: .milliseconds(360))
+                        guard !Task.isCancelled,
+                              railHandoffFocusTarget == target else { return }
+                        if focusedHomeVideo != target {
+                            focusedHomeVideo = target
+                            resetFocus(in: homeFocusScope)
+                        }
+                        railHandoffFocusTarget = nil
+                        return
+                    }
+                }
+
                 needsHomeFocus = true
                 await Task.yield()
                 focusFirstHomeVideo(scroll: scroll)
+            }
+            .onChange(of: sidebarFocused) { wasFocused, isFocused in
+                if wasFocused && !isFocused {
+                    // The parent switches menuPreviewVisible off as soon
+                    // as Right/OK begins, before releasing @FocusState.
+                    // Arm the target before UIKit calculates next focus.
+                    _ = armRailHandoffIfNeeded()
+                }
             }
             .onChange(of: recentVideos.count) { _, _ in
                 focusFirstHomeVideo(scroll: scroll)
@@ -841,6 +904,7 @@ struct HomeView: View {
                 // programmatic scroll/return for user navigation. User remote
                 // moves cancel the pending restore in videoGrid below.
                 if !sidebarFocused && pendingHomeFocus == nil &&
+                   railHandoffFocusTarget == nil &&
                    preferredHomeCardID != current {
                     preferredHomeCardID = current
                 }
@@ -865,6 +929,30 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    @MainActor
+    @discardableResult
+    private func armRailHandoffIfNeeded() -> Bool {
+        if railHandoffFocusTarget != nil { return true }
+        guard let target = TVHomeRailHandoffPolicy.savedTarget(
+            leftRailReturnCardID, recommendations: visibleRecommendations,
+            recent: visibleRecent
+        ) else { return false }
+
+        // A pending post-detail restoration must not compete with the
+        // explicit rail handoff. Preserve the current ScrollView offset.
+        pendingHomeFocus?.cancel()
+        pendingHomeFocus = nil
+        homeFocusRestoreTarget = nil
+        railHandoffFocusTarget = target
+        preferredHomeCardID = target
+        focusedHomeVideo = target
+        #if DEBUG
+        NSLog("TypeType Home: direct rail focus handoff armed (%@)",
+              target.hasPrefix("recent-") ? "resume" : "recommendation")
+        #endif
+        return true
     }
 
     @MainActor
@@ -1029,6 +1117,9 @@ struct HomeView: View {
                         .prefersDefaultFocus(
                             preferredHomeCardID == focusID, in: homeFocusScope
                         )
+                        .disabled(!TVHomeRailHandoffPolicy.canFocus(
+                            focusID, restoring: railHandoffFocusTarget
+                        ))
                         .onMoveCommand { direction in
                             userMovedWithinHome()
                             if direction == .left && index == 0 {
@@ -1111,6 +1202,10 @@ struct HomeView: View {
                     preferredHomeCardID == homeCardID(video, recommended: paginate),
                     in: homeFocusScope
                 )
+                .disabled(!TVHomeRailHandoffPolicy.canFocus(
+                    homeCardID(video, recommended: paginate),
+                    restoring: railHandoffFocusTarget
+                ))
                 .onMoveCommand { direction in
                     userMovedWithinHome()
                     if direction == .left && index % columns.count == 0 {
