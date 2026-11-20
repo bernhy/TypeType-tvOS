@@ -844,14 +844,14 @@ struct TVHomeLightweightVideoActions: ViewModifier {
 struct TVHomeMenuPresentation: ViewModifier {
     @ObservedObject var model: TVHomeMenuCoordinator
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    // Keep the same clipping parent mounted during slide-out, even after
-    // the shared coordinator clears the toast. Updated only when a new
-    // notification is posted, never during ordinary remote focus changes.
+    // The clip exists only during a toast and its short exit transition.
+    // No GeometryReader or clipping surface remains in the idle Home grid.
     @State private var toastAnchorID: String?
 
     func body(content: Content) -> some View {
         content
             .overlayPreferenceValue(TVHomeCardToastAnchorKey.self) { cardAnchors in
+                if model.feedback != nil || toastAnchorID != nil {
                 GeometryReader { geometry in
                     let toast = model.feedback
                     let sourceID = toast?.focusID ?? toastAnchorID
@@ -864,9 +864,6 @@ struct TVHomeMenuPresentation: ViewModifier {
 
                     ZStack(alignment: .topLeading) {
                         Color.clear
-                            .onChange(of: toast?.focusID) { _, current in
-                                if let current { toastAnchorID = current }
-                            }
                             .onChange(of: visible) { wasVisible, isVisible in
                                 guard wasVisible && !isVisible, let toast else { return }
                                 model.dismissFeedback(matching: toast.id)
@@ -911,6 +908,20 @@ struct TVHomeMenuPresentation: ViewModifier {
                     }
                 }
                 .allowsHitTesting(false)
+                }
+            }
+            // The single task is keyed only to a new/dismissed toast.
+            // It never runs on focus movement or normal thumbnail layout.
+            .task(id: model.feedback?.id) {
+                if let toast = model.feedback {
+                    toastAnchorID = toast.focusID
+                } else if toastAnchorID != nil {
+                    // Keep the clipping parent for the 0.23s slide-out,
+                    // then remove it entirely from the idle render tree.
+                    try? await Task.sleep(for: .milliseconds(300))
+                    guard !Task.isCancelled, model.feedback == nil else { return }
+                    toastAnchorID = nil
+                }
             }
             .confirmationDialog(
                 TVL10n.formatted(
