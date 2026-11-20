@@ -35,6 +35,9 @@ struct SearchView: View {
     @FocusState private var focusedVideoURL: String?
     @State private var detailReturnVideoID: String?
     @State private var lastMutationID = 0
+    // A detail pop must not cause another filter/history GET unless the
+    // user actually changes a filter or search-history entry.
+    @State private var initializedSearchScope: String?
     // Named results also need an explicit tvOS focus target when the
     // enclosing search content is visually scaled. Video results already
     // have this via TVSharedVideoGrid.
@@ -327,11 +330,11 @@ struct SearchView: View {
                 async let favorites: Void = TVFavoriteMembership.shared.ensureLoaded(api: api)
                 _ = await (playlists, favorites)
             }
-            .task {
+            .task(id: api.metadataCacheScope) {
                 await contentPreferences.ensureLoaded(api: api)
+                guard initializedSearchScope != api.metadataCacheScope else { return }
+                initializedSearchScope = api.metadataCacheScope
                 await loadFilterCapabilities()
-            }
-            .task {
                 // Do not upload stale device-local searches into any account.
                 UserDefaults.standard.removeObject(forKey: "typetype.recentSearches")
                 await loadSearchHistory()
@@ -492,6 +495,7 @@ struct SearchView: View {
         guard !value.isEmpty else { return }
         term = value
         searchedTerm = value
+        detailReturnVideoID = nil
         let identifier = UUID()
         requestID = identifier
         searching = true
