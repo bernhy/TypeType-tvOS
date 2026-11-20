@@ -229,6 +229,7 @@ struct TVHomeSubscriptionsBaselineView: View {
     // Updated once on leaving Home for the sidebar, never on each focus move.
     // The same card becomes the target when pressing Right to return.
     @State private var railReturnCardID: String?
+    @State private var lastMutationID = 0
     @State private var videos: [VideoItem]
     @State private var recentVideos: [VideoItem]
     @State private var historyLoadedOnce = false
@@ -447,6 +448,8 @@ struct TVHomeSubscriptionsBaselineView: View {
             )
             // Shared by BOTH sources. No per-card dialog or toast state.
             .modifier(TVHomeMenuPresentation(model: homeMenu))
+            .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
+            .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
             .onChange(of: homeMenu.focusRestoreRequest) { _, _ in
                 if let id = homeMenu.focusRestoreTarget { focusedVideo = id }
             }
@@ -599,6 +602,22 @@ struct TVHomeSubscriptionsBaselineView: View {
         } else {
             TVVideoFocusReturn.restore($focusedVideo, id: firstCardID,
                                        scroll: scroll)
+        }
+    }
+
+    @MainActor
+    private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
+        let pending = events.filter {
+            $0.id > lastMutationID && $0.accountScope == api.metadataCacheScope
+        }
+        lastMutationID = max(lastMutationID, events.last?.id ?? 0)
+        guard !pending.isEmpty else { return }
+        if videos.contains(where: { item in pending.contains { $0.removes(item) } }) {
+            videos.removeAll { item in pending.contains { $0.removes(item) } }
+        }
+        if recentVideos.contains(where: { item in pending.contains { $0.removes(item) } }) {
+            recentVideos.removeAll { item in pending.contains { $0.removes(item) } }
+            resumeMetadata.reconcile(with: recentVideos)
         }
     }
 
