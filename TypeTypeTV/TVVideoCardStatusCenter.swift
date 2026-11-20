@@ -45,13 +45,11 @@ enum TVVideoCardStatusCenter {
     }
 
     static func changedAll(scope: String? = nil) {
+        // Do not mutate the token dictionary while iterating its values.
+        // Dead weak entries are pruned on future signal acquisition.
         for (account, rows) in tokens where scope == nil || account == scope {
-            for (key, weakToken) in rows {
-                if let token = weakToken.value {
-                    token.notifyChanged()
-                } else {
-                    tokens[account]?.removeValue(forKey: key)
-                }
+            for weakToken in rows.values {
+                weakToken.value?.notifyChanged()
             }
         }
     }
