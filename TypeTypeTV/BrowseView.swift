@@ -88,7 +88,7 @@ struct BrowseView: View {
     @State private var returnToSwitcherAfterLogin = false
     @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
     @AppStorage("typetype.experiment.homeDiagnosticMode")
-    private var homeDiagnosticModeRaw = TVHomeExperimentMode.full.rawValue
+    private var homeDiagnosticModeRaw = TVHomeExperimentMode.subscriptionsBaseline.rawValue
     @FocusState private var menuFocus: TVSection?
 
     // Previewing and entering a page are different states. Once an explicit
