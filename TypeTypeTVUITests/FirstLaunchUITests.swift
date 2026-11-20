@@ -692,6 +692,32 @@ final class TypeTypeTVUITests: XCTestCase {
         }
     }
 
+    func testMinimalHomeMatchesSubscriptionsGridNavigation() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home",
+            "-typetype.experiment.homeDiagnosticMode", "subscriptionsBaseline",
+            "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let first = app.buttons["home-baseline-video-0"]
+        XCTAssertTrue(waitForFocus(first, timeout: 10),
+                      "Minimal Home must enter its first recommendation")
+        XCTAssertFalse(app.staticTexts["ANSEHEN FORTSETZEN"].exists,
+                       "Baseline intentionally has no extra resume shelf")
+
+        XCUIRemote.shared.press(.down)
+        let nextRow = app.buttons["home-baseline-video-4"]
+        XCTAssertTrue(waitForFocus(nextRow),
+                      "Bare LazyVGrid should use native one-row focus movement")
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(app.buttons["main-nav-home"]),
+                      "Left from first column must open global navigation")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(first),
+                      "Subscription-style re-entry selects first video, not deep Home handoff")
+    }
+
     func testHomeRailRightReturnsDirectlyToTheSavedDeepCard() throws {
         let app = XCUIApplication()
         app.launchArguments = [

@@ -3,7 +3,7 @@ import XCTest
 
 final class TVHomeCardEqualityTests: XCTestCase {
     func testDiagnosticModesIsolateHomeWorkWithoutReduccingImageQuality() {
-        XCTAssertEqual(TVHomeExperimentMode.allCases.count, 10)
+        XCTAssertEqual(TVHomeExperimentMode.allCases.count, 11)
         XCTAssertEqual(TVHomeExperimentMode.full.next,
                        .noStreamMetadata)
         XCTAssertEqual(TVHomeExperimentMode.noStreamMetadata.next,
@@ -23,6 +23,8 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertEqual(TVHomeExperimentMode.fullLightweightMenu.next,
                        .fullLightweightStableFocus)
         XCTAssertEqual(TVHomeExperimentMode.fullLightweightStableFocus.next,
+                       .subscriptionsBaseline)
+        XCTAssertEqual(TVHomeExperimentMode.subscriptionsBaseline.next,
                        .full)
         XCTAssertTrue(TVHomeExperimentMode.full.includesResume)
         XCTAssertTrue(TVHomeExperimentMode.full.enrichesResumeMetadata)
@@ -54,6 +56,9 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertTrue(TVHomeExperimentMode.fullLightweightStableFocus.usesLightweightMenu)
         XCTAssertTrue(TVHomeExperimentMode.fullLightweightMenu.tracksDefaultFocusDuringNavigation)
         XCTAssertFalse(TVHomeExperimentMode.fullLightweightStableFocus.tracksDefaultFocusDuringNavigation)
+        XCTAssertFalse(TVHomeExperimentMode.subscriptionsBaseline.includesResume)
+        XCTAssertNil(TVHomeExperimentMode.subscriptionsBaseline.recommendationLimit)
+        XCTAssertFalse(TVHomeExperimentMode.subscriptionsBaseline.usesLightweightMenu)
         XCTAssertFalse(TVHomeExperimentMode.full.usesLightweightMenu)
         XCTAssertTrue(TVHomeExperimentMode.fullLightweightMenu.includesCardActionModifiers)
     }

@@ -87,6 +87,8 @@ struct BrowseView: View {
     @State private var accountGeneration = 0
     @State private var returnToSwitcherAfterLogin = false
     @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
+    @AppStorage("typetype.experiment.homeDiagnosticMode")
+    private var homeDiagnosticModeRaw = TVHomeExperimentMode.full.rawValue
     @FocusState private var menuFocus: TVSection?
 
     // Previewing and entering a page are different states. Once an explicit
@@ -131,14 +133,24 @@ struct BrowseView: View {
                     Group {
                         switch section {
                         case .home:
-                            HomeView(
-                                api: api, previewVideos: previewVideos,
-                                onRevealMenu: revealMenu,
-                                onOpenAccount: { open(.account) },
-                                onInitialFocusReady: { homeStartupFocusPending = false },
-                                sidebarFocused: menuPreviewVisible,
-                                focusRequest: menuPreviewVisible ? -1 : homeFocusRequest
-                            )
+                            if homeDiagnosticModeRaw ==
+                                TVHomeExperimentMode.subscriptionsBaseline.rawValue {
+                                TVHomeSubscriptionsBaselineView(
+                                    api: api, previewVideos: previewVideos,
+                                    focusRequest: menuPreviewVisible ? -1 : homeFocusRequest,
+                                    onRevealMenu: revealMenu,
+                                    onInitialFocusReady: { homeStartupFocusPending = false }
+                                )
+                            } else {
+                                HomeView(
+                                    api: api, previewVideos: previewVideos,
+                                    onRevealMenu: revealMenu,
+                                    onOpenAccount: { open(.account) },
+                                    onInitialFocusReady: { homeStartupFocusPending = false },
+                                    sidebarFocused: menuPreviewVisible,
+                                    focusRequest: menuPreviewVisible ? -1 : homeFocusRequest
+                                )
+                            }
                         case .search:
                             SearchView(
                                 api: api,
@@ -551,6 +563,7 @@ enum TVHomeExperimentMode: String, CaseIterable {
     case twelveLightweightMenu
     case fullLightweightMenu
     case fullLightweightStableFocus
+    case subscriptionsBaseline
 
     var title: String {
         switch self {
@@ -564,6 +577,7 @@ enum TVHomeExperimentMode: String, CaseIterable {
         case .twelveLightweightMenu: return "12 – schlankes Kontextmenü"
         case .fullLightweightMenu: return "Alle – schlankes Kontextmenü"
         case .fullLightweightStableFocus: return "Alle – schlank, stabiler Fokus"
+        case .subscriptionsBaseline: return "Home – Basis wie Abos"
         }
     }
 
@@ -894,6 +908,16 @@ struct HomeView: View {
                         }
                         .buttonStyle(.bordered)
                         .accessibilityIdentifier("home-performance-mode")
+                        if diagnosticMode == .fullLightweightStableFocus {
+                            Button {
+                                diagnosticModeRaw =
+                                    TVHomeExperimentMode.subscriptionsBaseline.rawValue
+                            } label: {
+                                Label("A/B: Abos-Basis", systemImage: "square.grid.2x2")
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityIdentifier("home-performance-baseline-switch")
+                        }
                     }
                     Button {
                         Task { await refresh() }
