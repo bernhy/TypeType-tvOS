@@ -50,6 +50,7 @@ final class TVFavoriteMembership: ObservableObject {
                 }
                 videoKeys = snapshot
                 loaded = true
+                TVVideoCardStatusCenter.changedAll(scope: key)
                 lastFailure = nil
                 pendingMutations.removeAll()
             } catch is CancellationError {
@@ -76,9 +77,11 @@ final class TVFavoriteMembership: ObservableObject {
         }
         if present { videoKeys.insert(key) }
         else { videoKeys.remove(key) }
+        TVVideoCardStatusCenter.changed(videoURL: url, scope: scope)
     }
 
     func invalidate() {
+        TVVideoCardStatusCenter.changedAll(scope: scope)
         fetch?.cancel()
         fetch = nil
         scope = ""
