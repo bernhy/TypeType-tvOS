@@ -147,17 +147,31 @@ struct BrowseView: View {
                         case .search:
                             SearchView(
                                 api: api,
+                                fixedLayoutWidth: TVHomeNavigationZoom.layoutWidth(
+                                    outerWidth: outerViewport.size.width
+                                ),
+                                onRevealMenu: revealMenu,
                                 focusRequest: menuPreviewVisible ? -1 : searchFocusRequest
                             )
                             .onExitCommand { revealMenu() }
                         case .library:
-                            LibraryView(api: api,
-                                        focusRequest: menuPreviewVisible ? -1 : libraryFocusRequest,
-                                        onRevealMenu: revealMenu)
+                            LibraryView(
+                                api: api,
+                                fixedLayoutWidth: TVHomeNavigationZoom.layoutWidth(
+                                    outerWidth: outerViewport.size.width
+                                ),
+                                focusRequest: menuPreviewVisible ? -1 : libraryFocusRequest,
+                                onRevealMenu: revealMenu
+                            )
                         case .subscriptions:
-                            TVSubscriptionFeedView(api: api,
-                                                   focusRequest: menuPreviewVisible ? -1 : subscriptionFocusRequest,
-                                                   onRevealMenu: revealMenu)
+                            TVSubscriptionFeedView(
+                                api: api,
+                                focusRequest: menuPreviewVisible ? -1 : subscriptionFocusRequest,
+                                fixedLayoutWidth: TVHomeNavigationZoom.layoutWidth(
+                                    outerWidth: outerViewport.size.width
+                                ),
+                                onRevealMenu: revealMenu
+                            )
                         case .channels:
                             TVSubscriptionsView(api: api,
                                                 focusRequest: menuPreviewVisible ? -1 : channelFocusRequest,
