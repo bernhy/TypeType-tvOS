@@ -215,9 +215,9 @@ struct BrowseView: View {
                         width: playbackVisibility.isVisible
                             ? viewport.size.width
                             : max(0, viewport.size.width -
-                                TVMainNavigationLayout.collapsedWidth),
-                        maxHeight: .infinity
+                                TVMainNavigationLayout.collapsedWidth)
                     )
+                    .frame(maxHeight: .infinity)
                     .scaleEffect(
                         TVMainNavigationLayout.contentScale(
                             viewportWidth: viewport.size.width,
