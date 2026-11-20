@@ -198,7 +198,25 @@ struct TVHomeSubscriptionsBaselineView: View {
                     onInitialFocusReady()
                 }
             }
-            .onExitCommand { onRevealMenu() }
+            .onExitCommand { handleHomeBack(scroll: scroll) }
+        }
+    }
+
+    /// Match the existing Home Back behavior without importing its heavy
+    /// per-card focus hints, viewport fixes or rail-handoff state.
+    /// First Back from a deep recommendation scrolls/focuses the first card;
+    /// Back from that top card opens the global navigation. Native Left and
+    /// Right handling remains unchanged.
+    @MainActor
+    private func handleHomeBack(scroll: ScrollViewProxy) {
+        guard let first = visibleVideos.first else {
+            onRevealMenu()
+            return
+        }
+        if focusedVideo == first.url {
+            onRevealMenu()
+        } else {
+            TVVideoFocusReturn.restore($focusedVideo, id: first.url, scroll: scroll)
         }
     }
 

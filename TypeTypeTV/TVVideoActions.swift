@@ -835,6 +835,8 @@ struct TVHomeLightweightVideoActions: ViewModifier {
 /// Exactly one dialog/toast host, instead of one per visible Home thumbnail.
 struct TVHomeMenuPresentation: ViewModifier {
     @ObservedObject var model: TVHomeMenuCoordinator
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func body(content: Content) -> some View {
         content
             .overlayPreferenceValue(TVHomeCardToastAnchorKey.self) { cardAnchors in
@@ -869,7 +871,12 @@ struct TVHomeMenuPresentation: ViewModifier {
                                 .onDisappear {
                                     model.dismissFeedback(matching: toast.id)
                                 }
-                                .transition(.opacity)
+                                // A short slide from above instead of
+                                // fading. This changes only the single shared
+                                // toast, not any VideoCard or focus owner.
+                                .transition(
+                                    reduceMotion ? .identity : .offset(y: -24)
+                                )
                         }
                     }
                 }

@@ -692,6 +692,35 @@ final class TypeTypeTVUITests: XCTestCase {
         }
     }
 
+    func testMinimalHomeBackMovesToTopThenGlobalNavigation() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home",
+            "-typetype.experiment.homeDiagnosticMode", "subscriptionsBaseline",
+            "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let first = app.buttons["home-baseline-video-0"]
+        XCTAssertTrue(waitForFocus(first, timeout: 10))
+        XCUIRemote.shared.press(.down)
+        XCUIRemote.shared.press(.down)
+        let deep = app.buttons["home-baseline-video-8"]
+        XCTAssertTrue(waitForFocus(deep),
+                      "The initial Home Back test must start below the top row")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(waitForFocus(first, timeout: 10),
+                      "First Home Back scrolls to the first recommendation")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(waitForFocus(app.buttons["main-nav-home"]),
+                      "Second Home Back opens the global navigation")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(first),
+                      "Right must still return to the same native grid")
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(app.buttons["main-nav-home"]),
+                      "Left from first column must keep its direct rail action")
+    }
+
     func testMinimalHomeMatchesSubscriptionsGridNavigation() throws {
         let app = XCUIApplication()
         app.launchArguments = [
