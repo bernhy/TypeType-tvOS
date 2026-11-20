@@ -43,7 +43,7 @@ private struct TVHomeBaselineTile: View {
                 onReturnToList: onReturnToList
             )
         } label: {
-            VideoCard(api: api, video: video)
+            VideoCard(api: api, video: video, loadMemberships: false)
         }
         .buttonStyle(TVRailButtonStyle())
         .focusEffectDisabled(true)
@@ -455,6 +455,11 @@ struct TVHomeSubscriptionsBaselineView: View {
             }
             .task {
                 await TVWatchLaterMembership.shared.ensureLoaded(api: api)
+            }
+            .task {
+                async let playlists: Void = TVPlaylistMembership.shared.ensureLoaded(api: api)
+                async let favorites: Void = TVFavoriteMembership.shared.ensureLoaded(api: api)
+                _ = await (playlists, favorites)
             }
             .task {
                 // Do not fetch /history before the settings have arrived.
