@@ -519,20 +519,20 @@ enum TVVideoFocusReturn {
 
 // MARK: - Home lightweight context actions
 
-/// The old approach conditionally inserted/removed a heavy modifier on the
-/// focused NavigationLink. UIKit dropped that focus owner, breaking the Left
-/// transition and the card zoom. This model lives ONCE for the whole Home
-/// screen; individual links keep a stable, observer-free contextMenu modifier.
-/// Only removing videos/channels from the displayed feed needs a full
-/// recommendations fetch. All other Home menu actions update the shared
-/// progress, watch-later or playlist state directly.
+/// A single stable action host per video grid (Home, subscriptions, search,
+/// library); the lightweight NavigationLinks never gain per-card observable
+/// state, toast tasks or dialog presentation modifiers. Only destructive
+/// feed changes require a reload; membership/progress update shared caches.
 enum TVHomeMenuReloadPolicy {
     case watched
     case watchLater
     case playlist
+    case playlistRemoval
     case block
 
-    var requiresFeedReload: Bool { self == .block }
+    var requiresFeedReload: Bool {
+        self == .block || self == .playlistRemoval
+    }
 }
 
 /// Each lightweight Home card publishes one layout anchor, without
@@ -715,6 +715,15 @@ final class TVHomeMenuCoordinator: ObservableObject {
         }
     }
 
+    func removePlaylistEntry(focusID: String,
+                             onChanged: @escaping () -> Void,
+                             action: @escaping () async throws -> Void) {
+        run(focusID: focusID, kind: .playlistRemoval, onChanged: onChanged) {
+            try await action()
+            return TVL10n.value("action.removedPlaylist")
+        }
+    }
+
     func updateWatchLater(api: TypeTypeAPI, video: VideoItem,
                           focusID: String, enabled: Bool,
                           onChanged: @escaping () -> Void) {
@@ -812,6 +821,8 @@ private struct TVHomeCardMenuContents: View {
     let model: TVHomeMenuCoordinator
     let focusID: String
     let onChanged: () -> Void
+    var isWatchLaterEntry = false
+    var onRemoveFromPlaylist: (() async throws -> Void)? = nil
 
     @ObservedObject private var localProgress = TVLocalProgress.shared
     @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
@@ -826,9 +837,10 @@ private struct TVHomeCardMenuContents: View {
                     video: model.videoWithKnownDuration(video),
                     positionMs: localProgress.position(for: video.url) ??
                         video.watchPositionMs,
-                    watchLater: watchLaterMembership.menuStatus(
-                        for: video.url, api: api
-                    )
+                    watchLater: isWatchLaterEntry ? .saved :
+                        watchLaterMembership.menuStatus(
+                            for: video.url, api: api
+                        )
                 )
                 let position = state.positionMs
                 let watched = state.watched
@@ -889,6 +901,16 @@ private struct TVHomeCardMenuContents: View {
                 } label: {
                     Label("action.addPlaylist", systemImage: "text.badge.plus")
                 }
+                if let onRemoveFromPlaylist {
+                    Button(role: .destructive) {
+                        model.removePlaylistEntry(
+                            focusID: focusID, onChanged: onChanged,
+                            action: onRemoveFromPlaylist
+                        )
+                    } label: {
+                        Label("action.removePlaylistVideo", systemImage: "minus.circle")
+                    }
+                }
                 Button(role: .destructive) {
                     model.requestBlock(.video, api: api, video: video,
                                        focusID: focusID, onChanged: onChanged)
@@ -912,6 +934,8 @@ struct TVHomeLightweightVideoActions: ViewModifier {
     let focus: FocusState<String?>.Binding
     let focusID: String
     let onChanged: () -> Void
+    var isWatchLaterEntry = false
+    var onRemoveFromPlaylist: (() async throws -> Void)? = nil
 
     func body(content: Content) -> some View {
         content
@@ -919,7 +943,9 @@ struct TVHomeLightweightVideoActions: ViewModifier {
             .contextMenu {
                 TVHomeCardMenuContents(
                     api: api, video: video, model: model,
-                    focusID: focusID, onChanged: onChanged
+                    focusID: focusID, onChanged: onChanged,
+                    isWatchLaterEntry: isWatchLaterEntry,
+                    onRemoveFromPlaylist: onRemoveFromPlaylist
                 )
             }
             .anchorPreference(key: TVHomeCardToastAnchorKey.self, value: .bounds) {
