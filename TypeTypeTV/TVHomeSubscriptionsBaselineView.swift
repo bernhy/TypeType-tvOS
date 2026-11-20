@@ -212,7 +212,7 @@ struct TVHomeSubscriptionsBaselineView: View {
         } catch is CancellationError {
             return
         } catch {
-            error = error.localizedDescription
+            self.error = error.localizedDescription
         }
     }
 
