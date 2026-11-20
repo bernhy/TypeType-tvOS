@@ -50,12 +50,12 @@ enum TVThumbnailRequestPolicy {
 /// validated YouTube video URL qualifies for the canonical fallback.
 enum TVThumbnailSources {
     static func urls(primary: URL?, videoURL: String?) -> [URL] {
-        let fallback: URL? = videoURL.flatMap(VideoAddress.youtubeID)
-            .flatMap { URL(string: "https://i.ytimg.com/vi/\($0)/hqdefault.jpg") }
-        if let primary {
-            return fallback != nil && fallback != primary ? [primary, fallback!] : [primary]
+        guard let id = videoURL.flatMap(VideoAddress.youtubeID),
+              let fallback = URL(string: "https://i.ytimg.com/vi/\(id)/hqdefault.jpg") else {
+            return primary.map { [$0] } ?? []
         }
-        return fallback.map { [$0] } ?? []
+        if let primary, primary != fallback { return [primary, fallback] }
+        return [fallback]
     }
 }
 
@@ -265,8 +265,9 @@ struct TVThumbnail: View {
             }
             bitmap = decoded.image
             #if DEBUG
-            if index > 0 {
-                NSLog("TypeType thumbnail recovered via YouTube fallback")
+            if index > 0 || url == nil {
+                NSLog("TypeType thumbnail recovered via YouTube fallback reason=%@",
+                      index > 0 ? "primary-unavailable" : "missing-primary")
             }
             #endif
             return
