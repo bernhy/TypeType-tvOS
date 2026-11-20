@@ -711,7 +711,7 @@ final class TypeTypeTVUITests: XCTestCase {
         XCTAssertTrue(video.hasFocus, "Focus remains on the original tile")
     }
 
-    func testMinimalHomeBackMovesToTopThenGlobalNavigation() throws {
+    func testOptimizedHomeBackMovesToTopThenGlobalNavigation() throws {
         let app = XCUIApplication()
         app.launchArguments = [
             "-TypeTypeTVPreview", "home",
@@ -739,7 +739,7 @@ final class TypeTypeTVUITests: XCTestCase {
                       "Left from first column must keep its direct rail action")
     }
 
-    func testMinimalHomeMatchesSubscriptionsGridNavigation() throws {
+    func testOptimizedHomeMatchesSubscriptionsGridNavigation() throws {
         let app = XCUIApplication()
         app.launchArguments = [
             "-TypeTypeTVPreview", "home",
@@ -804,11 +804,12 @@ final class TypeTypeTVUITests: XCTestCase {
         XCUIRemote.shared.press(.left)
         XCTAssertTrue(waitForFocus(app.buttons["main-nav-home"]))
         let after = neighbor.frame.midY
-        // Native focus motion can adjust the row by a few points, even
-        // though the previously reproduced full-row jump is fixed. Reject
-        // a row-sized displacement rather than sub-cell native movement.
-        XCTAssertLessThan(abs(after - before), 50,
-                          "Opening the sidebar must not jump an entire Home row")
+        // Home intentionally zooms vertically as the rail expands. Allow
+        // the resulting proportional movement, but NOT a whole-row jump
+        // from a LazyVGrid relayout or focus-driven scroll correction.
+        let allowedZoomDisplacement = abs(before) * 0.12 + 40
+        XCTAssertLessThan(abs(after - before), allowedZoomDisplacement,
+                          "Opening the sidebar must zoom, not reflow the Home grid")
         XCUIRemote.shared.press(.right)
         XCTAssertTrue(waitForFocus(selected),
                       "Re-enter Home on the remembered row without scrolling to top")
