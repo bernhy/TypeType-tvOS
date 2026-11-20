@@ -52,10 +52,6 @@ enum TVMainNavigationLayout {
         expanded ? expandedWidth : collapsedWidth
     }
 
-    static func contentShift(expanded: Bool) -> CGFloat {
-        expanded ? expandedWidth - collapsedWidth : 0
-    }
-
     static func contentScale(viewportWidth: CGFloat, expanded: Bool) -> CGFloat {
         guard expanded, viewportWidth > expandedWidth else { return 1 }
         return (viewportWidth - expandedWidth) /
@@ -135,11 +131,14 @@ struct BrowseView: View {
             ZStack(alignment: .leading) {
                 TTTheme.ink.ignoresSafeArea()
                 HStack(spacing: 0) {
-                    // The page ALWAYS gets the collapsed-rail viewport.
-                    // Expanded nav overlays that fixed rail slot; a pure
-                    // transform preserves the existing zoom appearance.
+                    // Keep the ORIGINAL, directly sized navigation rail.
+                    // The page width below is constant; only its drawn layer
+                    // shrinks as this existing sidebar expands.
                     if !playbackVisibility.isVisible {
-                        Color.clear.frame(width: TVMainNavigationLayout.collapsedWidth)
+                        sidebar
+                            .disabled(homeStartupFocusPending ||
+                                      (section == .home && !expanded))
+                            .zIndex(1)
                     }
                 NavigationStack {
                     Group {
@@ -209,7 +208,16 @@ struct BrowseView: View {
                     }
                 }
                 .id("\(section.rawValue)-\(accountGeneration)")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // The content keeps its collapsed-menu layout width,
+                    // even though the real sibling sidebar expands. This
+                    // avoids lazy-grid line wrapping and vertical scroll drift.
+                    .frame(
+                        width: playbackVisibility.isVisible
+                            ? viewport.size.width
+                            : max(0, viewport.size.width -
+                                TVMainNavigationLayout.collapsedWidth),
+                        maxHeight: .infinity
+                    )
                     .scaleEffect(
                         TVMainNavigationLayout.contentScale(
                             viewportWidth: viewport.size.width,
@@ -217,20 +225,11 @@ struct BrowseView: View {
                         ),
                         anchor: .topLeading
                     )
-                    .offset(x: playbackVisibility.isVisible ? 0 :
-                        TVMainNavigationLayout.contentShift(expanded: expanded))
                     .focusSection()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity,
+                       alignment: .leading)
                 .ignoresSafeArea(.container, edges: .leading)
-                .overlay(alignment: .leading) {
-                    if !playbackVisibility.isVisible {
-                        sidebar
-                            .disabled(homeStartupFocusPending ||
-                                      (section == .home && !expanded))
-                            .zIndex(1)
-                    }
-                }
                 // Keep the entire existing navigation screen visible beneath
                 // the picker instead of presenting an opaque tvOS sheet.
                 .disabled(playlistPopup.request != nil)
@@ -260,7 +259,7 @@ struct BrowseView: View {
                     Task { await reloadSidebarIdentity(api: api) }
                 }
             }
-            } // GeometryReader: constant grid layout width; visual zoom only.
+            } // GeometryReader supplies stable content width only.
         } else {
             TVContentMessage(symbol: "exclamationmark.triangle",
                              title: TVL10n.value("server.invalidStored"),
@@ -318,7 +317,7 @@ struct BrowseView: View {
         // Disable it for the entire rail; only our pill is allowed to render.
         .environment(\.isFocusEffectEnabled, false)
         .focusEffectDisabled(true)
-        // The sidebar now paints above a constant-width page viewport.
+        // Preserve the original navigation width, height and safe areas.
         .focusSection()
         .onExitCommand {
             // Back while the global rail is focused goes to Home. The final
