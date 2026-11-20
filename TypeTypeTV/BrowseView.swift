@@ -550,6 +550,7 @@ enum TVHomeExperimentMode: String, CaseIterable {
     case twelveWithoutFocusHints
     case twelveLightweightMenu
     case fullLightweightMenu
+    case fullLightweightStableFocus
 
     var title: String {
         switch self {
@@ -562,11 +563,13 @@ enum TVHomeExperimentMode: String, CaseIterable {
         case .twelveWithoutFocusHints: return "12 ohne Fokuspriorität"
         case .twelveLightweightMenu: return "12 – schlankes Kontextmenü"
         case .fullLightweightMenu: return "Alle – schlankes Kontextmenü"
+        case .fullLightweightStableFocus: return "Alle – schlank, stabiler Fokus"
         }
     }
 
     var includesResume: Bool {
-        self == .full || self == .noStreamMetadata || self == .fullLightweightMenu
+        self == .full || self == .noStreamMetadata ||
+        self == .fullLightweightMenu || self == .fullLightweightStableFocus
     }
 
     var enrichesResumeMetadata: Bool {
@@ -589,7 +592,16 @@ enum TVHomeExperimentMode: String, CaseIterable {
     var includesDefaultFocusHints: Bool { self != .twelveWithoutFocusHints }
 
     var usesLightweightMenu: Bool {
-        self == .twelveLightweightMenu || self == .fullLightweightMenu
+        self == .twelveLightweightMenu || self == .fullLightweightMenu ||
+        self == .fullLightweightStableFocus
+    }
+
+    /// The Library only updates actual FocusState. Normal Home navigation
+    /// also rewrites preferredHomeCardID, invalidating all recommendation
+    /// default-focus hints a second time. Explicit restores do not depend
+    /// on this automatic tracking.
+    var tracksDefaultFocusDuringNavigation: Bool {
+        self != .fullLightweightStableFocus
     }
 
     var next: Self {
@@ -1067,7 +1079,11 @@ struct HomeView: View {
                 // Never mistake a transient wrong tile selected during a
                 // programmatic scroll/return for user navigation. User remote
                 // moves cancel the pending restore in videoGrid below.
-                if !sidebarFocused && pendingHomeFocus == nil &&
+                // The FocusState update itself is enough for a normal
+                // directional move. Test the cost of avoiding a second
+                // Home-wide preference state update.
+                if diagnosticMode.tracksDefaultFocusDuringNavigation &&
+                   !sidebarFocused && pendingHomeFocus == nil &&
                    railHandoffFocusTarget == nil &&
                    preferredHomeCardID != current {
                     preferredHomeCardID = current

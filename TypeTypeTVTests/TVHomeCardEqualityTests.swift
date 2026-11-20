@@ -3,7 +3,7 @@ import XCTest
 
 final class TVHomeCardEqualityTests: XCTestCase {
     func testDiagnosticModesIsolateHomeWorkWithoutReduccingImageQuality() {
-        XCTAssertEqual(TVHomeExperimentMode.allCases.count, 9)
+        XCTAssertEqual(TVHomeExperimentMode.allCases.count, 10)
         XCTAssertEqual(TVHomeExperimentMode.full.next,
                        .noStreamMetadata)
         XCTAssertEqual(TVHomeExperimentMode.noStreamMetadata.next,
@@ -21,6 +21,8 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertEqual(TVHomeExperimentMode.twelveLightweightMenu.next,
                        .fullLightweightMenu)
         XCTAssertEqual(TVHomeExperimentMode.fullLightweightMenu.next,
+                       .fullLightweightStableFocus)
+        XCTAssertEqual(TVHomeExperimentMode.fullLightweightStableFocus.next,
                        .full)
         XCTAssertTrue(TVHomeExperimentMode.full.includesResume)
         XCTAssertTrue(TVHomeExperimentMode.full.enrichesResumeMetadata)
@@ -34,6 +36,8 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertEqual(TVHomeExperimentMode.twelveWithoutFocusHints.recommendationLimit, 12)
         XCTAssertEqual(TVHomeExperimentMode.twelveLightweightMenu.recommendationLimit, 12)
         XCTAssertNil(TVHomeExperimentMode.fullLightweightMenu.recommendationLimit)
+        XCTAssertNil(TVHomeExperimentMode.fullLightweightStableFocus.recommendationLimit)
+        XCTAssertTrue(TVHomeExperimentMode.fullLightweightStableFocus.includesResume)
         XCTAssertTrue(TVHomeExperimentMode.fullLightweightMenu.includesResume)
         XCTAssertFalse(TVHomeExperimentMode.twelveWithoutActions.includesCardActionModifiers)
         XCTAssertTrue(TVHomeExperimentMode.twelveWithoutActions.includesCardVisualEffects)
@@ -47,6 +51,9 @@ final class TVHomeCardEqualityTests: XCTestCase {
         XCTAssertTrue(TVHomeExperimentMode.twelveWithoutFocusHints.includesCardVisualEffects)
         XCTAssertTrue(TVHomeExperimentMode.twelveLightweightMenu.usesLightweightMenu)
         XCTAssertTrue(TVHomeExperimentMode.fullLightweightMenu.usesLightweightMenu)
+        XCTAssertTrue(TVHomeExperimentMode.fullLightweightStableFocus.usesLightweightMenu)
+        XCTAssertTrue(TVHomeExperimentMode.fullLightweightMenu.tracksDefaultFocusDuringNavigation)
+        XCTAssertFalse(TVHomeExperimentMode.fullLightweightStableFocus.tracksDefaultFocusDuringNavigation)
         XCTAssertFalse(TVHomeExperimentMode.full.usesLightweightMenu)
         XCTAssertTrue(TVHomeExperimentMode.fullLightweightMenu.includesCardActionModifiers)
     }
