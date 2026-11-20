@@ -40,6 +40,20 @@ enum TVSection: String, CaseIterable, Hashable {
     }
 }
 
+/// Separate the animated main-rail width from the content's reserved
+/// viewport. The content must not grow until the collapsing rail has
+/// *finished* its visual animation, regardless of the selected section.
+enum TVMainNavigationLayout {
+    static let collapsedWidth: CGFloat = 56
+    static let expandedWidth: CGFloat = 214
+    static let collapseDuration = 0.28
+
+    static func reservedWidth(menuExpanded: Bool,
+                              releasePending: Bool) -> CGFloat {
+        menuExpanded || releasePending ? expandedWidth : collapsedWidth
+    }
+}
+
 struct BrowseView: View {
     let instanceOrigin: String
     let onDisconnect: () -> Void
@@ -50,6 +64,10 @@ struct BrowseView: View {
     let initialSettingsGroup: TVSettingsGroup
     @State private var section: TVSection
     @State private var expanded = false
+    // Hold the page at the expanded-rail width until the closing animation
+    // actually finishes; then let the page grow as a separate short phase.
+    @State private var contentExpansionDeferred = false
+    @State private var railAnimationGeneration = 0
     @State private var enteringFromMenu = false
     @State private var menuHandoffActive = false
     @State private var menuHandoffGeneration = 0
@@ -111,6 +129,10 @@ struct BrowseView: View {
                 HStack(spacing: 0) {
                     if !playbackVisibility.isVisible {
                         sidebar
+                            .frame(width: TVMainNavigationLayout.reservedWidth(
+                                menuExpanded: expanded,
+                                releasePending: contentExpansionDeferred
+                            ), alignment: .leading)
                             // Home's first-column Left/Back handlers reveal
                             // the menu explicitly. While collapsed, its
                             // focusable icons must never steal focus during
@@ -253,7 +275,8 @@ struct BrowseView: View {
         // actual visible screen (roughly like the YouTube TV sidebar).
         .padding(.top, 72)
         .padding(.bottom, 72)
-        .frame(width: expanded ? 214 : 56)
+        .frame(width: expanded ? TVMainNavigationLayout.expandedWidth :
+               TVMainNavigationLayout.collapsedWidth)
         .frame(maxHeight: .infinity)
         // Paint behind the actual sidebar, not behind the entire HStack.
         // Color.ignoresSafeArea expands the background's paint region above
@@ -267,7 +290,9 @@ struct BrowseView: View {
         // Disable it for the entire rail; only our pill is allowed to render.
         .environment(\.isFocusEffectEnabled, false)
         .focusEffectDisabled(true)
-        .animation(navigationAnimations ? .easeInOut(duration: 0.28) : nil, value: expanded)
+        // All menu width changes use beginRailExpansion/collapseRail.
+        // The latter waits for SwiftUI's animation completion before
+        // releasing the page's reserved horizontal space.
         .focusSection()
         .onExitCommand {
             // Back while the global rail is focused goes to Home. The final
@@ -278,7 +303,7 @@ struct BrowseView: View {
             } else {
                 section = .home
                 menuFocus = .home
-                expanded = true
+                expandRail()
             }
         }
         .onChange(of: menuFocus) { previous, focused in
@@ -299,13 +324,13 @@ struct BrowseView: View {
                 // focus callback while the destination is mounting.
                 if focused == nil {
                     enteringFromMenu = false
-                    expanded = false
+                    collapseRail()
                 }
                 return
             }
 
             if let focused {
-                expanded = true
+                expandRail()
                 if previous == nil, focused != section {
                     // Left from content returns to the section we left,
                     // not to whichever icon is geometrically nearest.
@@ -437,6 +462,49 @@ struct BrowseView: View {
         }
     }
 
+    private func expandRail() {
+        // An interrupted close must never shrink the content after the
+        // user has already returned to the navigation rail.
+        railAnimationGeneration &+= 1
+        contentExpansionDeferred = true
+        guard !expanded else { return }
+        withAnimation(navigationAnimations
+                      ? .easeInOut(duration: TVMainNavigationLayout.collapseDuration)
+                      : nil) {
+            expanded = true
+        }
+    }
+
+    private func collapseRail() {
+        guard expanded else {
+            if !navigationAnimations { contentExpansionDeferred = false }
+            return
+        }
+        railAnimationGeneration &+= 1
+        let generation = railAnimationGeneration
+        guard navigationAnimations else {
+            expanded = false
+            contentExpansionDeferred = false
+            return
+        }
+        // First stage: visually close the rail while reserving its old
+        // 214-point footprint. The content viewport does not grow yet.
+        contentExpansionDeferred = true
+        withAnimation(
+            .easeInOut(duration: TVMainNavigationLayout.collapseDuration),
+            completionCriteria: .removed
+        ) {
+            expanded = false
+        } completion: {
+            guard generation == railAnimationGeneration, !expanded else { return }
+            // Second stage: only now grow the selected page. This is
+            // deliberately shared by *every* main navigation destination.
+            withAnimation(.easeOut(duration: 0.18)) {
+                contentExpansionDeferred = false
+            }
+        }
+    }
+
     private func open(_ destination: TVSection) {
         // Cancel any pending Left-to-rail handoff before a Right/OK enter.
         returnToRailGeneration &+= 1
@@ -446,7 +514,7 @@ struct BrowseView: View {
         let wasInMenu = menuFocus != nil
         enteringFromMenu = wasInMenu
         section = destination
-        expanded = false
+        collapseRail()
 
         // Right can still be resolved by UIKit after onMoveCommand returns.
         // Make the old sidebar icon temporarily ineligible for focus, or a
@@ -460,7 +528,7 @@ struct BrowseView: View {
                 try? await Task.sleep(for: .milliseconds(360))
                 guard generation == menuHandoffGeneration else { return }
                 menuFocus = nil
-                expanded = false
+                collapseRail()
                 enteringFromMenu = false
                 menuHandoffActive = false
                 // Search is already mounted during menu preview. Re-issue
@@ -496,7 +564,7 @@ struct BrowseView: View {
         let generation = returnToRailGeneration
         returnToRailTarget = target
         menuFocus = target
-        expanded = true
+        expandRail()
 
         // UIKit may finish its Left move after this handler returns. Keep
         // other rail icons out of the focus search until the remote movement
