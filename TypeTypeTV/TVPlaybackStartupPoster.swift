@@ -25,7 +25,8 @@ struct TVPlaybackStartupPoster: View {
                 } else {
                     TVThumbnail(
                         url: api.relativeMediaURL(video.thumbnailUrl),
-                        origin: api.origin, contentMode: .fill
+                        origin: api.origin, contentMode: .fill,
+                        maximumPixelDimension: 2_048
                     )
                     .frame(width: geometry.size.width,
                            height: geometry.size.height)
