@@ -598,17 +598,57 @@ private struct TVVideoCardMetadataTask: ViewModifier {
     }
 }
 
+/// Load membership snapshots only for legacy screens that have not yet
+/// migrated to a single screen-level loader. Optimized grids attach no
+/// membership task to individual cards.
+private struct TVVideoCardMembershipTasks: ViewModifier {
+    let api: TypeTypeAPI
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content.task(id: api.metadataCacheScope) {
+                async let playlists: Void = TVPlaylistMembership.shared.ensureLoaded(api: api)
+                async let favorites: Void = TVFavoriteMembership.shared.ensureLoaded(api: api)
+                _ = await (playlists, favorites)
+            }
+        } else {
+            content
+        }
+    }
+}
+
 struct VideoCard: View {
     let api: TypeTypeAPI
     let video: VideoItem
-    @ObservedObject private var localProgress = TVLocalProgress.shared
-    @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
-    @ObservedObject private var playlistMembership = TVPlaylistMembership.shared
-    @ObservedObject private var favoriteMembership = TVFavoriteMembership.shared
+    let lookupMissingMetadata: Bool
+    let loadMemberships: Bool
+    // One account-scoped, canonical-video signal replaces subscriptions to
+    // four global stores. An unrelated playlist/progress mutation no longer
+    // invalidates every visible card.
+    @ObservedObject private var cardStatus: TVVideoCardStatusSignal
+    private let localProgress = TVLocalProgress.shared
+    private let watchLaterMembership = TVWatchLaterMembership.shared
+    private let playlistMembership = TVPlaylistMembership.shared
+    private let favoriteMembership = TVFavoriteMembership.shared
     @Environment(\.isFocused) private var isFocused
-    var lookupMissingMetadata = false
     @State private var streamMetadata: StreamInfo?
     @State private var metadataVideoURL: String?
+
+    init(api: TypeTypeAPI, video: VideoItem,
+         lookupMissingMetadata: Bool = false,
+         loadMemberships: Bool = true) {
+        self.api = api
+        self.video = video
+        self.lookupMissingMetadata = lookupMissingMetadata
+        self.loadMemberships = loadMemberships
+        _cardStatus = ObservedObject(wrappedValue:
+            TVVideoCardStatusCenter.signal(
+                url: video.url, scope: api.metadataCacheScope
+            )
+        )
+    }
 
     private var metadataVideo: VideoItem {
         // SwiftUI recycles cards in grids. Never show the previous video's
@@ -644,6 +684,7 @@ struct VideoCard: View {
     }
 
     var body: some View {
+        let _ = cardStatus.revision
         // One card surface, no transparent 10-point gap between artwork
         // and the info panel. That gap used to reveal the black grid behind.
         VStack(alignment: .leading, spacing: 0) {
@@ -796,12 +837,9 @@ struct VideoCard: View {
             metadataVideoURL: $metadataVideoURL,
             streamMetadata: $streamMetadata
         ))
-        .task(id: api.metadataCacheScope) {
-            await playlistMembership.ensureLoaded(api: api)
-        }
-        .task(id: api.metadataCacheScope) {
-            await favoriteMembership.ensureLoaded(api: api)
-        }
+        .modifier(TVVideoCardMembershipTasks(
+            api: api, enabled: loadMemberships
+        ))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(TTTheme.accessibilityText(for: video))
     }
