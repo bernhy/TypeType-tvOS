@@ -33,6 +33,10 @@ struct SearchView: View {
     @State private var handledFocusRequest: Int?
     @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @FocusState private var focusedVideoURL: String?
+    // Named results also need an explicit tvOS focus target when the
+    // enclosing search content is visually scaled. Video results already
+    // have this via TVSharedVideoGrid.
+    @FocusState private var focusedNamedResult: String?
     @FocusState private var searchFieldFocused: Bool
     @FocusState private var focusedRecent: String?
     @FocusState private var clearHistoryFocused: Bool
@@ -197,6 +201,12 @@ struct SearchView: View {
                                         }
                                         .buttonStyle(TVRailButtonStyle())
                                         .focusEffectDisabled(true)
+                                        .focused($focusedNamedResult, equals:
+                                            "channel-" + channel.url)
+                                        .zIndex(focusedNamedResult ==
+                                            "channel-" + channel.url ? 5 : 0)
+                                        .accessibilityIdentifier(
+                                            "search-channel-" + channel.id)
                                     }
                                 }
                                 .focusSection()
@@ -219,6 +229,12 @@ struct SearchView: View {
                                         }
                                         .buttonStyle(TVRailButtonStyle())
                                         .focusEffectDisabled(true)
+                                        .focused($focusedNamedResult, equals:
+                                            "playlist-" + playlist.url)
+                                        .zIndex(focusedNamedResult ==
+                                            "playlist-" + playlist.url ? 5 : 0)
+                                        .accessibilityIdentifier(
+                                            "search-playlist-" + playlist.id)
                                     }
                                 }
                                 .focusSection()
