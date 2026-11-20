@@ -22,7 +22,7 @@ struct LibraryView: View {
     // Set synchronously as the detail dismisses, before tvOS chooses its
     // next native focus target; does not trigger a second grid reload.
     @State private var detailReturnVideoID: String?
-    @State private var lastMutationID = 0
+    @State private var mutationCursor = TVVideoMutationCursor()
     @State private var selected: TVLibraryDestination = .standard(.watchLater)
     @FocusState private var focusedDestination: TVLibraryDestination?
     // Only Up/Down moves already within this rail may visually follow the
@@ -365,9 +365,9 @@ struct LibraryView: View {
     @MainActor
     private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
         let pending = events.filter {
-            $0.id > lastMutationID && $0.accountScope == api.metadataCacheScope
+            $0.id > mutationCursor.lastID && $0.accountScope == api.metadataCacheScope
         }
-        lastMutationID = max(lastMutationID, events.last?.id ?? 0)
+        mutationCursor.lastID = max(mutationCursor.lastID, events.last?.id ?? 0)
         guard !pending.isEmpty else { return }
         let destination = selected
         let shouldRemove: (VideoItem) -> Bool = { video in
