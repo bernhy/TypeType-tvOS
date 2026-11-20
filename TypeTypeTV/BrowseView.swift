@@ -40,8 +40,9 @@ enum TVSection: String, CaseIterable, Hashable {
     }
 }
 
-/// Rail and page share a single SwiftUI layout animation. Preserve the
-/// baseline geometry while testing Home-specific performance changes.
+/// The rail and the page still animate together. Only the page's *visual*
+/// scale and translation change: its layout width never shrinks, so tvOS does
+/// not repeatedly remeasure the four-column grids while the menu opens.
 enum TVMainNavigationLayout {
     static let collapsedWidth: CGFloat = 56
     static let expandedWidth: CGFloat = 214
@@ -49,6 +50,16 @@ enum TVMainNavigationLayout {
 
     static func width(expanded: Bool) -> CGFloat {
         expanded ? expandedWidth : collapsedWidth
+    }
+
+    static func contentShift(expanded: Bool) -> CGFloat {
+        expanded ? expandedWidth - collapsedWidth : 0
+    }
+
+    static func contentScale(viewportWidth: CGFloat, expanded: Bool) -> CGFloat {
+        guard expanded, viewportWidth > expandedWidth else { return 1 }
+        return (viewportWidth - expandedWidth) /
+            (viewportWidth - collapsedWidth)
     }
 }
 
@@ -120,14 +131,15 @@ struct BrowseView: View {
 
     var body: some View {
         if let api = configuredAPI {
+            GeometryReader { viewport in
             ZStack(alignment: .leading) {
                 TTTheme.ink.ignoresSafeArea()
                 HStack(spacing: 0) {
+                    // The page ALWAYS gets the collapsed-rail viewport.
+                    // Expanded nav overlays that fixed rail slot; a pure
+                    // transform preserves the existing zoom appearance.
                     if !playbackVisibility.isVisible {
-                        sidebar
-                            .disabled(homeStartupFocusPending ||
-                                      (section == .home && !expanded))
-                            .zIndex(1)
+                        Color.clear.frame(width: TVMainNavigationLayout.collapsedWidth)
                     }
                 NavigationStack {
                     Group {
@@ -198,10 +210,26 @@ struct BrowseView: View {
                 }
                 .id("\(section.rawValue)-\(accountGeneration)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .scaleEffect(
+                        TVMainNavigationLayout.contentScale(
+                            viewportWidth: viewport.size.width, expanded: expanded
+                        ),
+                        anchor: .topLeading
+                    )
+                    .offset(x: playbackVisibility.isVisible ? 0 :
+                        TVMainNavigationLayout.contentShift(expanded: expanded))
                     .focusSection()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea(.container, edges: .leading)
+                .overlay(alignment: .leading) {
+                    if !playbackVisibility.isVisible {
+                        sidebar
+                            .disabled(homeStartupFocusPending ||
+                                      (section == .home && !expanded))
+                            .zIndex(1)
+                    }
+                }
                 // Keep the entire existing navigation screen visible beneath
                 // the picker instead of presenting an opaque tvOS sheet.
                 .disabled(playlistPopup.request != nil)
@@ -231,6 +259,7 @@ struct BrowseView: View {
                     Task { await reloadSidebarIdentity(api: api) }
                 }
             }
+            } // GeometryReader: constant grid layout width; visual zoom only.
         } else {
             TVContentMessage(symbol: "exclamationmark.triangle",
                              title: TVL10n.value("server.invalidStored"),
@@ -288,7 +317,7 @@ struct BrowseView: View {
         // Disable it for the entire rail; only our pill is allowed to render.
         .environment(\.isFocusEffectEnabled, false)
         .focusEffectDisabled(true)
-        // The sibling page resizes in this same animated HStack transaction.
+        // The sidebar now paints above a constant-width page viewport.
         .focusSection()
         .onExitCommand {
             // Back while the global rail is focused goes to Home. The final
