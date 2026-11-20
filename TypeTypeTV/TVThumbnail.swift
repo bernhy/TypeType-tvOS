@@ -32,23 +32,23 @@ private struct TVThumbnailDecoded: @unchecked Sendable {
     let image: UIImage
 }
 
-/// Opaque, size- and account-scoped cache keys: never retain a bearer token
-/// directly in NSCache keys. Different signed-in users cannot share images.
+/// Public TypeType/YouTube artwork is independent of account membership.
+/// Deduplicate identical images across every account and server instance.
+/// Hash URL+size so any query parameters are not retained in clear text
+/// as NSCache keys; the hash is an identifier, not an authorization boundary.
 enum TVThumbnailRequestPolicy {
     static func pixelLimit(_ requested: Int) -> Int {
         min(TVThumbnailDecoder.maximumPixelDimension, max(64, requested))
     }
 
-    static func cacheKey(url: URL, origin: URL, token: String?,
-                         firstParty: Bool, pixels: Int) -> String {
-        let scope = firstParty ? (token ?? "guest") : "public"
-        let input = "\(origin.absoluteString)\n\(url.absoluteString)\n\(scope)\n\(pixelLimit(pixels))"
+    static func cacheKey(url: URL, pixels: Int) -> String {
+        let input = "\(url.absoluteString)\n\(pixelLimit(pixels))"
         return SHA256.hash(data: Data(input.utf8))
             .map { String(format: "%02x", $0) }.joined()
     }
 }
 
-/// A single in-flight HTTP fetch/thumbnail decode per URL, account and size.
+/// A single in-flight HTTP fetch/thumbnail decode per public URL and size.
 /// Limit work across the whole TV, not once per lazily materialized card.
 /// The URLSession download is asynchronous; ImageIO runs on a detached
 /// utility worker, never in SwiftUI's MainActor image-loading task.
@@ -223,8 +223,7 @@ struct TVThumbnail: View {
         let accountToken = firstParty ? TypeTypeCredentials.shared.token(for: origin) : nil
         let pixels = TVThumbnailRequestPolicy.pixelLimit(maximumPixelDimension)
         let key = TVThumbnailRequestPolicy.cacheKey(
-            url: url, origin: origin, token: accountToken,
-            firstParty: firstParty, pixels: pixels
+            url: url, pixels: pixels
         ) as NSString
         if let cached = TVThumbnailMemory.shared.configuredCache().object(forKey: key) {
             bitmap = cached
@@ -309,8 +308,7 @@ struct TVTransientStartupImage: UIViewRepresentable {
             url.scheme == origin.scheme && url.port == origin.port
         let token = firstParty ? TypeTypeCredentials.shared.token(for: origin) : nil
         let key = TVThumbnailRequestPolicy.cacheKey(
-            url: url, origin: origin, token: token,
-            firstParty: firstParty, pixels: TVThumbnailDecoder.maximumPixelDimension
+            url: url, pixels: TVThumbnailDecoder.maximumPixelDimension
         )
         guard coordinator.requestKey != key else { return }
 
