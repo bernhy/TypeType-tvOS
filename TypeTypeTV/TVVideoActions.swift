@@ -558,6 +558,14 @@ enum TVHomeCardToastPosition {
     static func isVisible(_ frame: CGRect, in viewport: CGRect) -> Bool {
         !frame.isEmpty && !viewport.isEmpty && frame.intersects(viewport)
     }
+
+    /// Keep the clip's top edge exactly on the source card's top edge.
+    /// The reveal can extend beyond the card's right edge so the text keeps
+    /// its natural single-line width, as before the animation change.
+    static func revealRect(for card: CGRect, in viewport: CGRect) -> CGRect {
+        CGRect(x: card.minX, y: card.minY,
+               width: max(0, viewport.maxX - card.minX), height: 76)
+    }
 }
 
 @MainActor
@@ -836,13 +844,18 @@ struct TVHomeLightweightVideoActions: ViewModifier {
 struct TVHomeMenuPresentation: ViewModifier {
     @ObservedObject var model: TVHomeMenuCoordinator
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Keep the same clipping parent mounted during slide-out, even after
+    // the shared coordinator clears the toast. Updated only when a new
+    // notification is posted, never during ordinary remote focus changes.
+    @State private var toastAnchorID: String?
 
     func body(content: Content) -> some View {
         content
             .overlayPreferenceValue(TVHomeCardToastAnchorKey.self) { cardAnchors in
                 GeometryReader { geometry in
                     let toast = model.feedback
-                    let cardFrame = toast.flatMap { cardAnchors[$0.focusID] }
+                    let sourceID = toast?.focusID ?? toastAnchorID
+                    let cardFrame = sourceID.flatMap { cardAnchors[$0] }
                         .map { geometry[$0] }
                     let viewport = CGRect(origin: .zero, size: geometry.size)
                     let visible = cardFrame.map {
@@ -851,32 +864,49 @@ struct TVHomeMenuPresentation: ViewModifier {
 
                     ZStack(alignment: .topLeading) {
                         Color.clear
+                            .onChange(of: toast?.focusID) { _, current in
+                                if let current { toastAnchorID = current }
+                            }
                             .onChange(of: visible) { wasVisible, isVisible in
                                 guard wasVisible && !isVisible, let toast else { return }
                                 model.dismissFeedback(matching: toast.id)
                             }
 
-                        if let toast, let cardFrame, visible {
-                            let position = TVHomeCardToastPosition.topLeft(of: cardFrame)
-                            Label(toast.message, systemImage: "checkmark.circle.fill")
-                                .font(.callout.bold())
-                                .foregroundStyle(.white)
-                                .padding(10)
-                                // Native tvOS Liquid Glass; only this single
-                                // shared toast surface changes. Card focus,
-                                // anchor geometry and feedback lifetime stay intact.
-                                .glassEffect(.regular,
-                                             in: RoundedRectangle(cornerRadius: 12))
-                                .offset(x: position.x, y: position.y)
-                                .onDisappear {
-                                    model.dismissFeedback(matching: toast.id)
+                        if let cardFrame, visible {
+                            // This one, fixed clipping region has its top
+                            // EXACTLY at the card's top. The toast travels
+                            // a full own-height behind that edge, rather
+                            // than suddenly appearing 24 pt above it.
+                            let clip = TVHomeCardToastPosition.revealRect(
+                                for: cardFrame, in: viewport
+                            )
+                            ZStack(alignment: .topLeading) {
+                                if let toast {
+                                    Label(toast.message,
+                                          systemImage: "checkmark.circle.fill")
+                                        .font(.callout.bold())
+                                        .foregroundStyle(.white)
+                                        .padding(10)
+                                        .glassEffect(
+                                            .regular,
+                                            in: RoundedRectangle(cornerRadius: 12)
+                                        )
+                                        // Natural text width: not restricted
+                                        // to the original tile's width.
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .padding(.leading, 7)
+                                        .padding(.top, 7)
+                                        .onDisappear {
+                                            model.dismissFeedback(matching: toast.id)
+                                        }
+                                        .transition(reduceMotion
+                                            ? .identity : .move(edge: .top))
                                 }
-                                // A short slide from above instead of
-                                // fading. This changes only the single shared
-                                // toast, not any VideoCard or focus owner.
-                                .transition(
-                                    reduceMotion ? .identity : .offset(y: -24)
-                                )
+                            }
+                            .frame(width: clip.width, height: clip.height,
+                                   alignment: .topLeading)
+                            .clipped()
+                            .offset(x: clip.minX, y: clip.minY)
                         }
                     }
                 }
