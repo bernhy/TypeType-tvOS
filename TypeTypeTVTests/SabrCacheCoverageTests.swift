@@ -13,7 +13,8 @@ final class SabrCacheCoverageTests: XCTestCase {
         }
         XCTAssertEqual(first, second)
         XCTAssertEqual(second, payload)
-        XCTAssertEqual(await cache.itemCount, 1)
+        let retainedCount = await cache.itemCount
+        XCTAssertEqual(retainedCount, 1)
         await cache.clear()
     }
 
