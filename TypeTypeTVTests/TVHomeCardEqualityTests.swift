@@ -626,6 +626,21 @@ final class TVHomeCardEqualityTests: XCTestCase {
     }
 
 
+    func testHomeMemoryPagingRequiresProcessReserveBeforeRequest() {
+        let reserve = TVHomeMemoryPagingPolicy.reserveBytes
+        XCTAssertEqual(reserve, 128 * 1_048_576)
+        XCTAssertFalse(TVHomeMemoryPagingPolicy.allowsNextPage(availableBytes: 0))
+        XCTAssertFalse(TVHomeMemoryPagingPolicy.allowsNextPage(
+            availableBytes: reserve - 1
+        ))
+        XCTAssertTrue(TVHomeMemoryPagingPolicy.allowsNextPage(
+            availableBytes: reserve
+        ))
+        XCTAssertTrue(TVHomeMemoryPagingPolicy.allowsNextPage(
+            availableBytes: reserve + 1
+        ))
+    }
+
     func testHomePaginationHonorsServerHasMoreAndCursorCycles() {
         let first = HomeRecommendations(items: [], nextCursor: "cursor-2", hasMore: true)
         XCTAssertEqual(TVHomePagingPolicy.nextCursor(first), "cursor-2")

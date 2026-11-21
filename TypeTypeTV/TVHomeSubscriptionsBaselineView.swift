@@ -1,4 +1,5 @@
 import SwiftUI
+import Darwin
 
 /// Native subscriptions-style Home with an optional horizontal resume shelf.
 /// Recommendations use TVSharedVideoGrid. The horizontal resume rail keeps
@@ -179,6 +180,29 @@ enum TVHomePagingPolicy {
 /// from the OUTER viewport (not from its animating sibling): this prevents
 /// even intermediate 280-ms animation frames from reflowing the grid.
 /// ScrollView, alerts, context-menu hosts and their height remain unscaled.
+/// An advisory tvOS process-budget check before requesting another Home page.
+/// Never evict cards or modify the existing cursor, history offset or focus.
+enum TVHomeMemoryPagingPolicy {
+    static let reserveBytes: UInt64 = 128 * 1_048_576
+
+    static func allowsNextPage(availableBytes: UInt64) -> Bool {
+        availableBytes >= reserveBytes
+    }
+
+    static func allowsNextPage(source: String, loadedItems: Int) -> Bool {
+        let available = UInt64(os_proc_available_memory())
+        guard allowsNextPage(availableBytes: available) else {
+            #if DEBUG
+            print("[TypeType][HomeMemory] Paging paused: \(source), " +
+                  "loaded=\(loadedItems), available=\(available / 1_048_576) MiB, " +
+                  "reserve=\(reserveBytes / 1_048_576) MiB")
+            #endif
+            return false
+        }
+        return true
+    }
+}
+
 enum TVHomeNavigationZoom {
     static func layoutWidth(outerWidth: CGFloat) -> CGFloat {
         max(0, outerWidth - TVMainNavigationLayout.collapsedWidth)
@@ -726,6 +750,9 @@ struct TVHomeSubscriptionsBaselineView: View {
     @MainActor
     private func loadMore() async {
         guard !loading && !loadingMore, let cursor = nextCursor else { return }
+        guard TVHomeMemoryPagingPolicy.allowsNextPage(
+            source: "recommendations", loadedItems: videos.count
+        ) else { return }
         loadingMore = true
         pageError = nil
         defer { loadingMore = false }
@@ -811,6 +838,9 @@ struct TVHomeSubscriptionsBaselineView: View {
     private func loadMoreHistory() async {
         guard previewVideos == nil && showRecent && historyHasMore &&
               !loadingRecent && !historyLoadingMore else { return }
+        guard TVHomeMemoryPagingPolicy.allowsNextPage(
+            source: "continue-watching", loadedItems: recentVideos.count
+        ) else { return }
         let request = historyRequestID
         historyLoadingMore = true
         defer {
