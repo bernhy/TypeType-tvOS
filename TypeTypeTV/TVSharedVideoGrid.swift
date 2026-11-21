@@ -45,6 +45,7 @@ private struct TVSharedVideoGridTile: View {
     let onLeftEdge: (String) -> Void
     let onChanged: () -> Void
     let onNavigation: () -> Void
+    let onTopEdge: (String) -> Void
     let onRemoveFromPlaylist: (() async throws -> Void)?
 
     var body: some View {
@@ -79,6 +80,8 @@ private struct TVSharedVideoGridTile: View {
             onNavigation()
             if direction == .left && entry.index % columns == 0 {
                 onLeftEdge(focusID)
+            } else if direction == .up && entry.index < columns {
+                onTopEdge(focusID)
             }
         }
         .accessibilityLabel(TTTheme.accessibilityText(for: video))
@@ -100,6 +103,7 @@ struct TVSharedVideoGrid: View, Equatable {
     let onChanged: () -> Void
     let onApproachEnd: () -> Void
     var onNavigation: () -> Void = {}
+    var onTopEdge: (String) -> Void = { _ in }
     var onRemoveFromPlaylist: ((VideoItem) -> (() async throws -> Void)?)? = nil
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -129,6 +133,7 @@ struct TVSharedVideoGrid: View, Equatable {
                     onLeftEdge: onLeftEdge,
                     onChanged: onChanged,
                     onNavigation: onNavigation,
+                    onTopEdge: onTopEdge,
                     onRemoveFromPlaylist: onRemoveFromPlaylist?(entry.video)
                 )
                 .onAppear {
