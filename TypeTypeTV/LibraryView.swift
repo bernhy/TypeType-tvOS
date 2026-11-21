@@ -241,6 +241,14 @@ struct LibraryView: View {
             }
             } // GeometryReader: library rail stays native; grid zooms.
         }
+        // The entire page is a native focus-entry region. A Right move
+        // from the global rail should prefer the last saved video even
+        // though the secondary navigation sits geometrically to its left.
+        // A nil saved ID leaves first-entry rail focus unchanged.
+        .defaultFocus(
+            $focusedVideoURL, preferredVideoID,
+            priority: preferredVideoID == nil ? .automatic : .userInitiated
+        )
         .background(TTTheme.ink)
         .modifier(TVHomeMenuPresentation(model: videoMenu))
         .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
