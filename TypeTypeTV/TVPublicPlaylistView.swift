@@ -21,6 +21,9 @@ struct TVPublicPlaylistView: View {
     @State private var error: String?
     @State private var pageError: String?
     @FocusState private var focusedVideo: String?
+    @State private var detailReturnVideoID: String?
+    @State private var mutationCursor = TVVideoMutationCursor()
+    @StateObject private var videoMenu = TVHomeMenuCoordinator()
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 30), count: 4)
 
     var body: some View {
@@ -53,29 +56,27 @@ struct TVPublicPlaylistView: View {
                         Button("common.retry") { Task { await load() } }
                             .buttonStyle(.bordered)
                     }
-                    LazyVGrid(columns: columns, spacing: 34) {
-                        ForEach(visibleVideos) { video in
-                            NavigationLink {
-                                VideoDetailView(
-                                    api: api, video: video, playbackQueue: visibleVideos,
-                                    onReturnToList: {
-                                        TVVideoFocusReturn.restore(
-                                            $focusedVideo, id: video.url, scroll: scroll
-                                        )
-                                    }
-                                )
-                            } label: {
-                                VideoCard(api: api, video: video)
-                            }
-                            .buttonStyle(TVRailButtonStyle())
-                            .focusEffectDisabled(true)
-                            .focused($focusedVideo, equals: video.url)
-                            .zIndex(focusedVideo == video.url ? 5 : 0)
-                            .videoActions(api: api, video: video,
-                                          focus: $focusedVideo, focusID: video.url)
-                        }
-                    }
-                    .focusSection()
+                    TVSharedVideoGrid(
+                        snapshot: TVSharedVideoGridSnapshot(
+                            videos: visibleVideos, scope: api.metadataCacheScope,
+                            destination: "public-playlist-" + playlistURL,
+                            focusPrefix: "",
+                            accessibilityPrefix: "public-playlist-video-",
+                            columns: columns.count, columnSpacing: 30,
+                            rowSpacing: 34, canLoadMore: false, loadAhead: 5,
+                            lookupMissingMetadata: false,
+                            isWatchLaterEntry: false, reloadPlaylistOnRemoval: false,
+                            playbackQueue: visibleVideos
+                        ),
+                        api: api, focus: $focusedVideo, menu: videoMenu,
+                        onReturnToList: { id in
+                            detailReturnVideoID = id
+                            focusedVideo = id
+                        },
+                        onLeftEdge: { _ in },
+                        onChanged: {}, onApproachEnd: {}
+                    )
+                    .equatable()
                     if loadingMore {
                         ProgressView("search.loadingMore")
                     } else if nextPage != nil {
@@ -89,6 +90,25 @@ struct TVPublicPlaylistView: View {
                 .padding(75)
             }
             .background(TTTheme.ink)
+            .defaultFocus(
+                $focusedVideo, detailReturnVideoID,
+                priority: detailReturnVideoID == nil ? .automatic : .userInitiated
+            )
+            .modifier(TVHomeMenuPresentation(model: videoMenu))
+            .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
+            .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
+            .onChange(of: videoMenu.focusRestoreRequest) { _, _ in
+                if let id = videoMenu.focusRestoreTarget,
+                   visibleVideos.contains(where: { $0.url == id }) {
+                    focusedVideo = id
+                }
+            }
+            .task { await TVWatchLaterMembership.shared.ensureLoaded(api: api) }
+            .task {
+                async let playlists: Void = TVPlaylistMembership.shared.ensureLoaded(api: api)
+                async let favorites: Void = TVFavoriteMembership.shared.ensureLoaded(api: api)
+                _ = await (playlists, favorites)
+            }
             .task { await contentPreferences.ensureLoaded(api: api) }
             .task(id: playlistURL) {
                 // A pushed video detail returning to its playlist must not
@@ -99,6 +119,18 @@ struct TVPublicPlaylistView: View {
                 await load()
             }
             .onExitCommand { dismiss() }
+        }
+    }
+
+    @MainActor
+    private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
+        let pending = events.filter {
+            $0.id > mutationCursor.lastID && $0.accountScope == api.metadataCacheScope
+        }
+        mutationCursor.lastID = max(mutationCursor.lastID, events.last?.id ?? 0)
+        guard !pending.isEmpty else { return }
+        if videos.contains(where: { item in pending.contains { $0.removes(item) } }) {
+            videos.removeAll { item in pending.contains { $0.removes(item) } }
         }
     }
 
