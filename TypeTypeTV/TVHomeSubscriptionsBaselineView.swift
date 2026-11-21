@@ -3,21 +3,20 @@ import SwiftUI
 /// Native subscriptions-style Home with an optional horizontal resume shelf.
 /// Recommendations use TVSharedVideoGrid. The horizontal resume rail keeps
 /// its lazy layout while sharing the same video card and lightweight menu.
-private struct TVHomeBaselineGridEntry: Identifiable {
+private struct TVHomeResumeGridEntry: Identifiable {
     let index: Int
     let video: VideoItem
     var id: String { video.url }
 }
 
 /**
- A stable focus-isolated tile. The parent Home no longer reads the global
- focus value to assign zIndex for every LazyVGrid cell on each remote move.
- Only this tile evaluates focus.wrappedValue for its own layering. The
- NavigationLink, focus binding and lazy context menu stay exactly as before.
+ A stable, focus-isolated horizontal Continue Watching tile. Only the
+ focused tile evaluates its own zIndex; the parent shelf is equatable and
+ never reconstructs every link when navigating with the Siri Remote.
  */
-private struct TVHomeBaselineTile: View {
+private struct TVHomeResumeTile: View {
     let api: TypeTypeAPI
-    let entry: TVHomeBaselineGridEntry
+    let entry: TVHomeResumeGridEntry
     let focus: FocusState<String?>.Binding
     let homeMenu: TVHomeMenuCoordinator
     let onRevealMenu: (String) -> Void
@@ -72,11 +71,9 @@ struct TVHomeCollectionSnapshot: Equatable {
     let canLoadMore: Bool
 }
 
-/// The Home parent owns @FocusState and is reevaluated on each navigation
-/// step. Crucially, the card factory is now inside an .equatable() content
-/// boundary: it is NOT reexecuted for every visible cell on focus changes.
-/// Only the horizontal resume rail needs TVHomeBaselineTile; recommendation
-/// cards are owned by TVSharedVideoGrid.
+/// The Home parent owns @FocusState, but these equatable collection snapshots
+/// keep individual video links stable as focus changes. The horizontal resume
+/// shelf uses TVHomeResumeTile; recommendations use TVSharedVideoGrid.
 private struct TVHomeBaselineVideoCollection: View, Equatable {
     let snapshot: TVHomeCollectionSnapshot
     let api: TypeTypeAPI
@@ -100,7 +97,7 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
             ScrollViewReader { railScroll in
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .center, spacing: 26) {
-                        entries(railScroll: railScroll)
+                        resumeEntries(railScroll: railScroll)
                     }
                     .padding(.vertical, 20)
                     .scrollTargetLayout()
@@ -137,12 +134,12 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
         }
     }
 
-    private func entries(railScroll: ScrollViewProxy? = nil) -> some View {
+    private func resumeEntries(railScroll: ScrollViewProxy) -> some View {
         ForEach(snapshot.items.enumerated().map {
-            TVHomeBaselineGridEntry(index: $0.offset, video: $0.element)
+            TVHomeResumeGridEntry(index: $0.offset, video: $0.element)
         }) { entry in
             let id = "recent-" + entry.video.url
-            TVHomeBaselineTile(
+            TVHomeResumeTile(
                 api: api, entry: entry,
                 focus: focus, homeMenu: homeMenu,
                 onRevealMenu: onRevealMenu,
@@ -516,7 +513,8 @@ struct TVHomeSubscriptionsBaselineView: View {
         } // GeometryReader: original ScrollView height; zoom its content only.
     }
 
-    /// The only Home entrypoint for recommendation and resume tiles.
+    /// The two Home video sources use different native layouts, but both
+    /// retain a stable equatable snapshot and shared lightweight menu host.
     /// .equatable() prevents rebuilding the entire lazy card factory when
     /// @FocusState changes, while each tile's own focus binding and badges
     /// continue updating normally. Never compare closure identities.
@@ -570,7 +568,11 @@ struct TVHomeSubscriptionsBaselineView: View {
             onResumeDisappear: { video in
                 resumeMetadata.disappear(video)
             },
-            onNavigation: { resumeMetadata.noteNavigation() }
+            onNavigation: {
+                // Only the horizontal resume shelf has deferred metadata
+                // batches; recommendation navigation needs no extra work.
+                if resume { resumeMetadata.noteNavigation() }
+            }
         )
         .equatable()
     }

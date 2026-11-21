@@ -196,10 +196,6 @@ struct TVHomeCardToast: Equatable {
 }
 
 enum TVHomeCardToastPosition {
-    static func topLeft(of frame: CGRect) -> CGPoint {
-        CGPoint(x: frame.minX + 7, y: frame.minY + 7)
-    }
-
     /// The source card must still overlap the visible Home viewport.
     /// Merely having a retained LazyVGrid anchor does not make it visible.
     static func isVisible(_ frame: CGRect, in viewport: CGRect) -> Bool {

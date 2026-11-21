@@ -366,15 +366,12 @@ final class TVHomeCardEqualityTests: XCTestCase {
     }
 
 
-    func testHomeToastKeepsItsOriginalActionCardAndPosition() {
+    func testHomeToastKeepsItsOriginalActionCard() {
         let toast = TVHomeCardToast(
             message: "Saved", focusID: "recommendation-https://example.com/video"
         )
         XCTAssertEqual(toast.focusID, "recommendation-https://example.com/video")
         XCTAssertEqual(toast.message, "Saved")
-        let rect = CGRect(x: 140, y: 230, width: 300, height: 180)
-        XCTAssertEqual(TVHomeCardToastPosition.topLeft(of: rect),
-                       CGPoint(x: 147, y: 237))
     }
 
     func testToastRevealIsClippedExactlyAtTheCardTopEdge() {
