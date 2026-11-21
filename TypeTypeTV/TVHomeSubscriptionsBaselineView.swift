@@ -1,9 +1,8 @@
 import SwiftUI
 
 /// Native subscriptions-style Home with an optional horizontal resume shelf.
-/// Both sections share one stable video-tile builder, one lightweight menu
-/// coordinator and one card-attached Liquid Glass feedback surface.
-/// No legacy Home focusScope, rail-width freezing or per-tile menu state.
+/// Recommendations use TVSharedVideoGrid. The horizontal resume rail keeps
+/// its lazy layout while sharing the same video card and lightweight menu.
 private struct TVHomeBaselineGridEntry: Identifiable {
     let index: Int
     let video: VideoItem
@@ -19,17 +18,13 @@ private struct TVHomeBaselineGridEntry: Identifiable {
 private struct TVHomeBaselineTile: View {
     let api: TypeTypeAPI
     let entry: TVHomeBaselineGridEntry
-    let resume: Bool
-    let columns: Int
     let focus: FocusState<String?>.Binding
     let homeMenu: TVHomeMenuCoordinator
     let onRevealMenu: (String) -> Void
     let onReturnToList: () -> Void
     let onNavigation: () -> Void
 
-    private var focusID: String {
-        (resume ? "recent-" : "recommendation-") + entry.video.url
-    }
+    private var focusID: String { "recent-" + entry.video.url }
 
     var body: some View {
         let video = entry.video
@@ -50,26 +45,17 @@ private struct TVHomeBaselineTile: View {
         .id(id)
         .modifier(TVHomeLightweightVideoActions(
             api: api, video: video, model: homeMenu,
-            focus: focus, focusID: id,
+            focus: focus, focusID: id
         ))
         .onMoveCommand { direction in
             // No SwiftUI state change: just defer metadata-driven row updates
             // while remote navigation is active.
             onNavigation()
-            if direction == .left &&
-               (resume ? entry.index == 0 : entry.index % columns == 0) {
-                onRevealMenu(id)
-            }
+            if direction == .left && entry.index == 0 { onRevealMenu(id) }
         }
-        .accessibilityIdentifier(resume
-            ? "home-baseline-recent-\(entry.index)"
-            : "home-baseline-video-\(entry.index)")
+        .accessibilityIdentifier("home-baseline-recent-\(entry.index)")
 
-        if resume {
-            link.containerRelativeFrame(.horizontal, count: 4, spacing: 26)
-        } else {
-            link
-        }
+        link.containerRelativeFrame(.horizontal, count: 4, spacing: 26)
     }
 }
 
@@ -88,7 +74,8 @@ struct TVHomeCollectionSnapshot: Equatable {
 /// The Home parent owns @FocusState and is reevaluated on each navigation
 /// step. Crucially, the card factory is now inside an .equatable() content
 /// boundary: it is NOT reexecuted for every visible cell on focus changes.
-/// The two section layouts use the same TVHomeBaselineTile.
+/// Only the horizontal resume rail needs TVHomeBaselineTile; recommendation
+/// cards are owned by TVSharedVideoGrid.
 private struct TVHomeBaselineVideoCollection: View, Equatable {
     let snapshot: TVHomeCollectionSnapshot
     let api: TypeTypeAPI
@@ -151,25 +138,23 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
         ForEach(snapshot.items.enumerated().map {
             TVHomeBaselineGridEntry(index: $0.offset, video: $0.element)
         }) { entry in
-            let id = (snapshot.resume ? "recent-" : "recommendation-") +
-                entry.video.url
+            let id = "recent-" + entry.video.url
             TVHomeBaselineTile(
-                api: api, entry: entry, resume: snapshot.resume,
-                columns: snapshot.columns, focus: focus, homeMenu: homeMenu,
+                api: api, entry: entry,
+                focus: focus, homeMenu: homeMenu,
                 onRevealMenu: onRevealMenu,
                 onReturnToList: { onReturnToList(id, railScroll) },
                 onNavigation: onNavigation
             )
             .onAppear {
-                if snapshot.resume { onResumeAppear(entry.index, snapshot.items) }
-                let threshold = snapshot.resume ? 2 : snapshot.columns + 1
+                onResumeAppear(entry.index, snapshot.items)
                 if snapshot.canLoadMore &&
-                    entry.index >= snapshot.items.count - threshold {
+                    entry.index >= snapshot.items.count - 2 {
                     onApproachEnd()
                 }
             }
             .onDisappear {
-                if snapshot.resume { onResumeDisappear(entry.video) }
+                onResumeDisappear(entry.video)
             }
         }
     }
@@ -226,6 +211,8 @@ struct TVHomeSubscriptionsBaselineView: View {
     // Updated once on leaving Home for the sidebar, never on each focus move.
     // The same card becomes the target when pressing Right to return.
     @State private var railReturnCardID: String?
+    // Native tvOS default-focus priority while the pushed details pop.
+    @State private var detailReturnCardID: String?
     @State private var mutationCursor = TVVideoMutationCursor()
     @State private var videos: [VideoItem]
     @State private var recentVideos: [VideoItem]
@@ -440,8 +427,9 @@ struct TVHomeSubscriptionsBaselineView: View {
             // focus search to pick an adjacent tile first, then overwrite it.
             // No per-card observer, Task or focus-state rewrite is required.
             .defaultFocus(
-                $focusedVideo, railReturnCardID,
-                priority: railReturnCardID == nil ? .automatic : .userInitiated
+                $focusedVideo, detailReturnCardID ?? railReturnCardID,
+                priority: detailReturnCardID == nil && railReturnCardID == nil
+                    ? .automatic : .userInitiated
             )
             // Shared by BOTH sources. No per-card dialog or toast state.
             .modifier(TVHomeMenuPresentation(model: homeMenu))
@@ -541,15 +529,28 @@ struct TVHomeSubscriptionsBaselineView: View {
             snapshot: snapshot, api: api, focus: $focusedVideo,
             homeMenu: homeMenu,
             onRevealMenu: { id in
+                detailReturnCardID = nil
                 railReturnCardID = id
                 onRevealMenu()
             },
             onReturnToList: { id, railScroll in
-                TVVideoFocusReturn.restore(
-                    $focusedVideo, id: id, scroll: scroll,
-                    scrollTarget: resume ? "home-continue-watching-row" : nil,
-                    nestedScroll: railScroll
-                )
+                if let video = items.first(where: { cardID($0, resume: resume) == id }) {
+                    updateResumeAfterDetail(video)
+                }
+                // SwiftUI restores the native saved focus on detail pop.
+                // The mounted recommendation grid keeps its scroll offset;
+                // only a horizontal resume card needs its two rails revealed.
+                let target = visibleCardIDs.contains(id) ? id : firstCardID
+                detailReturnCardID = target
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    if resume, target == id {
+                        scroll.scrollTo("home-continue-watching-row", anchor: .center)
+                        railScroll?.scrollTo(id, anchor: .center)
+                    }
+                    focusedVideo = target
+                }
             },
             onApproachEnd: {
                 Task {
@@ -570,6 +571,21 @@ struct TVHomeSubscriptionsBaselineView: View {
             onNavigation: { resumeMetadata.noteNavigation() }
         )
         .equatable()
+    }
+
+    // Local SABR/HLS progress is recorded on player stop. Promote just this
+    // video into Continue Watching, without fetching /history or touching
+    // Home recommendations. No change is emitted when progress is unchanged.
+    @MainActor
+    private func updateResumeAfterDetail(_ video: VideoItem) {
+        guard previewVideos == nil, showRecent else { return }
+        let updated = TVContinueWatchingLocalUpdate.applying(
+            recentVideos, video: video,
+            positionMs: TVLocalProgress.shared.position(for: video.url)
+        )
+        guard updated != recentVideos else { return }
+        recentVideos = updated
+        resumeMetadata.reconcile(with: updated)
     }
 
     @MainActor
@@ -596,11 +612,21 @@ struct TVHomeSubscriptionsBaselineView: View {
     private func handleHomeBack(scroll: ScrollViewProxy) {
         guard let firstCardID else { onRevealMenu(); return }
         if focusedVideo == firstCardID {
+            detailReturnCardID = nil
             railReturnCardID = firstCardID
             onRevealMenu()
         } else {
-            TVVideoFocusReturn.restore($focusedVideo, id: firstCardID,
-                                       scroll: scroll)
+            detailReturnCardID = firstCardID
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                scroll.scrollTo(
+                    firstCardID.hasPrefix("recent-")
+                        ? "home-continue-watching-row" : firstCardID,
+                    anchor: .center
+                )
+                focusedVideo = firstCardID
+            }
         }
     }
 

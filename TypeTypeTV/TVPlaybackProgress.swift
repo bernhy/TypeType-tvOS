@@ -119,3 +119,23 @@ enum TVContinueWatchingPolicy {
         return !TVWatchedState.isWatched(video, positionMs: positionMs)
     }
 }
+
+/// Update one Home resume entry from the already-recorded local progress.
+/// Do not fetch history, invalidate recommendations or duplicate YouTube URL
+/// variants; newer playback moves an unfinished video to the shelf's front.
+enum TVContinueWatchingLocalUpdate {
+    static func applying(_ history: [VideoItem], video: VideoItem,
+                         positionMs: Int64?) -> [VideoItem] {
+        guard let positionMs else { return history }
+        let key = TVHistoryDeduplicator.key(for: video)
+        let previous = history.first { TVHistoryDeduplicator.key(for: $0) == key }
+        // A sparse recommendation may omit duration, while its existing
+        // history entry already knows it. Never invent duration metadata.
+        let source = (video.duration ?? 0) > 0 ? video : (previous ?? video)
+        var result = history.filter { TVHistoryDeduplicator.key(for: $0) != key }
+        if TVContinueWatchingPolicy.isEligible(source, positionMs: positionMs) {
+            result.insert(source.withProgress(positionMs), at: 0)
+        }
+        return result
+    }
+}

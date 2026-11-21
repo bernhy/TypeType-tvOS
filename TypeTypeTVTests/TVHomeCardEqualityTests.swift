@@ -463,6 +463,52 @@ final class TVHomeCardEqualityTests: XCTestCase {
     }
 
 
+    func testLocalContinueWatchingPromotesSingleVideoWithoutDuplicatingHistory() {
+        let watched = VideoItem(
+            id: "new", title: "New", url: "https://youtu.be/AAAAAAAAAAA",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 300, isLive: false
+        )
+        let older = VideoItem(
+            id: "old", title: "Old", url: "https://youtu.be/BBBBBBBBBBB",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 300, isLive: false
+        )
+        let initial = [older, watched]
+        let promoted = TVContinueWatchingLocalUpdate.applying(
+            initial, video: watched, positionMs: 20_000
+        )
+        XCTAssertEqual(promoted.map(\.url), [watched.url, older.url])
+        XCTAssertEqual(promoted.first?.watchPositionMs, 20_000)
+
+        let alternate = VideoItem(
+            id: "new", title: "New", url: "https://www.youtube.com/watch?v=AAAAAAAAAAA",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 300, isLive: false
+        )
+        let deduplicated = TVContinueWatchingLocalUpdate.applying(
+            promoted, video: alternate, positionMs: 35_000
+        )
+        XCTAssertEqual(deduplicated.count, 2)
+        XCTAssertEqual(deduplicated.first?.watchPositionMs, 35_000)
+        XCTAssertEqual(TVContinueWatchingLocalUpdate.applying(
+            initial, video: watched, positionMs: nil
+        ), initial)
+    }
+
+    func testLocalContinueWatchingOmitsCompletedAndUnstartedVideos() {
+        let watched = VideoItem(
+            id: "new", title: "New", url: "https://youtu.be/AAAAAAAAAAA",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 100, isLive: false
+        )
+        XCTAssertEqual(TVContinueWatchingLocalUpdate.applying(
+            [watched], video: watched, positionMs: 90_000
+        ).count, 0)
+        XCTAssertEqual(TVContinueWatchingLocalUpdate.applying(
+            [], video: watched, positionMs: 0
+        ).count, 0)
+        XCTAssertEqual(TVContinueWatchingLocalUpdate.applying(
+            [], video: watched, positionMs: 30_000
+        ).count, 1)
+    }
+
     func testSharedVideoGridInvalidatesForDataAndDestinationNotFocus() {
         let video = VideoItem(
             id: "sample", title: "Item", url: "https://youtu.be/ABCDEFGHIJK",

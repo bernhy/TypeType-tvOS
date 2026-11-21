@@ -162,44 +162,10 @@ struct TVPlaylistPickerView: View {
     }
 }
 
-/// Return focus after the pushed video details are removed from the stack.
-/// A synchronous assignment during dismissal is overwritten by tvOS.
-enum TVVideoFocusReturn {
-    static func restore(_ binding: FocusState<String?>.Binding, id: String,
-                        scroll: ScrollViewProxy? = nil,
-                        scrollTarget: String? = nil,
-                        nestedScroll: ScrollViewProxy? = nil) {
-        Task { @MainActor in
-            // Wait for the detail pop, then materialize the offscreen card
-            // before asking tvOS to give it focus.
-            try? await Task.sleep(nanoseconds: 180_000_000)
-            guard !Task.isCancelled else { return }
-            if let scroll {
-                withAnimation(.easeOut(duration: 0.18)) {
-                    // For a resume tile, reveal the outer shelf AND the
-                    // original horizontal card. The outer proxy alone cannot
-                    // locate IDs inside the nested LazyHStack.
-                    scroll.scrollTo(scrollTarget ?? id, anchor: .center)
-                    nestedScroll?.scrollTo(id, anchor: .center)
-                }
-                try? await Task.sleep(nanoseconds: 140_000_000)
-                guard !Task.isCancelled else { return }
-            } else {
-                await Task.yield()
-            }
-            binding.wrappedValue = id
-        }
-    }
-}
-
-
-
 // MARK: - Home lightweight context actions
 
-/// A single stable action host per video grid (Home, subscriptions, search,
-/// library); the lightweight NavigationLinks never gain per-card observable
-/// state, toast tasks or dialog presentation modifiers. Only destructive
-/// feed changes require a reload; membership/progress update shared caches.
+/// Context actions publish local status or mutation events; they do not
+/// reload video feeds or add observers to each thumbnail.
 /// Each lightweight Home card publishes one layout anchor, without
 /// attaching state/observers/animations to NavigationLink. Prefer ordered,
 /// append-only storage: PreferenceKey.reduce is called thousands of times
