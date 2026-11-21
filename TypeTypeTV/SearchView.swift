@@ -34,6 +34,8 @@ struct SearchView: View {
     @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @FocusState private var focusedVideoURL: String?
     @State private var detailReturnVideoID: String?
+    @State private var railReturnVideoID: String?
+    @State private var railReturnNamedResultID: String?
     @State private var mutationCursor = TVVideoMutationCursor()
     // A detail pop must not cause another filter/history GET unless the
     // user actually changes a filter or search-history entry.
@@ -51,6 +53,21 @@ struct SearchView: View {
         TVSearchHistoryPresentation.visible(recentEntries)
     }
     private var visibleVideos: [VideoItem] { contentPreferences.displayed(videos) }
+    private var preferredVideoID: String? {
+        guard let target = detailReturnVideoID ?? railReturnVideoID,
+              visibleVideos.contains(where: { $0.url == target }) else { return nil }
+        return target
+    }
+    private var preferredNamedResultID: String? {
+        guard let saved = railReturnNamedResultID else { return nil }
+        if saved.hasPrefix("channel-") {
+            return channels.contains(where: { "channel-" + $0.url == saved }) ? saved : nil
+        }
+        if saved.hasPrefix("playlist-") {
+            return playlists.contains(where: { "playlist-" + $0.url == saved }) ? saved : nil
+        }
+        return nil
+    }
     private var allEmpty: Bool { visibleVideos.isEmpty && channels.isEmpty && playlists.isEmpty }
     private var selectedFilters: [String] {
         ([sortFilter] + groupSelections.keys.sorted().flatMap {
@@ -191,7 +208,8 @@ struct SearchView: View {
                             if !channels.isEmpty {
                                 Text("search.channels").font(.title2.bold())
                                 LazyVGrid(columns: columns, spacing: 28) {
-                                    ForEach(channels) { channel in
+                                    ForEach(Array(channels.enumerated()), id: \.element.url) { entry in
+                                        let channel = entry.element
                                         NavigationLink {
                                             TVSubscriptionsView(
                                                 api: api, directChannelURL: channel.url,
@@ -208,17 +226,31 @@ struct SearchView: View {
                                         .focusEffectDisabled(true)
                                         .focused($focusedNamedResult, equals:
                                             "channel-" + channel.url)
+                                        .onMoveCommand { direction in
+                                            if direction == .left && entry.offset % columns.count == 0 {
+                                                railReturnNamedResultID = "channel-" + channel.url
+                                                railReturnVideoID = nil
+                                                detailReturnVideoID = nil
+                                                onRevealMenu()
+                                            }
+                                        }
                                         .accessibilityIdentifier(
                                             "search-channel-" + channel.id)
                                     }
                                 }
                                 .focusSection()
+                                .defaultFocus(
+                                    $focusedNamedResult, preferredNamedResultID,
+                                    priority: preferredNamedResultID == nil
+                                        ? .automatic : .userInitiated
+                                )
                             }
 
                             if !playlists.isEmpty {
                                 Text("search.playlists").font(.title2.bold())
                                 LazyVGrid(columns: columns, spacing: 28) {
-                                    ForEach(playlists) { playlist in
+                                    ForEach(Array(playlists.enumerated()), id: \.element.url) { entry in
+                                        let playlist = entry.element
                                         NavigationLink {
                                             TVPublicPlaylistView(api: api, playlistURL: playlist.url,
                                                                  startingTitle: playlist.title)
@@ -234,11 +266,24 @@ struct SearchView: View {
                                         .focusEffectDisabled(true)
                                         .focused($focusedNamedResult, equals:
                                             "playlist-" + playlist.url)
+                                        .onMoveCommand { direction in
+                                            if direction == .left && entry.offset % columns.count == 0 {
+                                                railReturnNamedResultID = "playlist-" + playlist.url
+                                                railReturnVideoID = nil
+                                                detailReturnVideoID = nil
+                                                onRevealMenu()
+                                            }
+                                        }
                                         .accessibilityIdentifier(
                                             "search-playlist-" + playlist.id)
                                     }
                                 }
                                 .focusSection()
+                                .defaultFocus(
+                                    $focusedNamedResult, preferredNamedResultID,
+                                    priority: preferredNamedResultID == nil
+                                        ? .automatic : .userInitiated
+                                )
                             }
 
                             if !visibleVideos.isEmpty {
@@ -264,7 +309,12 @@ struct SearchView: View {
                                         detailReturnVideoID = id
                                         focusedVideoURL = id
                                     },
-                                    onLeftEdge: { _ in onRevealMenu() },
+                                    onLeftEdge: { id in
+                                        railReturnVideoID = id
+                                        railReturnNamedResultID = nil
+                                        detailReturnVideoID = nil
+                                        onRevealMenu()
+                                    },
                                     // Membership badges update in VideoCard.
                                     // Blocked rows are removed by the mutation
                                     // journal, never by clearing all search results.
@@ -311,8 +361,8 @@ struct SearchView: View {
             .background(TTTheme.ink)
             .modifier(TVHomeMenuPresentation(model: videoMenu))
             .defaultFocus(
-                $focusedVideoURL, detailReturnVideoID,
-                priority: detailReturnVideoID == nil ? .automatic : .userInitiated
+                $focusedVideoURL, preferredVideoID,
+                priority: preferredVideoID == nil ? .automatic : .userInitiated
             )
             .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
             .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
@@ -373,6 +423,11 @@ struct SearchView: View {
                 // issued a new focus request.
                 guard handledFocusRequest != focusRequest else { return }
                 handledFocusRequest = focusRequest
+                // Prefer the exact last tile over an initial search-field
+                // focus assignment after the native Right movement.
+                if preferredVideoID != nil || preferredNamedResultID != nil {
+                    return
+                }
                 let requested = focusRequest
                 if requested > 0 {
                     try? await Task.sleep(for: .milliseconds(220))
@@ -501,6 +556,8 @@ struct SearchView: View {
         term = value
         searchedTerm = value
         detailReturnVideoID = nil
+        railReturnVideoID = nil
+        railReturnNamedResultID = nil
         let identifier = UUID()
         requestID = identifier
         searching = true
