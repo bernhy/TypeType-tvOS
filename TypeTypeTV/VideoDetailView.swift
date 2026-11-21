@@ -5,6 +5,7 @@ struct VideoDetailView: View {
     let video: VideoItem
     var playbackQueue: [VideoItem]? = nil
     var onReturnToList: (() -> Void)? = nil
+    var onReturnedVideo: ((VideoItem) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var heroVisible = false
@@ -38,6 +39,7 @@ struct VideoDetailView: View {
     @State private var initiallyFocusedVideoURL: String?
     @State private var descriptionScrollCommand = 0
     @State private var fullDescriptionPresented = false
+    @State private var playbackOpened = false
 
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
     private var showsMarkWatched: Bool {
@@ -182,10 +184,12 @@ struct VideoDetailView: View {
                                                 api: api, videos: playbackQueue,
                                                 startIndex: position
                                             )
+                                            .onAppear { playbackOpened = true }
                                         } else {
                                             // The detail screen has already enriched views/date
                                             // via the existing metadata request; forward it to OSD.
                                             PlaybackView(api: api, video: detailedVideo)
+                                                .onAppear { playbackOpened = true }
                                         }
                                     } label: {
                                         Label {
@@ -549,6 +553,8 @@ struct VideoDetailView: View {
     @MainActor
     private func returnToList() {
         dismiss()
+        // Visiting details without playback must not reorder history.
+        if playbackOpened { onReturnedVideo?(detailedVideo) }
         onReturnToList?()
     }
 
@@ -617,6 +623,7 @@ struct VideoDetailView: View {
             let position = next ? Int64(duration) * 1_000 : 0
             savedPositionMs = position
             TVLocalProgress.shared.record(video.url, positionMs: position)
+            playbackOpened = true
         } catch {
             progressError = error.localizedDescription
         }
