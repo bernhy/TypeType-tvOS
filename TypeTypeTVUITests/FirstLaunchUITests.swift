@@ -715,6 +715,29 @@ final class TypeTypeTVUITests: XCTestCase {
                       "Right must enter the channel subnavigation")
     }
 
+    func testHomeRightAfterPreviewOfAnotherSectionNeverStartsInResumeShelf() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "home", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        focusHomeIcon(app)
+        let search = app.buttons["main-nav-search"]
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(search))
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(app.buttons["main-nav-home"]))
+        let recent = app.buttons["home-baseline-recent-0"]
+        let firstRecommendation = app.buttons["home-baseline-video-0"]
+        XCTAssertTrue(recent.waitForExistence(timeout: 8))
+        XCTAssertTrue(firstRecommendation.waitForExistence(timeout: 8))
+        XCUIRemote.shared.press(.right)
+        XCTAssertFalse(recent.hasFocus,
+                       "Right into loaded Home must never select Continue Watching")
+        XCTAssertTrue(waitForFocus(firstRecommendation),
+                      "First recommendation must be the native entry target")
+    }
+
     func testHomeOKFromGlobalRailSelectsFirstRecommendation() throws {
         let app = XCUIApplication()
         app.launchArguments = [

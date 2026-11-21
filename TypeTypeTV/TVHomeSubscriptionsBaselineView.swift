@@ -447,18 +447,15 @@ struct TVHomeSubscriptionsBaselineView: View {
             }
             .frame(width: viewport.size.width, height: viewport.size.height)
             .background(TTTheme.ink)
-            // tvOS can choose the saved tile on the first user-initiated
-            // Right movement from the main rail. Do not allow geometric
-            // focus search to pick an adjacent tile first, then overwrite it.
-            // No per-card observer, Task or focus-state rewrite is required.
+            // Crucially, this native preference exists DURING sidebar preview.
+            // If enabled only after Right, UIKit has already selected the
+            // geometrically closer Continue Watching row; a later task then
+            // caused a visible bounce to Recommendations. Keep the preferred
+            // saved tile (or first recommendation) ready BEFORE the move.
             .defaultFocus(
                 $focusedVideo,
-                // On first entry Home already knows the recommendation ID.
-                // Prefer it *before* tvOS chooses the geometrically closer
-                // Continue Watching tile; preserve saved-return priorities.
                 detailReturnCardID ?? railReturnCardID ?? firstCardID,
-                priority: focusRequest > 0 &&
-                    (detailReturnCardID ?? railReturnCardID ?? firstCardID) != nil
+                priority: (detailReturnCardID ?? railReturnCardID ?? firstCardID) != nil
                     ? .userInitiated : .automatic
             )
             // Shared by BOTH sources. No per-card dialog or toast state.
@@ -521,9 +518,19 @@ struct TVHomeSubscriptionsBaselineView: View {
                     // open; retain the original first-card fallback instead.
                     railReturnCardID = nil
                 }
-                initialFocusPending = true
-                await Task.yield()
-                claimInitialFocus()
+                if firstCardID != nil {
+                    // The target already exists in the focus tree. Let native
+                    // defaultFocus choose it on the original Right/OK event;
+                    // assigning focusedVideo from this task afterward was
+                    // precisely the visible resume -> recommendation bounce.
+                    initialFocusPending = false
+                    onInitialFocusReady()
+                } else {
+                    // Cold/async load only: wait for a focusable video to exist.
+                    // No timer or correction when returning to a loaded Home.
+                    initialFocusPending = true
+                    claimInitialFocus()
+                }
             }
             .onChange(of: visibleCardIDs) { _, ids in
                 if initialFocusPending {
