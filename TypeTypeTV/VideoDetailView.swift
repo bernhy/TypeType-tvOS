@@ -491,8 +491,10 @@ struct VideoDetailView: View {
                 }
                 if contentPreferences.settings?.hideRelatedVideos != true,
                    let related = streamMetadata?.relatedStreams, !related.isEmpty {
-                    TVRelatedVideosSection(api: api,
-                        videos: contentPreferences.displayed(related))
+                    TVRelatedVideosSection(
+                        api: api, videos: contentPreferences.displayed(related),
+                        parentScroll: page, onLeave: { returnToList() }
+                    )
                 }
             }
             .padding(.horizontal, 90)

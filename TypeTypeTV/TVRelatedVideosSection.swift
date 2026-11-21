@@ -6,6 +6,8 @@ import SwiftUI
 struct TVRelatedVideosSection: View {
     let api: TypeTypeAPI
     let videos: [VideoItem]
+    let parentScroll: ScrollViewProxy
+    let onLeave: () -> Void
 
     @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @FocusState private var focusedRelatedID: String?
@@ -56,6 +58,23 @@ struct TVRelatedVideosSection: View {
                 priority: detailReturnID == nil ? .automatic : .userInitiated
             )
             .modifier(TVHomeMenuPresentation(model: videoMenu))
+            .onExitCommand {
+                if let first = TVVideoGridBackPolicy.firstTarget(
+                    focused: focusedRelatedID, first: visibleVideos.first?.url
+                ) {
+                    detailReturnID = first
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        parentScroll.scrollTo(first, anchor: .top)
+                        focusedRelatedID = first
+                    }
+                } else {
+                    // This grid belongs to a pushed detail page. Its next
+                    // Back returns to the original video-list destination.
+                    onLeave()
+                }
+            }
             .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
             .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
             .onChange(of: videoMenu.focusRestoreRequest) { _, _ in
