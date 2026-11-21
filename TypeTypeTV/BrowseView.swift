@@ -173,9 +173,14 @@ struct BrowseView: View {
                                 onRevealMenu: revealMenu
                             )
                         case .channels:
-                            TVSubscriptionsView(api: api,
-                                                focusRequest: menuPreviewVisible ? -1 : channelFocusRequest,
-                                                onRevealMenu: revealMenu)
+                            TVSubscriptionsView(
+                                api: api,
+                                focusRequest: menuPreviewVisible ? -1 : channelFocusRequest,
+                                fixedLayoutWidth: TVHomeNavigationZoom.layoutWidth(
+                                    outerWidth: outerViewport.size.width
+                                ),
+                                onRevealMenu: revealMenu
+                            )
                         case .account:
                             TVAccountSwitcherView(
                                 api: api,
