@@ -22,6 +22,7 @@ private struct TVHomeBaselineTile: View {
     let homeMenu: TVHomeMenuCoordinator
     let onRevealMenu: (String) -> Void
     let onReturnToList: () -> Void
+    let onReturnedVideo: (VideoItem) -> Void
     let onNavigation: () -> Void
 
     private var focusID: String { "recent-" + entry.video.url }
@@ -34,7 +35,8 @@ private struct TVHomeBaselineTile: View {
         NavigationLink {
             VideoDetailView(
                 api: api, video: video,
-                onReturnToList: onReturnToList
+                onReturnToList: onReturnToList,
+                onReturnedVideo: onReturnedVideo
             )
         } label: {
             VideoCard(api: api, video: video)
@@ -82,6 +84,7 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
     let homeMenu: TVHomeMenuCoordinator
     let onRevealMenu: (String) -> Void
     let onReturnToList: (String, ScrollViewProxy?) -> Void
+    let onReturnedVideo: (VideoItem) -> Void
     let onApproachEnd: () -> Void
     let onResumeAppear: (Int, [VideoItem]) -> Void
     let onResumeDisappear: (VideoItem) -> Void
@@ -125,6 +128,7 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
                 ),
                 api: api, focus: focus, menu: homeMenu,
                 onReturnToList: { onReturnToList($0, nil) },
+                onReturnedVideo: onReturnedVideo,
                 onLeftEdge: onRevealMenu,
                 onApproachEnd: onApproachEnd,
                 onNavigation: onNavigation
@@ -143,6 +147,7 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
                 focus: focus, homeMenu: homeMenu,
                 onRevealMenu: onRevealMenu,
                 onReturnToList: { onReturnToList(id, railScroll) },
+                onReturnedVideo: onReturnedVideo,
                 onNavigation: onNavigation
             )
             .onAppear {
@@ -533,9 +538,6 @@ struct TVHomeSubscriptionsBaselineView: View {
                 onRevealMenu()
             },
             onReturnToList: { id, railScroll in
-                if let video = items.first(where: { cardID($0, resume: resume) == id }) {
-                    updateResumeAfterDetail(video)
-                }
                 // SwiftUI restores the native saved focus on detail pop.
                 // The mounted recommendation grid keeps its scroll offset;
                 // only a horizontal resume card needs its two rails revealed.
@@ -551,6 +553,7 @@ struct TVHomeSubscriptionsBaselineView: View {
                     focusedVideo = target
                 }
             },
+            onReturnedVideo: { updateResumeAfterDetail($0) },
             onApproachEnd: {
                 Task {
                     if resume { await loadMoreHistory() }
