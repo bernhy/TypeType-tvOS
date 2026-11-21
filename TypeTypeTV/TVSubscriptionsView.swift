@@ -328,8 +328,9 @@ struct TVSubscriptionsView: View {
                 priority: preferredVideoID == nil ? .automatic : .userInitiated
             )
             .focusSection()
-            } // GeometryReader: retain a fixed 3-column grid width.
-        }
+            } // ScrollViewReader
+        } // GeometryReader: retain a fixed 3-column grid width.
+        } // HStack: channel rail and video content.
         .background(TTTheme.ink)
         .modifier(TVHomeMenuPresentation(model: videoMenu))
         .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
