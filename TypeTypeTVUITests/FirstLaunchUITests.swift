@@ -725,6 +725,12 @@ final class TypeTypeTVUITests: XCTestCase {
         let search = app.buttons["main-nav-search"]
         XCUIRemote.shared.press(.down)
         XCTAssertTrue(waitForFocus(search))
+        // Actually enter a different screen, as reported on the device,
+        // then return through the global rail before activating Home.
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(waitForFocus(app.textFields.firstMatch))
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(waitForFocus(search))
         XCUIRemote.shared.press(.up)
         XCTAssertTrue(waitForFocus(app.buttons["main-nav-home"]))
         let recent = app.buttons["home-baseline-recent-0"]
