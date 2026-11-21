@@ -40,6 +40,7 @@ private struct TVSharedVideoGridTile: View {
     let isWatchLaterEntry: Bool
     let playbackQueue: [VideoItem]?
     let onReturnToList: (String) -> Void
+    let onReturnedVideo: ((VideoItem) -> Void)?
     let onLeftEdge: (String) -> Void
     let onNavigation: () -> Void
     let onTopEdge: (String) -> Void
@@ -53,7 +54,8 @@ private struct TVSharedVideoGridTile: View {
         NavigationLink {
             VideoDetailView(
                 api: api, video: video, playbackQueue: playbackQueue,
-                onReturnToList: { onReturnToList(focusID) }
+                onReturnToList: { onReturnToList(focusID) },
+                onReturnedVideo: onReturnedVideo
             )
         } label: {
             VideoCard(
@@ -94,6 +96,7 @@ struct TVSharedVideoGrid: View, Equatable {
     let focus: FocusState<String?>.Binding
     let menu: TVHomeMenuCoordinator
     let onReturnToList: (String) -> Void
+    var onReturnedVideo: ((VideoItem) -> Void)? = nil
     let onLeftEdge: (String) -> Void
     let onApproachEnd: () -> Void
     var onNavigation: () -> Void = {}
@@ -123,6 +126,7 @@ struct TVSharedVideoGrid: View, Equatable {
                     isWatchLaterEntry: snapshot.isWatchLaterEntry,
                     playbackQueue: snapshot.playbackQueue,
                     onReturnToList: onReturnToList,
+                    onReturnedVideo: onReturnedVideo,
                     onLeftEdge: onLeftEdge,
                     onNavigation: onNavigation,
                     onTopEdge: onTopEdge,
