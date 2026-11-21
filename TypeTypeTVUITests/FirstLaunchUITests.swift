@@ -634,6 +634,38 @@ final class TypeTypeTVUITests: XCTestCase {
                       "Right from Shorts must reach the subscription button")
     }
 
+    func testChannelVideoFocusReturnsToSavedTileFromBothRails() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "channels", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let rail = app.buttons["subscription-https://preview.invalid/channel/a"]
+        let first = app.buttons["subscription-video-0"]
+        let deep = app.buttons["subscription-video-3"]
+        let main = app.buttons["main-nav-channels"]
+
+        XCTAssertTrue(waitForFocus(rail, timeout: 20))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(first, timeout: 10))
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(deep, timeout: 5),
+                      "The second video row must be reachable")
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(rail, timeout: 5))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(deep, timeout: 5),
+                      "Native focus must reenter the second row directly")
+
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(rail, timeout: 5))
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(main, timeout: 5))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(deep, timeout: 5),
+                      "Returning via the global rail must preserve the same tile")
+    }
+
     func testChannelPageDisplaysCurrentSubscriptionState() throws {
         let app = XCUIApplication()
         app.launchArguments = [
