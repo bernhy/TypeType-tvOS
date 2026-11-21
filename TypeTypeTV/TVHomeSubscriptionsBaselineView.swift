@@ -31,7 +31,7 @@ private struct TVHomeBaselineTile: View {
         let id = focusID
         // Keep focus isolation local to this tile, not in the Home parent.
         let activeFocusID = focus.wrappedValue
-        let link = NavigationLink {
+        NavigationLink {
             VideoDetailView(
                 api: api, video: video,
                 onReturnToList: onReturnToList
@@ -54,8 +54,7 @@ private struct TVHomeBaselineTile: View {
             if direction == .left && entry.index == 0 { onRevealMenu(id) }
         }
         .accessibilityIdentifier("home-baseline-recent-\(entry.index)")
-
-        link.containerRelativeFrame(.horizontal, count: 4, spacing: 26)
+        .containerRelativeFrame(.horizontal, count: 4, spacing: 26)
     }
 }
 
