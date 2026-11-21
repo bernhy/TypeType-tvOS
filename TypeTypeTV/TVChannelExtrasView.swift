@@ -32,6 +32,7 @@ struct TVChannelExtrasView: View {
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 3)
 
     var body: some View {
+        ScrollViewReader { scroll in
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 HStack(spacing: 18) {
@@ -73,6 +74,7 @@ struct TVChannelExtrasView: View {
                             .focusEffectDisabled(true)
                             .focused($focusedCard, equals: playlist.url)
                             .zIndex(focusedCard == playlist.url ? 5 : 0)
+                            .id(playlist.url)
                         }
                     }
                     .focusSection()
@@ -144,7 +146,31 @@ struct TVChannelExtrasView: View {
             focusedBack = true
             await fetch(append: false)
         }
-        .onExitCommand { dismiss() }
+        .onExitCommand {
+            if let first = TVVideoGridBackPolicy.firstTarget(
+                focused: focusedCard, first: playlists.first?.url
+            ) {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    scroll.scrollTo(first, anchor: .top)
+                    focusedCard = first
+                }
+            } else if let first = TVVideoGridBackPolicy.firstTarget(
+                focused: focusedEpisode, first: visibleEpisodes.first?.url
+            ) {
+                detailReturnVideoID = first
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    scroll.scrollTo(first, anchor: .top)
+                    focusedEpisode = first
+                }
+            } else {
+                dismiss()
+            }
+        }
+        } // ScrollViewReader
     }
 
     @MainActor

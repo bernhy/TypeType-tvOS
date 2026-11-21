@@ -509,6 +509,19 @@ final class TVHomeCardEqualityTests: XCTestCase {
         ).count, 1)
     }
 
+    func testGridBackPolicyMovesDeepFocusToFirstBeforeLeaving() {
+        let first = "https://youtu.be/AAAAAAAAAAA"
+        let distant = "https://youtu.be/BBBBBBBBBBB"
+        XCTAssertEqual(
+            TVVideoGridBackPolicy.firstTarget(focused: distant, first: first), first
+        )
+        XCTAssertNil(TVVideoGridBackPolicy.firstTarget(focused: first, first: first),
+                     "A second Back is handled by the owning navigation rail")
+        XCTAssertNil(TVVideoGridBackPolicy.firstTarget(focused: nil, first: first),
+                     "Back from a toolbar/rail must retain its existing hierarchy")
+        XCTAssertNil(TVVideoGridBackPolicy.firstTarget(focused: distant, first: nil))
+    }
+
     func testSharedVideoGridInvalidatesForDataAndDestinationNotFocus() {
         let video = VideoItem(
             id: "sample", title: "Item", url: "https://youtu.be/ABCDEFGHIJK",

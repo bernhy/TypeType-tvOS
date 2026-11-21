@@ -226,6 +226,7 @@ struct SearchView: View {
                                         .focusEffectDisabled(true)
                                         .focused($focusedNamedResult, equals:
                                             "channel-" + channel.url)
+                                        .id("channel-" + channel.url)
                                         .onMoveCommand { direction in
                                             if direction == .left && entry.offset % columns.count == 0 {
                                                 railReturnNamedResultID = "channel-" + channel.url
@@ -266,6 +267,7 @@ struct SearchView: View {
                                         .focusEffectDisabled(true)
                                         .focused($focusedNamedResult, equals:
                                             "playlist-" + playlist.url)
+                                        .id("playlist-" + playlist.url)
                                         .onMoveCommand { direction in
                                             if direction == .left && entry.offset % columns.count == 0 {
                                                 railReturnNamedResultID = "playlist-" + playlist.url
@@ -362,6 +364,38 @@ struct SearchView: View {
                 $focusedVideoURL, preferredVideoID,
                 priority: preferredVideoID == nil ? .automatic : .userInitiated
             )
+            .onExitCommand {
+                if let target = TVVideoGridBackPolicy.firstTarget(
+                    focused: focusedVideoURL, first: visibleVideos.first?.url
+                ) {
+                    detailReturnVideoID = target
+                    railReturnNamedResultID = nil
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        scroll.scrollTo(target, anchor: .top)
+                        focusedVideoURL = target
+                    }
+                } else if let named = focusedNamedResult,
+                          let target = TVVideoGridBackPolicy.firstTarget(
+                            focused: named,
+                            first: named.hasPrefix("channel-")
+                                ? channels.first.map { "channel-" + $0.url }
+                                : playlists.first.map { "playlist-" + $0.url }
+                          ) {
+                    railReturnNamedResultID = target
+                    detailReturnVideoID = nil
+                    railReturnVideoID = nil
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        scroll.scrollTo(target, anchor: .top)
+                        focusedNamedResult = target
+                    }
+                } else {
+                    onRevealMenu()
+                }
+            }
             .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
             .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
             .onChange(of: videoMenu.focusRestoreRequest) { _, _ in

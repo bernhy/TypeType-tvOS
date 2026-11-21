@@ -48,6 +48,7 @@ struct TVSubscriptionsView: View {
     @State private var railBrowsingVertically = false
     @State private var railReturnVideoID: String?
     @State private var detailReturnVideoID: String?
+    @State private var gridBackScrollRequest = 0
     @State private var mutationCursor = TVVideoMutationCursor()
     @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @FocusState private var focusedVideo: String?
@@ -326,6 +327,15 @@ struct TVSubscriptionsView: View {
                 priority: preferredVideoID == nil ? .automatic : .userInitiated
             )
             .focusSection()
+            .onChange(of: gridBackScrollRequest) { _, _ in
+                guard let first = visibleVideos.first?.url else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    scroll.scrollTo(first, anchor: .top)
+                    focusedVideo = first
+                }
+            }
             } // ScrollViewReader
         } // GeometryReader: retain a fixed 3-column grid width.
         } // HStack: channel rail and video content.
@@ -391,9 +401,15 @@ struct TVSubscriptionsView: View {
             }
         }
         .onExitCommand {
-            if directChannelURL != nil {
-                // This view is pushed from VideoDetailView. Menu/Back must
-                // pop to *that* video, never to the global app sidebar.
+            if let first = TVVideoGridBackPolicy.firstTarget(
+                focused: focusedVideo, first: visibleVideos.first?.url
+            ) {
+                // Only an explicit Back changes scroll/focus. A second Back
+                // from tile zero returns to the channel rail (or pops a
+                // directly opened channel back into the originating detail).
+                detailReturnVideoID = first
+                gridBackScrollRequest &+= 1
+            } else if directChannelURL != nil {
                 dismiss()
             } else if focusedSubscription != nil || loadingRailFocused {
                 onRevealMenu()

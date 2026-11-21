@@ -306,6 +306,18 @@ struct LibraryView: View {
         .onExitCommand {
             if focusedDestination != nil {
                 onRevealMenu()
+            } else if let first = TVVideoGridBackPolicy.firstTarget(
+                focused: focusedVideoURL, first: visibleVideos.first?.url
+            ) {
+                // First Back from a deep tile goes to the first visible tile.
+                // Keep the same mounted grid and its current data snapshot.
+                detailReturnVideoID = first
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    scroll.scrollTo(first, anchor: .top)
+                    focusedVideoURL = first
+                }
             } else {
                 if let focusedVideoURL {
                     railReturnVideoID = focusedVideoURL

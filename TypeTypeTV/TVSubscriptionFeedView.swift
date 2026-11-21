@@ -184,9 +184,21 @@ struct TVSubscriptionFeedView: View {
             }
         }
         .onExitCommand {
-            detailReturnVideoID = nil
-            railReturnVideoID = focusedVideo
-            onRevealMenu()
+            if let first = TVVideoGridBackPolicy.firstTarget(
+                focused: focusedVideo, first: visibleVideos.first?.url
+            ) {
+                detailReturnVideoID = first
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    scroll.scrollTo(first, anchor: .top)
+                    focusedVideo = first
+                }
+            } else {
+                detailReturnVideoID = nil
+                railReturnVideoID = focusedVideo
+                onRevealMenu()
+            }
         }
         }
         } // GeometryReader keeps the grid width constant across menu zoom.

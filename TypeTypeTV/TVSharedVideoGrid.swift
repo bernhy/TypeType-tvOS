@@ -143,3 +143,12 @@ struct TVSharedVideoGrid: View, Equatable {
         .focusSection()
     }
 }
+
+/// Pure Back policy for every native video-tile grid. Work only on remote
+/// Back presses, never while focus moves or the lazy grid is rendering.
+enum TVVideoGridBackPolicy {
+    static func firstTarget(focused: String?, first: String?) -> String? {
+        guard let focused, let first, focused != first else { return nil }
+        return first
+    }
+}

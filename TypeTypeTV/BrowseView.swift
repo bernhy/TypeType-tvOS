@@ -153,7 +153,6 @@ struct BrowseView: View {
                                 onRevealMenu: revealMenu,
                                 focusRequest: menuPreviewVisible ? -1 : searchFocusRequest
                             )
-                            .onExitCommand { revealMenu() }
                         case .library:
                             LibraryView(
                                 api: api,

@@ -117,7 +117,22 @@ struct TVPublicPlaylistView: View {
                 focusedBack = true
                 await load()
             }
-            .onExitCommand { dismiss() }
+            .onExitCommand {
+                if let first = TVVideoGridBackPolicy.firstTarget(
+                    focused: focusedVideo, first: visibleVideos.first?.url
+                ) {
+                    detailReturnVideoID = first
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        scroll.scrollTo(first, anchor: .top)
+                        focusedVideo = first
+                    }
+                } else {
+                    // This is a pushed page, so its parent is the next level.
+                    dismiss()
+                }
+            }
         }
     }
 
