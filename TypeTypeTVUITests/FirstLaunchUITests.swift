@@ -913,6 +913,75 @@ final class TypeTypeTVUITests: XCTestCase {
                        "Returning from details must not jump to the global rail")
     }
 
+    func testLeftFromSearchFieldReturnsToGlobalSearchIcon() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "search", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let field = app.textFields.firstMatch
+        let search = app.buttons["main-nav-search"]
+        XCTAssertTrue(waitForFocus(field, timeout: 15))
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(search),
+                      "Left from search input must return to its global sidebar icon")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(field),
+                      "Right from search icon must re-enter the input without a bounce")
+    }
+
+    func testLeftFromAccountAddButtonReturnsToGlobalAccountIcon() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "account", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let add = app.buttons["account-add-profile"]
+        let account = app.buttons["main-nav-account"]
+        XCTAssertTrue(waitForFocus(add, timeout: 15))
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(account),
+                      "Left from account content must return to the Account icon")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(add),
+                      "Right from Account must restore its content focus")
+    }
+
+    func testSettingsServerRightPrefersRefreshNatively() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-instance", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let rail = app.buttons["settings-group-instance"]
+        let refresh = app.buttons["settings-instance-refresh"]
+        XCTAssertTrue(waitForFocus(rail, timeout: 20))
+        XCTAssertTrue(refresh.waitForExistence(timeout: 8))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(refresh),
+                      "Right from Server must enter Refresh as native first focus")
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(rail))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(refresh),
+                      "Second Right must not first focus another Server control")
+    }
+
+    func testSettingsAboutRightPrefersFirstInfoRow() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-about", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let rail = app.buttons["settings-group-about"]
+        let first = app.descendants(matching: .any)["settings-about-first"].firstMatch
+        XCTAssertTrue(waitForFocus(rail, timeout: 20))
+        XCTAssertTrue(first.waitForExistence(timeout: 8))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(first),
+                      "Right from About must directly focus the first information row")
+    }
+
     func testGlobalMenuPreviewsOnFocusAndSelectEntersStably() throws {
         let app = XCUIApplication()
         app.launchArguments = [

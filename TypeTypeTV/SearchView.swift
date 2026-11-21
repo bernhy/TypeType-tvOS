@@ -94,6 +94,13 @@ struct SearchView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .focused($searchFieldFocused)
+                            // The global rail is intentionally not focusable while
+                            // Search owns focus. Left from its first control
+                            // explicitly returns ownership instead of relying on
+                            // geometric focus of the hidden/disabled sidebar.
+                            .onMoveCommand { direction in
+                                if direction == .left { onRevealMenu() }
+                            }
                             .onSubmit { Task { await execute(term) } }
                             .accessibilityLabel("search.inputLabel")
                         Button { Task { await execute(term) } } label: {

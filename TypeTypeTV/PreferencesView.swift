@@ -100,6 +100,13 @@ struct PreferencesView: View {
                 }
                 .scrollIndicators(.hidden)
                 .focusSection()
+                // Let the native tvOS focus engine choose the first control
+                // of this category on Right. This preference is in place
+                // before the move, rather than a Task.yield correction.
+                .defaultFocus(
+                    $focusedControl, firstTarget(for: group),
+                    priority: focusRequest < 0 ? .automatic : .userInitiated
+                )
                 .onMoveCommand { direction in
                     if direction == .left {
                         returnFocusToGroup()
@@ -340,12 +347,10 @@ struct PreferencesView: View {
     @MainActor
     private func enterGroup(_ item: TVSettingsGroup) {
         group = item
-        let target = firstTarget(for: item)
-        Task { @MainActor in
-            await Task.yield()
-            guard group == item else { return }
-            focusedControl = target
-        }
+        // Select explicitly transfers focus. Right additionally benefits
+        // from the native default-focus preference on the content section.
+        // No deferred second focus movement after UIKit resolves the remote.
+        focusedControl = firstTarget(for: item)
     }
 
     @ViewBuilder
@@ -745,6 +750,7 @@ struct PreferencesView: View {
                 Button("common.refresh") { Task { await refreshInstance() } }
                     .buttonStyle(.bordered)
                     .focused($focusedControl, equals: "instance.refresh")
+                    .accessibilityIdentifier("settings-instance-refresh")
                 Divider()
                 if let fingerprint = TVServerTrust.shared.fingerprint(for: api.origin) {
                     Label("settings.certTrusted", systemImage: "checkmark.shield")
@@ -775,6 +781,7 @@ struct PreferencesView: View {
             TVSettingsCard("settings.aboutControls") {
                 TVSettingsInfoRow(title: "settings.appName", value: "TypeType tvOS")
                     .focused($focusedControl, equals: "about.name")
+                    .accessibilityIdentifier("settings-about-first")
                 TVSettingsInfoRow(
                     title: "settings.appVersion",
                     value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String

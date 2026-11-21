@@ -452,9 +452,14 @@ struct TVHomeSubscriptionsBaselineView: View {
             // focus search to pick an adjacent tile first, then overwrite it.
             // No per-card observer, Task or focus-state rewrite is required.
             .defaultFocus(
-                $focusedVideo, detailReturnCardID ?? railReturnCardID,
-                priority: detailReturnCardID == nil && railReturnCardID == nil
-                    ? .automatic : .userInitiated
+                $focusedVideo,
+                // On first entry Home already knows the recommendation ID.
+                // Prefer it *before* tvOS chooses the geometrically closer
+                // Continue Watching tile; preserve saved-return priorities.
+                detailReturnCardID ?? railReturnCardID ?? firstCardID,
+                priority: focusRequest > 0 &&
+                    (detailReturnCardID ?? railReturnCardID ?? firstCardID) != nil
+                    ? .userInitiated : .automatic
             )
             // Shared by BOTH sources. No per-card dialog or toast state.
             .modifier(TVHomeMenuPresentation(model: homeMenu))

@@ -188,7 +188,8 @@ struct BrowseView: View {
                                     open(.settings)
                                 },
                                 onAccountChanged: { accountDidChange(api: api) },
-                                focusRequest: menuPreviewVisible ? -1 : accountFocusRequest
+                                focusRequest: menuPreviewVisible ? -1 : accountFocusRequest,
+                                onRevealMenu: revealMenu
                             )
                             .onExitCommand { revealMenu() }
                         case .settings:
