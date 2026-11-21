@@ -6,6 +6,7 @@ struct TVSubscriptionsView: View {
     let api: TypeTypeAPI
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
     var focusRequest = 0
+    var fixedLayoutWidth: CGFloat?
     var onRevealMenu: () -> Void = {}
     /// When opened from a video's channel link, show this specific channel
     /// even if it is not part of the signed-in user's subscriptions.
@@ -45,6 +46,11 @@ struct TVSubscriptionsView: View {
     // Suppress a geometrically chosen neighbor while returning from video
     // content; browsing Up/Down within this rail still works normally.
     @State private var railBrowsingVertically = false
+    @State private var railReturnVideoID: String?
+    @State private var detailReturnVideoID: String?
+    @State private var gridBackScrollRequest = 0
+    @State private var mutationCursor = TVVideoMutationCursor()
+    @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @FocusState private var focusedVideo: String?
     @FocusState private var loadingRailFocused: Bool
     @FocusState private var subscriptionButtonFocused: Bool
@@ -64,6 +70,11 @@ struct TVSubscriptionsView: View {
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 22), count: 3)
     private var visibleVideos: [VideoItem] { contentPreferences.displayed(videos) }
+    private var preferredVideoID: String? {
+        guard let target = detailReturnVideoID ?? railReturnVideoID,
+              visibleVideos.contains(where: { $0.url == target }) else { return nil }
+        return target
+    }
     private var supportsShorts: Bool {
         guard let url = selectedChannelURL else { return false }
         #if DEBUG
@@ -81,7 +92,15 @@ struct TVSubscriptionsView: View {
                     .environment(\.isFocusEffectEnabled, false)
                     .focusEffectDisabled(true)
                     .focusSection()
+                    .defaultFocus(
+                        $focusedSubscription, selectedChannelURL,
+                        priority: .userInitiated
+                    )
             }
+            GeometryReader { viewport in
+            let railWidth: CGFloat = directChannelURL == nil ? 310 : 0
+            let layoutWidth = max(0, (fixedLayoutWidth ??
+                (viewport.size.width + railWidth)) - railWidth)
             ScrollViewReader { scroll in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 28) {
@@ -247,48 +266,37 @@ struct TVSubscriptionsView: View {
                             )
                         )
                     } else {
-                        LazyVGrid(columns: columns, spacing: 28) {
-                            ForEach(Array(visibleVideos.enumerated()), id: \.offset) { index, video in
-                                NavigationLink {
-                                    VideoDetailView(
-                                        api: api, video: video,
-                                        onReturnToList: {
-                                            TVVideoFocusReturn.restore(
-                                                $focusedVideo, id: video.url, scroll: scroll
-                                            )
-                                        }
-                                    )
-                                } label: {
-                                    VideoCard(api: api, video: video)
-                                }
-                                .buttonStyle(TVRailButtonStyle())
-                                .focusEffectDisabled(true)
-                                .zIndex(focusedVideo == video.url ? 5 : 0)
-                                .id(video.url)
-                                .videoActions(
-                                    api: api, video: video, onChanged: {},
-                                    focus: $focusedVideo, focusID: video.url
-                                )
-                                .accessibilityIdentifier("subscription-video-\(index)")
-                                .onMoveCommand { direction in
-                                    if direction == .up && index < columns.count {
-                                        focusedAction = "playlists"
-                                    } else if direction == .left &&
-                                                index % columns.count == 0 &&
-                                                directChannelURL == nil {
-                                        returnToChannelRail()
-                                    }
-                                }
-                                .onAppear {
-                                    if index >= videos.count - columns.count - 1,
-                                       nextPage != nil, !loadingMore && !loadingVideos &&
-                                       pageError == nil {
-                                        Task { await loadMore() }
-                                    }
-                                }
-                            }
-                        }
-                        .focusSection()
+                        TVSharedVideoGrid(
+                            snapshot: TVSharedVideoGridSnapshot(
+                                videos: visibleVideos, scope: api.metadataCacheScope,
+                                destination: "channels-" + (selectedChannelURL ?? "") +
+                                    (showingShorts ? "-shorts" : "-videos") + "-" + videoSort,
+                                focusPrefix: "",
+                                accessibilityPrefix: "subscription-video-",
+                                columns: columns.count, columnSpacing: 22,
+                                rowSpacing: 28,
+                                canLoadMore: nextPage != nil &&
+                                    !loadingMore && !loadingVideos && pageError == nil,
+                                loadAhead: columns.count + 1,
+                                lookupMissingMetadata: false,
+                                isWatchLaterEntry: false,
+                                playbackQueue: nil
+                            ),
+                            api: api, focus: $focusedVideo, menu: videoMenu,
+                            onReturnToList: { id in
+                                detailReturnVideoID = id
+                                focusedVideo = id
+                            },
+                            onLeftEdge: { id in
+                                guard directChannelURL == nil else { return }
+                                railReturnVideoID = id
+                                detailReturnVideoID = nil
+                                returnToChannelRail()
+                            },
+                            onApproachEnd: { Task { await loadMore() } },
+                            onTopEdge: { _ in focusedAction = "playlists" }
+                        )
+                        .equatable()
                         if loadingMore {
                             ProgressView("settings.remoteLoading")
                         } else if let pageError {
@@ -304,11 +312,57 @@ struct TVSubscriptionsView: View {
                 .padding(.leading, directChannelURL == nil ? 0 : 72)
                 .padding(.trailing, 44)
                 .padding(.bottom, 110)
+                .frame(width: layoutWidth, alignment: .leading)
+                .scaleEffect(
+                    TVHomeNavigationZoom.scale(
+                        visibleWidth: viewport.size.width, layoutWidth: layoutWidth
+                    ),
+                    anchor: .topLeading
+                )
+                .frame(width: viewport.size.width, alignment: .topLeading)
             }
+            .frame(width: viewport.size.width, height: viewport.size.height)
+            .defaultFocus(
+                $focusedVideo, preferredVideoID,
+                priority: preferredVideoID == nil ? .automatic : .userInitiated
+            )
             .focusSection()
+            .onChange(of: gridBackScrollRequest) { _, _ in
+                guard let first = visibleVideos.first?.url else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    scroll.scrollTo(first, anchor: .top)
+                    focusedVideo = first
+                }
+            }
+            } // ScrollViewReader
+        } // GeometryReader: retain a fixed 3-column grid width.
+        } // HStack: channel rail and video content.
+        // The entire page is a native focus-entry region. A Right move
+        // from the global rail should prefer the last saved video even
+        // though the secondary navigation sits geometrically to its left.
+        // A nil saved ID leaves first-entry rail focus unchanged.
+        .defaultFocus(
+            $focusedVideo, preferredVideoID,
+            priority: preferredVideoID == nil ? .automatic : .userInitiated
+        )
+        .background(TTTheme.ink)
+        .modifier(TVHomeMenuPresentation(model: videoMenu))
+        .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
+        .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
+        .onChange(of: videoMenu.focusRestoreRequest) { _, _ in
+            if let id = videoMenu.focusRestoreTarget,
+               visibleVideos.contains(where: { $0.url == id }) {
+                focusedVideo = id
             }
         }
-        .background(TTTheme.ink)
+        .task { await TVWatchLaterMembership.shared.ensureLoaded(api: api) }
+        .task {
+            async let playlists: Void = TVPlaylistMembership.shared.ensureLoaded(api: api)
+            async let favorites: Void = TVFavoriteMembership.shared.ensureLoaded(api: api)
+            _ = await (playlists, favorites)
+        }
         .task {
             guard !initializedOnce else { return }
             initializedOnce = true
@@ -332,6 +386,10 @@ struct TVSubscriptionsView: View {
             guard focusRequest >= 0,
                   handledFocusRequest != focusRequest else { return }
             handledFocusRequest = focusRequest
+            // The selected tile is already registered as a native default
+            // focus target. Reassigning a rail focus after this would
+            // produce the old visible two-step jump.
+            if preferredVideoID != nil { return }
             await Task.yield()
             guard !Task.isCancelled else { return }
             if directChannelURL != nil {
@@ -343,9 +401,15 @@ struct TVSubscriptionsView: View {
             }
         }
         .onExitCommand {
-            if directChannelURL != nil {
-                // This view is pushed from VideoDetailView. Menu/Back must
-                // pop to *that* video, never to the global app sidebar.
+            if let first = TVVideoGridBackPolicy.firstTarget(
+                focused: focusedVideo, first: visibleVideos.first?.url
+            ) {
+                // Only an explicit Back changes scroll/focus. A second Back
+                // from tile zero returns to the channel rail (or pops a
+                // directly opened channel back into the originating detail).
+                detailReturnVideoID = first
+                gridBackScrollRequest &+= 1
+            } else if directChannelURL != nil {
                 dismiss()
             } else if focusedSubscription != nil || loadingRailFocused {
                 onRevealMenu()
@@ -364,22 +428,7 @@ struct TVSubscriptionsView: View {
             await loadChannel(selectedChannelURL)
         }
         .onChange(of: focusedSubscription) { previous, next in
-            if next == nil {
-                railBrowsingVertically = false
-            } else if previous == nil {
-                railBrowsingVertically = false
-                if let next, let selectedChannelURL, next != selectedChannelURL {
-                    let expected = selectedChannelURL
-                    Task { @MainActor in
-                        await Task.yield()
-                        guard selectedChannelURL == expected,
-                              focusedSubscription == next else { return }
-                        focusedSubscription = expected
-                    }
-                }
-            } else {
-                railBrowsingVertically = true
-            }
+            railBrowsingVertically = previous != nil && next != nil
         }
         .onChange(of: selectedChannelURL) { _, _ in
             subscriptionErrorMessage = nil
@@ -653,12 +702,14 @@ struct TVSubscriptionsView: View {
     @MainActor
     private func enterChannel(_ url: String) {
         if selectedChannelURL == url, !loadingVideos {
-            if let first = videos.first {
-                focusedVideo = first.url
+            if let target = preferredVideoID ?? visibleVideos.first?.url {
+                focusedVideo = target
             } else {
                 enterGridAfterLoad = true
             }
         } else {
+            railReturnVideoID = nil
+            detailReturnVideoID = nil
             enterGridAfterLoad = true
             let host = URLComponents(string: url)?.host?.lowercased() ?? ""
             if host != "youtube.com" && !host.hasSuffix(".youtube.com") {
@@ -670,13 +721,39 @@ struct TVSubscriptionsView: View {
 
     @MainActor
     private func returnToChannelRail() {
-        let target = selectedChannelURL
-        focusedSubscription = target
-        // Restore once the directional focus engine has completed its move.
-        Task { @MainActor in
-            await Task.yield()
-            guard selectedChannelURL == target else { return }
-            focusedSubscription = target
+        if let selected = focusedVideo,
+           visibleVideos.contains(where: { $0.url == selected }) {
+            railReturnVideoID = selected
+        }
+        detailReturnVideoID = nil
+        // The secondary rail has a native user-initiated default target;
+        // no delayed focus correction is needed.
+        focusedSubscription = selectedChannelURL
+    }
+
+    @MainActor
+    private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
+        let pending = events.filter {
+            $0.id > mutationCursor.lastID && $0.accountScope == api.metadataCacheScope
+        }
+        mutationCursor.lastID = max(mutationCursor.lastID, events.last?.id ?? 0)
+        guard !pending.isEmpty else { return }
+        let blockedSelectedChannel = pending.contains { event in
+            if case .channelBlocked = event.kind {
+                return event.channelURL == selectedChannelURL
+            }
+            return false
+        }
+        if blockedSelectedChannel {
+            videos.removeAll()
+        } else if videos.contains(where: { video in
+            pending.contains { $0.removes(video) }
+        }) {
+            videos.removeAll { video in pending.contains { $0.removes(video) } }
+        }
+        if let target = railReturnVideoID,
+           !videos.contains(where: { $0.url == target }) {
+            railReturnVideoID = nil
         }
     }
 
@@ -788,7 +865,15 @@ struct TVSubscriptionsView: View {
             await TVChannelArtworkCache.shared.remember(response, for: channelURL, api: api)
             channelDescription = response.description ?? ""
             hasCourses = response.hasCourses == true
-            videos = response.videos
+            // Channel feeds can omit the uploader URL. Keep the known
+            // channel identity on each card so blocking that channel can
+            // remove the affected tiles locally without another GET.
+            let channelVideos = response.videos.map { item in
+                var result = item
+                if result.uploaderUrl == nil { result.uploaderUrl = channelURL }
+                return result
+            }
+            videos = channelVideos
             nextPage = response.nextpage
             if enterGridAfterLoad {
                 enterGridAfterLoad = false
@@ -799,7 +884,7 @@ struct TVSubscriptionsView: View {
             }
             // Channel feed has no watch-position metadata. Enrich both
             // first page and pagination exactly like Home and Library.
-            let enriched = await api.withProgress(response.videos)
+            let enriched = await api.withProgress(channelVideos)
             guard !Task.isCancelled, channelRequestID == identifier,
                   selectedChannelURL == channelURL, showingShorts == shorts,
                   videoSort == sort else { return }
@@ -832,7 +917,11 @@ struct TVSubscriptionsView: View {
                   self.selectedChannelURL == selectedChannelURL, showingShorts == shorts,
                   videoSort == sort, self.nextPage == nextPage else { return }
             var seen = Set(videos.map(\.url))
-            let fresh = response.videos.filter { seen.insert($0.url).inserted }
+            let fresh = response.videos.map { item in
+                var result = item
+                if result.uploaderUrl == nil { result.uploaderUrl = selectedChannelURL }
+                return result
+            }.filter { seen.insert($0.url).inserted }
             videos += fresh
             self.nextPage = response.nextpage == nextPage ? nil : response.nextpage
             let enriched = await api.withProgress(fresh)

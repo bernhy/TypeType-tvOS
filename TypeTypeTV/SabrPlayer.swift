@@ -423,7 +423,7 @@ final class SabrPlayerController: ObservableObject {
         playbackUnavailable = false
         playbackFinished = false
         state = TVL10n.value("player.connecting")
-        let settings = SabrBufferSettings.preferences(live: video.isLive == true)
+        let settings = SabrBufferSettings.preferences(live: TVLiveStreamDisplayPolicy.isOngoing(video))
         segmentCache = SabrFragmentCache(maxMiB: settings.cacheMiB)
         let epoch = playbackEpoch
         running = Task {
@@ -609,7 +609,7 @@ final class SabrPlayerController: ObservableObject {
         if let previousCache = segmentCache {
             Task { await previousCache.clear() }
         }
-        let buffer = SabrBufferSettings.preferences(live: video.isLive == true)
+        let buffer = SabrBufferSettings.preferences(live: TVLiveStreamDisplayPolicy.isOngoing(video))
         segmentCache = SabrFragmentCache(maxMiB: buffer.cacheMiB)
         cachedThroughMs = targetMs
         diskCacheBytes = 0
@@ -968,11 +968,11 @@ final class SabrPlayerController: ObservableObject {
             let settings = try? await api.accountSettings()
             guard playbackEpoch == epoch, !Task.isCancelled else { return }
             let historyAllowed = settings != nil &&
-                settings?.disableWatchHistory != true && video.isLive != true
+                settings?.disableWatchHistory != true && !TVLiveStreamDisplayPolicy.isOngoing(video)
             historyEnabled = historyAllowed
             sponsorSettings = settings
             if settings?.disableWatchHistory == true && explicitPositionMs == nil &&
-               reusing == nil && video.isLive != true {
+               reusing == nil && !TVLiveStreamDisplayPolicy.isOngoing(video) {
                 postPlayerNotice(TVL10n.value("player.historyRecordingDisabled"))
             }
             await lastProgressSubmission?.value
@@ -3171,15 +3171,12 @@ struct SabrPlaybackErrorDialog: View {
                     .focused($focusedAction, equals: .back)
             }
             .focusSection()
+            // Prefer Retry on entry, without a Task.yield() focus correction
+            // after the UIKit player remote surface is removed.
+            .defaultFocus($focusedAction, .retry, priority: .userInitiated)
         }
         .padding(50)
         .background(.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 20))
-        .task {
-            // Assign after insertion into the focus tree; otherwise the
-            // removed full-screen UIKit remote view can retain focus.
-            await Task.yield()
-            focusedAction = .retry
-        }
     }
 }
 

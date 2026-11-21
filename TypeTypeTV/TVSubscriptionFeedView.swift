@@ -2,23 +2,16 @@ import SwiftUI
 
 /// Newest-first account feed. TypeType's stable cursor snapshot avoids
 /// querying every subscribed channel on the Apple TV.
-/// Stable video identities across progress updates and blocked-content
-/// filtering. Grid offsets are presentation metadata, not view identity.
-private struct TVSubscriptionFeedGridEntry: Identifiable {
-    let index: Int
-    let video: VideoItem
-    var id: String { video.url }
-}
-
 struct TVSubscriptionFeedView: View {
     let api: TypeTypeAPI
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
     var focusRequest = 0
+    var fixedLayoutWidth: CGFloat?
     var onRevealMenu: () -> Void = {}
 
     @State private var videos: [VideoItem] = []
     private var visibleVideos: [VideoItem] {
-        contentPreferences.displayed(videos, subscriptionFeed: true)
+        contentPreferences.displayed(videos)
     }
     @State private var nextCursor: String?
     @State private var loading = false
@@ -31,9 +24,15 @@ struct TVSubscriptionFeedView: View {
     @State private var handledFocusRequest: Int?
     @State private var initialGridFocusPending = false
     @FocusState private var focusedVideo: String?
+    @State private var railReturnVideoID: String?
+    @State private var detailReturnVideoID: String?
+    @State private var mutationCursor = TVVideoMutationCursor()
+    @StateObject private var videoMenu = TVHomeMenuCoordinator()
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 4)
 
     var body: some View {
+        GeometryReader { viewport in
+        let layoutWidth = fixedLayoutWidth ?? viewport.size.width
         ScrollViewReader { scroll in
             ScrollView {
             VStack(alignment: .leading, spacing: 27) {
@@ -72,45 +71,34 @@ struct TVSubscriptionFeedView: View {
                         detail: TVL10n.value("subscriptions.chooseChannel")
                     )
                 } else {
-                    LazyVGrid(columns: columns, spacing: 32) {
-                        ForEach(visibleVideos.enumerated().map {
-                            TVSubscriptionFeedGridEntry(index: $0.offset, video: $0.element)
-                        }) { entry in
-                            let index = entry.index
-                            let video = entry.video
-                            NavigationLink {
-                                VideoDetailView(
-                                    api: api, video: video,
-                                    onReturnToList: {
-                                        TVVideoFocusReturn.restore(
-                                            $focusedVideo, id: video.url, scroll: scroll
-                                        )
-                                    }
-                                )
-                            } label: {
-                                VideoCard(api: api, video: video)
-                            }
-                            .buttonStyle(TVRailButtonStyle())
-                            .focusEffectDisabled(true)
-                            .zIndex(focusedVideo == video.url ? 5 : 0)
-                            .id(video.url)
-                            .videoActions(api: api, video: video, onChanged: {},
-                                          focus: $focusedVideo, focusID: video.url)
-                            .onMoveCommand { direction in
-                                if direction == .left && index % columns.count == 0 {
-                                    onRevealMenu()
-                                }
-                            }
-                            .onAppear {
-                                if index >= visibleVideos.count - columns.count - 1,
-                                   nextCursor != nil && !loading && !loadingMore &&
-                                   pageError == nil {
-                                    Task { await loadMore() }
-                                }
-                            }
-                        }
-                    }
-                    .focusSection()
+                    TVSharedVideoGrid(
+                        snapshot: TVSharedVideoGridSnapshot(
+                            videos: visibleVideos, scope: api.metadataCacheScope,
+                            destination: "subscriptions-feed",
+                            focusPrefix: "",
+                            accessibilityPrefix: "subscriptions-video-",
+                            columns: columns.count, columnSpacing: 26,
+                            rowSpacing: 32, canLoadMore: nextCursor != nil &&
+                                !loading && !loadingMore && pageError == nil,
+                            loadAhead: columns.count + 1,
+                            lookupMissingMetadata: false,
+                            isWatchLaterEntry: false, playbackQueue: nil
+                        ),
+                        api: api, focus: $focusedVideo, menu: videoMenu,
+                        onReturnToList: { id in
+                            // No post-pop timer or scrollTo when the existing
+                            // lazy grid remains mounted at its current offset.
+                            detailReturnVideoID = id
+                            focusedVideo = id
+                        },
+                        onLeftEdge: { id in
+                            detailReturnVideoID = nil
+                            railReturnVideoID = id
+                            onRevealMenu()
+                        },
+                        onApproachEnd: { Task { await loadMore() } }
+                    )
+                    .equatable()
                     if loadingMore {
                         ProgressView("settings.remoteLoading")
                             .frame(maxWidth: .infinity)
@@ -128,8 +116,39 @@ struct TVSubscriptionFeedView: View {
             .padding(.horizontal, 65)
             .padding(.top, 42)
             .padding(.bottom, 120)
+            .frame(width: layoutWidth, alignment: .leading)
+            .scaleEffect(
+                TVHomeNavigationZoom.scale(
+                    visibleWidth: viewport.size.width, layoutWidth: layoutWidth
+                ),
+                anchor: .topLeading
+            )
+            .frame(width: viewport.size.width, alignment: .topLeading)
         }
+        .frame(width: viewport.size.width, height: viewport.size.height)
         .background(TTTheme.ink)
+        .defaultFocus(
+            $focusedVideo, detailReturnVideoID ?? railReturnVideoID,
+            priority: detailReturnVideoID == nil && railReturnVideoID == nil
+                ? .automatic : .userInitiated
+        )
+        .modifier(TVHomeMenuPresentation(model: videoMenu))
+        .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
+        .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
+        .onChange(of: videoMenu.focusRestoreRequest) { _, _ in
+            if let id = videoMenu.focusRestoreTarget,
+               visibleVideos.contains(where: { $0.url == id }) {
+                focusedVideo = id
+            }
+        }
+        .task {
+            await TVWatchLaterMembership.shared.ensureLoaded(api: api)
+        }
+        .task {
+            async let playlists: Void = TVPlaylistMembership.shared.ensureLoaded(api: api)
+            async let favorites: Void = TVFavoriteMembership.shared.ensureLoaded(api: api)
+            _ = await (playlists, favorites)
+        }
         .task {
             await contentPreferences.ensureLoaded(api: api)
             guard !loadedOnce else { return }
@@ -140,6 +159,12 @@ struct TVSubscriptionFeedView: View {
             guard focusRequest > 0,
                   handledFocusRequest != focusRequest else { return }
             handledFocusRequest = focusRequest
+            if let saved = railReturnVideoID,
+               visibleVideos.contains(where: { $0.url == saved }) {
+                initialGridFocusPending = false
+                return
+            }
+            railReturnVideoID = nil
             initialGridFocusPending = true
             await Task.yield()
             if let first = visibleVideos.first {
@@ -158,7 +183,36 @@ struct TVSubscriptionFeedView: View {
                 self.focusedVideo = urls.first
             }
         }
-        .onExitCommand { onRevealMenu() }
+        .onExitCommand {
+            if let first = TVVideoGridBackPolicy.firstTarget(
+                focused: focusedVideo, first: visibleVideos.first?.url
+            ) {
+                detailReturnVideoID = first
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    scroll.scrollTo(first, anchor: .top)
+                    focusedVideo = first
+                }
+            } else {
+                detailReturnVideoID = nil
+                railReturnVideoID = focusedVideo
+                onRevealMenu()
+            }
+        }
+        }
+        } // GeometryReader keeps the grid width constant across menu zoom.
+    }
+
+    @MainActor
+    private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
+        let pending = events.filter {
+            $0.id > mutationCursor.lastID && $0.accountScope == api.metadataCacheScope
+        }
+        mutationCursor.lastID = max(mutationCursor.lastID, events.last?.id ?? 0)
+        guard !pending.isEmpty else { return }
+        if videos.contains(where: { item in pending.contains { $0.removes(item) } }) {
+            videos.removeAll { item in pending.contains { $0.removes(item) } }
         }
     }
 

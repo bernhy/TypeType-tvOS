@@ -10,17 +10,27 @@ private enum TVLibraryDestination: Hashable {
 
 struct LibraryView: View {
     let api: TypeTypeAPI
+    var fixedLayoutWidth: CGFloat?
     var preferPlaylists = false
     var focusRequest = 0
     var onRevealMenu: () -> Void = {}
 
     @State private var handledFocusRequest: Int?
     @State private var lastLoadedDestination: TVLibraryDestination?
+    @State private var initialLoadStarted = false
+    @State private var initialLoadFinished = false
+    // Set synchronously as the detail dismisses, before tvOS chooses its
+    // next native focus target; does not trigger a second grid reload.
+    @State private var detailReturnVideoID: String?
+    @State private var backToFirstRequest = 0
+    @State private var railReturnVideoID: String?
+    @State private var mutationCursor = TVVideoMutationCursor()
     @State private var selected: TVLibraryDestination = .standard(.watchLater)
     @FocusState private var focusedDestination: TVLibraryDestination?
     // Only Up/Down moves already within this rail may visually follow the
     // native focus. Left from content is pinned to the selected destination.
     @State private var railBrowsingVertically = false
+    @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @FocusState private var focusedVideoURL: String?
     @FocusState private var focusedRefresh: Bool
     @FocusState private var focusedEditPlaylist: Bool
@@ -32,6 +42,15 @@ struct LibraryView: View {
     @State private var mutationError: String?
     @State private var savingPlaylist = false
     @State private var videos: [VideoItem] = []
+    @ObservedObject private var contentPreferences = TVContentPreferences.shared
+    private var visibleVideos: [VideoItem] {
+        contentPreferences.withoutHiddenLivestreams(videos)
+    }
+    private var preferredVideoID: String? {
+        guard let saved = detailReturnVideoID ?? railReturnVideoID,
+              visibleVideos.contains(where: { $0.url == saved }) else { return nil }
+        return saved
+    }
     @State private var statusMessage: String?
     @State private var railError: String?
     @State private var loading = false
@@ -52,6 +71,17 @@ struct LibraryView: View {
                 .environment(\.isFocusEffectEnabled, false)
                 .focusEffectDisabled(true)
                 .focusSection()
+                // Enter the currently selected library destination directly;
+                // no Task.yield correction after tvOS chose a neighbor.
+                .defaultFocus(
+                    $focusedDestination, selected, priority: .userInitiated
+                )
+            GeometryReader { viewport in
+            // Keep the library subrail in its original 240pt slot. Only
+            // its neighboring video content visually scales as the global
+            // sidebar expands, never the library's own navigation controls.
+            let layoutWidth = max(0, (fixedLayoutWidth ??
+                (viewport.size.width + 260)) - 260)
             ScrollViewReader { scroll in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 23) {
@@ -65,7 +95,7 @@ struct LibraryView: View {
                                 .lineLimit(1)
                         }
                         Spacer()
-                        Text(TVL10n.formatted("common.videoCount", videos.count))
+                        Text(TVL10n.formatted("common.videoCount", visibleVideos.count))
                             .font(.callout)
                             .foregroundStyle(TTTheme.muted)
                         if let queue = playbackQueue, !queue.isEmpty {
@@ -120,61 +150,54 @@ struct LibraryView: View {
                             detail: TVL10n.value("library.loadHelp"),
                             action: { Task { await refresh() } }
                         )
-                    } else if videos.isEmpty {
+                    } else if visibleVideos.isEmpty {
                         TVContentMessage(
                             symbol: "rectangle.stack",
                             title: title,
                             detail: TVL10n.value("library.historyEmpty")
                         )
                     } else {
-                        LazyVGrid(columns: columns, spacing: 28) {
-                            ForEach(videos) { video in
-                                NavigationLink {
-                                    VideoDetailView(
-                                        api: api, video: video,
-                                        playbackQueue: playbackQueue,
-                                        onReturnToList: {
-                                            TVVideoFocusReturn.restore(
-                                                $focusedVideoURL, id: video.url, scroll: scroll
-                                            )
-                                        }
-                                    )
-                                } label: {
-                                    VideoCard(api: api, video: video,
-                                              lookupMissingMetadata: selected == .standard(.history))
-                                }
-                                .buttonStyle(TVRailButtonStyle())
-                                .focusEffectDisabled(true)
-                                .zIndex(focusedVideoURL == video.url ? 5 : 0)
-                                .videoActions(
-                                    api: api, video: video,
-                                    onChanged: { Task { await refresh() } },
-                                    onRemoveFromPlaylist: removalAction(for: video),
-                                    isWatchLaterEntry: selected == .standard(.watchLater),
-                                    focus: $focusedVideoURL, focusID: video.url
-                                )
-                                .onMoveCommand { direction in
-                                    if direction == .left,
-                                       let index = videos.firstIndex(where: { $0.id == video.id }),
-                                       index % columns.count == 0 {
-                                        focusedDestination = selected
-                                    }
-                                }
-                                .accessibilityLabel(TTTheme.accessibilityText(for: video))
-                                .id(video.url)
-                                .onAppear {
-                                    guard selected == .standard(.history),
-                                          !loading && !historyLoadingMore && historyHasMore,
-                                          let index = videos.firstIndex(where: {
-                                              TVHistoryDeduplicator.key(for: $0) ==
-                                                  TVHistoryDeduplicator.key(for: video)
-                                          }),
-                                          index >= videos.count - 8 else { return }
-                                    Task { await loadMoreHistory() }
-                                }
-                            }
-                        }
-                        .focusSection()
+                        TVSharedVideoGrid(
+                            snapshot: TVSharedVideoGridSnapshot(
+                                videos: visibleVideos, scope: api.metadataCacheScope,
+                                destination: "library-" + String(describing: selected),
+                                focusPrefix: "",
+                                accessibilityPrefix: "library-video-",
+                                columns: columns.count, columnSpacing: 25,
+                                rowSpacing: 28,
+                                canLoadMore: selected == .standard(.history) &&
+                                    historyHasMore && !loading && !historyLoadingMore,
+                                loadAhead: 8,
+                                lookupMissingMetadata: selected == .standard(.history),
+                                isWatchLaterEntry: selected == .standard(.watchLater),
+                                playbackQueue: playbackQueue
+                            ),
+                            api: api, focus: $focusedVideoURL, menu: videoMenu,
+                            onReturnToList: { id in
+                                // The ScrollView and its LazyVGrid are still
+                                // mounted. Preserve their natural scroll
+                                // position instead of centering the card
+                                // after an arbitrary 180+140ms delay.
+                                // If this exact video was removed from the
+                                // currently displayed list while in detail,
+                                // the old focus target no longer exists.
+                                let target = visibleVideos.first(where: {
+                                    TVVideoIdentity.equivalent($0.url, id)
+                                })?.url ?? visibleVideos.first?.url
+                                detailReturnVideoID = target
+                                focusedDestination = target == nil ? selected : nil
+                                focusedVideoURL = target
+                            },
+                            onLeftEdge: { id in
+                                railReturnVideoID = id
+                                detailReturnVideoID = nil
+                                focusedDestination = selected
+                            },
+                            // Mutations remove only affected cached entries.
+                            onApproachEnd: { Task { await loadMoreHistory() } },
+                            onRemoveFromPlaylist: { removalAction(for: $0) }
+                        )
+                        .equatable()
                         if selected == .standard(.history) && historyHasMore {
                             HStack(spacing: 16) {
                                 if historyLoadingMore { ProgressView() }
@@ -196,49 +219,117 @@ struct LibraryView: View {
                 .padding(.top, 38)
                 .padding(.trailing, 38)
                 .padding(.bottom, 100)
+                .frame(width: layoutWidth, alignment: .leading)
+                .scaleEffect(
+                    TVHomeNavigationZoom.scale(
+                        visibleWidth: viewport.size.width,
+                        layoutWidth: layoutWidth
+                    ),
+                    anchor: .topLeading
+                )
+                .frame(width: viewport.size.width, alignment: .topLeading)
                 }
-            }
-        }
-        .background(TTTheme.ink)
-        .task { await refresh() }
-        .onChange(of: focusedDestination) { previous, next in
-            if next == nil {
-                railBrowsingVertically = false
-            } else if previous == nil {
-                railBrowsingVertically = false
-                if let next, next != selected {
-                    // The nearest playlist/section can win the first native
-                    // focus frame. Restore the page that is actually shown.
-                    let expected = selected
-                    Task { @MainActor in
-                        await Task.yield()
-                        guard selected == expected, focusedDestination == next else { return }
-                        focusedDestination = expected
+                .frame(width: viewport.size.width, height: viewport.size.height)
+                // The user explicitly returned from this detail tile. Give
+                // its current position first priority during the pop.
+                .defaultFocus(
+                    $focusedVideoURL, preferredVideoID,
+                    priority: preferredVideoID == nil
+                        ? .automatic : .userInitiated
+                )
+                // ScrollViewProxy is scoped to this existing reader. Back
+                // sends one signal only; no per-tile or per-focus observer.
+                .onChange(of: backToFirstRequest) { _, _ in
+                    guard let first = visibleVideos.first?.url else { return }
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        scroll.scrollTo(first, anchor: .top)
+                        focusedVideoURL = first
                     }
                 }
-            } else {
-                railBrowsingVertically = true
             }
+            } // GeometryReader: library rail stays native; grid zooms.
+        }
+        // The entire page is a native focus-entry region. A Right move
+        // from the global rail should prefer the last saved video even
+        // though the secondary navigation sits geometrically to its left.
+        // A nil saved ID leaves first-entry rail focus unchanged.
+        .defaultFocus(
+            $focusedVideoURL, preferredVideoID,
+            priority: preferredVideoID == nil ? .automatic : .userInitiated
+        )
+        .background(TTTheme.ink)
+        .modifier(TVHomeMenuPresentation(model: videoMenu))
+        .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
+        .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
+        .onChange(of: videoMenu.focusRestoreRequest) { _, _ in
+            if let id = videoMenu.focusRestoreTarget,
+               visibleVideos.contains(where: { $0.url == id }) {
+                focusedDestination = nil
+                focusedVideoURL = id
+            }
+        }
+        .task { await TVWatchLaterMembership.shared.ensureLoaded(api: api) }
+        .task {
+            async let playlists: Void = TVPlaylistMembership.shared.ensureLoaded(api: api)
+            async let favorites: Void = TVFavoriteMembership.shared.ensureLoaded(api: api)
+            _ = await (playlists, favorites)
+        }
+        .task { await contentPreferences.ensureLoaded(api: api) }
+        .task {
+            // A SwiftUI .task restarts after returning from a pushed detail.
+            // Never replace the visible LazyVGrid with a loading placeholder
+            // or refetch playlists/history unless explicitly requested.
+            guard !initialLoadStarted, !initialLoadFinished else { return }
+            initialLoadStarted = true
+            await refresh()
+            if Task.isCancelled {
+                // A detail push can cancel an initial load that has not
+                // finished. Unlike a normal completed load, that must be
+                // eligible for retry when the Library becomes visible again.
+                initialLoadStarted = false
+                return
+            }
+            lastLoadedDestination = selected
+            initialLoadFinished = true
+        }
+        .onChange(of: focusedDestination) { previous, next in
+            railBrowsingVertically = previous != nil && next != nil
         }
         .task(id: focusRequest) {
             guard focusRequest >= 0, handledFocusRequest != focusRequest else { return }
             handledFocusRequest = focusRequest
+            // The last tile is already registered with native defaultFocus.
+            // Do not focus the subrail first and then visibly jump to it.
+            if preferredVideoID != nil { return }
             await Task.yield()
             guard !Task.isCancelled else { return }
             focusedDestination = selected
         }
         .task(id: selected) {
-            // NavigationStack can rerun .task on popping a video detail.
-            // A page already loaded for this destination retains its grid
-            // identity, scroll position and last focused tile.
-            guard lastLoadedDestination != selected else { return }
+            // Initial refresh owns the first load. Later only an actual tab
+            // change may fetch and replace this grid.
+            guard initialLoadFinished,
+                  lastLoadedDestination != selected else { return }
             lastLoadedDestination = selected
             await loadSelected()
         }
         .onExitCommand {
             if focusedDestination != nil {
                 onRevealMenu()
+            } else if let first = TVVideoGridBackPolicy.firstTarget(
+                focused: focusedVideoURL, first: visibleVideos.first?.url
+            ) {
+                // First Back from a deep tile goes to the first visible tile.
+                // Keep the same mounted grid and its current data snapshot.
+                detailReturnVideoID = first
+                backToFirstRequest &+= 1
             } else {
+                if let focusedVideoURL {
+                    railReturnVideoID = focusedVideoURL
+                }
+                detailReturnVideoID = nil
                 focusedDestination = selected
             }
         }
@@ -286,10 +377,15 @@ struct LibraryView: View {
         }
     }
 
+    private var isPlaylistSelected: Bool {
+        if case .playlist = selected { return true }
+        return false
+    }
+
     private var playbackQueue: [VideoItem]? {
         switch selected {
         case .playlist, .standard(.watchLater):
-            return videos
+            return visibleVideos
         case .standard:
             return nil
         }
@@ -302,6 +398,37 @@ struct LibraryView: View {
             await TVPlaylistMembership.shared.markRemoved(
                 videoURL: video.url, playlistID: id, api: api
             )
+            await TVVideoMutationCenter.shared.record(
+                api: api, video: video, kind: .playlist(id: id, added: false)
+            )
+        }
+    }
+
+    @MainActor
+    private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
+        let pending = events.filter {
+            $0.id > mutationCursor.lastID && $0.accountScope == api.metadataCacheScope
+        }
+        mutationCursor.lastID = max(mutationCursor.lastID, events.last?.id ?? 0)
+        guard !pending.isEmpty else { return }
+        let destination = selected
+        let shouldRemove: (VideoItem) -> Bool = { video in
+            pending.contains { event in
+                if event.removes(video) { return true }
+                switch destination {
+                case .standard(.watchLater):
+                    return event.removesFromWatchLater(video)
+                case .standard(.favorites):
+                    return event.removesFromFavorites(video)
+                case .playlist(let id):
+                    return event.removesFromPlaylist(video, id: id)
+                case .standard(.history):
+                    return false
+                }
+            }
+        }
+        if videos.contains(where: shouldRemove) {
+            videos.removeAll(where: shouldRemove)
         }
     }
 
@@ -420,8 +547,14 @@ struct LibraryView: View {
     @MainActor
     private func enterDestination(_ destination: TVLibraryDestination) {
         if destination != selected {
+            railReturnVideoID = nil
+            detailReturnVideoID = nil
             focusContentAfterLoad = true
             selected = destination
+        } else if let preferredVideoID {
+            // Explicit OK/Right on the selected category transfers directly.
+            // Native defaultFocus owns the destination, not a delayed Task.
+            focusedVideoURL = preferredVideoID
         } else {
             focusFirstContent()
         }
@@ -429,6 +562,10 @@ struct LibraryView: View {
 
     @MainActor
     private func focusFirstContent() {
+        if let preferredVideoID {
+            focusedVideoURL = preferredVideoID
+            return
+        }
         guard !loading else {
             focusContentAfterLoad = true
             return

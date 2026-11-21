@@ -34,6 +34,30 @@ final class TVContinueWatchingPolicyTests: XCTestCase {
         ))
     }
 
+    func testLiveContentWithoutLegacyLiveFlagIsNotResumable() {
+        var stream = video()
+        stream.isLiveContent = true
+        XCTAssertFalse(TVContinueWatchingPolicy.isEligible(
+            stream, positionMs: 30_000
+        ))
+        XCTAssertFalse(TVWatchedState.isWatched(stream, positionMs: 300_000))
+    }
+
+    func testPostLiveArchiveRestoresNormalResumeAndWatchedBehavior() {
+        var archive = video(isLive: true)
+        archive.isLiveContent = true
+        archive.isPostLive = true
+        XCTAssertTrue(TVContinueWatchingPolicy.isEligible(
+            archive, positionMs: 30_000
+        ))
+        XCTAssertTrue(TVWatchedState.isWatched(
+            archive, positionMs: 270_000
+        ))
+        XCTAssertFalse(TVContinueWatchingPolicy.isEligible(
+            archive, positionMs: 270_000
+        ))
+    }
+
     func testSavedPositionOverridesStaleWatchedFlag() {
         var item = video()
         item.watched = true

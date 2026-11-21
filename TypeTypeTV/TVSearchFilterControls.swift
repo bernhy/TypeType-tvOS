@@ -195,6 +195,7 @@ struct TVSearchNamedCard: View {
     let image: URL?
     let origin: URL
     let symbol: String
+    @Environment(\.isFocused) private var isFocused
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -216,5 +217,12 @@ struct TVSearchNamedCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        // The native glow is disabled for TypeType cards. Without a
+        // replacement these named search results can appear unfocusable,
+        // unlike VideoCard which already zooms via Environment.isFocused.
+        // Do not add a white focus frame or alter the grid's layout size.
+        .scaleEffect(isFocused ? 1.065 : 1)
+        .animation(.easeOut(duration: 0.18), value: isFocused)
     }
 }

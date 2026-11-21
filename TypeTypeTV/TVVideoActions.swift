@@ -1,326 +1,6 @@
 import SwiftUI
 
-/// Native tvOS context menus open by holding Select on a focused video card.
-/// Actions always operate on TypeType's account library, never an isolated
-/// Apple TV-only copy. A toast confirms success and alerts explain failures.
-private struct TVActionFocusModifier: ViewModifier {
-    let local: FocusState<Bool>.Binding
-    let external: FocusState<String?>.Binding?
-    let key: String?
-
-    func body(content: Content) -> some View {
-        if let external, let key {
-            content.focused(external, equals: key)
-        } else {
-            content.focused(local)
-        }
-    }
-}
-
-struct TVVideoActionModifier: ViewModifier {
-    let api: TypeTypeAPI
-    let video: VideoItem
-    let onChanged: (() -> Void)?
-    let onRemoveFromPlaylist: (() async throws -> Void)?
-    let isWatchLaterEntry: Bool
-    let externalFocus: FocusState<String?>.Binding?
-    let focusID: String?
-
-    @ObservedObject private var localProgress = TVLocalProgress.shared
-    @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
-
-    private var videoWithKnownDuration: VideoItem {
-        var row = video
-        if (row.duration ?? 0) <= 0, let resolvedDuration {
-            row.duration = resolvedDuration
-        }
-        return row
-    }
-    private var isMarkedWatched: Bool {
-        TVWatchedState.isWatched(videoWithKnownDuration, positionMs:
-            localProgress.position(for: video.url) ?? video.watchPositionMs)
-    }
-    @State private var resolvedDuration: Int?
-    @FocusState private var cardFocus: Bool
-    @State private var toBlock: TVBlockTarget?
-    @State private var feedback: String?
-    @State private var feedbackDelayTask: Task<Void, Never>?
-    @State private var errorMessage: String?
-    @State private var working = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func body(content: Content) -> some View {
-        content
-            .modifier(TVActionFocusModifier(
-                local: $cardFocus, external: externalFocus, key: focusID
-            ))
-            .task { await watchLaterMembership.ensureLoaded(api: api) }
-            .contextMenu {
-                if let position = localProgress.positions[video.url] ?? video.watchPositionMs,
-                   position > 0 {
-                    Button {
-                    } label: {
-                        Label(
-                            TVL10n.formatted("action.playedUntil", TTTheme.time(Int(position / 1_000))),
-                            systemImage: "clock.arrow.circlepath"
-                        )
-                    }
-                    .disabled(true)
-                }
-                if video.isLive != true,
-                   ((videoWithKnownDuration.duration ?? 0) > 0 || video.isShort) {
-                    Button {
-                        // Resolve missing Shorts duration only when the user
-                        // invokes the action, never for every thumbnail.
-                        perform(refresh: false) {
-                            var target = videoWithKnownDuration
-                            if (target.duration ?? 0) <= 0 {
-                                let details = await TVStreamMetadataCache.shared.details(
-                                    for: video, api: api
-                                )
-                                target = TVVideoMetadata.merged(video, stream: details)
-                            }
-                            guard let duration = target.duration, duration > 0,
-                                  duration <= Int64.max / 1_000 else {
-                                throw TypeTypeError.missingVideoDuration
-                            }
-                            let markWatched = !isMarkedWatched
-                            try await api.setWatched(markWatched, video: target)
-                            resolvedDuration = duration
-                            TVLocalProgress.shared.record(
-                                video.url, positionMs: markWatched ? Int64(duration) * 1_000 : 0
-                            )
-                            return TVL10n.value(markWatched
-                                ? "action.markWatchedSuccess" : "action.markUnwatchedSuccess")
-                        }
-                    } label: {
-                        Label(
-                            isMarkedWatched ? "action.markUnwatched" : "action.markWatched",
-                            systemImage: isMarkedWatched ? "arrow.uturn.backward.circle" : "checkmark.circle"
-                        )
-                    }
-                }
-                if isWatchLaterEntry || watchLaterMembership.contains(video.url) {
-                    Button(role: .destructive) {
-                        perform {
-                            try await api.setWatchLater(video: video, enabled: false)
-                            TVWatchLaterMembership.shared.mark(
-                                video.url, present: false, api: api
-                            )
-                            return TVL10n.value("action.removedWatchLater")
-                        }
-                    } label: {
-                        Label("action.removeWatchLater", systemImage: "bookmark.slash")
-                    }
-                } else {
-                    Button {
-                        perform {
-                            try await api.setWatchLater(video: video, enabled: true)
-                            TVWatchLaterMembership.shared.mark(
-                                video.url, present: true, api: api
-                            )
-                            return TVL10n.value("action.savedWatchLater")
-                        }
-                    } label: {
-                        Label("action.watchLater", systemImage: "bookmark")
-                    }
-                }
-                Button {
-                    TVPlaylistPopupPresenter.shared.present(
-                        api: api, video: video,
-                        onSaved: { success in
-                            presentFeedback(success)
-                            // A successful addition updates only the shared
-                            // membership index, retaining grid scroll/focus.
-                            if success == TVL10n.value("action.removedPlaylist") {
-                                refreshAfterFeedback()
-                            }
-                        },
-                        onDismiss: restoreCardFocus
-                    )
-                } label: {
-                    Label("action.addPlaylist", systemImage: "text.badge.plus")
-                }
-                if let onRemoveFromPlaylist {
-                    Button(role: .destructive) {
-                        perform {
-                            try await onRemoveFromPlaylist()
-                            return TVL10n.value("action.removedPlaylist")
-                        }
-                    } label: {
-                        Label("action.removePlaylistVideo", systemImage: "minus.circle")
-                    }
-                }
-                Button(role: .destructive) {
-                    toBlock = .video
-                } label: {
-                    Label("action.blockVideo", systemImage: "hand.raised")
-                }
-                Button(role: .destructive) {
-                    if video.uploaderUrl?.isEmpty == false {
-                        toBlock = .channel
-                    } else {
-                        errorMessage = TVL10n.value("action.channelUnavailable")
-                    }
-                } label: {
-                    Label("action.blockChannel", systemImage: "person.crop.circle.badge.xmark")
-                }
-            }
-            .overlay(alignment: .topLeading) {
-                if let feedback {
-                    Label(feedback, systemImage: "checkmark.circle.fill")
-                        .font(.callout.bold())
-                        .foregroundStyle(.white)
-                        .padding(10)
-                        .background(.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 12))
-                        .padding(7)
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                }
-            }
-            .animation(.easeInOut(duration: reduceMotion ? 0.12 : 0.23),
-                       value: feedback)
-            .task(id: feedback) {
-                guard let current = feedback else { return }
-                try? await Task.sleep(for: .seconds(2.4))
-                guard !Task.isCancelled && feedback == current else { return }
-                withAnimation(.easeInOut(duration: reduceMotion ? 0.12 : 0.23)) {
-                    feedback = nil
-                }
-            }
-            .onDisappear { feedbackDelayTask?.cancel() }
-            .onChange(of: toBlock) { old, current in
-                if old != nil && current == nil { restoreCardFocus() }
-            }
-            .onChange(of: errorMessage) { old, current in
-                if old != nil && current == nil { restoreCardFocus() }
-            }
-            .confirmationDialog(
-                TVL10n.formatted(
-                    "action.confirmBlockNamed",
-                    toBlock == .channel
-                        ? (video.uploaderName ?? TVL10n.value("action.channelUnavailable"))
-                        : video.title
-                ),
-                isPresented: Binding(
-                    get: { toBlock != nil },
-                    set: { if !$0 { toBlock = nil } }
-                ),
-                titleVisibility: .visible
-            ) {
-                if let target = toBlock {
-                    Button(
-                        TVL10n.value(
-                            target == .video ? "action.blockVideo" : "action.blockChannel"
-                        ),
-                        role: .destructive
-                    ) {
-                        perform {
-                            switch target {
-                            case .video:
-                                try await api.blockVideo(video)
-                                TVBlockedNameCache.remember(
-                                    title: video.title, url: video.url, api: api
-                                )
-                            case .channel: try await api.blockChannel(video)
-                            }
-                            return TVL10n.value("action.blocked")
-                        }
-                        toBlock = nil
-                    }
-                }
-                Button("common.cancel", role: .cancel) { toBlock = nil }
-            }
-            .alert(
-                TVL10n.value("action.failed"),
-                isPresented: Binding(
-                    get: { errorMessage != nil },
-                    set: { if !$0 { errorMessage = nil } }
-                )
-            ) {
-                Button("common.ok") { errorMessage = nil }
-            } message: {
-                Text(errorMessage ?? "")
-            }
-    }
-
-    private func restoreCardFocus() {
-        Task { @MainActor in
-            await Task.yield()
-            if let externalFocus, let focusID {
-                externalFocus.wrappedValue = focusID
-            } else {
-                cardFocus = true
-            }
-        }
-    }
-
-    /// A menu dismissal briefly shrinks then re-enlarges its focused card.
-    /// Wait for that navigation/focus animation before starting the toast fade.
-    /// The server action itself runs immediately; only visual feedback waits.
-    @MainActor
-    private func presentFeedback(_ message: String) {
-        feedbackDelayTask?.cancel()
-        feedback = nil
-        feedbackDelayTask = Task { @MainActor in
-            do {
-                try await Task.sleep(for: .milliseconds(TVActionFeedbackPolicy.delayMilliseconds))
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: reduceMotion ? 0.12 : 0.23)) {
-                feedback = message
-            }
-        }
-    }
-
-    private func refreshAfterFeedback() {
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
-            onChanged?()
-        }
-    }
-
-    private func perform(refresh: Bool = true,
-                         _ action: @escaping () async throws -> String) {
-        guard !working else { return }
-        working = true
-        feedbackDelayTask?.cancel()
-        feedback = nil
-        Task { @MainActor in
-            defer { working = false }
-            do {
-                let text = try await action()
-                presentFeedback(text)
-                if refresh { refreshAfterFeedback() }
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-}
-
-private enum TVBlockTarget { case video, channel }
-
-extension View {
-    func videoActions(
-        api: TypeTypeAPI, video: VideoItem,
-        onChanged: (() -> Void)? = nil,
-        onRemoveFromPlaylist: (() async throws -> Void)? = nil,
-        isWatchLaterEntry: Bool = false,
-        focus: FocusState<String?>.Binding? = nil,
-        focusID: String? = nil
-    ) -> some View {
-        modifier(TVVideoActionModifier(
-            api: api, video: video, onChanged: onChanged,
-            onRemoveFromPlaylist: onRemoveFromPlaylist,
-            isWatchLaterEntry: isWatchLaterEntry,
-            externalFocus: focus, focusID: focusID
-        ))
-    }
-}
-
+/// Shared account playlist picker used by lightweight video menus.
 struct TVPlaylistPickerView: View {
     let api: TypeTypeAPI
     let video: VideoItem
@@ -440,6 +120,9 @@ struct TVPlaylistPickerView: View {
             let playlist = try await api.createPlaylist(name: name)
             try await api.addToPlaylist(playlist.id, video: video)
             playlistMembership.markAdded(videoURL: video.url, playlist: playlist, api: api)
+            TVVideoMutationCenter.shared.record(
+                api: api, video: video, kind: .playlist(id: playlist.id, added: true)
+            )
             onSaved(TVL10n.value("action.addedPlaylist"))
         } catch { self.error = error.localizedDescription }
     }
@@ -458,11 +141,18 @@ struct TVPlaylistPickerView: View {
                 playlistMembership.markRemoved(
                     videoURL: video.url, playlistID: playlist.id, api: api
                 )
+                TVVideoMutationCenter.shared.record(
+                    api: api, video: video,
+                    kind: .playlist(id: playlist.id, added: false)
+                )
                 onSaved(TVL10n.value("action.removedPlaylist"))
             } else {
                 try await api.addToPlaylist(playlist.id, video: video)
                 playlistMembership.markAdded(
                     videoURL: video.url, playlist: playlist, api: api
+                )
+                TVVideoMutationCenter.shared.record(
+                    api: api, video: video, kind: .playlist(id: playlist.id, added: true)
                 )
                 onSaved(TVL10n.value("action.addedPlaylist"))
             }
@@ -472,27 +162,535 @@ struct TVPlaylistPickerView: View {
     }
 }
 
-/// Return focus after the pushed video details are removed from the stack.
-/// A synchronous assignment during dismissal is overwritten by tvOS.
-enum TVVideoFocusReturn {
-    static func restore(_ binding: FocusState<String?>.Binding, id: String,
-                        scroll: ScrollViewProxy? = nil) {
-        Task { @MainActor in
-            // Wait for the detail pop, then materialize the offscreen card
-            // before asking tvOS to give it focus.
-            try? await Task.sleep(nanoseconds: 180_000_000)
-            guard !Task.isCancelled else { return }
-            if let scroll {
-                withAnimation(.easeOut(duration: 0.18)) {
-                    scroll.scrollTo(id, anchor: .center)
-                }
-                try? await Task.sleep(nanoseconds: 140_000_000)
-                guard !Task.isCancelled else { return }
-            } else {
-                await Task.yield()
-            }
-            binding.wrappedValue = id
-        }
+// MARK: - Home lightweight context actions
+
+/// Context actions publish local status or mutation events; they do not
+/// reload video feeds or add observers to each thumbnail.
+/// Each lightweight Home card publishes one layout anchor, without
+/// attaching state/observers/animations to NavigationLink. Prefer ordered,
+/// append-only storage: PreferenceKey.reduce is called thousands of times
+/// while lazy grids materialize and hashing/merging dictionaries for each
+/// partial subtree is unnecessary. Resolve the single desired focusID only
+/// when a toast actually needs to appear.
+///
+/// Duplicate IDs retain the previous dictionary's "latest wins" semantics:
+/// lookup deliberately searches the array from the end.
+struct TVHomeCardToastAnchor {
+    let focusID: String
+    let anchor: Anchor<CGRect>
+}
+
+struct TVHomeCardToastAnchorKey: PreferenceKey {
+    static var defaultValue: [TVHomeCardToastAnchor] { [] }
+
+    static func reduce(value: inout [TVHomeCardToastAnchor],
+                       nextValue: () -> [TVHomeCardToastAnchor]) {
+        value.append(contentsOf: nextValue())
     }
 }
 
+struct TVHomeCardToast: Equatable {
+    let message: String
+    let focusID: String
+    let id = UUID()
+}
+
+enum TVHomeCardToastPosition {
+    /// The source card must still overlap the visible Home viewport.
+    /// Merely having a retained LazyVGrid anchor does not make it visible.
+    static func isVisible(_ frame: CGRect, in viewport: CGRect) -> Bool {
+        !frame.isEmpty && !viewport.isEmpty && frame.intersects(viewport)
+    }
+
+    /// Keep the clip's top edge exactly on the source card's top edge.
+    /// The reveal can extend beyond the card's right edge so the text keeps
+    /// its natural single-line width, as before the animation change.
+    static func revealRect(for card: CGRect, in viewport: CGRect) -> CGRect {
+        CGRect(x: card.minX, y: card.minY,
+               width: max(0, viewport.maxX - card.minX), height: 76)
+    }
+}
+
+@MainActor
+final class TVHomeMenuCoordinator: ObservableObject {
+    enum BlockTarget { case video, channel }
+
+    struct BlockRequest {
+        let target: BlockTarget
+        let api: TypeTypeAPI
+        let video: VideoItem
+        let focusID: String
+    }
+
+    @Published var blockRequest: BlockRequest?
+    @Published var errorMessage: String?
+    @Published var feedback: TVHomeCardToast?
+    @Published private(set) var focusRestoreRequest = 0
+    private(set) var focusRestoreTarget: String?
+    private var lastFocusID: String?
+    // On-demand shorts metadata belongs to the single shared menu host.
+    // It must survive closing/reopening the context menu, but must NOT be
+    // @Published or stored on each VideoCard (which would rerender the grid).
+    private var knownDurations: [String: Int] = [:]
+    private var working = false
+    private var feedbackTask: Task<Void, Never>?
+
+    func restoreFocus(_ id: String) {
+        Task { @MainActor in
+            await Task.yield()
+            focusRestoreTarget = id
+            focusRestoreRequest &+= 1
+        }
+    }
+
+    private func showFeedback(_ message: String, on focusID: String) {
+        feedbackTask?.cancel()
+        // Animate only the toast state. Never apply a feedback animation
+        // to the parent ScrollView: that can animate the entire Home grid.
+        withAnimation(.easeInOut(duration: 0.23)) {
+            feedback = TVHomeCardToast(message: message, focusID: focusID)
+        }
+        feedbackTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.4))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.23)) {
+                feedback = nil
+            }
+        }
+    }
+
+    /// Scrolling the source tile fully outside the viewport ends its toast.
+    /// Never re-show the same confirmation if the user scrolls back quickly.
+    func dismissFeedback(matching id: UUID) {
+        guard feedback?.id == id else { return }
+        feedbackTask?.cancel()
+        feedbackTask = nil
+        withAnimation(.easeOut(duration: 0.16)) {
+            feedback = nil
+        }
+    }
+
+    private func run(focusID: String,
+                     action: @escaping () async throws -> String) {
+        guard !working else { return }
+        lastFocusID = focusID
+        working = true
+        Task { @MainActor in
+            defer { working = false }
+            do {
+                let result = try await action()
+                showFeedback(result, on: focusID)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func videoWithKnownDuration(_ video: VideoItem) -> VideoItem {
+        guard (video.duration ?? 0) <= 0,
+              let duration = knownDurations[video.url] else { return video }
+        var result = video
+        result.duration = duration
+        return result
+    }
+
+    func rememberKnownDuration(_ duration: Int, for url: String) {
+        guard duration > 0 else { return }
+        if knownDurations.count >= 128, knownDurations[url] == nil,
+           let oldKey = knownDurations.keys.first {
+            knownDurations.removeValue(forKey: oldKey)
+        }
+        knownDurations[url] = duration
+    }
+
+    func markWatched(api: TypeTypeAPI, video: VideoItem, focusID: String) {
+        run(focusID: focusID) {
+            var target = self.videoWithKnownDuration(video)
+            if (target.duration ?? 0) <= 0 {
+                let details = await TVStreamMetadataCache.shared.details(for: video, api: api)
+                target = TVVideoMetadata.merged(video, stream: details)
+            }
+            guard let duration = target.duration, duration > 0,
+                  duration <= Int64.max / 1_000 else {
+                throw TypeTypeError.missingVideoDuration
+            }
+            let currentPosition = TVLocalProgress.shared.position(for: video.url) ??
+                video.watchPositionMs
+            let mark = !TVWatchedState.isWatched(target, positionMs: currentPosition)
+            try await api.setWatched(mark, video: target)
+            // This is mutated only after a menu action, never when focus
+            // moves. A later menu opening now sees the correct toggle even
+            // if the original shorts/history row omitted duration.
+            self.rememberKnownDuration(duration, for: video.url)
+            TVLocalProgress.shared.record(
+                video.url, positionMs: mark ? Int64(duration) * 1_000 : 0
+            )
+            return TVL10n.value(mark ? "action.markWatchedSuccess"
+                                    : "action.markUnwatchedSuccess")
+        }
+    }
+
+    func removePlaylistEntry(focusID: String,
+                             action: @escaping () async throws -> Void) {
+        run(focusID: focusID) {
+            try await action()
+            return TVL10n.value("action.removedPlaylist")
+        }
+    }
+
+    func updateWatchLater(api: TypeTypeAPI, video: VideoItem,
+                          focusID: String, enabled: Bool) {
+        run(focusID: focusID) {
+            try await api.setWatchLater(video: video, enabled: enabled)
+            TVWatchLaterMembership.shared.mark(video.url, present: enabled, api: api)
+            TVVideoMutationCenter.shared.record(
+                api: api, video: video, kind: .watchLater(added: enabled)
+            )
+            return TVL10n.value(enabled ? "action.savedWatchLater"
+                                        : "action.removedWatchLater")
+        }
+    }
+
+    func presentPlaylist(api: TypeTypeAPI, video: VideoItem,
+                         focusID: String) {
+        lastFocusID = focusID
+        TVPlaylistPopupPresenter.shared.present(
+            api: api, video: video,
+            onSaved: { result in
+                // The picker records precise changes in the mutation journal.
+                self.showFeedback(result, on: focusID)
+            },
+            onDismiss: { self.restoreFocus(focusID) }
+        )
+    }
+
+    func requestBlock(_ target: BlockTarget, api: TypeTypeAPI,
+                      video: VideoItem, focusID: String) {
+        lastFocusID = focusID
+        guard target != .channel || video.uploaderUrl?.isEmpty == false else {
+            errorMessage = TVL10n.value("action.channelUnavailable")
+            return
+        }
+        blockRequest = BlockRequest(target: target, api: api, video: video,
+                                    focusID: focusID)
+    }
+
+    func dismissBlock() {
+        guard let request = blockRequest else { return }
+        blockRequest = nil
+        restoreFocus(request.focusID)
+    }
+
+    func confirmBlock() {
+        guard let request = blockRequest else { return }
+        blockRequest = nil
+        run(focusID: request.focusID) {
+            switch request.target {
+            case .video:
+                try await request.api.blockVideo(request.video)
+                TVBlockedNameCache.remember(title: request.video.title,
+                                            url: request.video.url, api: request.api)
+                TVVideoMutationCenter.shared.record(
+                    api: request.api, video: request.video, kind: .videoBlocked
+                )
+            case .channel:
+                try await request.api.blockChannel(request.video)
+                TVVideoMutationCenter.shared.record(
+                    api: request.api, video: request.video, kind: .channelBlocked
+                )
+            }
+            return TVL10n.value("action.blocked")
+        }
+        restoreFocus(request.focusID)
+    }
+
+    func dismissError() {
+        errorMessage = nil
+        if let lastFocusID { restoreFocus(lastFocusID) }
+    }
+}
+
+/// Stable per-card modifier: the focused NavigationLink is never replaced.
+/// Unlike the retired per-card action state, this has no @ObservedObject, @State, .task,
+/// dialog, toast, or animation for each thumbnail.
+/// Menu-only state snapshot. The home card body deliberately has no
+/// subscription to watch-later/progress: it remains unchanged on focus-only
+/// moves, while the menu can always show current "remove"/"unwatched"
+/// actions and the current playback position.
+struct TVHomeCardMenuState: Equatable {
+    let positionMs: Int64?
+    let watched: Bool
+    let watchLater: TVWatchLaterMenuStatus
+
+    init(video: VideoItem, positionMs: Int64?,
+         watchLater: TVWatchLaterMenuStatus) {
+        self.positionMs = positionMs
+        self.watched = TVWatchedState.isWatched(video, positionMs: positionMs)
+        self.watchLater = watchLater
+    }
+}
+
+/// SwiftUI can cache a .contextMenu builder when its Home tile sits behind
+/// EquatableView. A menu-scoped ObservedObject makes that *menu* reactive
+/// without re-subscribing or refreshing every tile in the lazy grid.
+/// Both dependencies are existing shared in-memory caches: no GET here.
+private struct TVHomeCardMenuContents: View {
+    let api: TypeTypeAPI
+    let video: VideoItem
+    let model: TVHomeMenuCoordinator
+    let focusID: String
+    var isWatchLaterEntry = false
+    var onRemoveFromPlaylist: (() async throws -> Void)? = nil
+
+    @ObservedObject private var localProgress = TVLocalProgress.shared
+    @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
+
+    @ViewBuilder
+    var body: some View {
+                // This menu body, NOT the permanent Home tile, observes
+                // shared account/progress state. Values refresh whenever a
+                // long-press presents this menu or a library action changes
+                // the snapshot. No extra work during focus-only navigation.
+                let state = TVHomeCardMenuState(
+                    video: model.videoWithKnownDuration(video),
+                    positionMs: localProgress.position(for: video.url) ??
+                        video.watchPositionMs,
+                    watchLater: isWatchLaterEntry ? .saved :
+                        watchLaterMembership.menuStatus(
+                            for: video.url, api: api
+                        )
+                )
+                let position = state.positionMs
+                let watched = state.watched
+                let watchLaterStatus = state.watchLater
+
+                if let position, position > 0 {
+                    Button {} label: {
+                        Label(
+                            TVL10n.formatted("action.playedUntil",
+                                           TTTheme.time(Int(position / 1_000))),
+                            systemImage: "clock.arrow.circlepath"
+                        )
+                    }
+                    .disabled(true)
+                }
+                if !TVLiveStreamDisplayPolicy.isOngoing(video) &&
+                   ((video.duration ?? 0) > 0 || video.isShort) {
+                    Button {
+                        model.markWatched(api: api, video: video,
+                                          focusID: focusID)
+                    } label: {
+                        Label(
+                            watched ? "action.markUnwatched" : "action.markWatched",
+                            systemImage: watched
+                                ? "arrow.uturn.backward.circle" : "checkmark.circle"
+                        )
+                    }
+                }
+                if watchLaterStatus == .saved {
+                    Button(role: .destructive) {
+                        model.updateWatchLater(api: api, video: video,
+                            focusID: focusID, enabled: false)
+                    } label: {
+                        Label("action.removeWatchLater", systemImage: "bookmark.slash")
+                    }
+                } else if watchLaterStatus == .notSaved {
+                    Button {
+                        model.updateWatchLater(api: api, video: video,
+                            focusID: focusID, enabled: true)
+                    } label: {
+                        Label("action.watchLater", systemImage: "bookmark")
+                    }
+                } else if watchLaterStatus == .loading {
+                    Button {} label: {
+                        Label("action.watchLaterLoading", systemImage: "clock")
+                    }
+                    .disabled(true)
+                } else {
+                    Button {
+                        Task { await TVWatchLaterMembership.shared.retryLoading(api: api) }
+                    } label: {
+                        Label("action.watchLaterRetry", systemImage: "arrow.clockwise")
+                    }
+                }
+                Button {
+                    model.presentPlaylist(api: api, video: video,
+                        focusID: focusID)
+                } label: {
+                    Label("action.addPlaylist", systemImage: "text.badge.plus")
+                }
+                if let onRemoveFromPlaylist {
+                    Button(role: .destructive) {
+                        model.removePlaylistEntry(
+                            focusID: focusID, action: onRemoveFromPlaylist
+                        )
+                    } label: {
+                        Label("action.removePlaylistVideo", systemImage: "minus.circle")
+                    }
+                }
+                Button(role: .destructive) {
+                    model.requestBlock(.video, api: api, video: video,
+                                       focusID: focusID)
+                } label: {
+                    Label("action.blockVideo", systemImage: "hand.raised")
+                }
+                Button(role: .destructive) {
+                    model.requestBlock(.channel, api: api, video: video,
+                                       focusID: focusID)
+                } label: {
+                    Label("action.blockChannel",
+                          systemImage: "person.crop.circle.badge.xmark")
+                }
+    }
+}
+
+struct TVHomeLightweightVideoActions: ViewModifier {
+    let api: TypeTypeAPI
+    let video: VideoItem
+    let model: TVHomeMenuCoordinator
+    let focus: FocusState<String?>.Binding
+    let focusID: String
+    var isWatchLaterEntry = false
+    var onRemoveFromPlaylist: (() async throws -> Void)? = nil
+
+    func body(content: Content) -> some View {
+        content
+            .focused(focus, equals: focusID)
+            .contextMenu {
+                TVHomeCardMenuContents(
+                    api: api, video: video, model: model,
+                    focusID: focusID, isWatchLaterEntry: isWatchLaterEntry,
+                    onRemoveFromPlaylist: onRemoveFromPlaylist
+                )
+            }
+            .anchorPreference(key: TVHomeCardToastAnchorKey.self, value: .bounds) {
+                [TVHomeCardToastAnchor(focusID: focusID, anchor: $0)]
+            }
+    }
+}
+
+/// Exactly one dialog/toast host, instead of one per visible Home thumbnail.
+struct TVHomeMenuPresentation: ViewModifier {
+    @ObservedObject var model: TVHomeMenuCoordinator
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // The clip exists only during a toast and its short exit transition.
+    // No GeometryReader or clipping surface remains in the idle Home grid.
+    @State private var toastAnchorID: String?
+
+    func body(content: Content) -> some View {
+        content
+            .overlayPreferenceValue(TVHomeCardToastAnchorKey.self) { cardAnchors in
+                if model.feedback != nil || toastAnchorID != nil {
+                GeometryReader { geometry in
+                    let toast = model.feedback
+                    let sourceID = toast?.focusID ?? toastAnchorID
+                    // Only scan when a toast is visible or sliding out;
+                    // the normal Home does not perform per-card dictionary
+                    // lookups or hashing during directional focus movement.
+                    let cardFrame = sourceID.flatMap { id in
+                        cardAnchors.last(where: { $0.focusID == id })?.anchor
+                    }.map { geometry[$0] }
+                    let viewport = CGRect(origin: .zero, size: geometry.size)
+                    let visible = cardFrame.map {
+                        TVHomeCardToastPosition.isVisible($0, in: viewport)
+                    } ?? false
+
+                    ZStack(alignment: .topLeading) {
+                        Color.clear
+                            .onChange(of: visible) { wasVisible, isVisible in
+                                guard wasVisible && !isVisible, let toast else { return }
+                                model.dismissFeedback(matching: toast.id)
+                            }
+
+                        if let cardFrame, visible {
+                            // This one, fixed clipping region has its top
+                            // EXACTLY at the card's top. The toast travels
+                            // a full own-height behind that edge, rather
+                            // than suddenly appearing 24 pt above it.
+                            let clip = TVHomeCardToastPosition.revealRect(
+                                for: cardFrame, in: viewport
+                            )
+                            ZStack(alignment: .topLeading) {
+                                if let toast {
+                                    Label(toast.message,
+                                          systemImage: "checkmark.circle.fill")
+                                        .font(.callout.bold())
+                                        .foregroundStyle(.white)
+                                        .padding(10)
+                                        .glassEffect(
+                                            .regular,
+                                            in: RoundedRectangle(cornerRadius: 12)
+                                        )
+                                        // Natural text width: not restricted
+                                        // to the original tile's width.
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .padding(.leading, 7)
+                                        .padding(.top, 7)
+                                        .onDisappear {
+                                            model.dismissFeedback(matching: toast.id)
+                                        }
+                                        .transition(reduceMotion
+                                            ? .identity : .move(edge: .top))
+                                }
+                            }
+                            .frame(width: clip.width, height: clip.height,
+                                   alignment: .topLeading)
+                            .clipped()
+                            .offset(x: clip.minX, y: clip.minY)
+                        }
+                    }
+                }
+                .allowsHitTesting(false)
+                }
+            }
+            // The single task is keyed only to a new/dismissed toast.
+            // It never runs on focus movement or normal thumbnail layout.
+            .task(id: model.feedback?.id) {
+                if let toast = model.feedback {
+                    toastAnchorID = toast.focusID
+                } else if toastAnchorID != nil {
+                    // Keep the clipping parent for the 0.23s slide-out,
+                    // then remove it entirely from the idle render tree.
+                    try? await Task.sleep(for: .milliseconds(300))
+                    guard !Task.isCancelled, model.feedback == nil else { return }
+                    toastAnchorID = nil
+                }
+            }
+            .confirmationDialog(
+                TVL10n.formatted(
+                    "action.confirmBlockNamed",
+                    model.blockRequest?.target == .channel
+                        ? (model.blockRequest?.video.uploaderName ??
+                           TVL10n.value("action.channelUnavailable"))
+                        : (model.blockRequest?.video.title ?? "")
+                ),
+                isPresented: Binding(
+                    get: { model.blockRequest != nil },
+                    set: { if !$0 { model.dismissBlock() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                if let request = model.blockRequest {
+                    Button(TVL10n.value(request.target == .video
+                        ? "action.blockVideo" : "action.blockChannel"),
+                        role: .destructive) {
+                        model.confirmBlock()
+                    }
+                }
+                Button("common.cancel", role: .cancel) {
+                    model.dismissBlock()
+                }
+            }
+            .alert(
+                TVL10n.value("action.failed"),
+                isPresented: Binding(
+                    get: { model.errorMessage != nil },
+                    set: { if !$0 { model.dismissError() } }
+                )
+            ) {
+                Button("common.ok") { model.dismissError() }
+            } message: {
+                Text(model.errorMessage ?? "")
+            }
+    }
+}

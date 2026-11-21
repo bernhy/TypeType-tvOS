@@ -8,6 +8,7 @@ struct TVAccountSwitcherView: View {
     let onAddAccount: () -> Void
     let onAccountChanged: () -> Void
     var focusRequest = 0
+    var onRevealMenu: () -> Void = {}
 
     @State private var accounts: [TVSavedAccount] = []
     @FocusState private var focusedAccountID: String?
@@ -88,11 +89,16 @@ struct TVAccountSwitcherView: View {
                             .focused($focusedAccountID, equals: account.id)
                             .disabled(changing)
                             .onMoveCommand { direction in
-                                // A final row containing one or two profiles
-                                // must lead down to the Add Account button.
-                                if direction == .down,
-                                   let index = accounts.firstIndex(where: { $0.id == account.id }),
-                                   index >= accounts.count - 2 {
+                                guard let index = accounts.firstIndex(where: {
+                                    $0.id == account.id
+                                }) else { return }
+                                if direction == .left && index.isMultiple(of: 2) {
+                                    // Left edge of the two-column grid exits
+                                    // to the main navigation. The second
+                                    // column still navigates to the first.
+                                    onRevealMenu()
+                                } else if direction == .down &&
+                                            index >= accounts.count - 2 {
                                     addAccountFocused = true
                                 }
                             }
@@ -123,10 +129,13 @@ struct TVAccountSwitcherView: View {
                 .tint(TTTheme.accent)
                 .focused($addAccountFocused)
                 .onMoveCommand { direction in
-                    if direction == .up, let last = accounts.last {
+                    if direction == .left {
+                        onRevealMenu()
+                    } else if direction == .up, let last = accounts.last {
                         focusedAccountID = last.id
                     }
                 }
+                .accessibilityIdentifier("account-add-profile")
                 .focusSection()
             }
             .padding(.horizontal, 60)

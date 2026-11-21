@@ -277,7 +277,7 @@ struct TVThumbnail: View {
             return
         }
         let pixels = TVThumbnailRequestPolicy.pixelLimit(maximumPixelDimension)
-        for (index, candidate) in candidates.enumerated() {
+        for candidate in candidates {
             guard !Task.isCancelled else { return }
             let firstParty = candidate.host?.lowercased() == origin.host?.lowercased() &&
                 candidate.scheme == origin.scheme && candidate.port == origin.port
@@ -314,12 +314,6 @@ struct TVThumbnail: View {
                 )
             }
             bitmap = decoded.image
-            #if DEBUG
-            if index > 0 || url == nil {
-                NSLog("TypeType thumbnail recovered via YouTube fallback reason=%@",
-                      index > 0 ? "primary-unavailable" : "missing-primary")
-            }
-            #endif
             return
         }
     }

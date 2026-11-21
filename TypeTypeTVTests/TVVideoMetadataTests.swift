@@ -177,4 +177,114 @@ final class TVVideoMetadataTests: XCTestCase {
         XCTAssertEqual(merged.uploaderUrl, "https://www.youtube.com/@creator")
     }
 
+
+    func testResumeReusesLoadedRecommendationsWithoutOverwritingProgress() {
+        var history = VideoItem(
+            id: "history", title: "History",
+            url: "https://www.youtube.com/watch?v=abc123def45",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 180, isLive: false
+        )
+        history.watchPositionMs = 72_000
+        history.watched = false
+        var feed = VideoItem(
+            id: "abc123def45", title: "Feed", url: "https://youtu.be/abc123def45",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 360, isLive: false
+        )
+        feed.viewCount = 24_500
+        feed.publishedAt = 1_800_000_000_000
+        feed.isLiveContent = true
+        feed.isPostLive = true
+
+        let actual = TVVideoMetadata.reusingRecommendationMetadata([history], from: [feed])
+        XCTAssertEqual(actual.count, 1)
+        XCTAssertEqual(actual[0].viewCount, 24_500)
+        XCTAssertEqual(actual[0].publishedAt, 1_800_000_000_000)
+        XCTAssertEqual(actual[0].watchPositionMs, 72_000)
+        XCTAssertEqual(actual[0].duration, 180)
+        XCTAssertEqual(actual[0].watched, false)
+        XCTAssertEqual(actual[0].title, "History")
+        XCTAssertEqual(actual[0].isLiveContent, true)
+        XCTAssertEqual(actual[0].isPostLive, true)
+        XCTAssertFalse(TVLiveStreamDisplayPolicy.isOngoing(actual[0]))
+    }
+
+    func testResumeKeepsServerMetadataAndDoesNotInventMissingFields() {
+        var history = VideoItem(
+            id: "existing", title: "Existing", url: "https://youtu.be/abc123def45",
+            thumbnailUrl: nil, uploaderName: "Channel", duration: 180, isLive: false
+        )
+        history.viewCount = 3_456
+        history.publishedAt = 1_700_000_000_000
+        var feed = history
+        feed.viewCount = 9_999
+        feed.publishedAt = 1_800_000_000_000
+        let preserved = TVVideoMetadata.reusingRecommendationMetadata([history], from: [feed])
+        XCTAssertEqual(preserved[0].viewCount, 3_456)
+        XCTAssertEqual(preserved[0].publishedAt, 1_700_000_000_000)
+
+        let noMatch = VideoItem(
+            id: "unrelated", title: "Other",
+            url: "https://notyoutube.com/watch?v=abc123def45",
+            thumbnailUrl: nil, uploaderName: nil, duration: 30, isLive: false
+        )
+        XCTAssertEqual(
+            TVVideoMetadata.reusingRecommendationMetadata([noMatch], from: [feed]),
+            [noMatch]
+        )
+        XCTAssertEqual(
+            TVVideoMetadata.reusingRecommendationMetadata([history], from: []),
+            [history]
+        )
+    }
+
+    func testYouTubeRoutingAgreesWithLiveBadgeAndPostLiveStatus() {
+        var stream = VideoItem(
+            id: "live", title: "Live", url: "https://youtu.be/abc123def45",
+            thumbnailUrl: nil, uploaderName: nil, duration: 300,
+            isLive: false
+        )
+        stream.isLiveContent = true
+        XCTAssertTrue(TVLiveStreamDisplayPolicy.isOngoing(stream))
+        XCTAssertTrue(TVYouTubeStreamRouting.isLiveHLS(stream))
+        XCTAssertEqual(TVYouTubeStreamRouting.endpoint(for: stream),
+                       "streams/youtube/live")
+        XCTAssertTrue(TTTheme.accessibilityText(for: stream).contains(
+            TVL10n.value("video.liveAccessibility")
+        ))
+
+        stream.isPostLive = true
+        XCTAssertFalse(TVLiveStreamDisplayPolicy.isOngoing(stream))
+        XCTAssertFalse(TVYouTubeStreamRouting.isLiveHLS(stream))
+        XCTAssertEqual(TVYouTubeStreamRouting.endpoint(for: stream),
+                       "streams/youtube/sabr")
+        XCTAssertFalse(TTTheme.accessibilityText(for: stream).contains(
+            TVL10n.value("video.liveAccessibility")
+        ))
+
+        // A stale isLive=true from older API entries must never override
+        // the explicit post-live state.
+        var stale = VideoItem(
+            id: "archive", title: "Archive", url: "https://youtu.be/xyz123def45",
+            thumbnailUrl: nil, uploaderName: nil, duration: 600,
+            isLive: true
+        )
+        stale.isLiveContent = true
+        stale.isPostLive = true
+        XCTAssertEqual(TVYouTubeStreamRouting.endpoint(for: stale),
+                       "streams/youtube/sabr")
+    }
+
+    func testLiveBadgeUsesOngoingServerClassificationNotOnlyIsLive() {
+        var live = VideoItem(
+            id: "live", title: "Live", url: "https://youtu.be/abc123def45",
+            thumbnailUrl: nil, uploaderName: nil, duration: nil, isLive: false
+        )
+        live.isLiveContent = true
+        XCTAssertTrue(TVLiveStreamDisplayPolicy.isOngoing(live))
+        live.isPostLive = true
+        XCTAssertFalse(TVLiveStreamDisplayPolicy.isOngoing(live))
+        live.isPostLive = false
+        XCTAssertTrue(TVLiveStreamDisplayPolicy.isOngoing(live))
+    }
+
 }

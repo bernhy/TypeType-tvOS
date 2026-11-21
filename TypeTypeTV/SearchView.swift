@@ -4,6 +4,8 @@ import SwiftUI
 /// opaque; only values advertised by /search/filters are sent back.
 struct SearchView: View {
     let api: TypeTypeAPI
+    var fixedLayoutWidth: CGFloat?
+    var onRevealMenu: () -> Void = {}
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
     @State private var recentEntries: [TVSearchHistoryItem] = []
     @State private var historyError: String?
@@ -28,8 +30,19 @@ struct SearchView: View {
     @State private var paging = false
     @State private var requestID = UUID()
     var focusRequest = 0
-    @State private var handledFocusRequest: Int?
+    @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @FocusState private var focusedVideoURL: String?
+    @State private var detailReturnVideoID: String?
+    @State private var railReturnVideoID: String?
+    @State private var railReturnNamedResultID: String?
+    @State private var mutationCursor = TVVideoMutationCursor()
+    // A detail pop must not cause another filter/history GET unless the
+    // user actually changes a filter or search-history entry.
+    @State private var initializedSearchScope: String?
+    // Named results also need an explicit tvOS focus target when the
+    // enclosing search content is visually scaled. Video results already
+    // have this via TVSharedVideoGrid.
+    @FocusState private var focusedNamedResult: String?
     @FocusState private var searchFieldFocused: Bool
     @FocusState private var focusedRecent: String?
     @FocusState private var clearHistoryFocused: Bool
@@ -39,6 +52,21 @@ struct SearchView: View {
         TVSearchHistoryPresentation.visible(recentEntries)
     }
     private var visibleVideos: [VideoItem] { contentPreferences.displayed(videos) }
+    private var preferredVideoID: String? {
+        guard let target = detailReturnVideoID ?? railReturnVideoID,
+              visibleVideos.contains(where: { $0.url == target }) else { return nil }
+        return target
+    }
+    private var preferredNamedResultID: String? {
+        guard let saved = railReturnNamedResultID else { return nil }
+        if saved.hasPrefix("channel-") {
+            return channels.contains(where: { "channel-" + $0.url == saved }) ? saved : nil
+        }
+        if saved.hasPrefix("playlist-") {
+            return playlists.contains(where: { "playlist-" + $0.url == saved }) ? saved : nil
+        }
+        return nil
+    }
     private var allEmpty: Bool { visibleVideos.isEmpty && channels.isEmpty && playlists.isEmpty }
     private var selectedFilters: [String] {
         ([sortFilter] + groupSelections.keys.sorted().flatMap {
@@ -47,6 +75,8 @@ struct SearchView: View {
     }
 
     var body: some View {
+        GeometryReader { viewport in
+        let layoutWidth = fixedLayoutWidth ?? viewport.size.width
         ScrollViewReader { scroll in
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
@@ -64,6 +94,13 @@ struct SearchView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .focused($searchFieldFocused)
+                            // The global rail is intentionally not focusable while
+                            // Search owns focus. Left from its first control
+                            // explicitly returns ownership instead of relying on
+                            // geometric focus of the hidden/disabled sidebar.
+                            .onMoveCommand { direction in
+                                if direction == .left { onRevealMenu() }
+                            }
                             .onSubmit { Task { await execute(term) } }
                             .accessibilityLabel("search.inputLabel")
                         Button { Task { await execute(term) } } label: {
@@ -74,6 +111,15 @@ struct SearchView: View {
                         .disabled(term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searching)
                     }
                     .focusSection()
+                    // Native preference is active only after entering Search.
+                    // Menu preview must retain focus on the global sidebar;
+                    // returning from a detail keeps its saved video/result.
+                    .defaultFocus(
+                        $searchFieldFocused, true,
+                        priority: focusRequest >= 0 &&
+                            preferredVideoID == nil && preferredNamedResultID == nil
+                            ? .userInitiated : .automatic
+                    )
 
                     if let capabilities {
                         TVSearchFilterControls(
@@ -177,7 +223,8 @@ struct SearchView: View {
                             if !channels.isEmpty {
                                 Text("search.channels").font(.title2.bold())
                                 LazyVGrid(columns: columns, spacing: 28) {
-                                    ForEach(channels) { channel in
+                                    ForEach(Array(channels.enumerated()), id: \.element.url) { entry in
+                                        let channel = entry.element
                                         NavigationLink {
                                             TVSubscriptionsView(
                                                 api: api, directChannelURL: channel.url,
@@ -192,15 +239,34 @@ struct SearchView: View {
                                         }
                                         .buttonStyle(TVRailButtonStyle())
                                         .focusEffectDisabled(true)
+                                        .focused($focusedNamedResult, equals:
+                                            "channel-" + channel.url)
+                                        .id("channel-" + channel.url)
+                                        .onMoveCommand { direction in
+                                            if direction == .left && entry.offset % columns.count == 0 {
+                                                railReturnNamedResultID = "channel-" + channel.url
+                                                railReturnVideoID = nil
+                                                detailReturnVideoID = nil
+                                                onRevealMenu()
+                                            }
+                                        }
+                                        .accessibilityIdentifier(
+                                            "search-channel-" + channel.id)
                                     }
                                 }
                                 .focusSection()
+                                .defaultFocus(
+                                    $focusedNamedResult, preferredNamedResultID,
+                                    priority: preferredNamedResultID == nil
+                                        ? .automatic : .userInitiated
+                                )
                             }
 
                             if !playlists.isEmpty {
                                 Text("search.playlists").font(.title2.bold())
                                 LazyVGrid(columns: columns, spacing: 28) {
-                                    ForEach(playlists) { playlist in
+                                    ForEach(Array(playlists.enumerated()), id: \.element.url) { entry in
+                                        let playlist = entry.element
                                         NavigationLink {
                                             TVPublicPlaylistView(api: api, playlistURL: playlist.url,
                                                                  startingTitle: playlist.title)
@@ -214,38 +280,63 @@ struct SearchView: View {
                                         }
                                         .buttonStyle(TVRailButtonStyle())
                                         .focusEffectDisabled(true)
+                                        .focused($focusedNamedResult, equals:
+                                            "playlist-" + playlist.url)
+                                        .id("playlist-" + playlist.url)
+                                        .onMoveCommand { direction in
+                                            if direction == .left && entry.offset % columns.count == 0 {
+                                                railReturnNamedResultID = "playlist-" + playlist.url
+                                                railReturnVideoID = nil
+                                                detailReturnVideoID = nil
+                                                onRevealMenu()
+                                            }
+                                        }
+                                        .accessibilityIdentifier(
+                                            "search-playlist-" + playlist.id)
                                     }
                                 }
                                 .focusSection()
+                                .defaultFocus(
+                                    $focusedNamedResult, preferredNamedResultID,
+                                    priority: preferredNamedResultID == nil
+                                        ? .automatic : .userInitiated
+                                )
                             }
 
                             if !visibleVideos.isEmpty {
                                 Text(TVL10n.formatted("search.resultCount", visibleVideos.count, searchedTerm))
                                     .font(.title2.bold())
-                                LazyVGrid(columns: columns, spacing: 42) {
-                                    ForEach(visibleVideos) { video in
-                                        NavigationLink {
-                                            VideoDetailView(
-                                                api: api, video: video,
-                                                onReturnToList: {
-                                                    TVVideoFocusReturn.restore(
-                                                        $focusedVideoURL, id: video.url, scroll: scroll
-                                                    )
-                                                }
-                                            )
-                                        } label: {
-                                            VideoCard(api: api, video: video)
-                                        }
-                                        .buttonStyle(TVRailButtonStyle())
-                                        .focusEffectDisabled(true)
-                                        .videoActions(api: api, video: video, onChanged: {
-                                            Task { await execute(searchedTerm, recordHistory: false) }
-                                        }, focus: $focusedVideoURL, focusID: video.url)
-                                        .accessibilityLabel(TTTheme.accessibilityText(for: video))
-                                        .id(video.url)
-                                    }
-                                }
-                                .focusSection()
+                                TVSharedVideoGrid(
+                                    snapshot: TVSharedVideoGridSnapshot(
+                                        videos: visibleVideos,
+                                        scope: api.metadataCacheScope,
+                                        destination: "search-" + searchedTerm +
+                                            selectedFilters.joined(separator: ","),
+                                        focusPrefix: "",
+                                        accessibilityPrefix: "search-video-",
+                                        columns: columns.count, columnSpacing: 30,
+                                        rowSpacing: 42, canLoadMore: false,
+                                        loadAhead: columns.count + 1,
+                                        lookupMissingMetadata: false,
+                                        isWatchLaterEntry: false, playbackQueue: nil
+                                    ),
+                                    api: api, focus: $focusedVideoURL, menu: videoMenu,
+                                    onReturnToList: { id in
+                                        detailReturnVideoID = id
+                                        focusedVideoURL = id
+                                    },
+                                    onLeftEdge: { id in
+                                        railReturnVideoID = id
+                                        railReturnNamedResultID = nil
+                                        detailReturnVideoID = nil
+                                        onRevealMenu()
+                                    },
+                                    // Membership badges update in VideoCard.
+                                    // Blocked rows are removed by the mutation
+                                    // journal, never by clearing all search results.
+                                    onApproachEnd: {}
+                                )
+                                .equatable()
                             }
                             if paging {
                                 ProgressView("search.loadingMore")
@@ -272,16 +363,83 @@ struct SearchView: View {
                 .padding(.horizontal, 75)
                 .padding(.top, 55)
                 .padding(.bottom, 110)
+                .frame(width: layoutWidth, alignment: .leading)
+                .scaleEffect(
+                    TVHomeNavigationZoom.scale(
+                        visibleWidth: viewport.size.width, layoutWidth: layoutWidth
+                    ),
+                    anchor: .topLeading
+                )
+                .frame(width: viewport.size.width, alignment: .topLeading)
             }
+            .frame(width: viewport.size.width, height: viewport.size.height)
             .background(TTTheme.ink)
-            .task {
-                await contentPreferences.ensureLoaded(api: api)
-                await loadFilterCapabilities()
+            .modifier(TVHomeMenuPresentation(model: videoMenu))
+            .defaultFocus(
+                $focusedVideoURL, preferredVideoID,
+                priority: preferredVideoID == nil ? .automatic : .userInitiated
+            )
+            .onExitCommand {
+                if let target = TVVideoGridBackPolicy.firstTarget(
+                    focused: focusedVideoURL, first: visibleVideos.first?.url
+                ) {
+                    detailReturnVideoID = target
+                    railReturnNamedResultID = nil
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        scroll.scrollTo(target, anchor: .top)
+                        focusedVideoURL = target
+                    }
+                } else if let named = focusedNamedResult,
+                          let target = TVVideoGridBackPolicy.firstTarget(
+                            focused: named,
+                            first: named.hasPrefix("channel-")
+                                ? channels.first.map { "channel-" + $0.url }
+                                : playlists.first.map { "playlist-" + $0.url }
+                          ) {
+                    railReturnNamedResultID = target
+                    detailReturnVideoID = nil
+                    railReturnVideoID = nil
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        scroll.scrollTo(target, anchor: .top)
+                        focusedNamedResult = target
+                    }
+                } else {
+                    onRevealMenu()
+                }
+            }
+            .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
+            .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
+            .onChange(of: videoMenu.focusRestoreRequest) { _, _ in
+                if let id = videoMenu.focusRestoreTarget,
+                   visibleVideos.contains(where: { $0.url == id }) {
+                    focusedVideoURL = id
+                }
             }
             .task {
+                await TVWatchLaterMembership.shared.ensureLoaded(api: api)
+            }
+            .task {
+                async let playlists: Void = TVPlaylistMembership.shared.ensureLoaded(api: api)
+                async let favorites: Void = TVFavoriteMembership.shared.ensureLoaded(api: api)
+                _ = await (playlists, favorites)
+            }
+            .task(id: api.metadataCacheScope) {
+                await contentPreferences.ensureLoaded(api: api)
+                guard initializedSearchScope != api.metadataCacheScope else { return }
+                await loadFilterCapabilities()
+                guard !Task.isCancelled else { return }
                 // Do not upload stale device-local searches into any account.
                 UserDefaults.standard.removeObject(forKey: "typetype.recentSearches")
                 await loadSearchHistory()
+                // A cancelled first load must retry after returning. A
+                // completed load must not issue fresh GETs on every detail pop.
+                if !Task.isCancelled {
+                    initializedSearchScope = api.metadataCacheScope
+                }
             }
             .onChange(of: contentFilter) { _, _ in
                 groupSelections = [:]
@@ -302,26 +460,13 @@ struct SearchView: View {
                     Task { await execute(searchedTerm, recordHistory: false) }
                 }
             }
-            .task(id: focusRequest) {
-                guard focusRequest >= 0 else {
-                    searchFieldFocused = false
-                    return
-                }
-                // Returning from a result detail must not repeatedly jump
-                // back to the search input unless the global rail explicitly
-                // issued a new focus request.
-                guard handledFocusRequest != focusRequest else { return }
-                handledFocusRequest = focusRequest
-                let requested = focusRequest
-                if requested > 0 {
-                    try? await Task.sleep(for: .milliseconds(220))
-                } else {
-                    await Task.yield()
-                }
-                guard !Task.isCancelled, focusRequest == requested else { return }
-                searchFieldFocused = true
+            .onChange(of: focusRequest) { _, request in
+                // Explicit sidebar preview must release the search editor,
+                // without scheduling a delayed focus correction on re-entry.
+                if request < 0 { searchFieldFocused = false }
             }
         }
+        } // GeometryReader: constant grid width, unscaled scroll viewport.
     }
 
     @MainActor
@@ -404,11 +549,43 @@ struct SearchView: View {
     }
 
     @MainActor
+    private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
+        let pending = events.filter {
+            $0.id > mutationCursor.lastID && $0.accountScope == api.metadataCacheScope
+        }
+        mutationCursor.lastID = max(mutationCursor.lastID, events.last?.id ?? 0)
+        guard !pending.isEmpty else { return }
+        if videos.contains(where: { item in pending.contains { $0.removes(item) } }) {
+            videos.removeAll { item in pending.contains { $0.removes(item) } }
+        }
+        if channels.contains(where: { channel in
+            pending.contains { event in
+                if case .channelBlocked = event.kind {
+                    return event.channelURL == channel.url
+                }
+                return false
+            }
+        }) {
+            channels.removeAll { channel in
+                pending.contains { event in
+                    if case .channelBlocked = event.kind {
+                        return event.channelURL == channel.url
+                    }
+                    return false
+                }
+            }
+        }
+    }
+
+    @MainActor
     private func execute(_ query: String, recordHistory: Bool = true) async {
         let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
         term = value
         searchedTerm = value
+        detailReturnVideoID = nil
+        railReturnVideoID = nil
+        railReturnNamedResultID = nil
         let identifier = UUID()
         requestID = identifier
         searching = true

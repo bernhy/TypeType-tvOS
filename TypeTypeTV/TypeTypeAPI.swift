@@ -129,6 +129,18 @@ struct SearchResults: Decodable {
     let channels: [TVChannelSearchResult]?
 }
 
+/// One route decision for YouTube playback and the stream-information API.
+/// Post-live recordings use SABR/VOD, even if legacy metadata has isLive=true.
+enum TVYouTubeStreamRouting {
+    static func isLiveHLS(_ video: VideoItem) -> Bool {
+        TVLiveStreamDisplayPolicy.isOngoing(video)
+    }
+
+    static func endpoint(for video: VideoItem) -> String {
+        isLiveHLS(video) ? "streams/youtube/live" : "streams/youtube/sabr"
+    }
+}
+
 struct StreamInfo: Decodable {
     let id: String?
     let title: String?
@@ -831,7 +843,7 @@ struct TypeTypeAPI {
         guard accountToken?.isEmpty == false else {
             throw TypeTypeError.http(401, "progress")
         }
-        guard video.isLive != true, let duration = video.duration,
+        guard !TVLiveStreamDisplayPolicy.isOngoing(video), let duration = video.duration,
               duration > 0, duration <= Int64.max / 1_000 else {
             throw TypeTypeError.unavailableFormat
         }
@@ -1018,8 +1030,7 @@ struct TypeTypeAPI {
         let endpoint: String
         let host = URLComponents(string: video.url)?.host?.lowercased()
         if VideoAddress.youtubeID(video.url) != nil {
-            endpoint = video.isLive == true ?
-                "streams/youtube/live" : "streams/youtube/sabr"
+            endpoint = TVYouTubeStreamRouting.endpoint(for: video)
         } else if let host, host == "bilibili.com" || host.hasSuffix(".bilibili.com") ||
                     host == "b23.tv" || host.hasSuffix(".b23.tv") {
             endpoint = "streams/bilibili"

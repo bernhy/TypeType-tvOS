@@ -1,6 +1,17 @@
 import Foundation
 import Combine
 
+/// Never infer an unsaved video from an account snapshot that has not
+/// been loaded. The lightweight menu can be presented during that GET.
+enum TVWatchLaterMenuStatus: Equatable {
+    case loading, saved, notSaved, failed
+
+    static func resolved(loaded: Bool, failed: Bool, saved: Bool) -> Self {
+        if loaded { return saved ? .saved : .notSaved }
+        return failed ? .failed : .loading
+    }
+}
+
 /// One membership snapshot per active server account. Do not issue an
 /// independent /watch-later GET for every thumbnail's context menu.
 @MainActor
@@ -10,7 +21,7 @@ final class TVWatchLaterMembership: ObservableObject {
     // Badges must not linearly scan a large saved-video collection per card.
     private var indexedVideoKeys = Set<String>()
     private var scope = ""
-    private var loaded = false
+    @Published private(set) var loaded = false
     private var fetch: Task<Void, Never>?
     private var lastFailure: Date?
     // The initial GET may still be in flight when an action saves/removes a
@@ -27,6 +38,22 @@ final class TVWatchLaterMembership: ObservableObject {
 
     func contains(_ videoURL: String) -> Bool {
         indexedVideoKeys.contains(TVPlaylistMembership.videoKey(videoURL))
+    }
+
+    func menuStatus(for videoURL: String, api: TypeTypeAPI) -> TVWatchLaterMenuStatus {
+        guard scopeKey(for: api) == scope else { return .loading }
+        if let pending = pendingMutations.values.first(where: {
+            TVVideoIdentity.equivalent($0.url, videoURL)
+        }) {
+            return pending.present ? .saved : .notSaved
+        }
+        return .resolved(loaded: loaded, failed: lastFailure != nil,
+                         saved: contains(videoURL))
+    }
+
+    func retryLoading(api: TypeTypeAPI) async {
+        if scopeKey(for: api) == scope { lastFailure = nil }
+        await ensureLoaded(api: api)
     }
 
     func ensureLoaded(api: TypeTypeAPI) async {
@@ -61,6 +88,7 @@ final class TVWatchLaterMembership: ObservableObject {
                 urls = snapshot
                 indexedVideoKeys = Set(snapshot.map { TVPlaylistMembership.videoKey($0) })
                 loaded = true
+                TVVideoCardStatusCenter.changedAll(scope: key)
                 lastFailure = nil
                 pendingMutations.removeAll()
             } catch {
@@ -84,11 +112,13 @@ final class TVWatchLaterMembership: ObservableObject {
         urls = Set(urls.filter { !TVVideoIdentity.equivalent($0, url) })
         if present { urls.insert(url) }
         indexedVideoKeys = Set(urls.map { TVPlaylistMembership.videoKey($0) })
+        TVVideoCardStatusCenter.changed(videoURL: url, scope: scope)
         // Do not claim an incomplete membership snapshot is fully loaded:
         // other saved videos must remain discoverable by the next GET.
     }
 
     func invalidate() {
+        TVVideoCardStatusCenter.changedAll(scope: scope)
         fetch?.cancel()
         fetch = nil
         scope = ""

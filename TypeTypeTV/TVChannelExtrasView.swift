@@ -13,9 +13,17 @@ struct TVChannelExtrasView: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focusedBack: Bool
     @FocusState private var focusedCard: String?
+    @FocusState private var focusedEpisode: String?
+    @State private var detailReturnVideoID: String?
+    @State private var mutationCursor = TVVideoMutationCursor()
+    @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @State private var unsupported = false
     @State private var playlists: [TVPublicPlaylistSummary] = []
     @State private var episodes: [VideoItem] = []
+    @ObservedObject private var contentPreferences = TVContentPreferences.shared
+    private var visibleEpisodes: [VideoItem] {
+        contentPreferences.withoutHiddenLivestreams(episodes)
+    }
     @State private var posts: [TVCommunityPost] = []
     @State private var nextPage: String?
     @State private var loadedExtraKey: String?
@@ -24,6 +32,7 @@ struct TVChannelExtrasView: View {
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 26), count: 3)
 
     var body: some View {
+        ScrollViewReader { scroll in
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 HStack(spacing: 18) {
@@ -46,43 +55,56 @@ struct TVChannelExtrasView: View {
                     Button("common.retry") { Task { await fetch(append: false) } }
                         .buttonStyle(.bordered)
                 }
-                LazyVGrid(columns: columns, spacing: 30) {
-                    ForEach(playlists) { playlist in
-                        NavigationLink {
-                            TVPublicPlaylistView(
-                                api: api, playlistURL: playlist.url,
-                                startingTitle: playlist.title,
-                                isPodcast: kind == .podcasts
-                            )
-                        } label: {
-                            TVChannelPlaylistTile(
-                                api: api, playlist: playlist,
-                                focused: focusedCard == playlist.url
-                            )
+                if !playlists.isEmpty {
+                    LazyVGrid(columns: columns, spacing: 30) {
+                        ForEach(playlists) { playlist in
+                            NavigationLink {
+                                TVPublicPlaylistView(
+                                    api: api, playlistURL: playlist.url,
+                                    startingTitle: playlist.title,
+                                    isPodcast: kind == .podcasts
+                                )
+                            } label: {
+                                TVChannelPlaylistTile(
+                                    api: api, playlist: playlist,
+                                    focused: focusedCard == playlist.url
+                                )
+                            }
+                            .buttonStyle(TVRailButtonStyle())
+                            .focusEffectDisabled(true)
+                            .focused($focusedCard, equals: playlist.url)
+                            .zIndex(focusedCard == playlist.url ? 5 : 0)
+                            .id(playlist.url)
                         }
-                        .buttonStyle(TVRailButtonStyle())
-                        .focusEffectDisabled(true)
-                        .focused($focusedCard, equals: playlist.url)
-                        .zIndex(focusedCard == playlist.url ? 5 : 0)
                     }
-                    ForEach(episodes) { video in
-                        NavigationLink {
-                            VideoDetailView(api: api, video: video)
-                        } label: {
-                            VideoCard(api: api, video: video)
-                        }
-                        .buttonStyle(TVRailButtonStyle())
-                        .focusEffectDisabled(true)
-                        .focused($focusedCard, equals: video.url)
-                        .zIndex(focusedCard == video.url ? 5 : 0)
-                        .videoActions(api: api, video: video)
-                    }
+                    .focusSection()
                 }
-                .focusSection()
+                if !visibleEpisodes.isEmpty {
+                    TVSharedVideoGrid(
+                        snapshot: TVSharedVideoGridSnapshot(
+                            videos: visibleEpisodes, scope: api.metadataCacheScope,
+                            destination: "channel-extra-" + channelURL + "-" + kind.rawValue,
+                            focusPrefix: "",
+                            accessibilityPrefix: "channel-extra-episode-",
+                            columns: columns.count, columnSpacing: 26,
+                            rowSpacing: 30, canLoadMore: false, loadAhead: 4,
+                            lookupMissingMetadata: false,
+                            isWatchLaterEntry: false, playbackQueue: nil
+                        ),
+                        api: api, focus: $focusedEpisode, menu: videoMenu,
+                        onReturnToList: { id in
+                            detailReturnVideoID = id
+                            focusedEpisode = id
+                        },
+                        onLeftEdge: { _ in },
+                        onApproachEnd: {}
+                    )
+                    .equatable()
+                }
                 ForEach(posts) { post in
                     TVCommunityPostCard(api: api, post: post)
                 }
-                if !loading && playlists.isEmpty && episodes.isEmpty &&
+                if !loading && playlists.isEmpty && visibleEpisodes.isEmpty &&
                    posts.isEmpty && error == nil && !unsupported {
                     Text("channels.emptyExtra").foregroundStyle(TTTheme.muted)
                 }
@@ -95,6 +117,26 @@ struct TVChannelExtrasView: View {
             .padding(70)
         }
         .background(TTTheme.ink)
+        .defaultFocus(
+            $focusedEpisode, detailReturnVideoID,
+            priority: detailReturnVideoID == nil ? .automatic : .userInitiated
+        )
+        .modifier(TVHomeMenuPresentation(model: videoMenu))
+        .onReceive(TVVideoMutationCenter.shared.$events) { reconcileMutations($0) }
+        .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
+        .onChange(of: videoMenu.focusRestoreRequest) { _, _ in
+            if let id = videoMenu.focusRestoreTarget,
+               visibleEpisodes.contains(where: { $0.url == id }) {
+                focusedEpisode = id
+            }
+        }
+        .task { await TVWatchLaterMembership.shared.ensureLoaded(api: api) }
+        .task {
+            async let playlists: Void = TVPlaylistMembership.shared.ensureLoaded(api: api)
+            async let favorites: Void = TVFavoriteMembership.shared.ensureLoaded(api: api)
+            _ = await (playlists, favorites)
+        }
+        .task { await contentPreferences.ensureLoaded(api: api) }
         .task(id: channelURL + kind.rawValue) {
             let key = channelURL + "|" + kind.rawValue
             // NavigationStack can re-enter this task after popping details.
@@ -104,7 +146,43 @@ struct TVChannelExtrasView: View {
             focusedBack = true
             await fetch(append: false)
         }
-        .onExitCommand { dismiss() }
+        .onExitCommand {
+            if let first = TVVideoGridBackPolicy.firstTarget(
+                focused: focusedCard, first: playlists.first?.url
+            ) {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    scroll.scrollTo(first, anchor: .top)
+                    focusedCard = first
+                }
+            } else if let first = TVVideoGridBackPolicy.firstTarget(
+                focused: focusedEpisode, first: visibleEpisodes.first?.url
+            ) {
+                detailReturnVideoID = first
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    scroll.scrollTo(first, anchor: .top)
+                    focusedEpisode = first
+                }
+            } else {
+                dismiss()
+            }
+        }
+        } // ScrollViewReader
+    }
+
+    @MainActor
+    private func reconcileMutations(_ events: [TVVideoMutationCenter.Event]) {
+        let pending = events.filter {
+            $0.id > mutationCursor.lastID && $0.accountScope == api.metadataCacheScope
+        }
+        mutationCursor.lastID = max(mutationCursor.lastID, events.last?.id ?? 0)
+        guard !pending.isEmpty else { return }
+        if episodes.contains(where: { video in pending.contains { $0.removes(video) } }) {
+            episodes.removeAll { video in pending.contains { $0.removes(video) } }
+        }
     }
 
     @MainActor

@@ -5,6 +5,7 @@ struct VideoDetailView: View {
     let video: VideoItem
     var playbackQueue: [VideoItem]? = nil
     var onReturnToList: (() -> Void)? = nil
+    var onReturnedVideo: ((VideoItem) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var heroVisible = false
@@ -35,13 +36,16 @@ struct VideoDetailView: View {
 
     @State private var selectedPane: DetailPane = .description
     @FocusState private var focusedDetail: DetailFocus?
-    @State private var initiallyFocusedVideoURL: String?
     @State private var descriptionScrollCommand = 0
     @State private var fullDescriptionPresented = false
+    @State private var playbackOpened = false
 
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
+    private var isOngoingLive: Bool {
+        TVLiveStreamDisplayPolicy.isOngoing(video)
+    }
     private var showsMarkWatched: Bool {
-        video.isLive != true &&
+        !isOngoingLive &&
         ((detailedVideo.duration ?? 0) > 0 || detailedVideo.isShort)
     }
     private var hasDetailDescription: Bool {
@@ -103,7 +107,7 @@ struct VideoDetailView: View {
                 // A fixed GeometryReader height used to clip buttons on long
                 // titles while the progress section overlapped them.
                 VStack(alignment: .leading, spacing: 22) {
-                        Text(TVL10n.value(video.isLive == true ? "video.liveBadge" : "video.badge"))
+                        Text(TVL10n.value(isOngoingLive ? "video.liveBadge" : "video.badge"))
                             .font(.subheadline.bold()).tracking(2.5)
                             .foregroundStyle(TTTheme.accent)
                         Text(video.title)
@@ -155,16 +159,16 @@ struct VideoDetailView: View {
                                 .foregroundStyle(.white.opacity(0.84))
                         }
                         HStack(spacing: 22) {
-                            if video.isLive == true {
+                            if isOngoingLive {
                                 Label("video.liveStream", systemImage: "dot.radiowaves.left.and.right")
                                     .foregroundStyle(TTTheme.accent)
                             } else if let seconds = detailedVideo.duration, seconds > 0 {
                                 Label(TTTheme.time(seconds), systemImage: "clock")
                             }
-                            if detailedVideo.isShort && video.isLive != true {
+                            if detailedVideo.isShort && !isOngoingLive {
                                 Label("video.shortsBadge", systemImage: "play.rectangle.fill")
                             }
-                            Text(youtube && video.isLive != true
+                            Text(youtube && !isOngoingLive
                                 ? "YouTube · SABR"
                                 : TVL10n.value("video.providerNative"))
                         }
@@ -182,14 +186,16 @@ struct VideoDetailView: View {
                                                 api: api, videos: playbackQueue,
                                                 startIndex: position
                                             )
+                                            .onAppear { playbackOpened = true }
                                         } else {
                                             // The detail screen has already enriched views/date
                                             // via the existing metadata request; forward it to OSD.
                                             PlaybackView(api: api, video: detailedVideo)
+                                                .onAppear { playbackOpened = true }
                                         }
                                     } label: {
                                         Label {
-                                            if video.isLive == true {
+                                            if isOngoingLive {
                                                 Text("video.viewLive")
                                             } else {
                                                 Text("video.play")
@@ -318,7 +324,7 @@ struct VideoDetailView: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                            if video.isLive != true, let duration = detailedVideo.duration,
+                            if !isOngoingLive, let duration = detailedVideo.duration,
                                duration > 0 {
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text("video.progressHeading")
@@ -487,27 +493,24 @@ struct VideoDetailView: View {
                 }
                 if contentPreferences.settings?.hideRelatedVideos != true,
                    let related = streamMetadata?.relatedStreams, !related.isEmpty {
-                    TVRelatedVideosSection(api: api,
-                        videos: contentPreferences.displayed(related))
+                    TVRelatedVideosSection(
+                        api: api, videos: contentPreferences.displayed(related),
+                        parentScroll: page, onLeave: { returnToList() }
+                    )
                 }
             }
             .padding(.horizontal, 90)
             .padding(.bottom, 110)
             }
             .background(TTTheme.ink)
-            .defaultFocus($focusedDetail, .play)
+            // The player action is the native entry preference even when
+            // a channel link is geometrically above it. No delayed rewrite.
+            .defaultFocus($focusedDetail, .play, priority: .userInitiated)
             .task(id: video.url) {
                 if !heroVisible {
                     withAnimation(reduceMotion ? nil : .easeOut(duration: 0.38)) {
                         heroVisible = true
                     }
-                }
-                if initiallyFocusedVideoURL != video.url {
-                    initiallyFocusedVideoURL = video.url
-                    // tvOS otherwise chooses the first focusable item,
-                    // which became the channel link above Play.
-                    await Task.yield()
-                    focusedDetail = .play
                 }
                 async let activity: Void = loadActivity()
                 async let enrichment: Void = loadMetadata()
@@ -549,6 +552,8 @@ struct VideoDetailView: View {
     @MainActor
     private func returnToList() {
         dismiss()
+        // Visiting details without playback must not reorder history.
+        if playbackOpened { onReturnedVideo?(detailedVideo) }
         onReturnToList?()
     }
 
@@ -617,6 +622,7 @@ struct VideoDetailView: View {
             let position = next ? Int64(duration) * 1_000 : 0
             savedPositionMs = position
             TVLocalProgress.shared.record(video.url, positionMs: position)
+            playbackOpened = true
         } catch {
             progressError = error.localizedDescription
         }
@@ -653,6 +659,9 @@ struct VideoDetailView: View {
         do {
             try await api.setFavorite(videoURL: video.url, enabled: favorite)
             TVFavoriteMembership.shared.mark(video.url, present: favorite, api: api)
+            TVVideoMutationCenter.shared.record(
+                api: api, video: video, kind: .favorite(added: favorite)
+            )
         } catch {
             favorite = old
             activityError = error.localizedDescription
@@ -670,6 +679,9 @@ struct VideoDetailView: View {
         do {
             try await api.setWatchLater(video: video, enabled: watchLater)
             TVWatchLaterMembership.shared.mark(video.url, present: watchLater, api: api)
+            TVVideoMutationCenter.shared.record(
+                api: api, video: video, kind: .watchLater(added: watchLater)
+            )
         } catch {
             watchLater = old
             activityError = error.localizedDescription

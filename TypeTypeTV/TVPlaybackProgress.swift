@@ -16,6 +16,7 @@ final class TVLocalProgress: ObservableObject {
         if let id = VideoAddress.youtubeID(url) {
             positions["youtube:" + id] = positionMs
         }
+        TVVideoCardStatusCenter.changed(videoURL: url)
     }
 
     /// A YouTube video may enter the app through youtube.com or youtu.be.
@@ -30,6 +31,7 @@ final class TVLocalProgress: ObservableObject {
         // Prevent playback progress from another account leaking into the
         // next account's thumbnail grid during a same-app sign-out/sign-in.
         positions.removeAll()
+        TVVideoCardStatusCenter.changedAll()
     }
 }
 
@@ -76,7 +78,7 @@ actor TVPlaybackProgressWriter {
 
     func checkpoint(api: TypeTypeAPI, video: VideoItem, positionMs: Int64,
                     started: Bool = false, force: Bool = false) {
-        guard policyAllowsHistory, video.isLive != true, positionMs >= 0 else { return }
+        guard policyAllowsHistory, !TVLiveStreamDisplayPolicy.isOngoing(video), positionMs >= 0 else { return }
         if !force, let last = lastRequestedMs,
            abs(last - positionMs) < 5_000 { return }
         lastRequestedMs = positionMs
@@ -97,7 +99,7 @@ actor TVPlaybackProgressWriter {
 /// All controls and thumbnails use this single 90% completion rule.
 enum TVWatchedState {
     static func isWatched(_ video: VideoItem, positionMs: Int64?) -> Bool {
-        guard video.isLive != true, let duration = video.duration,
+        guard !TVLiveStreamDisplayPolicy.isOngoing(video), let duration = video.duration,
               duration > 0, duration <= Int64.max / 900 else { return false }
         if let positionMs { return positionMs >= Int64(duration) * 900 }
         return video.watched == true
@@ -110,10 +112,30 @@ enum TVWatchedState {
 /// Progress is always in milliseconds; video.duration is in seconds.
 enum TVContinueWatchingPolicy {
     static func isEligible(_ video: VideoItem, positionMs: Int64?) -> Bool {
-        guard video.isLive != true, let positionMs, positionMs > 0,
+        guard !TVLiveStreamDisplayPolicy.isOngoing(video), let positionMs, positionMs > 0,
               let duration = video.duration, duration > 0 else {
             return false
         }
         return !TVWatchedState.isWatched(video, positionMs: positionMs)
+    }
+}
+
+/// Update one Home resume entry from the already-recorded local progress.
+/// Do not fetch history, invalidate recommendations or duplicate YouTube URL
+/// variants; newer playback moves an unfinished video to the shelf's front.
+enum TVContinueWatchingLocalUpdate {
+    static func applying(_ history: [VideoItem], video: VideoItem,
+                         positionMs: Int64?) -> [VideoItem] {
+        guard let positionMs else { return history }
+        let key = TVHistoryDeduplicator.key(for: video)
+        let previous = history.first { TVHistoryDeduplicator.key(for: $0) == key }
+        // A sparse recommendation may omit duration, while its existing
+        // history entry already knows it. Never invent duration metadata.
+        let source = (video.duration ?? 0) > 0 ? video : (previous ?? video)
+        var result = history.filter { TVHistoryDeduplicator.key(for: $0) != key }
+        if TVContinueWatchingPolicy.isEligible(source, positionMs: positionMs) {
+            result.insert(source.withProgress(positionMs), at: 0)
+        }
+        return result
     }
 }

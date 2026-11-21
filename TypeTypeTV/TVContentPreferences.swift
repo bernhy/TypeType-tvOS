@@ -3,6 +3,22 @@ import Combine
 
 /// Account-scoped shared display preferences. A setting written by the TV or
 /// by a different client is read on entry. Library history remains accessible.
+/// Canonical ongoing-vs-post-live classification for cards, filtering,
+/// playback routing and progress. The server's isLiveContent also covers
+/// post-live recordings; isPostLive therefore always takes precedence.
+/// Keep the original server setting key for compatibility.
+enum TVLiveStreamDisplayPolicy {
+    static func isOngoing(_ item: VideoItem) -> Bool {
+        item.isPostLive != true &&
+        (item.isLive == true || item.isLiveContent == true)
+    }
+
+    static func visible(_ items: [VideoItem], hideLiveStreams: Bool) -> [VideoItem] {
+        guard hideLiveStreams else { return items }
+        return items.filter { !isOngoing($0) }
+    }
+}
+
 @MainActor
 final class TVContentPreferences: ObservableObject {
     static let shared = TVContentPreferences()
@@ -47,15 +63,19 @@ final class TVContentPreferences: ObservableObject {
         settings = nil
     }
 
-    func displayed(_ items: [VideoItem], subscriptionFeed: Bool = false) -> [VideoItem] {
-        items.filter { item in
+    /// Library/public-playlist screens preserve Shorts and members-only
+    /// items but respect the user's globally disabled live broadcasts.
+    func withoutHiddenLivestreams(_ items: [VideoItem]) -> [VideoItem] {
+        TVLiveStreamDisplayPolicy.visible(
+            items, hideLiveStreams: settings?.hideSubscriptionLiveStreams == true
+        )
+    }
+
+    /// The same filters now apply in Home, search, channels and subscriptions.
+    func displayed(_ items: [VideoItem]) -> [VideoItem] {
+        withoutHiddenLivestreams(items).filter { item in
             if settings?.hideShorts == true && item.isShort { return false }
             if settings?.hideMembersOnlyContent == true && item.requiresMembership == true {
-                return false
-            }
-            if subscriptionFeed && settings?.hideSubscriptionLiveStreams == true &&
-                (item.isLive == true ||
-                 (item.isLiveContent == true && item.isPostLive != true)) {
                 return false
             }
             return true

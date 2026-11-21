@@ -192,9 +192,9 @@ final class TVHLSPlaybackController: ObservableObject {
         let settings = try? await api.accountSettings()
         sponsorSettings = settings
         let allowed = settings != nil &&
-            settings?.disableWatchHistory != true && video.isLive != true
+            settings?.disableWatchHistory != true && !TVLiveStreamDisplayPolicy.isOngoing(video)
         historyEnabled = allowed
-        historyRecordingDisabled = settings?.disableWatchHistory == true && video.isLive != true
+        historyRecordingDisabled = settings?.disableWatchHistory == true && !TVLiveStreamDisplayPolicy.isOngoing(video)
         await lastProgressSubmission?.value
         guard !Task.isCancelled, !isStopped,
               playbackGeneration == generation else { return }
@@ -207,7 +207,7 @@ final class TVHLSPlaybackController: ObservableObject {
               playbackGeneration == generation else { return }
         let seconds = TVHLSResumePolicy.startSeconds(
             savedPositionMs: saved, durationSeconds: video.duration,
-            isLive: video.isLive == true
+            isLive: TVLiveStreamDisplayPolicy.isOngoing(video)
         )
         startItem(url: url, positionSeconds: seconds)
     }
@@ -381,7 +381,7 @@ final class TVHLSPlaybackController: ObservableObject {
 
     func checkpoint(started: Bool = false, force: Bool = false) {
         guard !isStopped, initialSeekFinished,
-              let api, let video, video.isLive != true else { return }
+              let api, let video, !TVLiveStreamDisplayPolicy.isOngoing(video) else { return }
         let seconds = player.currentTime().seconds
         guard seconds.isFinite, seconds >= 0,
               seconds < Double(Int64.max) / 1_000 else { return }

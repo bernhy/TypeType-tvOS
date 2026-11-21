@@ -5,12 +5,13 @@ import SwiftUI
 /// artwork viewport: the parent card retains its exact 1.065 zoom and its
 /// counter-scaled timestamp badge. Other focus affordances stay custom.
 struct TVFocusedArtworkGlint: ViewModifier {
+    var enabled = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
             .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 10))
-            .hoverEffect(.highlight, isEnabled: !reduceMotion)
+            .hoverEffect(.highlight, isEnabled: enabled && !reduceMotion)
     }
 }
 
