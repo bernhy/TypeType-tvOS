@@ -16,7 +16,6 @@ struct TVSharedVideoGridSnapshot: Equatable {
     let loadAhead: Int
     let lookupMissingMetadata: Bool
     let isWatchLaterEntry: Bool
-    let reloadPlaylistOnRemoval: Bool
     let playbackQueue: [VideoItem]?
 }
 
@@ -39,11 +38,9 @@ private struct TVSharedVideoGridTile: View {
     let accessibilityPrefix: String
     let lookupMissingMetadata: Bool
     let isWatchLaterEntry: Bool
-    let reloadPlaylistOnRemoval: Bool
     let playbackQueue: [VideoItem]?
     let onReturnToList: (String) -> Void
     let onLeftEdge: (String) -> Void
-    let onChanged: () -> Void
     let onNavigation: () -> Void
     let onTopEdge: (String) -> Void
     let onRemoveFromPlaylist: (() async throws -> Void)?
@@ -61,8 +58,7 @@ private struct TVSharedVideoGridTile: View {
         } label: {
             VideoCard(
                 api: api, video: video,
-                lookupMissingMetadata: lookupMissingMetadata,
-                loadMemberships: false
+                lookupMissingMetadata: lookupMissingMetadata
             )
         }
         .buttonStyle(TVRailButtonStyle())
@@ -72,9 +68,8 @@ private struct TVSharedVideoGridTile: View {
         .modifier(TVHomeLightweightVideoActions(
             api: api, video: video, model: menu,
             focus: focus, focusID: focusID,
-            onChanged: onChanged, isWatchLaterEntry: isWatchLaterEntry,
-            onRemoveFromPlaylist: onRemoveFromPlaylist,
-            reloadPlaylistOnRemoval: reloadPlaylistOnRemoval
+            isWatchLaterEntry: isWatchLaterEntry,
+            onRemoveFromPlaylist: onRemoveFromPlaylist
         ))
         .onMoveCommand { direction in
             onNavigation()
@@ -100,7 +95,6 @@ struct TVSharedVideoGrid: View, Equatable {
     let menu: TVHomeMenuCoordinator
     let onReturnToList: (String) -> Void
     let onLeftEdge: (String) -> Void
-    let onChanged: () -> Void
     let onApproachEnd: () -> Void
     var onNavigation: () -> Void = {}
     var onTopEdge: (String) -> Void = { _ in }
@@ -127,11 +121,9 @@ struct TVSharedVideoGrid: View, Equatable {
                     accessibilityPrefix: snapshot.accessibilityPrefix,
                     lookupMissingMetadata: snapshot.lookupMissingMetadata,
                     isWatchLaterEntry: snapshot.isWatchLaterEntry,
-                    reloadPlaylistOnRemoval: snapshot.reloadPlaylistOnRemoval,
                     playbackQueue: snapshot.playbackQueue,
                     onReturnToList: onReturnToList,
                     onLeftEdge: onLeftEdge,
-                    onChanged: onChanged,
                     onNavigation: onNavigation,
                     onTopEdge: onTopEdge,
                     onRemoveFromPlaylist: onRemoveFromPlaylist?(entry.video)

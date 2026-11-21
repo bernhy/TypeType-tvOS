@@ -279,7 +279,6 @@ struct TVSubscriptionsView: View {
                                 loadAhead: columns.count + 1,
                                 lookupMissingMetadata: false,
                                 isWatchLaterEntry: false,
-                                reloadPlaylistOnRemoval: false,
                                 playbackQueue: nil
                             ),
                             api: api, focus: $focusedVideo, menu: videoMenu,
@@ -293,7 +292,6 @@ struct TVSubscriptionsView: View {
                                 detailReturnVideoID = nil
                                 returnToChannelRail()
                             },
-                            onChanged: {},
                             onApproachEnd: { Task { await loadMore() } },
                             onTopEdge: { _ in focusedAction = "playlists" }
                         )

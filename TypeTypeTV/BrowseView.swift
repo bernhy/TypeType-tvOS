@@ -603,32 +603,10 @@ private struct TVVideoCardMetadataTask: ViewModifier {
     }
 }
 
-/// Load membership snapshots only for legacy screens that have not yet
-/// migrated to a single screen-level loader. Optimized grids attach no
-/// membership task to individual cards.
-private struct TVVideoCardMembershipTasks: ViewModifier {
-    let api: TypeTypeAPI
-    let enabled: Bool
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if enabled {
-            content.task(id: api.metadataCacheScope) {
-                async let playlists: Void = TVPlaylistMembership.shared.ensureLoaded(api: api)
-                async let favorites: Void = TVFavoriteMembership.shared.ensureLoaded(api: api)
-                _ = await (playlists, favorites)
-            }
-        } else {
-            content
-        }
-    }
-}
-
 struct VideoCard: View {
     let api: TypeTypeAPI
     let video: VideoItem
     let lookupMissingMetadata: Bool
-    let loadMemberships: Bool
     // One account-scoped, canonical-video signal replaces subscriptions to
     // four global stores. An unrelated playlist/progress mutation no longer
     // invalidates every visible card.
@@ -643,11 +621,10 @@ struct VideoCard: View {
 
     init(api: TypeTypeAPI, video: VideoItem,
          lookupMissingMetadata: Bool = false,
-         loadMemberships: Bool = true) {
+) {
         self.api = api
         self.video = video
         self.lookupMissingMetadata = lookupMissingMetadata
-        self.loadMemberships = loadMemberships
         _cardStatus = ObservedObject(wrappedValue:
             TVVideoCardStatusCenter.signal(
                 url: video.url, scope: api.metadataCacheScope
@@ -841,9 +818,6 @@ struct VideoCard: View {
             video: video, api: api, enabled: lookupMissingMetadata,
             metadataVideoURL: $metadataVideoURL,
             streamMetadata: $streamMetadata
-        ))
-        .modifier(TVVideoCardMembershipTasks(
-            api: api, enabled: loadMemberships
         ))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(TTTheme.accessibilityText(for: video))

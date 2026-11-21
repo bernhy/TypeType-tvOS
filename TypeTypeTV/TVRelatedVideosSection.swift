@@ -36,7 +36,6 @@ struct TVRelatedVideosSection: View {
                         canLoadMore: false, loadAhead: 5,
                         lookupMissingMetadata: false,
                         isWatchLaterEntry: false,
-                        reloadPlaylistOnRemoval: false,
                         playbackQueue: nil
                     ),
                     api: api, focus: $focusedRelatedID, menu: videoMenu,
@@ -48,7 +47,6 @@ struct TVRelatedVideosSection: View {
                         focusedRelatedID = id
                     },
                     onLeftEdge: { _ in },
-                    onChanged: {},
                     onApproachEnd: {}
                 )
                 .equatable()

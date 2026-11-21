@@ -301,8 +301,7 @@ struct SearchView: View {
                                         rowSpacing: 42, canLoadMore: false,
                                         loadAhead: columns.count + 1,
                                         lookupMissingMetadata: false,
-                                        isWatchLaterEntry: false, reloadPlaylistOnRemoval: false,
-                                        playbackQueue: nil
+                                        isWatchLaterEntry: false, playbackQueue: nil
                                     ),
                                     api: api, focus: $focusedVideoURL, menu: videoMenu,
                                     onReturnToList: { id in
@@ -318,7 +317,6 @@ struct SearchView: View {
                                     // Membership badges update in VideoCard.
                                     // Blocked rows are removed by the mutation
                                     // journal, never by clearing all search results.
-                                    onChanged: {},
                                     onApproachEnd: {}
                                 )
                                 .equatable()

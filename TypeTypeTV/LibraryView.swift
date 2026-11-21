@@ -169,7 +169,6 @@ struct LibraryView: View {
                                 loadAhead: 8,
                                 lookupMissingMetadata: selected == .standard(.history),
                                 isWatchLaterEntry: selected == .standard(.watchLater),
-                                reloadPlaylistOnRemoval: isPlaylistSelected,
                                 playbackQueue: playbackQueue
                             ),
                             api: api, focus: $focusedVideoURL, menu: videoMenu,
@@ -194,7 +193,6 @@ struct LibraryView: View {
                                 focusedDestination = selected
                             },
                             // Mutations remove only affected cached entries.
-                            onChanged: {},
                             onApproachEnd: { Task { await loadMoreHistory() } },
                             onRemoveFromPlaylist: { removalAction(for: $0) }
                         )

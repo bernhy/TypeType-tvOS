@@ -25,7 +25,6 @@ private struct TVHomeBaselineTile: View {
     let homeMenu: TVHomeMenuCoordinator
     let onRevealMenu: (String) -> Void
     let onReturnToList: () -> Void
-    let onChanged: () -> Void
     let onNavigation: () -> Void
 
     private var focusID: String {
@@ -43,7 +42,7 @@ private struct TVHomeBaselineTile: View {
                 onReturnToList: onReturnToList
             )
         } label: {
-            VideoCard(api: api, video: video, loadMemberships: false)
+            VideoCard(api: api, video: video)
         }
         .buttonStyle(TVRailButtonStyle())
         .focusEffectDisabled(true)
@@ -52,7 +51,6 @@ private struct TVHomeBaselineTile: View {
         .modifier(TVHomeLightweightVideoActions(
             api: api, video: video, model: homeMenu,
             focus: focus, focusID: id,
-            onChanged: onChanged
         ))
         .onMoveCommand { direction in
             // No SwiftUI state change: just defer metadata-driven row updates
@@ -98,7 +96,6 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
     let homeMenu: TVHomeMenuCoordinator
     let onRevealMenu: (String) -> Void
     let onReturnToList: (String, ScrollViewProxy?) -> Void
-    let onChanged: () -> Void
     let onApproachEnd: () -> Void
     let onResumeAppear: (Int, [VideoItem]) -> Void
     let onResumeDisappear: (VideoItem) -> Void
@@ -138,12 +135,12 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
                     rowSpacing: 32, canLoadMore: snapshot.canLoadMore,
                     loadAhead: snapshot.columns + 1,
                     lookupMissingMetadata: false, isWatchLaterEntry: false,
-                    reloadPlaylistOnRemoval: false, playbackQueue: nil
+                    playbackQueue: nil
                 ),
                 api: api, focus: focus, menu: homeMenu,
                 onReturnToList: { onReturnToList($0, nil) },
                 onLeftEdge: onRevealMenu,
-                onChanged: onChanged, onApproachEnd: onApproachEnd,
+                onApproachEnd: onApproachEnd,
                 onNavigation: onNavigation
             )
             .equatable()
@@ -161,7 +158,7 @@ private struct TVHomeBaselineVideoCollection: View, Equatable {
                 columns: snapshot.columns, focus: focus, homeMenu: homeMenu,
                 onRevealMenu: onRevealMenu,
                 onReturnToList: { onReturnToList(id, railScroll) },
-                onChanged: onChanged, onNavigation: onNavigation
+                onNavigation: onNavigation
             )
             .onAppear {
                 if snapshot.resume { onResumeAppear(entry.index, snapshot.items) }
@@ -553,12 +550,6 @@ struct TVHomeSubscriptionsBaselineView: View {
                     scrollTarget: resume ? "home-continue-watching-row" : nil,
                     nestedScroll: railScroll
                 )
-            },
-            onChanged: {
-                // Blocking a video or channel must remove it from BOTH
-                // recommendations and Continue Watching. Other menu actions
-                // update shared in-memory membership/progress directly.
-                Task { await refresh() }
             },
             onApproachEnd: {
                 Task {

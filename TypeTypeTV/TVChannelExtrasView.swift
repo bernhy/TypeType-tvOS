@@ -87,8 +87,7 @@ struct TVChannelExtrasView: View {
                             columns: columns.count, columnSpacing: 26,
                             rowSpacing: 30, canLoadMore: false, loadAhead: 4,
                             lookupMissingMetadata: false,
-                            isWatchLaterEntry: false, reloadPlaylistOnRemoval: false,
-                            playbackQueue: nil
+                            isWatchLaterEntry: false, playbackQueue: nil
                         ),
                         api: api, focus: $focusedEpisode, menu: videoMenu,
                         onReturnToList: { id in
@@ -96,7 +95,7 @@ struct TVChannelExtrasView: View {
                             focusedEpisode = id
                         },
                         onLeftEdge: { _ in },
-                        onChanged: {}, onApproachEnd: {}
+                        onApproachEnd: {}
                     )
                     .equatable()
                 }

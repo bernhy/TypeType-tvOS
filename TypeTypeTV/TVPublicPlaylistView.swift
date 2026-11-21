@@ -65,8 +65,7 @@ struct TVPublicPlaylistView: View {
                             columns: columns.count, columnSpacing: 30,
                             rowSpacing: 34, canLoadMore: false, loadAhead: 5,
                             lookupMissingMetadata: false,
-                            isWatchLaterEntry: false, reloadPlaylistOnRemoval: false,
-                            playbackQueue: visibleVideos
+                            isWatchLaterEntry: false, playbackQueue: visibleVideos
                         ),
                         api: api, focus: $focusedVideo, menu: videoMenu,
                         onReturnToList: { id in
@@ -74,7 +73,7 @@ struct TVPublicPlaylistView: View {
                             focusedVideo = id
                         },
                         onLeftEdge: { _ in },
-                        onChanged: {}, onApproachEnd: {}
+                        onApproachEnd: {}
                     )
                     .equatable()
                     if loadingMore {

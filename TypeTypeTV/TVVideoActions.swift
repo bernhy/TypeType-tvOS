@@ -200,19 +200,6 @@ enum TVVideoFocusReturn {
 /// library); the lightweight NavigationLinks never gain per-card observable
 /// state, toast tasks or dialog presentation modifiers. Only destructive
 /// feed changes require a reload; membership/progress update shared caches.
-enum TVHomeMenuReloadPolicy {
-    case watched
-    case watchLater
-    case watchLaterRemoval
-    case playlist
-    case playlistRemoval
-    case block
-
-    // Successful mutations are handled by the screen-level change
-    // journal; only the affected cached rows are removed. No timed GET.
-    var requiresFeedReload: Bool { false }
-}
-
 /// Each lightweight Home card publishes one layout anchor, without
 /// attaching state/observers/animations to NavigationLink. Prefer ordered,
 /// append-only storage: PreferenceKey.reduce is called thousands of times
@@ -271,7 +258,6 @@ final class TVHomeMenuCoordinator: ObservableObject {
         let api: TypeTypeAPI
         let video: VideoItem
         let focusID: String
-        let onChanged: () -> Void
     }
 
     @Published var blockRequest: BlockRequest?
@@ -322,16 +308,7 @@ final class TVHomeMenuCoordinator: ObservableObject {
         }
     }
 
-    private func refreshAfterFeedback(_ onChanged: @escaping () -> Void) {
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(1_200))
-            guard !Task.isCancelled else { return }
-            onChanged()
-        }
-    }
-
-    private func run(focusID: String, kind: TVHomeMenuReloadPolicy,
-                     onChanged: @escaping () -> Void,
+    private func run(focusID: String,
                      action: @escaping () async throws -> String) {
         guard !working else { return }
         lastFocusID = focusID
@@ -341,7 +318,6 @@ final class TVHomeMenuCoordinator: ObservableObject {
             do {
                 let result = try await action()
                 showFeedback(result, on: focusID)
-                if kind.requiresFeedReload { refreshAfterFeedback(onChanged) }
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -365,9 +341,8 @@ final class TVHomeMenuCoordinator: ObservableObject {
         knownDurations[url] = duration
     }
 
-    func markWatched(api: TypeTypeAPI, video: VideoItem, focusID: String,
-                     onChanged: @escaping () -> Void) {
-        run(focusID: focusID, kind: .watched, onChanged: onChanged) {
+    func markWatched(api: TypeTypeAPI, video: VideoItem, focusID: String) {
+        run(focusID: focusID) {
             var target = self.videoWithKnownDuration(video)
             if (target.duration ?? 0) <= 0 {
                 let details = await TVStreamMetadataCache.shared.details(for: video, api: api)
@@ -394,21 +369,16 @@ final class TVHomeMenuCoordinator: ObservableObject {
     }
 
     func removePlaylistEntry(focusID: String,
-                             onChanged: @escaping () -> Void,
                              action: @escaping () async throws -> Void) {
-        run(focusID: focusID, kind: .playlistRemoval, onChanged: onChanged) {
+        run(focusID: focusID) {
             try await action()
             return TVL10n.value("action.removedPlaylist")
         }
     }
 
     func updateWatchLater(api: TypeTypeAPI, video: VideoItem,
-                          focusID: String, enabled: Bool,
-                          reloadOnRemoval: Bool = false,
-                          onChanged: @escaping () -> Void) {
-        let kind: TVHomeMenuReloadPolicy =
-            (!enabled && reloadOnRemoval) ? .watchLaterRemoval : .watchLater
-        run(focusID: focusID, kind: kind, onChanged: onChanged) {
+                          focusID: String, enabled: Bool) {
+        run(focusID: focusID) {
             try await api.setWatchLater(video: video, enabled: enabled)
             TVWatchLaterMembership.shared.mark(video.url, present: enabled, api: api)
             TVVideoMutationCenter.shared.record(
@@ -420,34 +390,27 @@ final class TVHomeMenuCoordinator: ObservableObject {
     }
 
     func presentPlaylist(api: TypeTypeAPI, video: VideoItem,
-                         focusID: String, onChanged: (() -> Void)? = nil,
-                         reloadOnRemoval: Bool = false) {
+                         focusID: String) {
         lastFocusID = focusID
         TVPlaylistPopupPresenter.shared.present(
             api: api, video: video,
             onSaved: { result in
-                // Membership updates are shared. Only a library screen
-                // showing the affected playlist needs its own list reloaded.
+                // The picker records precise changes in the mutation journal.
                 self.showFeedback(result, on: focusID)
-                // The picker itself records the precise playlist ID.
-                // Its containing library screen removes only that row.
-                _ = onChanged
-                _ = reloadOnRemoval
             },
             onDismiss: { self.restoreFocus(focusID) }
         )
     }
 
     func requestBlock(_ target: BlockTarget, api: TypeTypeAPI,
-                      video: VideoItem, focusID: String,
-                      onChanged: @escaping () -> Void) {
+                      video: VideoItem, focusID: String) {
         lastFocusID = focusID
         guard target != .channel || video.uploaderUrl?.isEmpty == false else {
             errorMessage = TVL10n.value("action.channelUnavailable")
             return
         }
         blockRequest = BlockRequest(target: target, api: api, video: video,
-                                    focusID: focusID, onChanged: onChanged)
+                                    focusID: focusID)
     }
 
     func dismissBlock() {
@@ -459,8 +422,7 @@ final class TVHomeMenuCoordinator: ObservableObject {
     func confirmBlock() {
         guard let request = blockRequest else { return }
         blockRequest = nil
-        run(focusID: request.focusID, kind: .block,
-            onChanged: request.onChanged) {
+        run(focusID: request.focusID) {
             switch request.target {
             case .video:
                 try await request.api.blockVideo(request.video)
@@ -515,10 +477,8 @@ private struct TVHomeCardMenuContents: View {
     let video: VideoItem
     let model: TVHomeMenuCoordinator
     let focusID: String
-    let onChanged: () -> Void
     var isWatchLaterEntry = false
     var onRemoveFromPlaylist: (() async throws -> Void)? = nil
-    var reloadPlaylistOnRemoval = false
 
     @ObservedObject private var localProgress = TVLocalProgress.shared
     @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
@@ -556,7 +516,7 @@ private struct TVHomeCardMenuContents: View {
                    ((video.duration ?? 0) > 0 || video.isShort) {
                     Button {
                         model.markWatched(api: api, video: video,
-                                          focusID: focusID, onChanged: onChanged)
+                                          focusID: focusID)
                     } label: {
                         Label(
                             watched ? "action.markUnwatched" : "action.markWatched",
@@ -568,16 +528,14 @@ private struct TVHomeCardMenuContents: View {
                 if watchLaterStatus == .saved {
                     Button(role: .destructive) {
                         model.updateWatchLater(api: api, video: video,
-                            focusID: focusID, enabled: false,
-                            reloadOnRemoval: isWatchLaterEntry,
-                            onChanged: onChanged)
+                            focusID: focusID, enabled: false)
                     } label: {
                         Label("action.removeWatchLater", systemImage: "bookmark.slash")
                     }
                 } else if watchLaterStatus == .notSaved {
                     Button {
                         model.updateWatchLater(api: api, video: video,
-                            focusID: focusID, enabled: true, onChanged: onChanged)
+                            focusID: focusID, enabled: true)
                     } label: {
                         Label("action.watchLater", systemImage: "bookmark")
                     }
@@ -595,16 +553,14 @@ private struct TVHomeCardMenuContents: View {
                 }
                 Button {
                     model.presentPlaylist(api: api, video: video,
-                        focusID: focusID, onChanged: onChanged,
-                        reloadOnRemoval: reloadPlaylistOnRemoval)
+                        focusID: focusID)
                 } label: {
                     Label("action.addPlaylist", systemImage: "text.badge.plus")
                 }
                 if let onRemoveFromPlaylist {
                     Button(role: .destructive) {
                         model.removePlaylistEntry(
-                            focusID: focusID, onChanged: onChanged,
-                            action: onRemoveFromPlaylist
+                            focusID: focusID, action: onRemoveFromPlaylist
                         )
                     } label: {
                         Label("action.removePlaylistVideo", systemImage: "minus.circle")
@@ -612,13 +568,13 @@ private struct TVHomeCardMenuContents: View {
                 }
                 Button(role: .destructive) {
                     model.requestBlock(.video, api: api, video: video,
-                                       focusID: focusID, onChanged: onChanged)
+                                       focusID: focusID)
                 } label: {
                     Label("action.blockVideo", systemImage: "hand.raised")
                 }
                 Button(role: .destructive) {
                     model.requestBlock(.channel, api: api, video: video,
-                                       focusID: focusID, onChanged: onChanged)
+                                       focusID: focusID)
                 } label: {
                     Label("action.blockChannel",
                           systemImage: "person.crop.circle.badge.xmark")
@@ -632,10 +588,8 @@ struct TVHomeLightweightVideoActions: ViewModifier {
     let model: TVHomeMenuCoordinator
     let focus: FocusState<String?>.Binding
     let focusID: String
-    let onChanged: () -> Void
     var isWatchLaterEntry = false
     var onRemoveFromPlaylist: (() async throws -> Void)? = nil
-    var reloadPlaylistOnRemoval = false
 
     func body(content: Content) -> some View {
         content
@@ -643,10 +597,8 @@ struct TVHomeLightweightVideoActions: ViewModifier {
             .contextMenu {
                 TVHomeCardMenuContents(
                     api: api, video: video, model: model,
-                    focusID: focusID, onChanged: onChanged,
-                    isWatchLaterEntry: isWatchLaterEntry,
-                    onRemoveFromPlaylist: onRemoveFromPlaylist,
-                    reloadPlaylistOnRemoval: reloadPlaylistOnRemoval
+                    focusID: focusID, isWatchLaterEntry: isWatchLaterEntry,
+                    onRemoveFromPlaylist: onRemoveFromPlaylist
                 )
             }
             .anchorPreference(key: TVHomeCardToastAnchorKey.self, value: .bounds) {

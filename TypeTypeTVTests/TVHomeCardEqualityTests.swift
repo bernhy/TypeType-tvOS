@@ -479,7 +479,7 @@ final class TVHomeCardEqualityTests: XCTestCase {
                 canLoadMore: false, loadAhead: 8,
                 lookupMissingMetadata: false,
                 isWatchLaterEntry: watchLater,
-                reloadPlaylistOnRemoval: false, playbackQueue: nil
+                playbackQueue: nil
             )
         }
         let original = snapshot(destination: "library-history")
@@ -499,15 +499,6 @@ final class TVHomeCardEqualityTests: XCTestCase {
                           "Visible video metadata changes must still redraw")
         // SwiftUI FocusState is deliberately NOT included in this immutable
         // snapshot. Directional focus changes update only the matching tile.
-    }
-
-    func testSuccessfulMenuMutationsNeverReloadEntireFeed() {
-        XCTAssertFalse(TVHomeMenuReloadPolicy.watched.requiresFeedReload)
-        XCTAssertFalse(TVHomeMenuReloadPolicy.watchLater.requiresFeedReload)
-        XCTAssertFalse(TVHomeMenuReloadPolicy.playlist.requiresFeedReload)
-        XCTAssertFalse(TVHomeMenuReloadPolicy.block.requiresFeedReload)
-        XCTAssertFalse(TVHomeMenuReloadPolicy.watchLaterRemoval.requiresFeedReload)
-        XCTAssertFalse(TVHomeMenuReloadPolicy.playlistRemoval.requiresFeedReload)
     }
 
     @MainActor

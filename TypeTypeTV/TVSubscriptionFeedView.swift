@@ -82,8 +82,7 @@ struct TVSubscriptionFeedView: View {
                                 !loading && !loadingMore && pageError == nil,
                             loadAhead: columns.count + 1,
                             lookupMissingMetadata: false,
-                            isWatchLaterEntry: false, reloadPlaylistOnRemoval: false,
-                            playbackQueue: nil
+                            isWatchLaterEntry: false, playbackQueue: nil
                         ),
                         api: api, focus: $focusedVideo, menu: videoMenu,
                         onReturnToList: { id in
@@ -97,7 +96,6 @@ struct TVSubscriptionFeedView: View {
                             railReturnVideoID = id
                             onRevealMenu()
                         },
-                        onChanged: { Task { await reload() } },
                         onApproachEnd: { Task { await loadMore() } }
                     )
                     .equatable()
