@@ -39,6 +39,7 @@ private struct TVSharedVideoGridTile: View {
     let lookupMissingMetadata: Bool
     let isWatchLaterEntry: Bool
     let playbackQueue: [VideoItem]?
+    let staticMenuProbe: Bool
     let onReturnToList: (String) -> Void
     let onReturnedVideo: ((VideoItem) -> Void)?
     let onLeftEdge: (String) -> Void
@@ -71,7 +72,8 @@ private struct TVSharedVideoGridTile: View {
             api: api, video: video, model: menu,
             focus: focus, focusID: focusID,
             isWatchLaterEntry: isWatchLaterEntry,
-            onRemoveFromPlaylist: onRemoveFromPlaylist
+            onRemoveFromPlaylist: onRemoveFromPlaylist,
+            staticMenuProbe: staticMenuProbe
         ))
         .onMoveCommand { direction in
             onNavigation()
@@ -125,6 +127,7 @@ struct TVSharedVideoGrid: View, Equatable {
                     lookupMissingMetadata: snapshot.lookupMissingMetadata,
                     isWatchLaterEntry: snapshot.isWatchLaterEntry,
                     playbackQueue: snapshot.playbackQueue,
+                    staticMenuProbe: snapshot.destination == "home",
                     onReturnToList: onReturnToList,
                     onReturnedVideo: onReturnedVideo,
                     onLeftEdge: onLeftEdge,

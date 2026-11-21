@@ -430,12 +430,10 @@ struct TVHomeCardMenuState: Equatable {
     }
 }
 
-/// A/B diagnostic for UIKit menu warnings: read existing cache values only
-/// when SwiftUI evaluates this menu content. Do not subscribe the menu view
-/// to @Published changes during UIKit's opening transition.
-/// No timers, network requests or changes to video card observations.
-/// IMPORTANT: verify watched/Watch Later labels after dismissing and reopening
-/// the menu; SwiftUI may cache an unobserved contextMenu builder.
+/// SwiftUI can cache a .contextMenu builder when its Home tile sits behind
+/// EquatableView. A menu-scoped ObservedObject makes that *menu* reactive
+/// without re-subscribing or refreshing every tile in the lazy grid.
+/// Both dependencies are existing shared in-memory caches: no GET here.
 private struct TVHomeCardMenuContents: View {
     let api: TypeTypeAPI
     let video: VideoItem
@@ -444,16 +442,21 @@ private struct TVHomeCardMenuContents: View {
     var isWatchLaterEntry = false
     var onRemoveFromPlaylist: (() async throws -> Void)? = nil
 
+    @ObservedObject private var localProgress = TVLocalProgress.shared
+    @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
+
     @ViewBuilder
     var body: some View {
-                // Diagnostic: calculate from the live in-memory cache on
-                // evaluation, without a Combine subscription from this menu.
+                // This menu body, NOT the permanent Home tile, observes
+                // shared account/progress state. Values refresh whenever a
+                // long-press presents this menu or a library action changes
+                // the snapshot. No extra work during focus-only navigation.
                 let state = TVHomeCardMenuState(
                     video: model.videoWithKnownDuration(video),
-                    positionMs: TVLocalProgress.shared.position(for: video.url) ??
+                    positionMs: localProgress.position(for: video.url) ??
                         video.watchPositionMs,
                     watchLater: isWatchLaterEntry ? .saved :
-                        TVWatchLaterMembership.shared.menuStatus(
+                        watchLaterMembership.menuStatus(
                             for: video.url, api: api
                         )
                 )
@@ -549,16 +552,23 @@ struct TVHomeLightweightVideoActions: ViewModifier {
     let focusID: String
     var isWatchLaterEntry = false
     var onRemoveFromPlaylist: (() async throws -> Void)? = nil
+    // Experiment B: only the Home recommendation grid passes true.
+    // The original dynamic menu stays intact for every other video card.
+    var staticMenuProbe = false
 
     func body(content: Content) -> some View {
         content
             .focused(focus, equals: focusID)
             .contextMenu {
-                TVHomeCardMenuContents(
-                    api: api, video: video, model: model,
-                    focusID: focusID, isWatchLaterEntry: isWatchLaterEntry,
-                    onRemoveFromPlaylist: onRemoveFromPlaylist
-                )
+                if staticMenuProbe {
+                    Button("Menü-Test (statisch)") {}
+                } else {
+                    TVHomeCardMenuContents(
+                        api: api, video: video, model: model,
+                        focusID: focusID, isWatchLaterEntry: isWatchLaterEntry,
+                        onRemoveFromPlaylist: onRemoveFromPlaylist
+                    )
+                }
             }
             .anchorPreference(key: TVHomeCardToastAnchorKey.self, value: .bounds) {
                 [TVHomeCardToastAnchor(focusID: focusID, anchor: $0)]
