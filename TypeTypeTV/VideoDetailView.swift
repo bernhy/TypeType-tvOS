@@ -41,8 +41,11 @@ struct VideoDetailView: View {
     @State private var playbackOpened = false
 
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
+    private var isOngoingLive: Bool {
+        TVLiveStreamDisplayPolicy.isOngoing(video)
+    }
     private var showsMarkWatched: Bool {
-        video.isLive != true &&
+        !isOngoingLive &&
         ((detailedVideo.duration ?? 0) > 0 || detailedVideo.isShort)
     }
     private var hasDetailDescription: Bool {
@@ -104,7 +107,7 @@ struct VideoDetailView: View {
                 // A fixed GeometryReader height used to clip buttons on long
                 // titles while the progress section overlapped them.
                 VStack(alignment: .leading, spacing: 22) {
-                        Text(TVL10n.value(video.isLive == true ? "video.liveBadge" : "video.badge"))
+                        Text(TVL10n.value(isOngoingLive ? "video.liveBadge" : "video.badge"))
                             .font(.subheadline.bold()).tracking(2.5)
                             .foregroundStyle(TTTheme.accent)
                         Text(video.title)
@@ -156,16 +159,16 @@ struct VideoDetailView: View {
                                 .foregroundStyle(.white.opacity(0.84))
                         }
                         HStack(spacing: 22) {
-                            if video.isLive == true {
+                            if isOngoingLive {
                                 Label("video.liveStream", systemImage: "dot.radiowaves.left.and.right")
                                     .foregroundStyle(TTTheme.accent)
                             } else if let seconds = detailedVideo.duration, seconds > 0 {
                                 Label(TTTheme.time(seconds), systemImage: "clock")
                             }
-                            if detailedVideo.isShort && video.isLive != true {
+                            if detailedVideo.isShort && !isOngoingLive {
                                 Label("video.shortsBadge", systemImage: "play.rectangle.fill")
                             }
-                            Text(youtube && video.isLive != true
+                            Text(youtube && !isOngoingLive
                                 ? "YouTube · SABR"
                                 : TVL10n.value("video.providerNative"))
                         }
@@ -192,7 +195,7 @@ struct VideoDetailView: View {
                                         }
                                     } label: {
                                         Label {
-                                            if video.isLive == true {
+                                            if isOngoingLive {
                                                 Text("video.viewLive")
                                             } else {
                                                 Text("video.play")
@@ -321,7 +324,7 @@ struct VideoDetailView: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                            if video.isLive != true, let duration = detailedVideo.duration,
+                            if !isOngoingLive, let duration = detailedVideo.duration,
                                duration > 0 {
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text("video.progressHeading")

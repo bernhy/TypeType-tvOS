@@ -12,7 +12,7 @@ struct PlaybackView: View {
 
     var body: some View {
         Group {
-            if VideoAddress.youtubeID(video.url) != nil && video.isLive != true {
+            if VideoAddress.youtubeID(video.url) != nil && !TVYouTubeStreamRouting.isLiveHLS(video) {
                 SabrPlayerView(api: api, video: video, onPlaybackEvent: onPlaybackEvent)
             } else if let hlsURL {
                 TVHLSPlaybackView(api: api, video: video, url: hlsURL,
@@ -35,7 +35,7 @@ struct PlaybackView: View {
         .onDisappear { TVPlaybackVisibility.shared.leave() }
         .onExitCommand { dismiss() }
         .task {
-            if VideoAddress.youtubeID(video.url) == nil || video.isLive == true {
+            if VideoAddress.youtubeID(video.url) == nil || TVYouTubeStreamRouting.isLiveHLS(video) {
                 await prepare()
             }
         }

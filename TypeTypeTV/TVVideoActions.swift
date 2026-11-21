@@ -474,7 +474,7 @@ private struct TVHomeCardMenuContents: View {
                     }
                     .disabled(true)
                 }
-                if video.isLive != true &&
+                if !TVLiveStreamDisplayPolicy.isOngoing(video) &&
                    ((video.duration ?? 0) > 0 || video.isShort) {
                     Button {
                         model.markWatched(api: api, video: video,

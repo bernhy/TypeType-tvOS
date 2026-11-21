@@ -3,8 +3,10 @@ import Combine
 
 /// Account-scoped shared display preferences. A setting written by the TV or
 /// by a different client is read on entry. Library history remains accessible.
-/// Global livestream visibility policy. Keep the original server setting
-/// key for compatibility; it now applies beyond the subscription feed.
+/// Canonical ongoing-vs-post-live classification for cards, filtering,
+/// playback routing and progress. The server's isLiveContent also covers
+/// post-live recordings; isPostLive therefore always takes precedence.
+/// Keep the original server setting key for compatibility.
 enum TVLiveStreamDisplayPolicy {
     static func isOngoing(_ item: VideoItem) -> Bool {
         item.isPostLive != true &&

@@ -78,7 +78,7 @@ actor TVPlaybackProgressWriter {
 
     func checkpoint(api: TypeTypeAPI, video: VideoItem, positionMs: Int64,
                     started: Bool = false, force: Bool = false) {
-        guard policyAllowsHistory, video.isLive != true, positionMs >= 0 else { return }
+        guard policyAllowsHistory, !TVLiveStreamDisplayPolicy.isOngoing(video), positionMs >= 0 else { return }
         if !force, let last = lastRequestedMs,
            abs(last - positionMs) < 5_000 { return }
         lastRequestedMs = positionMs
@@ -99,7 +99,7 @@ actor TVPlaybackProgressWriter {
 /// All controls and thumbnails use this single 90% completion rule.
 enum TVWatchedState {
     static func isWatched(_ video: VideoItem, positionMs: Int64?) -> Bool {
-        guard video.isLive != true, let duration = video.duration,
+        guard !TVLiveStreamDisplayPolicy.isOngoing(video), let duration = video.duration,
               duration > 0, duration <= Int64.max / 900 else { return false }
         if let positionMs { return positionMs >= Int64(duration) * 900 }
         return video.watched == true
@@ -112,7 +112,7 @@ enum TVWatchedState {
 /// Progress is always in milliseconds; video.duration is in seconds.
 enum TVContinueWatchingPolicy {
     static func isEligible(_ video: VideoItem, positionMs: Int64?) -> Bool {
-        guard video.isLive != true, let positionMs, positionMs > 0,
+        guard !TVLiveStreamDisplayPolicy.isOngoing(video), let positionMs, positionMs > 0,
               let duration = video.duration, duration > 0 else {
             return false
         }

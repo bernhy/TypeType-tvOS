@@ -18,7 +18,8 @@ enum TTTheme {
 
     static func accessibilityText(for video: VideoItem) -> String {
         let origin = video.uploaderName ?? ""
-        let duration = video.isLive == true ? TVL10n.value("video.liveAccessibility") :
+        let duration = TVLiveStreamDisplayPolicy.isOngoing(video)
+            ? TVL10n.value("video.liveAccessibility") :
             video.duration.map { time($0) } ?? ""
         return [video.title, origin, duration].filter { !$0.isEmpty }.joined(separator: ", ")
     }

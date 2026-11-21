@@ -551,7 +551,7 @@ struct VideoCard: View {
         localProgress.position(for: video.url) ?? video.watchPositionMs
     }
     private var fraction: Double? {
-        guard video.isLive != true,
+        guard !TVLiveStreamDisplayPolicy.isOngoing(video),
               let duration = metadataVideo.duration, duration > 0,
               let progress = effectivePosition, progress > 0 else { return nil }
         return max(0, min(1, Double(progress) / (Double(duration) * 1_000)))
@@ -598,7 +598,7 @@ struct VideoCard: View {
                                alignment: .topLeading)
                         .padding(8)
                 }
-                if metadataVideo.isShort && video.isLive != true {
+                if metadataVideo.isShort && !TVLiveStreamDisplayPolicy.isOngoing(video) {
                     Label("video.shortsBadge", systemImage: "play.rectangle.fill")
                         .font(.caption.bold())
                         .foregroundStyle(.white)
@@ -612,7 +612,7 @@ struct VideoCard: View {
                         .padding(.bottom, 14)
                         .allowsHitTesting(false)
                 }
-                if let position = watchedTime, video.isLive != true {
+                if let position = watchedTime, !TVLiveStreamDisplayPolicy.isOngoing(video) {
                     Label(position, systemImage: completed ? "checkmark.circle.fill" : "play.circle")
                         .font(.caption.monospacedDigit())
                         .padding(7)

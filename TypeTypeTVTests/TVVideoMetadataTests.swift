@@ -237,6 +237,43 @@ final class TVVideoMetadataTests: XCTestCase {
         )
     }
 
+    func testYouTubeRoutingAgreesWithLiveBadgeAndPostLiveStatus() {
+        var stream = VideoItem(
+            id: "live", title: "Live", url: "https://youtu.be/abc123def45",
+            thumbnailUrl: nil, uploaderName: nil, duration: 300,
+            isLive: false
+        )
+        stream.isLiveContent = true
+        XCTAssertTrue(TVLiveStreamDisplayPolicy.isOngoing(stream))
+        XCTAssertTrue(TVYouTubeStreamRouting.isLiveHLS(stream))
+        XCTAssertEqual(TVYouTubeStreamRouting.endpoint(for: stream),
+                       "streams/youtube/live")
+        XCTAssertTrue(TTTheme.accessibilityText(for: stream).contains(
+            TVL10n.value("video.liveAccessibility")
+        ))
+
+        stream.isPostLive = true
+        XCTAssertFalse(TVLiveStreamDisplayPolicy.isOngoing(stream))
+        XCTAssertFalse(TVYouTubeStreamRouting.isLiveHLS(stream))
+        XCTAssertEqual(TVYouTubeStreamRouting.endpoint(for: stream),
+                       "streams/youtube/sabr")
+        XCTAssertFalse(TTTheme.accessibilityText(for: stream).contains(
+            TVL10n.value("video.liveAccessibility")
+        ))
+
+        // A stale isLive=true from older API entries must never override
+        // the explicit post-live state.
+        var stale = VideoItem(
+            id: "archive", title: "Archive", url: "https://youtu.be/xyz123def45",
+            thumbnailUrl: nil, uploaderName: nil, duration: 600,
+            isLive: true
+        )
+        stale.isLiveContent = true
+        stale.isPostLive = true
+        XCTAssertEqual(TVYouTubeStreamRouting.endpoint(for: stale),
+                       "streams/youtube/sabr")
+    }
+
     func testLiveBadgeUsesOngoingServerClassificationNotOnlyIsLive() {
         var live = VideoItem(
             id: "live", title: "Live", url: "https://youtu.be/abc123def45",
