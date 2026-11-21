@@ -22,6 +22,7 @@ struct LibraryView: View {
     // Set synchronously as the detail dismisses, before tvOS chooses its
     // next native focus target; does not trigger a second grid reload.
     @State private var detailReturnVideoID: String?
+    @State private var railReturnVideoID: String?
     @State private var mutationCursor = TVVideoMutationCursor()
     @State private var selected: TVLibraryDestination = .standard(.watchLater)
     @FocusState private var focusedDestination: TVLibraryDestination?
@@ -43,6 +44,11 @@ struct LibraryView: View {
     @ObservedObject private var contentPreferences = TVContentPreferences.shared
     private var visibleVideos: [VideoItem] {
         contentPreferences.withoutHiddenLivestreams(videos)
+    }
+    private var preferredVideoID: String? {
+        guard let saved = detailReturnVideoID ?? railReturnVideoID,
+              visibleVideos.contains(where: { $0.url == saved }) else { return nil }
+        return saved
     }
     @State private var statusMessage: String?
     @State private var railError: String?
@@ -182,7 +188,11 @@ struct LibraryView: View {
                                 focusedDestination = target == nil ? selected : nil
                                 focusedVideoURL = target
                             },
-                            onLeftEdge: { _ in focusedDestination = selected },
+                            onLeftEdge: { id in
+                                railReturnVideoID = id
+                                detailReturnVideoID = nil
+                                focusedDestination = selected
+                            },
                             // Mutations remove only affected cached entries.
                             onChanged: {},
                             onApproachEnd: { Task { await loadMoreHistory() } },
@@ -224,8 +234,8 @@ struct LibraryView: View {
                 // The user explicitly returned from this detail tile. Give
                 // its current position first priority during the pop.
                 .defaultFocus(
-                    $focusedVideoURL, detailReturnVideoID,
-                    priority: detailReturnVideoID == nil
+                    $focusedVideoURL, preferredVideoID,
+                    priority: preferredVideoID == nil
                         ? .automatic : .userInitiated
                 )
             }
@@ -272,6 +282,9 @@ struct LibraryView: View {
         .task(id: focusRequest) {
             guard focusRequest >= 0, handledFocusRequest != focusRequest else { return }
             handledFocusRequest = focusRequest
+            // The last tile is already registered with native defaultFocus.
+            // Do not focus the subrail first and then visibly jump to it.
+            if preferredVideoID != nil { return }
             await Task.yield()
             guard !Task.isCancelled else { return }
             focusedDestination = selected
@@ -288,6 +301,10 @@ struct LibraryView: View {
             if focusedDestination != nil {
                 onRevealMenu()
             } else {
+                if let focusedVideoURL {
+                    railReturnVideoID = focusedVideoURL
+                }
+                detailReturnVideoID = nil
                 focusedDestination = selected
             }
         }
@@ -505,8 +522,14 @@ struct LibraryView: View {
     @MainActor
     private func enterDestination(_ destination: TVLibraryDestination) {
         if destination != selected {
+            railReturnVideoID = nil
+            detailReturnVideoID = nil
             focusContentAfterLoad = true
             selected = destination
+        } else if let preferredVideoID {
+            // Explicit OK/Right on the selected category transfers directly.
+            // Native defaultFocus owns the destination, not a delayed Task.
+            focusedVideoURL = preferredVideoID
         } else {
             focusFirstContent()
         }
@@ -514,6 +537,10 @@ struct LibraryView: View {
 
     @MainActor
     private func focusFirstContent() {
+        if let preferredVideoID {
+            focusedVideoURL = preferredVideoID
+            return
+        }
         guard !loading else {
             focusContentAfterLoad = true
             return
