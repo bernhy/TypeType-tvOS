@@ -395,7 +395,7 @@ struct LibraryView: View {
         guard case .playlist(let id) = selected else { return nil }
         return {
             try await api.removeFromPlaylist(id, videoURL: video.url)
-            await TVPlaylistMembership.shared.markRemoved(
+            TVPlaylistMembership.shared.markRemoved(
                 videoURL: video.url, playlistID: id, api: api
             )
             await TVVideoMutationCenter.shared.record(

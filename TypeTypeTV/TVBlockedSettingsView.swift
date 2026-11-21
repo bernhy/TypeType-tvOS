@@ -268,7 +268,7 @@ struct TVBlockedSettingsView: View {
                 case .channels: channels.removeAll { $0.url == key }
                 case .keywords: keywords.removeAll { $0.keyword == key }
                 }
-                removedOverlay.remove(token)
+                _ = removedOverlay.remove(token)
             }
             if category == .videos {
                 TVBlockedNameCache.remove(url: key, api: api)
