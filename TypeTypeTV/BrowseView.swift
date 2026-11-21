@@ -620,8 +620,7 @@ struct VideoCard: View {
     @State private var metadataVideoURL: String?
 
     init(api: TypeTypeAPI, video: VideoItem,
-         lookupMissingMetadata: Bool = false,
-) {
+         lookupMissingMetadata: Bool = false) {
         self.api = api
         self.video = video
         self.lookupMissingMetadata = lookupMissingMetadata
