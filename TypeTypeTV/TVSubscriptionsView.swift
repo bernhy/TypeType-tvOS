@@ -843,7 +843,15 @@ struct TVSubscriptionsView: View {
             await TVChannelArtworkCache.shared.remember(response, for: channelURL, api: api)
             channelDescription = response.description ?? ""
             hasCourses = response.hasCourses == true
-            videos = response.videos
+            // Channel feeds can omit the uploader URL. Keep the known
+            // channel identity on each card so blocking that channel can
+            // remove the affected tiles locally without another GET.
+            let channelVideos = response.videos.map { item in
+                var result = item
+                if result.uploaderUrl == nil { result.uploaderUrl = channelURL }
+                return result
+            }
+            videos = channelVideos
             nextPage = response.nextpage
             if enterGridAfterLoad {
                 enterGridAfterLoad = false
@@ -854,7 +862,7 @@ struct TVSubscriptionsView: View {
             }
             // Channel feed has no watch-position metadata. Enrich both
             // first page and pagination exactly like Home and Library.
-            let enriched = await api.withProgress(response.videos)
+            let enriched = await api.withProgress(channelVideos)
             guard !Task.isCancelled, channelRequestID == identifier,
                   selectedChannelURL == channelURL, showingShorts == shorts,
                   videoSort == sort else { return }
@@ -887,7 +895,11 @@ struct TVSubscriptionsView: View {
                   self.selectedChannelURL == selectedChannelURL, showingShorts == shorts,
                   videoSort == sort, self.nextPage == nextPage else { return }
             var seen = Set(videos.map(\.url))
-            let fresh = response.videos.filter { seen.insert($0.url).inserted }
+            let fresh = response.videos.map { item in
+                var result = item
+                if result.uploaderUrl == nil { result.uploaderUrl = selectedChannelURL }
+                return result
+            }.filter { seen.insert($0.url).inserted }
             videos += fresh
             self.nextPage = response.nextpage == nextPage ? nil : response.nextpage
             let enriched = await api.withProgress(fresh)
