@@ -62,14 +62,10 @@ struct BrowseView: View {
     let initialSettingsGroup: TVSettingsGroup
     @State private var section: TVSection
     @State private var expanded = false
-    @State private var enteringFromMenu = false
-    @State private var menuHandoffActive = false
-    @State private var menuHandoffGeneration = 0
-    // When returning from content, tvOS may momentarily choose the closest
-    // *other* icon before @FocusState can restore our selected section.
-    // Restrict the rail to the intended icon until that Left move settles.
-    @State private var returnToRailTarget: TVSection?
-    @State private var returnToRailGeneration = 0
+    // Only the region owning remote focus is eligible for native focus.
+    // This replaces delayed handoffs and rail-icon suppression timers.
+    private enum NavigationFocusRegion { case sidebar, content }
+    @State private var focusRegion: NavigationFocusRegion = .content
     @State private var searchFocusRequest = 0
     @State private var sidebarIdentity: TVAccountIdentity?
     private var playbackVisibility = TVPlaybackVisibility.shared
@@ -89,10 +85,9 @@ struct BrowseView: View {
     @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
     @FocusState private var menuFocus: TVSection?
 
-    // Previewing and entering a page are different states. Once an explicit
-    // activation starts, content may claim focus even if tvOS has not yet
-    // delivered the menu's focus-loss notification.
-    private var menuPreviewVisible: Bool { expanded && !enteringFromMenu }
+    // Previewing is exclusive to the focused sidebar. Right/OK changes the
+    // owning region; the child then uses its own native defaultFocus.
+    private var menuPreviewVisible: Bool { focusRegion == .sidebar }
 
     init(instanceOrigin: String, onDisconnect: @escaping () -> Void,
          initialSection: TVSection = .home, previewVideos: [VideoItem]? = nil,
@@ -105,6 +100,7 @@ struct BrowseView: View {
         self.initialSettingsGroup = initialSettingsGroup
         _section = State(initialValue: initialSection)
         _expanded = State(initialValue: initiallyExpanded)
+        _focusRegion = State(initialValue: initiallyExpanded ? .sidebar : .content)
         // On cold launch, start directly in Home recommendations, never
         // in the left rail or the Recent history grid.
         _homeFocusRequest = State(
@@ -126,8 +122,11 @@ struct BrowseView: View {
                 HStack(spacing: 0) {
                     if !playbackVisibility.isVisible {
                         sidebar
+                            // A collapsed rail cannot steal focus from content.
+                            // The native focus engine chooses within the enabled
+                            // region; no post-transition correction is needed.
                             .disabled(homeStartupFocusPending ||
-                                      (section == .home && !expanded))
+                                      focusRegion != .sidebar)
                             .zIndex(1)
                     }
                 NavigationStack {
@@ -301,6 +300,7 @@ struct BrowseView: View {
         .focusEffectDisabled(true)
         // The sibling page resizes in this same animated HStack transaction.
         .focusSection()
+        .defaultFocus($menuFocus, section, priority: .userInitiated)
         .onExitCommand {
             // Back while the global rail is focused goes to Home. The final
             // Back on the Home icon is consumed here, never exits TypeType.
@@ -313,49 +313,14 @@ struct BrowseView: View {
                 setRailExpanded(true)
             }
         }
-        .onChange(of: menuFocus) { previous, focused in
-            if let target = returnToRailTarget {
-                // Ignore transient native focus callbacks while the Left
-                // movement is resolving. Never preview Account when
-                // returning from the Settings subnavigation.
-                if focused != target {
-                    menuFocus = target
-                }
-                return
-            }
-            if enteringFromMenu || menuHandoffActive {
-                // Ignore tvOS focus callbacks while the old rail icon is
-                // disabled for an explicit handoff. Otherwise Right can
-                // immediately re-expand the sidebar and steal page focus.
-                // In particular, never re-expand the rail on a transient
-                // focus callback while the destination is mounting.
-                if focused == nil {
-                    enteringFromMenu = false
-                    setRailExpanded(false)
-                }
-                return
-            }
-
-            if let focused {
-                setRailExpanded(true)
-                if previous == nil, focused != section {
-                    // Left from content returns to the section we left,
-                    // not to whichever icon is geometrically nearest.
-                    let previouslyShown = section
-                    Task { @MainActor in
-                        await Task.yield()
-                        if menuFocus == focused && expanded {
-                            menuFocus = previouslyShown
-                        }
-                    }
-                } else if previous != nil, section != focused {
-                    // Up/Down previews a page but keeps rail focus.
-                    section = focused
-                }
-            } else if expanded {
-                // An actual focus move out of the rail (including touchpad
-                // Right) is an entry, not a reason to pull focus back.
-                open(section)
+        .onChange(of: menuFocus) { _, focused in
+            // Focus updates from a disappearing/disabled sidebar do not
+            // trigger another activation or expand the menu again.
+            guard focusRegion == .sidebar, let focused else { return }
+            if section != focused {
+                // Native Up/Down changes the focused icon. Only while the
+                // sidebar owns focus may that change preview another page.
+                section = focused
             }
         }
     }
@@ -392,37 +357,24 @@ struct BrowseView: View {
             .frame(height: 52)
             .frame(maxWidth: .infinity, alignment: .leading)
             .modifier(TVRailRowHighlight(
-                // Rendering from native menuFocus alone flashes "Account"
-                // before the return-to-Settings handoff has settled.
-                // Paint ONLY the logical destination while crossing rails;
-                // @FocusState still drives the actual Siri Remote controls.
-                focused: !enteringFromMenu && !menuHandoffActive &&
+                // Preserve the selected-item highlight while native focus
+                // moves between the two mutually exclusive focus regions.
+                focused: focusRegion == .sidebar &&
                     TVRailVisualFocus.highlights(
-                        item, focused: returnToRailTarget ?? menuFocus,
-                        selected: section
+                        item, focused: menuFocus, selected: section
                     ),
                 selected: section == item
             ))
         }
         .buttonStyle(TVRailButtonStyle())
         .focusEffectDisabled(true)
-        // Never disable neighboring rail icons while returning from content:
-        // otherwise an immediate Up/Down on the remote is swallowed for
-        // 360 ms. The visual handoff is controlled by TVRailVisualFocus.
-        .disabled(menuHandoffActive)
         .focused($menuFocus, equals: item)
         .accessibilityLabel(item.label)
         .accessibilityIdentifier("main-nav-\(item.rawValue)")
         .onMoveCommand { direction in
-            if direction == .up || direction == .down {
-                // A genuine vertical move explicitly ends the visual
-                // Left-to-rail handoff immediately, even if the native
-                // focus engine is still finishing its previous update.
-                returnToRailGeneration &+= 1
-                returnToRailTarget = nil
-            } else if direction == .right {
-                // Right, including a touchpad swipe, is equivalent to OK.
-                // .onChange(of: menuFocus) must not undo this handoff.
+            if direction == .right {
+                // Right and Select both activate; vertical movement remains
+                // completely native inside the sidebar focus section.
                 open(item)
             }
         }
@@ -471,8 +423,8 @@ struct BrowseView: View {
 
     private func setRailExpanded(_ shouldExpand: Bool) {
         guard expanded != shouldExpand else { return }
-        // Animate both the rail width and the available content width
-        // together. Keep the existing focus-handoff delays separate.
+        // Animate rail and content width in one transaction. Focus ownership
+        // changes synchronously, without a timer or delayed correction.
         withAnimation(navigationAnimations
                       ? .easeInOut(duration: TVMainNavigationLayout.duration)
                       : nil) {
@@ -481,42 +433,15 @@ struct BrowseView: View {
     }
 
     private func open(_ destination: TVSection) {
-        // Cancel any pending Left-to-rail handoff before a Right/OK enter.
-        returnToRailGeneration &+= 1
-        returnToRailTarget = nil
-        // Explicit activation is the ONLY path which transfers focus from
-        // the main rail to a page. Up/Down continues to preview on focus.
-        let wasInMenu = menuFocus != nil
-        enteringFromMenu = wasInMenu
+        // Only explicit Right/Select or a Back on the Home menu icon
+        // transfers ownership. A vertical sidebar move only previews.
         section = destination
+        focusRegion = .content
+        menuFocus = nil
         setRailExpanded(false)
 
-        // Right can still be resolved by UIKit after onMoveCommand returns.
-        // Make the old sidebar icon temporarily ineligible for focus, or a
-        // late focus callback reopens the rail instead of entering the page.
-        if wasInMenu {
-            menuHandoffActive = true
-            menuHandoffGeneration &+= 1
-            let generation = menuHandoffGeneration
-            menuFocus = nil
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(360))
-                guard generation == menuHandoffGeneration else { return }
-                menuFocus = nil
-                setRailExpanded(false)
-                enteringFromMenu = false
-                menuHandoffActive = false
-                // Search is already mounted during menu preview. Re-issue
-                // its focus request after UIKit has completed the Right move.
-                if destination == .search {
-                    searchFocusRequest &+= 1
-                }
-            }
-        }
-
-        // The child gets a new request after the menu has been released.
-        // This works for both a previewed (already mounted) destination
-        // and a new section, and lets a second activation re-enter it.
+        // Keep existing per-screen focus requests. Native defaultFocus on
+        // the child owns entry; these counters never run per tile/move.
         switch destination {
         case .settings: settingsFocusRequest += 1
         case .home: homeFocusRequest += 1
@@ -529,29 +454,11 @@ struct BrowseView: View {
     }
 
     private func revealMenu() {
-        menuHandoffGeneration &+= 1
-        menuHandoffActive = false
-        enteringFromMenu = false
-        // The active page, not the nearest vertically positioned rail icon,
-        // must own the first visible focus frame on return.
-        let target = section
-        returnToRailGeneration &+= 1
-        let generation = returnToRailGeneration
-        returnToRailTarget = target
-        menuFocus = target
+        // Make the rail eligible for native focus before restoring the
+        // selected section. No delayed correction or icon suppression.
+        focusRegion = .sidebar
         setRailExpanded(true)
-
-        // UIKit may finish its Left move after this handler returns. Keep
-        // other rail icons out of the focus search until the remote movement
-        // and our 0.28s expansion have completed. Subsequent Up/Down moves
-        // once again work normally.
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(360))
-            guard generation == returnToRailGeneration,
-                  returnToRailTarget == target else { return }
-            menuFocus = target
-            returnToRailTarget = nil
-        }
+        menuFocus = section
     }
 }
 
