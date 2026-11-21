@@ -3171,15 +3171,12 @@ struct SabrPlaybackErrorDialog: View {
                     .focused($focusedAction, equals: .back)
             }
             .focusSection()
+            // Prefer Retry on entry, without a Task.yield() focus correction
+            // after the UIKit player remote surface is removed.
+            .defaultFocus($focusedAction, .retry, priority: .userInitiated)
         }
         .padding(50)
         .background(.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 20))
-        .task {
-            // Assign after insertion into the focus tree; otherwise the
-            // removed full-screen UIKit remote view can retain focus.
-            await Task.yield()
-            focusedAction = .retry
-        }
     }
 }
 

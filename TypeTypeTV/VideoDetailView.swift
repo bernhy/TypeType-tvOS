@@ -36,7 +36,6 @@ struct VideoDetailView: View {
 
     @State private var selectedPane: DetailPane = .description
     @FocusState private var focusedDetail: DetailFocus?
-    @State private var initiallyFocusedVideoURL: String?
     @State private var descriptionScrollCommand = 0
     @State private var fullDescriptionPresented = false
     @State private var playbackOpened = false
@@ -501,19 +500,14 @@ struct VideoDetailView: View {
             .padding(.bottom, 110)
             }
             .background(TTTheme.ink)
-            .defaultFocus($focusedDetail, .play)
+            // The player action is the native entry preference even when
+            // a channel link is geometrically above it. No delayed rewrite.
+            .defaultFocus($focusedDetail, .play, priority: .userInitiated)
             .task(id: video.url) {
                 if !heroVisible {
                     withAnimation(reduceMotion ? nil : .easeOut(duration: 0.38)) {
                         heroVisible = true
                     }
-                }
-                if initiallyFocusedVideoURL != video.url {
-                    initiallyFocusedVideoURL = video.url
-                    // tvOS otherwise chooses the first focusable item,
-                    // which became the channel link above Play.
-                    await Task.yield()
-                    focusedDetail = .play
                 }
                 async let activity: Void = loadActivity()
                 async let enrichment: Void = loadMetadata()

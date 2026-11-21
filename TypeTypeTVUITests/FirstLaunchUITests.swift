@@ -426,8 +426,11 @@ final class TypeTypeTVUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["SABR-Wiedergabe fehlgeschlagen"]
             .waitForExistence(timeout: 20))
-        XCTAssertTrue(app.buttons["Erneut versuchen"].exists)
+        let retry = app.buttons["Erneut versuchen"]
+        XCTAssertTrue(retry.exists)
         XCTAssertTrue(app.buttons["Zurück"].exists)
+        XCTAssertTrue(waitForFocus(retry),
+                      "Native defaultFocus must select Retry without delayed correction")
         // The first Select must ACTIVATE Retry, not toggle video playback via
         // the underlying fullscreen UIKit remote responder.
         XCUIRemote.shared.press(.select)
@@ -444,6 +447,8 @@ final class TypeTypeTVUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["VIDEOS ENTDECKEN"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.textFields.firstMatch.exists)
+        XCTAssertTrue(waitForFocus(app.textFields.firstMatch),
+                      "Search preview entry should use native text-field default focus")
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "TypeType-tvOS-Suche"
         attachment.lifetime = .keepAlways

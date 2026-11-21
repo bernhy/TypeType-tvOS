@@ -30,7 +30,6 @@ struct SearchView: View {
     @State private var paging = false
     @State private var requestID = UUID()
     var focusRequest = 0
-    @State private var handledFocusRequest: Int?
     @StateObject private var videoMenu = TVHomeMenuCoordinator()
     @FocusState private var focusedVideoURL: String?
     @State private var detailReturnVideoID: String?
@@ -105,6 +104,15 @@ struct SearchView: View {
                         .disabled(term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searching)
                     }
                     .focusSection()
+                    // Native preference is active only after entering Search.
+                    // Menu preview must retain focus on the global sidebar;
+                    // returning from a detail keeps its saved video/result.
+                    .defaultFocus(
+                        $searchFieldFocused, true,
+                        priority: focusRequest >= 0 &&
+                            preferredVideoID == nil && preferredNamedResultID == nil
+                            ? .userInitiated : .automatic
+                    )
 
                     if let capabilities {
                         TVSearchFilterControls(
@@ -445,29 +453,10 @@ struct SearchView: View {
                     Task { await execute(searchedTerm, recordHistory: false) }
                 }
             }
-            .task(id: focusRequest) {
-                guard focusRequest >= 0 else {
-                    searchFieldFocused = false
-                    return
-                }
-                // Returning from a result detail must not repeatedly jump
-                // back to the search input unless the global rail explicitly
-                // issued a new focus request.
-                guard handledFocusRequest != focusRequest else { return }
-                handledFocusRequest = focusRequest
-                // Prefer the exact last tile over an initial search-field
-                // focus assignment after the native Right movement.
-                if preferredVideoID != nil || preferredNamedResultID != nil {
-                    return
-                }
-                let requested = focusRequest
-                if requested > 0 {
-                    try? await Task.sleep(for: .milliseconds(220))
-                } else {
-                    await Task.yield()
-                }
-                guard !Task.isCancelled, focusRequest == requested else { return }
-                searchFieldFocused = true
+            .onChange(of: focusRequest) { _, request in
+                // Explicit sidebar preview must release the search editor,
+                // without scheduling a delayed focus correction on re-entry.
+                if request < 0 { searchFieldFocused = false }
             }
         }
         } // GeometryReader: constant grid width, unscaled scroll viewport.
