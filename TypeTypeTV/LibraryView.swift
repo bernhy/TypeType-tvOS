@@ -22,6 +22,7 @@ struct LibraryView: View {
     // Set synchronously as the detail dismisses, before tvOS chooses its
     // next native focus target; does not trigger a second grid reload.
     @State private var detailReturnVideoID: String?
+    @State private var backToFirstRequest = 0
     @State private var railReturnVideoID: String?
     @State private var mutationCursor = TVVideoMutationCursor()
     @State private var selected: TVLibraryDestination = .standard(.watchLater)
@@ -236,6 +237,17 @@ struct LibraryView: View {
                     priority: preferredVideoID == nil
                         ? .automatic : .userInitiated
                 )
+                // ScrollViewProxy is scoped to this existing reader. Back
+                // sends one signal only; no per-tile or per-focus observer.
+                .onChange(of: backToFirstRequest) { _, _ in
+                    guard let first = visibleVideos.first?.url else { return }
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        scroll.scrollTo(first, anchor: .top)
+                        focusedVideoURL = first
+                    }
+                }
             }
             } // GeometryReader: library rail stays native; grid zooms.
         }
@@ -312,12 +324,7 @@ struct LibraryView: View {
                 // First Back from a deep tile goes to the first visible tile.
                 // Keep the same mounted grid and its current data snapshot.
                 detailReturnVideoID = first
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    scroll.scrollTo(first, anchor: .top)
-                    focusedVideoURL = first
-                }
+                backToFirstRequest &+= 1
             } else {
                 if let focusedVideoURL {
                     railReturnVideoID = focusedVideoURL
