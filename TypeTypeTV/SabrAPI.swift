@@ -450,6 +450,30 @@ enum SabrHTTPFailureStage {
     }
 }
 
+/// Logs the audio bitrate received from TypeType, before the UI applies
+/// its plausibility filter. Never includes video URLs, track IDs or tokens.
+/// A missing value can be distinguished from a legacy bps-sized value.
+enum SabrAudioBitrateDiagnostics {
+    static func bitrateLabel(_ bitrate: Int?) -> String {
+        guard let bitrate else { return "missing" }
+        if (1...2_048).contains(bitrate) { return String(bitrate) }
+        return "out-of-range(raw=\(bitrate))"
+    }
+
+    static func log(_ result: SabrBootstrap) {
+        guard let audios = result.audioStreams, !audios.isEmpty else {
+            NSLog("TypeType SABR AUDIO bootstrap tracks=0")
+            return
+        }
+        for audio in audios {
+            let codec = audio.codec?.lowercased().contains("mp4a") == true
+                ? "aac" : "other"
+            NSLog("TypeType SABR AUDIO itag=%d codec=%@ bitrateKbps=%@",
+                  audio.itag, codec, bitrateLabel(audio.bitrate))
+        }
+    }
+}
+
 final class SabrService: @unchecked Sendable {
     private let origin: URL
     private let base: URL
@@ -506,7 +530,14 @@ final class SabrService: @unchecked Sendable {
     }
 
     func bootstrap(videoURL: String) async throws -> SabrBootstrap {
-        try await request("streams/youtube/sabr/bootstrap", query: [URLQueryItem(name: "url", value: videoURL)])
+        let result: SabrBootstrap = try await request(
+            "streams/youtube/sabr/bootstrap",
+            query: [URLQueryItem(name: "url", value: videoURL)]
+        )
+        // One diagnostic per audio track and successful bootstrap, not per
+        // segment, poll, focus move or settings menu opening. No extra GET.
+        SabrAudioBitrateDiagnostics.log(result)
+        return result
     }
 
     func guestLogin() async throws {

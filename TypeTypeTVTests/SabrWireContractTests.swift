@@ -36,6 +36,19 @@ final class SabrWireContractTests: XCTestCase {
         XCTAssertNil(HardwareCodec.choose(from: model, maxHeight: 720, allowSoftware: true))
     }
 
+    func testSabrAudioBitrateDiagnosticsDistinguishesMissingAndOutOfRange() {
+        XCTAssertEqual(SabrAudioBitrateDiagnostics.bitrateLabel(nil), "missing")
+        XCTAssertEqual(SabrAudioBitrateDiagnostics.bitrateLabel(130), "130")
+        XCTAssertEqual(
+            SabrAudioBitrateDiagnostics.bitrateLabel(130_252),
+            "out-of-range(raw=130252)"
+        )
+        XCTAssertEqual(
+            SabrAudioBitrateDiagnostics.bitrateLabel(0),
+            "out-of-range(raw=0)"
+        )
+    }
+
     func testSabr119AudioBitrateUsesKbpsOnlyForDisplay() throws {
         let data = Data("""
         {"audioStreams":[{"itag":140,"codec":"mp4a.40.2","mimeType":"audio/mp4",
