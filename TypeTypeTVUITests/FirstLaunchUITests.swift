@@ -455,7 +455,7 @@ final class TypeTypeTVUITests: XCTestCase {
         add(attachment)
     }
 
-    func testVideoDetailUsesNativeGridNavigation() throws {
+    func testVideoDetailUsesNativeActionRowNavigation() throws {
         let app = XCUIApplication()
         app.launchArguments = [
             "-TypeTypeTVPreview", "details", "-typetype.uiLanguage", "de"
@@ -468,18 +468,13 @@ final class TypeTypeTVUITests: XCTestCase {
         let description = app.buttons["video-description-entry"]
         XCTAssertTrue(waitForFocus(play, timeout: 10),
                       "Play is the native initial focus preference")
+        XCTAssertTrue(playlist.exists, "Playlist action is available in row two")
         XCUIRemote.shared.press(.right)
-        XCTAssertTrue(waitForFocus(back), "Right follows the first Grid row")
-        XCUIRemote.shared.press(.down)
-        XCTAssertTrue(waitForFocus(playlist),
-                      "Playlist is positioned directly below Back")
-        XCUIRemote.shared.press(.up)
-        XCTAssertTrue(waitForFocus(back),
-                      "Up uses native geometry, not a remote focus override")
+        XCTAssertTrue(waitForFocus(back), "Right reaches Back in the first action row")
         XCUIRemote.shared.press(.left)
-        XCTAssertTrue(waitForFocus(play))
+        XCTAssertTrue(waitForFocus(play), "Left returns to Play")
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(waitForFocus(watched), "Mark Watched is below Play")
+        XCTAssertTrue(waitForFocus(watched), "Down from Play reaches Mark Watched")
         XCUIRemote.shared.press(.down)
         XCTAssertTrue(waitForFocus(description),
                       "Native focus scrolling reaches the description")

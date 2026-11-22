@@ -248,8 +248,10 @@ final class TVVideoMetadataTests: XCTestCase {
         XCTAssertTrue(TVYouTubeStreamRouting.isLiveHLS(stream))
         XCTAssertEqual(TVYouTubeStreamRouting.endpoint(for: stream),
                        "streams/youtube/live")
-        XCTAssertTrue(TTTheme.accessibilityText(for: stream).contains(
-            TVL10n.value("video.liveAccessibility")
+        // The live status is the final accessibility component. Checking
+        // contains("Live") would also match a video's own title.
+        XCTAssertTrue(TTTheme.accessibilityText(for: stream).hasSuffix(
+            ", " + TVL10n.value("video.liveAccessibility")
         ))
 
         stream.isPostLive = true
@@ -257,9 +259,10 @@ final class TVVideoMetadataTests: XCTestCase {
         XCTAssertFalse(TVYouTubeStreamRouting.isLiveHLS(stream))
         XCTAssertEqual(TVYouTubeStreamRouting.endpoint(for: stream),
                        "streams/youtube/sabr")
-        XCTAssertFalse(TTTheme.accessibilityText(for: stream).contains(
-            TVL10n.value("video.liveAccessibility")
-        ))
+        // The title is literally "Live", but the post-live status must
+        // announce the VOD duration instead of a live accessibility badge.
+        XCTAssertEqual(TTTheme.accessibilityText(for: stream),
+                       "Live, " + TTTheme.time(300))
 
         // A stale isLive=true from older API entries must never override
         // the explicit post-live state.
