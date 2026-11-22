@@ -87,8 +87,12 @@ struct VideoDetailView: View {
         return max(0, min(1, Double(playbackPosition) / (Double(duration) * 1_000)))
     }
     private var isMarkedWatched: Bool {
-        TVWatchedState.isWatched(detailedVideo, positionMs:
-            localProgress.position(for: video.url) ?? savedPositionMs ?? video.watchPositionMs)
+        TVWatchedState.isWatched(
+            detailedVideo,
+            positionMs: localProgress.position(for: video.url) ??
+                savedPositionMs ?? video.watchPositionMs,
+            thresholdPercent: contentPreferences.watchedThresholdPercent
+        )
     }
 
 

@@ -559,8 +559,11 @@ struct VideoCard: View {
     private var completed: Bool {
         // Some server versions expose a 'watched' convenience flag whose
         // duration and progress units differ. Prefer measured millisecond
-        // progress and its 90% threshold whenever the position is available.
-        TVWatchedState.isWatched(metadataVideo, positionMs: effectivePosition)
+        // progress and the account threshold whenever a position exists.
+        TVWatchedState.isWatched(
+            metadataVideo, positionMs: effectivePosition,
+            thresholdPercent: TVContentPreferences.shared.watchedThresholdPercent
+        )
     }
     private var watchedTime: String? {
         guard let progress = effectivePosition, progress > 0 else { return nil }

@@ -17,7 +17,7 @@ final class TVContinueWatchingPolicyTests: XCTestCase {
         XCTAssertFalse(TVContinueWatchingPolicy.isEligible(item, positionMs: 0))
         XCTAssertTrue(TVContinueWatchingPolicy.isEligible(item, positionMs: 1_000))
         XCTAssertTrue(TVContinueWatchingPolicy.isEligible(item, positionMs: 269_999))
-        // Same 90-percent completion rule as the watched badge.
+        // Same configured default (90%) as the watched badge.
         XCTAssertFalse(TVContinueWatchingPolicy.isEligible(item, positionMs: 270_000))
         XCTAssertFalse(TVContinueWatchingPolicy.isEligible(item, positionMs: 300_000))
     }

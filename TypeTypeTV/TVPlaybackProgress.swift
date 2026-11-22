@@ -95,13 +95,44 @@ actor TVPlaybackProgressWriter {
     func flush() async { await lastWrite?.value }
 }
 
-/// An explicit zero progress must override an older server-side watched flag.
-/// All controls and thumbnails use this single 90% completion rule.
+/// TypeType 1.19.0: 0 = last minute (90% for videos up to 60 s);
+/// 50...100 = explicit percentage. 90% is the tvOS fallback for older
+/// servers with no setting. Both timestamps and positions are in milliseconds.
+enum TVWatchedThresholdPolicy {
+    static let defaultPercent = 90
+
+    static func resolved(_ percent: Int?) -> Int {
+        guard let percent else { return defaultPercent }
+        return percent == 0 || (50...100).contains(percent)
+            ? percent : defaultPercent
+    }
+
+    static func isComplete(durationSeconds: Int, positionMs: Int64,
+                           thresholdPercent: Int = defaultPercent) -> Bool {
+        guard durationSeconds > 0, positionMs > 0,
+              durationSeconds <= Int64.max / 1_000 else { return false }
+        let duration = Int64(durationSeconds)
+        let percent = resolved(thresholdPercent)
+        let cutoff = percent == 0
+            ? (durationSeconds > 60 ? (duration - 60) * 1_000 : duration * 900)
+            : duration * Int64(percent) * 10
+        return positionMs >= cutoff
+    }
+}
+
+/// Explicit progress 0 supersedes stale server-side watched flags.
+/// Card, action, resume and playback use this one account-configured rule.
 enum TVWatchedState {
-    static func isWatched(_ video: VideoItem, positionMs: Int64?) -> Bool {
+    static func isWatched(_ video: VideoItem, positionMs: Int64?,
+                          thresholdPercent: Int = TVWatchedThresholdPolicy.defaultPercent) -> Bool {
         guard !TVLiveStreamDisplayPolicy.isOngoing(video), let duration = video.duration,
-              duration > 0, duration <= Int64.max / 900 else { return false }
-        if let positionMs { return positionMs >= Int64(duration) * 900 }
+              duration > 0 else { return false }
+        if let positionMs {
+            return TVWatchedThresholdPolicy.isComplete(
+                durationSeconds: duration, positionMs: positionMs,
+                thresholdPercent: thresholdPercent
+            )
+        }
         return video.watched == true
     }
 }
@@ -111,12 +142,15 @@ enum TVWatchedState {
 /// This is intentionally distinct from the full Library → History list.
 /// Progress is always in milliseconds; video.duration is in seconds.
 enum TVContinueWatchingPolicy {
-    static func isEligible(_ video: VideoItem, positionMs: Int64?) -> Bool {
+    static func isEligible(_ video: VideoItem, positionMs: Int64?,
+                           thresholdPercent: Int = TVWatchedThresholdPolicy.defaultPercent) -> Bool {
         guard !TVLiveStreamDisplayPolicy.isOngoing(video), let positionMs, positionMs > 0,
               let duration = video.duration, duration > 0 else {
             return false
         }
-        return !TVWatchedState.isWatched(video, positionMs: positionMs)
+        return !TVWatchedState.isWatched(
+            video, positionMs: positionMs, thresholdPercent: thresholdPercent
+        )
     }
 }
 
@@ -125,7 +159,8 @@ enum TVContinueWatchingPolicy {
 /// variants; newer playback moves an unfinished video to the shelf's front.
 enum TVContinueWatchingLocalUpdate {
     static func applying(_ history: [VideoItem], video: VideoItem,
-                         positionMs: Int64?) -> [VideoItem] {
+                         positionMs: Int64?,
+                         thresholdPercent: Int = TVWatchedThresholdPolicy.defaultPercent) -> [VideoItem] {
         guard let positionMs else { return history }
         let key = TVHistoryDeduplicator.key(for: video)
         let previous = history.first { TVHistoryDeduplicator.key(for: $0) == key }
@@ -133,8 +168,10 @@ enum TVContinueWatchingLocalUpdate {
         // history entry already knows it. Never invent duration metadata.
         let source = (video.duration ?? 0) > 0 ? video : (previous ?? video)
         var result = history.filter { TVHistoryDeduplicator.key(for: $0) != key }
-        if TVContinueWatchingPolicy.isEligible(source, positionMs: positionMs) {
-            result.insert(source.withProgress(positionMs), at: 0)
+        if TVContinueWatchingPolicy.isEligible(
+            source, positionMs: positionMs, thresholdPercent: thresholdPercent
+        ) {
+            result.insert(source.withProgress(positionMs, thresholdPercent: thresholdPercent), at: 0)
         }
         return result
     }

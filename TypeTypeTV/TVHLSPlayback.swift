@@ -207,7 +207,10 @@ final class TVHLSPlaybackController: ObservableObject {
               playbackGeneration == generation else { return }
         let seconds = TVHLSResumePolicy.startSeconds(
             savedPositionMs: saved, durationSeconds: video.duration,
-            isLive: TVLiveStreamDisplayPolicy.isOngoing(video)
+            isLive: TVLiveStreamDisplayPolicy.isOngoing(video),
+            thresholdPercent: TVWatchedThresholdPolicy.resolved(
+                settings?.watchedThresholdPercent
+            )
         )
         startItem(url: url, positionSeconds: seconds)
     }
@@ -545,13 +548,15 @@ enum TVHLSStallPolicy {
 }
 
 enum TVHLSResumePolicy {
-    static func startSeconds(savedPositionMs: Int64?, durationSeconds: Int?,
-                             isLive: Bool) -> Double {
+    static func startSeconds(
+        savedPositionMs: Int64?, durationSeconds: Int?, isLive: Bool,
+        thresholdPercent: Int = TVWatchedThresholdPolicy.defaultPercent
+    ) -> Double {
         guard !isLive, let saved = savedPositionMs, saved > 0 else { return 0 }
-        let seconds = Double(saved) / 1_000
-        if let durationSeconds, durationSeconds > 0 {
-            if seconds >= Double(durationSeconds) * 0.9 { return 0 }
-        }
-        return seconds
+        if let durationSeconds, TVWatchedThresholdPolicy.isComplete(
+            durationSeconds: durationSeconds, positionMs: saved,
+            thresholdPercent: thresholdPercent
+        ) { return 0 }
+        return Double(saved) / 1_000
     }
 }

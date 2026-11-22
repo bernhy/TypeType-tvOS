@@ -6441,6 +6441,90 @@
         }
       }
     },
+    "settings.watchedThreshold": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als angesehen ab"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark watched after"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marquer comme vue après"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcar como visto después"
+          }
+        }
+      }
+    },
+    "settings.watchedLastMinute": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letzte Minute (TypeType-Standard)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last minute (TypeType default)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernière minute (valeur TypeType)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Último minuto (predeterminado de TypeType)"
+          }
+        }
+      }
+    },
+    "settings.watchedThresholdHelp": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gilt für Abzeichen, „Ansehen fortsetzen“ und Wiederholungsstart. 90 % ist der bisherige tvOS-Standard. „Letzte Minute“ bedeutet bei Videos über 60 Sekunden die letzte Minute, sonst 90 %. Wird mit dem TypeType-Konto synchronisiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controls watched badges, Continue Watching and replay start. 90% is the previous tvOS default. Last minute means the final minute for videos over 60 seconds, or 90% otherwise. Synced with your TypeType account."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Définit les badges, la reprise de lecture et le redémarrage. 90 % était la valeur tvOS précédente. « Dernière minute » signifie la dernière minute pour les vidéos de plus de 60 s, sinon 90 %. Synchronisé avec le compte TypeType."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controla las insignias, Seguir viendo y el reinicio. El 90 % era el valor anterior de tvOS. « Último minuto » significa el último minuto para vídeos de más de 60 s; si no, el 90 %. Se sincroniza con la cuenta TypeType."
+          }
+        }
+      }
+    },
     "settings.contentControls": {
       "localizations": {
         "de": {

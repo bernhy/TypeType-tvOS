@@ -29,6 +29,10 @@ final class TVContentPreferences: ObservableObject {
 
     private init() {}
 
+    var watchedThresholdPercent: Int {
+        settings?.effectiveWatchedThresholdPercent ?? TVWatchedThresholdPolicy.defaultPercent
+    }
+
     func ensureLoaded(api: TypeTypeAPI) async {
         let key = api.metadataCacheScope
         if scope != key {
@@ -40,8 +44,12 @@ final class TVContentPreferences: ObservableObject {
         let task = Task { @MainActor in
             let result = try? await api.accountSettings()
             guard !Task.isCancelled, self.scope == key else { return }
+            let oldThreshold = self.watchedThresholdPercent
             settings = result
             loaded = result != nil
+            if self.watchedThresholdPercent != oldThreshold {
+                TVVideoCardStatusCenter.changedAll(scope: key)
+            }
         }
         fetch = task
         await task.value
@@ -50,17 +58,26 @@ final class TVContentPreferences: ObservableObject {
 
     func apply(_ value: TVServerSettings, api: TypeTypeAPI) {
         guard scope.isEmpty || scope == api.metadataCacheScope else { return }
+        let oldThreshold = watchedThresholdPercent
         scope = api.metadataCacheScope
         settings = value
         loaded = true
+        if watchedThresholdPercent != oldThreshold {
+            TVVideoCardStatusCenter.changedAll(scope: scope)
+        }
     }
 
     func invalidate() {
+        let oldThreshold = watchedThresholdPercent
+        let oldScope = scope
         fetch?.cancel()
         fetch = nil
         scope = ""
         loaded = false
         settings = nil
+        if watchedThresholdPercent != oldThreshold {
+            TVVideoCardStatusCenter.changedAll(scope: oldScope)
+        }
     }
 
     /// Library/public-playlist screens preserve Shorts and members-only

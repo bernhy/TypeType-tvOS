@@ -428,6 +428,29 @@ struct PreferencesView: View {
                         // setRemote itself serializes requests and ignores
                         // input while saving, without destroying focus.
                     }
+                    TVSettingsMenuRow(
+                        "settings.watchedThreshold",
+                        selection: Binding(
+                            get: {
+                                self.remote?.effectiveWatchedThresholdPercent ??
+                                    remote.effectiveWatchedThresholdPercent
+                            },
+                            set: { setWatchedThreshold($0) }
+                        ),
+                        focus: $focusedControl, focusTarget: "content.watchedThreshold",
+                        onMoveLeft: { returnFocusToGroup() }
+                    ) {
+                        Text("settings.watchedLastMinute").tag(0)
+                        ForEach(50...100, id: \.self) { value in
+                            Text("\(value) %").tag(value)
+                        }
+                    }
+                    Text("settings.watchedThresholdHelp")
+                        .font(.callout)
+                        .foregroundStyle(TTTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 10)
                     if remoteSaving { ProgressView("settings.remoteSaving") }
                     Button("common.refresh") { Task { await refreshRemote() } }
                         .buttonStyle(.bordered)
@@ -833,6 +856,30 @@ struct PreferencesView: View {
         Task {
             do {
                 remote = try await api.setAccountSetting(field.rawValue, value: .boolean(!enabled))
+                if let remote { TVContentPreferences.shared.apply(remote, api: api) }
+            } catch {
+                remote = previous
+                remoteError = error.localizedDescription
+            }
+            remoteSaving = false
+        }
+    }
+
+    @MainActor
+    private func setWatchedThreshold(_ percent: Int) {
+        guard var next = remote, !remoteSaving,
+              percent == 0 || (50...100).contains(percent),
+              next.effectiveWatchedThresholdPercent != percent else { return }
+        let previous = next
+        next.watchedThresholdPercent = percent
+        remote = next
+        remoteSaving = true
+        remoteError = nil
+        Task {
+            do {
+                remote = try await api.setAccountSetting(
+                    "watchedThresholdPercent", value: .integer(percent)
+                )
                 if let remote { TVContentPreferences.shared.apply(remote, api: api) }
             } catch {
                 remote = previous

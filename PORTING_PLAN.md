@@ -19,8 +19,8 @@ and early milestones. The status below supersedes historical TODOs:
   passed on `6c1256b`.
 - **Home — "Ansehen fortsetzen":** Separate from the complete Library history.
   The rail now filters to started, unfinished VODs with known duration and a
-  positive saved position, excluding videos marked watched by the common
-  90% progress threshold. The first page inspects 100 raw history events;
+  positive saved position, excluding videos marked watched by the account-configured
+  watched threshold (90% fallback). The first page inspects 100 raw history events;
   additional pages load when the user navigates towards the end of the
   horizontal shelf. Exactly **one row** is visible, with four card slots and
   further videos reachable to the right. No eight-card cap remains

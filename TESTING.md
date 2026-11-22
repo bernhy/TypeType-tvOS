@@ -127,7 +127,7 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 
 ## Home — "Ansehen fortsetzen"
 
-- The Home rail is **not** the full recently-watched history. Eligible cards must have a saved playback position greater than zero and a known positive duration, and must not have reached the shared **90% watched threshold**. Completed, never-started, live and duration-unknown entries do not qualify.
+- The Home rail is **not** the full recently-watched history. Eligible cards must have a saved playback position greater than zero and a known positive duration, and must not have reached the shared **configurable watched threshold (90% fallback)**. Completed, never-started, live and duration-unknown entries do not qualify.
 - Test a history with at least eight completed videos followed by a partially watched video: Home must find the resumable entry from the newest 100 raw events rather than blindly taking the first eight. Library → History remains a separate, complete history.
 - The shelf has **exactly one horizontal row**, with approximately four full-size VideoCards visible at a time; the Siri Remote must move Right beyond card four to card five and continue scrolling without dropping focus into Recommendations or the global rail. Left returns through the same row. The Recommendations section stays a conventional multi-row grid below.
 - For accounts with more than 100 history events, move towards the right edge and verify additional raw history pages load and any new resumable videos append without reshuffling the already focused card. Confirm that a completed/unstarted item does not accidentally enter the shelf and that returning from a distant resume card restores that card and the horizontal scroll offset.

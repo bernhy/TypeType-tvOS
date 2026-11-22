@@ -65,13 +65,17 @@ struct VideoItem: Decodable, Hashable, Identifiable {
         TVShortsPolicy.isShort(isShortFormContent: isShortFormContent, url: url)
     }
 
-    func withProgress(_ position: Int64) -> VideoItem {
+    func withProgress(
+        _ position: Int64,
+        thresholdPercent: Int = TVWatchedThresholdPolicy.defaultPercent
+    ) -> VideoItem {
         var result = self
         result.watchPositionMs = max(0, position)
-        if let duration, duration > 0, duration <= Int64.max / 900 {
-            // Server-provided duration is untrusted. Match TVWatchedState's
-            // overflow guard before converting the 90% boundary to ms.
-            result.watched = position >= Int64(duration) * 900
+        if let duration, duration > 0, !TVLiveStreamDisplayPolicy.isOngoing(self) {
+            result.watched = TVWatchedThresholdPolicy.isComplete(
+                durationSeconds: duration, positionMs: result.watchPositionMs ?? 0,
+                thresholdPercent: thresholdPercent
+            )
         }
         return result
     }
@@ -590,8 +594,12 @@ struct TypeTypeAPI {
                 return videos
             }
         }
+        // One existing settings snapshot per batch; no per-row GET/observer.
+        let threshold = await TVContentPreferences.shared.watchedThresholdPercent
         return videos.map { row in
-            values[row.url].map { row.withProgress($0) } ?? row
+            values[row.url].map {
+                row.withProgress($0, thresholdPercent: threshold)
+            } ?? row
         }
     }
 

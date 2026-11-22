@@ -12,6 +12,7 @@ struct TVServerSettings: Decodable {
     var hideShorts: Bool?
     var hideComments: Bool?
     var disableWatchHistory: Bool?
+    var watchedThresholdPercent: Int?
     var subtitlesEnabled: Bool?
     var defaultSubtitleLanguage: String?
     var defaultAudioLanguage: String?
@@ -27,6 +28,10 @@ struct TVServerSettings: Decodable {
     var sponsorBlockSkipNonMusicOnlyOnMusicVideos: Bool?
     var sponsorBlockMuteInsteadOfSkip: Bool?
     var defaultQuality: String?
+
+    var effectiveWatchedThresholdPercent: Int {
+        TVWatchedThresholdPolicy.resolved(watchedThresholdPercent)
+    }
 
     func enabled(_ field: TVServerToggle) -> Bool {
         let hidden: Bool

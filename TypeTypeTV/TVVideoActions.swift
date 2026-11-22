@@ -316,7 +316,10 @@ final class TVHomeMenuCoordinator: ObservableObject {
             }
             let currentPosition = TVLocalProgress.shared.position(for: video.url) ??
                 video.watchPositionMs
-            let mark = !TVWatchedState.isWatched(target, positionMs: currentPosition)
+            let mark = !TVWatchedState.isWatched(
+                target, positionMs: currentPosition,
+                thresholdPercent: TVContentPreferences.shared.watchedThresholdPercent
+            )
             try await api.setWatched(mark, video: target)
             // This is mutated only after a menu action, never when focus
             // moves. A later menu opening now sees the correct toggle even
@@ -423,9 +426,12 @@ struct TVHomeCardMenuState: Equatable {
     let watchLater: TVWatchLaterMenuStatus
 
     init(video: VideoItem, positionMs: Int64?,
-         watchLater: TVWatchLaterMenuStatus) {
+         watchLater: TVWatchLaterMenuStatus,
+         thresholdPercent: Int = TVWatchedThresholdPolicy.defaultPercent) {
         self.positionMs = positionMs
-        self.watched = TVWatchedState.isWatched(video, positionMs: positionMs)
+        self.watched = TVWatchedState.isWatched(
+            video, positionMs: positionMs, thresholdPercent: thresholdPercent
+        )
         self.watchLater = watchLater
     }
 }
@@ -444,6 +450,8 @@ private struct TVHomeCardMenuContents: View {
 
     @ObservedObject private var localProgress = TVLocalProgress.shared
     @ObservedObject private var watchLaterMembership = TVWatchLaterMembership.shared
+    // Observed only while an action menu is open, not by each list tile.
+    @ObservedObject private var contentPreferences = TVContentPreferences.shared
 
     @ViewBuilder
     var body: some View {
@@ -458,7 +466,8 @@ private struct TVHomeCardMenuContents: View {
                     watchLater: isWatchLaterEntry ? .saved :
                         watchLaterMembership.menuStatus(
                             for: video.url, api: api
-                        )
+                        ),
+                    thresholdPercent: contentPreferences.watchedThresholdPercent
                 )
                 let position = state.positionMs
                 let watched = state.watched

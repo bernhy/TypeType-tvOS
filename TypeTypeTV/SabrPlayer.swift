@@ -989,10 +989,15 @@ final class SabrPlayerController: ObservableObject {
                 video: video, explicitPositionMs: explicitPositionMs,
                 savedPositionMs: recordedPosition
             )
-            // Finished playback should restart at 0:00 instead of
-            // resuming near the credits. Match Home's shared 90% rule.
+            // Completed playback restarts at 0:00 using the same account
+            // rule as Home and watched badges. Shorts still start at zero.
             if explicitPositionMs == nil,
-               TVWatchedState.isWatched(video, positionMs: positionMs) {
+               TVWatchedState.isWatched(
+                   video, positionMs: positionMs,
+                   thresholdPercent: TVWatchedThresholdPolicy.resolved(
+                       settings?.watchedThresholdPercent
+                   )
+               ) {
                 positionMs = 0
             }
             playbackPositionMs = positionMs

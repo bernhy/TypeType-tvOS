@@ -275,10 +275,11 @@ struct TVHomeSubscriptionsBaselineView: View {
         filteredRecent()
     }
     private func filteredRecent() -> [VideoItem] {
-        // Shared 90% threshold, finished-video logic and local progress override.
+        // Configured completion threshold, with local progress override.
         contentPreferences.displayed(recentVideos).filter {
             TVContinueWatchingPolicy.isEligible(
-                $0, positionMs: localProgress.position(for: $0.url) ?? $0.watchPositionMs
+                $0, positionMs: localProgress.position(for: $0.url) ?? $0.watchPositionMs,
+                thresholdPercent: contentPreferences.watchedThresholdPercent
             )
         }
     }
@@ -621,7 +622,8 @@ struct TVHomeSubscriptionsBaselineView: View {
         guard previewVideos == nil, showRecent else { return }
         let updated = TVContinueWatchingLocalUpdate.applying(
             recentVideos, video: video,
-            positionMs: TVLocalProgress.shared.position(for: video.url)
+            positionMs: TVLocalProgress.shared.position(for: video.url),
+            thresholdPercent: contentPreferences.watchedThresholdPercent
         )
         guard updated != recentVideos else { return }
         recentVideos = updated
