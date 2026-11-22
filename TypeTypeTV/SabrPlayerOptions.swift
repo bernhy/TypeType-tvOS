@@ -98,8 +98,7 @@ struct SabrPlayerOptions: View {
                         ) { item in
                             let track = item.element
                             optionRow(
-                                track.audioTrackName ?? track.audioLocale ??
-                                    "AAC · itag \(track.itag)",
+                                SabrAudioOptionLabel.text(for: track),
                                 checked: engine.currentAudioItag == track.itag &&
                                     engine.currentAudioTrackId == track.audioTrackId
                             ) { onAudio(track) }
@@ -241,5 +240,20 @@ enum SabrVideoQualityGroups {
             }
         }
         return order.compactMap { byResolution[$0] }
+    }
+}
+
+
+/// Presentation-only audio bitrate. Never use it for language/codec selection.
+/// Older servers could still send audio bps instead of kbit/s; suppress that
+/// implausibly large value rather than showing "130000 kbit/s".
+enum SabrAudioOptionLabel {
+    static func text(for track: SabrBootstrap.Audio) -> String {
+        let name = track.audioTrackName ?? track.audioLocale ??
+            "AAC · itag \(track.itag)"
+        guard let kbps = track.bitrate, (1...2_048).contains(kbps) else {
+            return name
+        }
+        return name + " · \(kbps) kbit/s"
     }
 }

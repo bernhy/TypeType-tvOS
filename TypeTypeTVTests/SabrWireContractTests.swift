@@ -36,6 +36,64 @@ final class SabrWireContractTests: XCTestCase {
         XCTAssertNil(HardwareCodec.choose(from: model, maxHeight: 720, allowSoftware: true))
     }
 
+    func testSabr119AudioBitrateUsesKbpsOnlyForDisplay() throws {
+        let data = Data("""
+        {"audioStreams":[{"itag":140,"codec":"mp4a.40.2","mimeType":"audio/mp4",
+          "audioTrackName":"Deutsch","audioLocale":"de","isOriginal":true,
+          "bitrate":130,"deliveryMethod":"sabr"}]}
+        """.utf8)
+        let stream = try JSONDecoder().decode(SabrBootstrap.self, from: data)
+        let audio = try XCTUnwrap(stream.audioStreams?.first)
+        XCTAssertEqual(audio.bitrate, 130)
+        XCTAssertEqual(SabrAudioOptionLabel.text(for: audio), "Deutsch · 130 kbit/s")
+
+        // Older SABR servers used bps. Keep their tracks playable, but avoid
+        // mislabelling that number as kbit/s.
+        let old = SabrBootstrap.Audio(
+            itag: 140, codec: "mp4a.40.2", mimeType: "audio/mp4",
+            audioTrackId: nil, audioTrackName: "Deutsch", audioLocale: "de",
+            isOriginal: true, deliveryMethod: "sabr", bitrate: 130_252
+        )
+        XCTAssertEqual(SabrAudioOptionLabel.text(for: old), "Deutsch")
+        let missing = SabrBootstrap.Audio(
+            itag: 140, codec: "mp4a.40.2", mimeType: "audio/mp4",
+            audioTrackId: nil, audioTrackName: nil, audioLocale: nil,
+            isOriginal: true, deliveryMethod: "sabr"
+        )
+        XCTAssertNil(missing.bitrate)
+        XCTAssertEqual(SabrAudioOptionLabel.text(for: missing), "AAC · itag 140")
+    }
+
+    func testServerSignaledTokenRenewalExtendsOnlyOneBoundedWindow() throws {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let firstNotice = start.addingTimeInterval(24)
+        XCTAssertEqual(
+            SabrTokenRenewalWindowPolicy.deadline(
+                startedAt: start, renewalFirstSeenAt: nil
+            ), start.addingTimeInterval(25)
+        )
+        XCTAssertEqual(
+            SabrTokenRenewalWindowPolicy.deadline(
+                startedAt: start, renewalFirstSeenAt: firstNotice
+            ), firstNotice.addingTimeInterval(50)
+        )
+        XCTAssertEqual(SabrTokenRenewalWindowPolicy.normalPollLimit, 60)
+        XCTAssertGreaterThan(SabrTokenRenewalWindowPolicy.renewalPollLimit, 60)
+        XCTAssertFalse(SabrTokenRenewalWindowPolicy.shouldExtend("window pending"))
+        XCTAssertFalse(SabrTokenRenewalWindowPolicy.shouldExtend(nil))
+        XCTAssertTrue(SabrTokenRenewalWindowPolicy.shouldExtend("token_session_renewal"))
+
+        let pending = try JSONDecoder().decode(SabrWindow.self, from: Data("""
+        {"ready":false,"retryAfterMs":1000,"blockedBy":"token_session_renewal"}
+        """.utf8))
+        XCTAssertEqual(pending.blockedBy, "token_session_renewal")
+        XCTAssertEqual(pending.retryAfterMs, 1000)
+        let ordinary = try JSONDecoder().decode(SabrWindow.self, from: Data(
+            #"{"ready":false,"retryAfterMs":300}"#.utf8
+        ))
+        XCTAssertNil(ordinary.blockedBy)
+    }
+
     func testSessionAndWindowWireFormat() throws {
         let bootstrap = SabrBootstrap.Video(itag: 137, codec: "avc1", mimeType: "video/mp4",
                                             width: 1920, height: 1080, fps: 30, bitrate: 123,

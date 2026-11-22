@@ -24,6 +24,9 @@ struct SabrBootstrap: Decodable {
         let audioLocale: String?
         let isOriginal: Bool?
         let deliveryMethod: String?
+        // Since TypeType 1.19.0, SABR audio matches extracted audio: kbit/s.
+        // The default preserves memberwise initializers used by older tests.
+        var bitrate: Int? = nil
     }
     let id: String?
     let hlsUrl: String?
@@ -142,6 +145,32 @@ struct SabrWindow: Decodable {
     let terminalError: String?
     let recoveryAction: String?
     let retryVideoItags: [Int]?
+    // v1.19.0: the server explicitly signals an in-flight token renewal.
+    var blockedBy: String? = nil
+}
+
+/// Extend a single window only when the server says it is refreshing its
+/// YouTube token session. A fixed deadline prevents endless server responses
+/// from resetting the timeout. Ordinary windows keep their original budget.
+enum SabrTokenRenewalWindowPolicy {
+    static let normalSeconds: TimeInterval = 25
+    // The server can hold token renewal up to 45 s. Allow five seconds for
+    // the replacement session to become available after the renewal.
+    static let renewalSeconds: TimeInterval = 50
+    static let normalPollLimit = 60
+    static let renewalPollLimit = 140
+    static let tokenRenewalBlocker = "token_session_renewal"
+
+    static func deadline(startedAt: Date, renewalFirstSeenAt: Date?) -> Date {
+        if let renewalFirstSeenAt {
+            return renewalFirstSeenAt.addingTimeInterval(renewalSeconds)
+        }
+        return startedAt.addingTimeInterval(normalSeconds)
+    }
+
+    static func shouldExtend(_ blockedBy: String?) -> Bool {
+        blockedBy == tokenRenewalBlocker
+    }
 }
 
 struct SabrSelection {
@@ -562,13 +591,19 @@ final class SabrService: @unchecked Sendable {
         var prefetchAttempts = 0
         #endif
         let startedAt = Date()
-        let deadline = startedAt.addingTimeInterval(25)
-        for _ in 0..<60 {
+        var renewalFirstSeenAt: Date?
+        var polls = 0
+        while polls < (renewalFirstSeenAt == nil
+                       ? SabrTokenRenewalWindowPolicy.normalPollLimit
+                       : SabrTokenRenewalWindowPolicy.renewalPollLimit) {
             try Task.checkCancellation()
             let now = Date()
-            if now > deadline {
+            if now > SabrTokenRenewalWindowPolicy.deadline(
+                startedAt: startedAt, renewalFirstSeenAt: renewalFirstSeenAt
+            ) {
                 throw SabrFailure.invalidResponse("segment window timed out")
             }
+            polls += 1
             if SabrWindowPrefetchPolicy.shouldRefresh(
                 last: lastPrefetch, now: now, interval: prefetchInterval
             ) {
@@ -591,6 +626,11 @@ final class SabrService: @unchecked Sendable {
             }
             let answer: SabrWindow = try await request(path + "/segments", method: "POST",
                                                        body: body, allowedStatuses: [200, 202])
+            if !answer.ready, renewalFirstSeenAt == nil,
+               SabrTokenRenewalWindowPolicy.shouldExtend(answer.blockedBy) {
+                renewalFirstSeenAt = Date()
+                NSLog("TypeType SABR WINDOW token-session-renewal waiting (bounded)")
+            }
             if answer.ready {
                 guard answer.generation == generation,
                       answer.sessionId == nil || answer.sessionId == sessionId,
