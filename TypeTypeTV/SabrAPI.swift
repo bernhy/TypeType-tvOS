@@ -456,8 +456,11 @@ enum SabrHTTPFailureStage {
 enum SabrAudioBitrateDiagnostics {
     static func bitrateLabel(_ bitrate: Int?) -> String {
         guard let bitrate else { return "missing" }
-        if (1...2_048).contains(bitrate) { return String(bitrate) }
-        return "out-of-range(raw=\(bitrate))"
+        guard let kbps = SabrAudioOptionLabel.bitrateKbps(bitrate) else {
+            return "invalid(raw=\(bitrate))"
+        }
+        if bitrate > 2_048 { return "\(kbps) (rawBps=\(bitrate))" }
+        return String(kbps)
     }
 
     static func log(_ result: SabrBootstrap) {

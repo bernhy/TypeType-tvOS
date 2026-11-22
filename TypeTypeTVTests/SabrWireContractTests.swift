@@ -36,16 +36,16 @@ final class SabrWireContractTests: XCTestCase {
         XCTAssertNil(HardwareCodec.choose(from: model, maxHeight: 720, allowSoftware: true))
     }
 
-    func testSabrAudioBitrateDiagnosticsDistinguishesMissingAndOutOfRange() {
+    func testSabrAudioBitrateDiagnosticsNormalizesRawBitsPerSecond() {
         XCTAssertEqual(SabrAudioBitrateDiagnostics.bitrateLabel(nil), "missing")
         XCTAssertEqual(SabrAudioBitrateDiagnostics.bitrateLabel(130), "130")
         XCTAssertEqual(
-            SabrAudioBitrateDiagnostics.bitrateLabel(130_252),
-            "out-of-range(raw=130252)"
+            SabrAudioBitrateDiagnostics.bitrateLabel(167_848),
+            "167 (rawBps=167848)"
         )
         XCTAssertEqual(
             SabrAudioBitrateDiagnostics.bitrateLabel(0),
-            "out-of-range(raw=0)"
+            "invalid(raw=0)"
         )
     }
 
@@ -60,14 +60,23 @@ final class SabrWireContractTests: XCTestCase {
         XCTAssertEqual(audio.bitrate, 130)
         XCTAssertEqual(SabrAudioOptionLabel.text(for: audio), "Deutsch · 130 kbit/s")
 
-        // Older SABR servers used bps. Keep their tracks playable, but avoid
-        // mislabelling that number as kbit/s.
+        // Authenticated SABR bootstraps can deliver bps on 1.19.1.
+        // Never display the raw bps figure as kbit/s.
         let old = SabrBootstrap.Audio(
             itag: 140, codec: "mp4a.40.2", mimeType: "audio/mp4",
             audioTrackId: nil, audioTrackName: "Deutsch", audioLocale: "de",
             isOriginal: true, deliveryMethod: "sabr", bitrate: 130_252
         )
-        XCTAssertEqual(SabrAudioOptionLabel.text(for: old), "Deutsch")
+        XCTAssertEqual(SabrAudioOptionLabel.text(for: old), "Deutsch · 130 kbit/s")
+        XCTAssertEqual(SabrAudioOptionLabel.bitrateKbps(nil), nil)
+        XCTAssertEqual(SabrAudioOptionLabel.bitrateKbps(167_848), 167)
+        XCTAssertEqual(SabrAudioOptionLabel.bitrateKbps(109_365), 109)
+        XCTAssertEqual(SabrAudioOptionLabel.bitrateKbps(179_957), 179)
+        XCTAssertEqual(SabrAudioOptionLabel.bitrateKbps(69_305), 69)
+        XCTAssertEqual(SabrAudioOptionLabel.bitrateKbps(130), 130)
+        XCTAssertNil(SabrAudioOptionLabel.bitrateKbps(-20))
+        XCTAssertNil(SabrAudioOptionLabel.bitrateKbps(0))
+        XCTAssertNil(SabrAudioOptionLabel.bitrateKbps(3_000_000))
         let missing = SabrBootstrap.Audio(
             itag: 140, codec: "mp4a.40.2", mimeType: "audio/mp4",
             audioTrackId: nil, audioTrackName: nil, audioLocale: nil,

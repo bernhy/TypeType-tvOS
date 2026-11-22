@@ -244,16 +244,22 @@ enum SabrVideoQualityGroups {
 }
 
 
-/// Presentation-only audio bitrate. Never use it for language/codec selection.
-/// Older servers could still send audio bps instead of kbit/s; suppress that
-/// implausibly large value rather than showing "130000 kbit/s".
+/// Audio metadata arriving via TypeType's SABR bootstrap can be raw bits/s
+/// even on server 1.19.1 (authenticated extraction path), while other
+/// endpoints return kbit/s. Normalize for presentation only: do not alter
+/// selection, media requests, buffering or the native audio pipeline.
 enum SabrAudioOptionLabel {
+    static func bitrateKbps(_ raw: Int?) -> Int? {
+        guard let raw, raw > 0 else { return nil }
+        if raw <= 2_048 { return raw }             // Already kbit/s
+        let kbps = raw / 1_000                    // SABR bootstrap bits/s
+        return (1...2_048).contains(kbps) ? kbps : nil
+    }
+
     static func text(for track: SabrBootstrap.Audio) -> String {
         let name = track.audioTrackName ?? track.audioLocale ??
             "AAC · itag \(track.itag)"
-        guard let kbps = track.bitrate, (1...2_048).contains(kbps) else {
-            return name
-        }
+        guard let kbps = bitrateKbps(track.bitrate) else { return name }
         return name + " · \(kbps) kbit/s"
     }
 }
