@@ -237,7 +237,13 @@ struct PreferencesView: View {
                 // revealed. Only this cross-rail handoff needs an explicit
                 // remote command; all focus within Settings stays native.
                 .onMoveCommand { direction in
-                    if direction == .left { onBackToMenu() }
+                    // Boundary between focus regions only. Within either
+                    // region, tvOS owns directional navigation.
+                    if direction == .left {
+                        onBackToMenu()
+                    } else if direction == .right {
+                        enterGroup(item)
+                    }
                 }
                 .accessibilityIdentifier("settings-group-\(item.rawValue)")
                 .accessibilityLabel(TVL10n.value(item.titleKey))
