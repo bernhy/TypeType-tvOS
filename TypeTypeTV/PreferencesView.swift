@@ -825,7 +825,7 @@ struct PreferencesView: View {
                 NSLog("TypeType SETTINGS watchedThreshold PUT=%@ persisted=%@",
                       response.watchedThresholdPercent.map(String.init) ?? "missing",
                       persisted.watchedThresholdPercent.map(String.init) ?? "missing")
-                remote = persisted
+                self.remote = persisted
                 if persisted.watchedThresholdPercent == desired {
                     TVContentPreferences.shared.apply(persisted, api: api)
                 } else {
