@@ -163,10 +163,9 @@ struct VideoDetailView: View {
                     .foregroundStyle(.white.opacity(0.72))
                     HStack(alignment: .top, spacing: 36) {
                         VStack(alignment: .leading, spacing: 18) {
-                            // Native focus follows aligned Grid columns.
-                            Grid(alignment: .leading,
-                                 horizontalSpacing: 18, verticalSpacing: 18) {
-                                GridRow {
+                            // Independent rows preserve the original button sizing.
+                            // Native tvOS focus navigation remains unchanged.
+                                HStack(spacing: 18) {
                                     NavigationLink {
                                         if let playbackQueue,
                                            let position = playbackQueue.firstIndex(where: {
@@ -238,7 +237,10 @@ struct VideoDetailView: View {
                                     .focused($focusedDetail, equals: .watchLater)
                                     .accessibilityIdentifier("video-detail-watch-later")
                                 }
-                                GridRow {
+
+                                // Keep "Mark watched" directly below Play,
+                                // first and leftmost in the second action row.
+                                HStack(spacing: 18) {
                                     if showsMarkWatched {
                                         Button {
                                             Task { await changeWatched() }
@@ -254,9 +256,6 @@ struct VideoDetailView: View {
                                         // focused control while writing.
                                         .focused($focusedDetail, equals: .markWatched)
                                         .accessibilityIdentifier("video-mark-watched")
-                                    } else {
-                                        // Reserve column one for Play on live videos.
-                                        Color.clear.frame(width: 0, height: 0)
                                     }
                                     Button {
                                         TVPlaylistPopupPresenter.shared.present(
@@ -271,8 +270,6 @@ struct VideoDetailView: View {
                                     .focused($focusedDetail, equals: .playlist)
                                     .accessibilityIdentifier("video-add-playlist")
                                 }
-                            }
-                            .focusSection()
                             if let progressError {
                                 Text(progressError)
                                     .font(.caption)
