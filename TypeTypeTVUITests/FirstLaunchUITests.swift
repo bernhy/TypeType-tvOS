@@ -298,6 +298,23 @@ final class TypeTypeTVUITests: XCTestCase {
     }
 
 
+    func testContentSettingsLeftFromSubnavigationRevealsMainSettings() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-content", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let category = app.buttons["settings-group-content"]
+        let mainSettings = app.buttons["main-nav-settings"]
+        XCTAssertTrue(waitForFocus(category, timeout: 20))
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(mainSettings),
+                      "Left from a Settings group must reveal the main sidebar")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(category),
+                      "Right reopens the previously selected Settings category")
+    }
+
     func testContentSettingsNativeFocusCanReachRefreshAndRememberSelection() throws {
         let app = XCUIApplication()
         app.launchArguments = [

@@ -233,6 +233,12 @@ struct PreferencesView: View {
                 .buttonStyle(TVRailButtonStyle())
                 .focusEffectDisabled(true)
                 .focused($focusedGroup, equals: item)
+                // The global sidebar is intentionally disabled until it is
+                // revealed. Only this cross-rail handoff needs an explicit
+                // remote command; all focus within Settings stays native.
+                .onMoveCommand { direction in
+                    if direction == .left { onBackToMenu() }
+                }
                 .accessibilityIdentifier("settings-group-\(item.rawValue)")
                 .accessibilityLabel(TVL10n.value(item.titleKey))
                 .accessibilityAddTraits(item == group ? .isSelected : [])
@@ -384,10 +390,15 @@ struct PreferencesView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 12)
                         .padding(.bottom, 10)
-                    Button("common.refresh") { Task { await refreshRemote() } }
-                        .buttonStyle(.bordered)
-                        .focused($focusedControl, equals: "content.refresh")
-                        .accessibilityIdentifier("settings-content-refresh")
+                    // Keep Refresh on the Pickers' trailing focus axis, so
+                    // Down reaches it natively even after an offscreen scroll.
+                    HStack {
+                        Spacer(minLength: 0)
+                        Button("common.refresh") { Task { await refreshRemote() } }
+                            .buttonStyle(.bordered)
+                            .focused($focusedControl, equals: "content.refresh")
+                            .accessibilityIdentifier("settings-content-refresh")
+                    }
                     if remoteSaving { ProgressView("settings.remoteSaving") }
                     if remoteLoading { ProgressView("settings.remoteLoading") }
                 } else {
@@ -743,7 +754,12 @@ struct PreferencesView: View {
         defer { remoteLoading = false }
         do {
             remote = try await api.accountSettings()
-            if let remote { TVContentPreferences.shared.apply(remote, api: api) }
+            if let remote {
+                NSLog("TypeType SETTINGS watchedThreshold loaded=%@ effective=%d",
+                      remote.watchedThresholdPercent.map(String.init) ?? "missing",
+                      remote.effectiveWatchedThresholdPercent)
+                TVContentPreferences.shared.apply(remote, api: api)
+            }
         } catch {
             remoteError = error.localizedDescription
         }
@@ -791,12 +807,21 @@ struct PreferencesView: View {
         remoteSaving = true
         Task {
             do {
-                let confirmed = try await api.setAccountSetting(
+                NSLog("TypeType SETTINGS watchedThreshold requested=%d", desired)
+                let response = try await api.setAccountSetting(
                     "watchedThresholdPercent", value: .integer(desired)
                 )
-                self.remote = confirmed
-                if confirmed.watchedThresholdPercent == desired {
-                    TVContentPreferences.shared.apply(confirmed, api: api)
+                // The PUT response can be incomplete on older servers and
+                // must not silently revert the Picker to the 90% fallback.
+                // Read once after a *user-initiated write* to verify that
+                // the account really persisted the requested value.
+                let persisted = try await api.accountSettings()
+                NSLog("TypeType SETTINGS watchedThreshold PUT=%@ persisted=%@",
+                      response.watchedThresholdPercent.map(String.init) ?? "missing",
+                      persisted.watchedThresholdPercent.map(String.init) ?? "missing")
+                remote = persisted
+                if persisted.watchedThresholdPercent == desired {
+                    TVContentPreferences.shared.apply(persisted, api: api)
                 } else {
                     remoteError = TVL10n.value("settings.watchedThresholdNotSaved")
                 }
