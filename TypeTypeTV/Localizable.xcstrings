@@ -6502,25 +6502,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gilt für Abzeichen, „Ansehen fortsetzen“ und Wiederholungsstart. 90 % ist der bisherige tvOS-Standard. „Letzte Minute“ bedeutet bei Videos über 60 Sekunden die letzte Minute, sonst 90 %. Wird mit dem TypeType-Konto synchronisiert."
+            "value": "Legt fest, wann Videos als angesehen gelten: in TypeType 1.19.0 standardmäßig während der letzten Minute (bei Videos bis 60 Sekunden ab 90 %). Andere Werte sind 50–100 %. Ältere Server ohne diese Einstellung behalten 90 % als Rückfallwert. Die Auswahl wird serverseitig gespeichert."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controls watched badges, Continue Watching and replay start. 90% is the previous tvOS default. Last minute means the final minute for videos over 60 seconds, or 90% otherwise. Synced with your TypeType account."
+            "value": "Defines when videos count as watched: TypeType 1.19.0 defaults to the last minute (90% for videos up to 60 seconds). Alternatively choose 50–100%. Older servers without this setting retain a 90% fallback. Changes are saved to your server account."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Définit les badges, la reprise de lecture et le redémarrage. 90 % était la valeur tvOS précédente. « Dernière minute » signifie la dernière minute pour les vidéos de plus de 60 s, sinon 90 %. Synchronisé avec le compte TypeType."
+            "value": "Détermine quand les vidéos sont considérées comme vues. TypeType 1.19.0 utilise par défaut la dernière minute (90 % pour les vidéos de 60 s ou moins). Vous pouvez choisir entre 50 et 100 %. Les anciens serveurs conservent 90 % comme valeur de secours. Réglage enregistré sur le serveur."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controla las insignias, Seguir viendo y el reinicio. El 90 % era el valor anterior de tvOS. « Último minuto » significa el último minuto para vídeos de más de 60 s; si no, el 90 %. Se sincroniza con la cuenta TypeType."
+            "value": "Define cuándo se consideran vistos los vídeos. TypeType 1.19.0 usa por defecto el último minuto (90 % para vídeos de 60 s o menos). También puedes elegir entre el 50 y el 100 %. Los servidores antiguos mantienen el 90 % como valor alternativo. Se guarda en el servidor."
           }
         }
       }
@@ -15145,6 +15145,34 @@
           "stringUnit": {
             "state": "translated",
             "value": "Reintentar cargar el estado de Ver más tarde"
+          }
+        }
+      }
+    },
+    "settings.watchedThresholdNotSaved": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server hat diese Angesehen-Schwelle nicht bestätigt. Prüfe, ob TypeType 1.19.0 oder neuer installiert ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server did not confirm this watched threshold. Check that TypeType 1.19.0 or newer is installed."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le serveur n'a pas confirmé ce seuil de visionnage. Vérifiez que TypeType 1.19.0 ou une version ultérieure est installé."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servidor no confirmó este umbral de visualización. Comprueba que TypeType 1.19.0 o posterior esté instalado."
           }
         }
       }

@@ -135,7 +135,6 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
     let focusTarget: String?
     let onMoveLeft: (() -> Void)?
     let onVerticalMove: ((MoveCommandDirection) -> Void)?
-    let restoreFocusOnSelectionChange: Bool
     @FocusState private var pickerFocus: Bool
     @ViewBuilder let options: Options
 
@@ -144,7 +143,6 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
          focusTarget: String? = nil,
          onMoveLeft: (() -> Void)? = nil,
          onVerticalMove: ((MoveCommandDirection) -> Void)? = nil,
-         restoreFocusOnSelectionChange: Bool = true,
          @ViewBuilder options: () -> Options) {
         self.title = title
         self._selection = selection
@@ -152,7 +150,6 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
         self.focusTarget = focusTarget
         self.onMoveLeft = onMoveLeft
         self.onVerticalMove = onVerticalMove
-        self.restoreFocusOnSelectionChange = restoreFocusOnSelectionChange
         self.options = options()
     }
 
@@ -163,12 +160,22 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
         .labelsHidden()
         .pickerStyle(.menu)
         .accessibilityIdentifier(focusTarget ?? "settings-menu")
-        .onMoveCommand { direction in
-            if direction == .left {
-                onMoveLeft?()
-            } else if direction == .up || direction == .down {
-                onVerticalMove?(direction)
+    }
+
+    @ViewBuilder
+    private var navigablePicker: some View {
+        if onMoveLeft != nil || onVerticalMove != nil {
+            // Legacy specialised SponsorBlock controls still own their
+            // directional graph. Normal Settings use native tvOS focus.
+            picker.onMoveCommand { direction in
+                if direction == .left {
+                    onMoveLeft?()
+                } else if direction == .up || direction == .down {
+                    onVerticalMove?(direction)
+                }
             }
+        } else {
+            picker
         }
     }
 
@@ -177,29 +184,13 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
             Text(title).font(.body)
             Spacer(minLength: 20)
             if let focus, let focusTarget {
-                picker.focused(focus, equals: focusTarget)
+                navigablePicker.focused(focus, equals: focusTarget)
             } else {
-                picker.focused($pickerFocus)
+                navigablePicker.focused($pickerFocus)
             }
         }
         .padding(.vertical, 6)
         .accessibilityElement(children: .contain)
-        .onChange(of: selection) { _, _ in
-            // On SponsorBlock a global mode change updates every category
-            // at once. Those programmatic Picker changes must not steal
-            // focus from the global mode by restoring all category Pickers.
-            guard restoreFocusOnSelectionChange else { return }
-            // Returning from a tvOS Picker menu should restore the very
-            // Picker that opened it, not the Settings group to its left.
-            Task { @MainActor in
-                await Task.yield()
-                if let focus, let focusTarget {
-                    focus.wrappedValue = focusTarget
-                } else {
-                    pickerFocus = true
-                }
-            }
-        }
     }
 }
 
@@ -268,21 +259,29 @@ struct TVSettingsSwitchRow: View {
         .opacity(enabled ? 1 : 0.36)
         .accessibilityValue(TVL10n.value(isOn ? "settings.hardwareYes" : "settings.hardwareNo"))
         .accessibilityIdentifier(accessibilityID ?? focusID ?? "settings-switch")
-        .onMoveCommand { direction in
-            if direction == .left {
-                onMoveLeft?()
-            } else if direction == .up || direction == .down {
-                onVerticalMove?(direction)
+    }
+
+    @ViewBuilder
+    private var navigableSwitch: some View {
+        if onMoveLeft != nil || onVerticalMove != nil {
+            switchButton.onMoveCommand { direction in
+                if direction == .left {
+                    onMoveLeft?()
+                } else if direction == .up || direction == .down {
+                    onVerticalMove?(direction)
+                }
             }
+        } else {
+            switchButton
         }
     }
 
     @ViewBuilder
     var body: some View {
         if let focus, let focusID {
-            switchButton.focused(focus, equals: focusID)
+            navigableSwitch.focused(focus, equals: focusID)
         } else {
-            switchButton
+            navigableSwitch
         }
     }
 }

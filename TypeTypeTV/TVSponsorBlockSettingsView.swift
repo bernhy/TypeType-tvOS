@@ -197,8 +197,7 @@ struct TVSponsorBlockSettingsView: View {
             onMoveLeft: onMoveLeft,
             onVerticalMove: { direction in
                 moveFocus(from: focusID, direction: direction)
-            },
-            restoreFocusOnSelectionChange: false
+            }
         ) {
             ForEach(choices, id: \.self) { option in
                 Text(optionLabel(option)).tag(option)

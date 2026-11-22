@@ -297,6 +297,37 @@ final class TypeTypeTVUITests: XCTestCase {
                       "Up from the first keyword should reach the Add keyword field")
     }
 
+
+    func testContentSettingsNativeFocusCanReachRefreshAndRememberSelection() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-content", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let category = app.buttons["settings-group-content"]
+        let first = app.buttons["content.hideHomeRecommendations"]
+        let refresh = app.buttons["settings-content-refresh"]
+        XCTAssertTrue(waitForFocus(category, timeout: 20))
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        XCTAssertTrue(refresh.waitForExistence(timeout: 10))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(first), "Native Right enters the first content setting")
+        // Controls are arranged vertically; descriptions are not focusable.
+        // Native ScrollView focuses the offscreen picker and then Refresh.
+        for _ in 0..<12 {
+            if refresh.hasFocus { break }
+            XCUIRemote.shared.press(.down)
+        }
+        XCTAssertTrue(waitForFocus(refresh),
+                      "Refresh must be reachable below the watched-threshold picker")
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(category),
+                      "Native Left returns to the Settings category")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(refresh),
+                      "Right restores the last Settings control without a timer")
+    }
+
     func testSettingsPlaybackRightOpensControlColumn() throws {
         let app = XCUIApplication()
         app.launchArguments = [
