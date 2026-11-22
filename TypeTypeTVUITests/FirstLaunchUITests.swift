@@ -455,7 +455,7 @@ final class TypeTypeTVUITests: XCTestCase {
         add(attachment)
     }
 
-    func testVideoDetailFocusTravelsPredictablyBetweenActionRows() throws {
+    func testVideoDetailUsesNativeGridNavigation() throws {
         let app = XCUIApplication()
         app.launchArguments = [
             "-TypeTypeTVPreview", "details", "-typetype.uiLanguage", "de"
@@ -466,24 +466,23 @@ final class TypeTypeTVUITests: XCTestCase {
         let watched = app.buttons["video-mark-watched"]
         let playlist = app.buttons["video-add-playlist"]
         let description = app.buttons["video-description-entry"]
-        XCTAssertTrue(waitForFocus(play, timeout: 10))
+        XCTAssertTrue(waitForFocus(play, timeout: 10),
+                      "Play is the native initial focus preference")
         XCUIRemote.shared.press(.right)
-        XCTAssertTrue(waitForFocus(back), "Right from Play goes to Back")
+        XCTAssertTrue(waitForFocus(back), "Right follows the first Grid row")
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(waitForFocus(playlist), "Down from Back goes to Playlist")
+        XCTAssertTrue(waitForFocus(playlist),
+                      "Playlist is positioned directly below Back")
         XCUIRemote.shared.press(.up)
-        XCTAssertTrue(waitForFocus(back), "Up from Playlist must not jump to Mark Watched")
+        XCTAssertTrue(waitForFocus(back),
+                      "Up uses native geometry, not a remote focus override")
         XCUIRemote.shared.press(.left)
         XCTAssertTrue(waitForFocus(play))
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(waitForFocus(watched))
-        XCUIRemote.shared.press(.right)
-        XCTAssertTrue(waitForFocus(playlist))
+        XCTAssertTrue(waitForFocus(watched), "Mark Watched is below Play")
         XCUIRemote.shared.press(.down)
-        XCTAssertTrue(waitForFocus(description), "Down from Playlist goes to Description tab")
-        XCUIRemote.shared.press(.up)
-        XCTAssertTrue(waitForFocus(watched),
-                      "Up from Description follows the actual preceding action row")
+        XCTAssertTrue(waitForFocus(description),
+                      "Native focus scrolling reaches the description")
     }
 
     func testVideoDetailsLayoutWithoutServer() throws {

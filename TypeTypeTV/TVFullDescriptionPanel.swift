@@ -36,7 +36,7 @@ struct TVFullDescriptionPanel: View {
         .padding(34)
         .frame(width: 1060)
         .tvGlassPopup(transparent: true)
-        .onAppear { descriptionFocused = true }
+        .defaultFocus($descriptionFocused, true, priority: .automatic)
         .onExitCommand { dismiss() }
     }
 }
