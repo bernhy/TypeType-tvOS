@@ -82,6 +82,7 @@ struct BrowseView: View {
     @State private var accountFocusRequest = 0
     @State private var accountGeneration = 0
     @State private var returnToSwitcherAfterLogin = false
+    @State private var topShelfSelection: TVTopShelfSnapshotStore.Item?
     @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
     @FocusState private var menuFocus: TVSection?
 
@@ -205,6 +206,9 @@ struct BrowseView: View {
                             )
                         }
                     }
+                    .navigationDestination(item: $topShelfSelection) { item in
+                        varVideoDetail(api: api, item: item)
+                    }
                 }
                 .id("\(section.rawValue)-\(accountGeneration)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -235,6 +239,18 @@ struct BrowseView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(TTTheme.ink.ignoresSafeArea())
             .task { await reloadSidebarIdentity(api: api) }
+            .onOpenURL { url in
+                guard let container = TVTopShelfSnapshotStore.container(),
+                      let snapshot = TVTopShelfSnapshotStore.read(from: container),
+                      let item = TVTopShelfSnapshotStore.item(
+                          for: url, in: snapshot,
+                          origin: api.origin.absoluteString,
+                          scopeFingerprint: TVTopShelfPublisher.accountFingerprint(
+                              for: api
+                          )
+                      ) else { return }
+                topShelfSelection = item
+            }
             .onDisappear { playlistPopup.finish() }
             .onChange(of: section) { old, _ in
                 if old == .account || old == .settings {
@@ -249,6 +265,17 @@ struct BrowseView: View {
                              action: onDisconnect,
                              actionTitle: TVL10n.value("common.changeServer"))
         }
+    }
+
+    private func varVideoDetail(api: TypeTypeAPI,
+                                item: TVTopShelfSnapshotStore.Item) -> some View {
+        var video = VideoItem(
+            id: item.videoID, title: item.title, url: item.videoURL,
+            thumbnailUrl: item.thumbnailURL, uploaderName: nil,
+            duration: item.duration, isLive: false
+        )
+        video.watchPositionMs = item.positionMs
+        return VideoDetailView(api: api, video: video)
     }
 
     private var sidebar: some View {
@@ -410,6 +437,8 @@ struct BrowseView: View {
         // Unmount the previous user's Home/Library/player state immediately.
         // Later requests and progress UI must belong to the newly selected user.
         TVLocalProgress.shared.clear()
+        TVTopShelfPublisher.shared.clear()
+        topShelfSelection = nil
         TVWatchLaterMembership.shared.invalidate()
         TVFavoriteMembership.shared.invalidate()
         TVContentPreferences.shared.invalidate()

@@ -22,6 +22,15 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - TypeTypeTV
+      - TypeTypeTVShared/TVTopShelfSnapshot.swift
+    entitlements:
+      path: TypeTypeTV/TypeTypeTV.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.org.example.typetype.tv
+    dependencies:
+      - target: TypeTypeTVTopShelf
+        embed: true
     preBuildScripts:
       - name: Stamp Git revision
         script: bash "$SRCROOT/scripts/generate-build-info.sh"
@@ -36,6 +45,11 @@ targets:
         LSApplicationCategoryType: public.app-category.video
         CFBundleShortVersionString: "0.1"
         CFBundleVersion: "1"
+        TopShelfAppGroupID: group.org.example.typetype.tv
+        CFBundleURLTypes:
+          - CFBundleURLName: org.example.typetype.tv
+            CFBundleURLSchemes:
+              - typetype-tv
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.example.typetype.tv
@@ -43,6 +57,32 @@ targets:
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.video
         ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
+  TypeTypeTVTopShelf:
+    type: app-extension
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - TypeTypeTVTopShelf
+      - TypeTypeTVShared/TVTopShelfSnapshot.swift
+    entitlements:
+      path: TypeTypeTVTopShelf/TopShelf.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.org.example.typetype.tv
+    info:
+      path: TypeTypeTVTopShelf/Info.plist
+      properties:
+        CFBundleDisplayName: TypeType Top Shelf
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        TopShelfAppGroupID: group.org.example.typetype.tv
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.tv-top-shelf
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).TopShelfProvider"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.example.typetype.tv.topshelf
+
   TypeTypeTVTests:
     type: bundle.unit-test
     platform: tvOS

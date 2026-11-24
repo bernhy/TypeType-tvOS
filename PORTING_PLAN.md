@@ -1,10 +1,6 @@
 # Architectural decisions (2026-11-13) — overrides older experiments
 
-## Latest checkpoint — 2026-11-24
-
-The chronological sections below preserve research and previous hardware milestones. Current feature parity and TypeType Server **v1.19.1** are inventoried in **[docs/CAPABILITIES.md](docs/CAPABILITIES.md)**. The production tvOS `main` still uses native SABR + Apple sample-buffer renderers without a custom server-side HLS bridge. The latest `main` CI compiles the simulator and Apple TV Debug/Release, passes 350 unit/contract tests and fails one of 57 UI tests on the specific Settings re-entry assertion; do not call that checkpoint fully green. The 1.19.1 server component must be independently checked against its release tag instead of trusting the parent monorepo's old submodule pins. OSD PR #18 and Top Shelf PR #33 remain unmerged.
-
-## Historical implementation checkpoint — 2026-11-17
+## Current implementation checkpoint — 2026-11-17
 
 The chronological sections below preserve the original architectural research
 and early milestones. The status below supersedes historical TODOs:

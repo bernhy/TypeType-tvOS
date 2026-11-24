@@ -2,13 +2,6 @@
 
 Simulator and wire-contract tests do **not** prove reliable playback on a physical Apple TV. November 17 hardware reports confirm stable A/V on the direct renderer path, immediate picture after seeks **without a black frame**, correct startup-thumbnail fade and release, and the repaired focus/navigation and channel-tile behaviors through `6c1256b`. Initial picture/sound arrival was estimated at approximately one second, not instrumentally measured. The newer "Ansehen fortsetzen" Home filtering (`6be64f7`, `c02d0fb`) still needs its own hardware verification; long-run multi-device, codec and HDR testing remain open.
 
-## CI and v1.19.1 integration checkpoint — 2026-11-24
-
-- [Main #45062229700](https://github.com/bernhy/TypeType-tvOS/actions/runs/45062229700): localization validation, simulator build, Apple TV Debug and Release compilations, and **350 unit/contract tests** succeeded (6 skipped). **56/57 UI tests** succeeded; the failing assertion was the Settings global-rail re-entry expectation (not a player failure). An identical failure occurred on the separate Top Shelf branch. Track new CI independently before marking green.
-- New native Settings focus test contract: Left on a Settings category must focus the global Settings icon. Right must return focus to that *same category or its first control*, then left/right must traverse category ⇄ control correctly. Native focus can legitimately choose either direct entry. This prevents a brittle exact-first-focus assertion from masking a usable focus path; a wrong category, inert Right, or broken return movement still fails the test.
-- Official server v1.19.1: confirm authenticated `GET /api/settings` includes `watchedThresholdPercent`; PUT a 50–100% value, verify via subsequent GET, then restore 0 if that was the account preference. `0` means last minute for long VOD (90% for <=60 s), not 90% for all videos. Older servers missing the field use a 90% client fallback.
-- If client sessions repeatedly return SABR HTTP 422 or `token_session_renewal` / `attestation`, gather sanitized server logs and test zero-position VOD plus the browser path before changing codecs or media pipeline. One initial 1.19.1 upgrade showed errors until the server/related services were restarted; playback then worked. Avoid claiming a confirmed regression without reproduction.
-
 ## Devices
 
 | Device | Minimum target | Important cases |
@@ -101,10 +94,10 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 - Re-test first-frame fade, repeated seek forward/backward, rapid Siri Remote seek bursts, retry after failure, no-image cases, and transitions. Normal seeks must never reload or redisplay the poster.
 - Confirm in Instruments that image-view memory is reclaimed after fade; UIKit/CoreAnimation may retain transient allocations until the OS collects them.
 
-## SABR early-network recovery in main (originally investigated on 1.18.0)
+## SABR early-network recovery experiment (TypeType 1.18.0)
 
 - **Main** includes the approved damaged-fragment re-download and >90%-watched replay changes (PR #21, merge `2a0db04`). The user confirmed fast seeks, normal A/V and replay on physical Apple TV.
-- **Implemented in current main:** Bounded short transport retries and optional early prewarm/recovery can run while already buffered media plays. This began as an experimental PR #22; current `SabrAPI.swift` / `SabrPlayer.swift` contain the logic. Runtime end-to-end behavior still needs controlled server-restart QA.
+- **Separate experimental branch:** `experiment/sabr-early-network-reconnect-20261117` (draft PR #22) first retries short transient HTTP/network outages on safe playback-window/media routes **while the existing renderer plays its buffered samples**.
 - **Fresh session prewarm:** If a producer error proves the old SABR session unusable (e.g. a server restart returning 404), and both renderers have at least three seconds of queued media, the app starts a **new SABR session plus first server-side media window in parallel**. This speculative token is not attached to the decoder. After the old mailbox drains, seek the new session to the exact recovery position and adopt it; fall back to ordinary fresh-session recovery if prewarming failed. Queued samples and Fast-Seek are unchanged before that handoff.
 - **Optional idle health probe:** While the compressed disk cache is full, so the producer would otherwise make no network requests, poll the public TypeType `/api/health` endpoint every five seconds. Two consecutive failures can trigger the above prewarm without waiting for the next SABR demand. If the deployment does not expose valid JSON `{\"status\":\"ok\"}`, disable probing gracefully and use ordinary producer-error detection.
 - **Limits:** This starts the new connection *before* buffer exhaustion but still performs the existing native-renderer flush at the recovery boundary. A small handoff delay or visible discontinuity remains possible; **gapless playback is not guaranteed**. A restart that is too rapid to be observed by either a health probe or a media request cannot be detected retrospectively.

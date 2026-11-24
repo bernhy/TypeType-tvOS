@@ -274,6 +274,21 @@ struct TVHomeSubscriptionsBaselineView: View {
     private var visibleRecent: [VideoItem] {
         filteredRecent()
     }
+    // Recompute only when the resume shelf's first five items or their
+    // playback positions change, never on focus/scroll transitions.
+    private var topShelfSignature: String {
+        let items = showRecent ? Array(visibleRecent.prefix(5)) : []
+        return api.origin.absoluteString + "|" + items.map {
+            "\($0.url)|\($0.title)|\($0.duration ?? 0)|\($0.thumbnailUrl ?? "")|" +
+            "\(localProgress.position(for: $0.url) ?? $0.watchPositionMs ?? 0)"
+        }.joined(separator: "\n")
+    }
+    @MainActor
+    private func publishTopShelf() {
+        TVTopShelfPublisher.shared.publish(
+            showRecent ? Array(visibleRecent.prefix(5)) : [], api: api
+        )
+    }
     private func filteredRecent() -> [VideoItem] {
         // Configured completion threshold, with local progress override.
         contentPreferences.displayed(recentVideos).filter {
@@ -484,6 +499,8 @@ struct TVHomeSubscriptionsBaselineView: View {
                 loadedOnce = true
                 await refresh()
             }
+            .onChange(of: topShelfSignature) { _, _ in publishTopShelf() }
+            .onAppear { publishTopShelf() }
             .onChange(of: showRecent) { _, enabled in
                 if !enabled { resumeMetadata.stop() }
                 if enabled && !historyLoadedOnce && previewVideos == nil {

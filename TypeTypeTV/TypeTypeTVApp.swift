@@ -73,7 +73,10 @@ struct RootView: View {
         if instanceOrigin.isEmpty {
             ServerSetupView { instanceOrigin = $0 }
         } else {
-            BrowseView(instanceOrigin: instanceOrigin) { instanceOrigin = "" }
+            BrowseView(instanceOrigin: instanceOrigin) {
+                TVTopShelfPublisher.shared.clear()
+                instanceOrigin = ""
+            }
         }
     }
 
