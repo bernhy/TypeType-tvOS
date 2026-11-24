@@ -53,7 +53,10 @@ final class TVTopShelfPublisher {
     /// On errors hide stale personal posters, keeping JPEGs cached for recovery.
     func serverUnavailable(api: TypeTypeAPI, unauthorized: Bool = false) {
         let origin = api.origin.absoluteString
-        guard verifiedOrigin == origin || candidateOrigin == origin else { return }
+        // On a cold launch both in-memory scopes are empty. Still remove
+        // a persisted snapshot after the first failed /auth/me request.
+        guard (verifiedOrigin == nil || verifiedOrigin == origin),
+              (candidateOrigin == nil || candidateOrigin == origin) else { return }
         serverAvailable = false
         historyValidatedOrigin = nil
         if unauthorized {
@@ -124,6 +127,9 @@ final class TVTopShelfPublisher {
               let container = TVTopShelfSnapshotStore.container() else { return }
         let scope = Self.accountFingerprint(for: api)
         adoptScope(scope, origin: api.origin.absoluteString)
+        // A scope mismatch may clear authorization while adopting a new
+        // candidate set; never publish until that new identity is verified.
+        guard mayPublish(api: api) else { return }
         candidates = Array(TVContinueWatchingLocalUpdate.applying(
             candidates, video: video, positionMs: positionMs,
             thresholdPercent: TVContentPreferences.shared.watchedThresholdPercent

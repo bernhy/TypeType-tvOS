@@ -440,7 +440,10 @@ struct BrowseView: View {
             guard !Task.isCancelled && generation == accountGeneration else { return }
             // Keep the sidebar label on transient network errors, but never
             // continue displaying personal Top Shelf content while offline.
-            TVTopShelfPublisher.shared.serverUnavailable(api: api)
+            let status = TVServerErrorMapping.httpStatus(error)
+            TVTopShelfPublisher.shared.serverUnavailable(
+                api: api, unauthorized: status == 401 || status == 403
+            )
         }
     }
 

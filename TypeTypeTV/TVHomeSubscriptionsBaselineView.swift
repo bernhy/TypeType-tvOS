@@ -922,6 +922,10 @@ struct TVHomeSubscriptionsBaselineView: View {
         } catch {
             guard historyRequestID == request else { return }
             historyHasMore = false
+            let status = TVServerErrorMapping.httpStatus(error)
+            TVTopShelfPublisher.shared.serverUnavailable(
+                api: api, unauthorized: status == 401 || status == 403
+            )
         }
     }
 
