@@ -2,7 +2,7 @@
 
 Native, GPL-3.0 Apple TV client for [TypeType](https://github.com/TypeType-Video/TypeType), based on the Android TV reference (dev branch, 2026-11-13).
 
-**Status (2026-11-17):** The direct fMP4 / compressed-sample renderer (PR #15), keyframe-fast seek and stable startup thumbnail are on `main`. Physical Apple TV feedback confirms stable A/V, immediate picture when seeking forward/back without a black intermediate screen, and correct thumbnail fade after startup. The thumbnail's decoded image reference is released after fade without dismantling the surface. Focus corrections for blocked-keyword actions, Home, channel/public playlist tiles and detail returns were also accepted on hardware; the combined CI for those corrections passed on `6c1256b`. Home now has a separate **"Ansehen fortsetzen"** rail for started, unfinished VODs rather than the full History (latest code pending its own hardware check). Initial picture/sound arrival was estimated at about one second, not instrumentally measured. VP9/AV1, HDR and cross-device stability still need validation; this is not a production-ready release.
+**Status (2026-11-24):** Native SABR H.264/AAC playback, keyframe-fast seek, the stable startup poster, server-backed account/content/SponsorBlock settings, paged Home **"Ansehen fortsetzen"**, library writes, searches, channels and focus-driven lists are on `main`. A physical Apple TV has confirmed core playback, seek, navigation, watched-threshold persistence and playback against TypeType Server v1.19.1 following a corrected server-component update. Device coverage is not comprehensive. Most recent `main` [CI #45062229700](https://github.com/bernhy/TypeType-tvOS/actions/runs/45062229700): simulator and Debug/Release Apple TV builds and 350 unit tests passed, but **one of 57 UI tests failed** on Settings focus re-entry. Player OSD Concept B and Top Shelf remain separate, unmerged draft PRs. This is not yet a production-certified release.
 
 
 ## Attribution and third-party licenses
@@ -25,6 +25,10 @@ is developed in this project. Thanks to the upstream TypeType developers.
 - **Hardware-aware codec selection:** `VTIsHardwareDecodeSupported` filters automatic representations, and software-allowed selection is OFF by default. Actual decoding is managed by `AVSampleBufferVideoRenderer`; its public API does **not** certify whether a particular frame was decoded in hardware. This is not the former explicit VT session hardware requirement.
 - Use public Apple APIs (SwiftUI, CoreMedia, AVFoundation, VideoToolbox, URLSession, Keychain).
 
+## Current feature / API support
+
+For a detailed server-v1.19.1-to-tvOS implementation matrix, explicit native-vs-server settings, limits, performance notes and latest CI status, see **[docs/CAPABILITIES.md](docs/CAPABILITIES.md)**. The chronological [implementation status](docs/IMPLEMENTATION_STATUS.md) and [hardware test checklist](TESTING.md) are maintained separately.
+
 ## Implemented so far
 
 - SwiftUI TV navigation and Android-inspired visual language: dark ink background, TypeType red accent, thumbnail-first recommendation grid, collapsible icon sidebar and stable tvOS focus navigation. Home "Ansehen fortsetzen" is a **single horizontal shelf**: four visible card slots, with additional server history pages loaded as the Siri Remote moves right. The full History stays in Library. Blocked-content Unblock rows highlight as a whole and keyword buttons are reachable via Siri Remote. Channel/public playlist tiles zoom and brighten their lower info pane without white borders. Channel avatars appear in video details and the SABR OSD; channel banners (or a blurred avatar) sit behind the channel controls.
@@ -36,7 +40,7 @@ is developed in this project. Thanks to the upstream TypeType developers.
 - **Native YouTube SABR player:** bootstrap/session/position/prefetch/windows/segments, direct in-memory ISO BMFF demux (`avc1`/`hvc1`/`vp09`/`av01`), compressed samples sent directly to Apple video/audio renderers with independently scheduled A/V feeding and a shared clock. Play/pause, quality/audio selection and seek with keyframe preroll are supported.
 - Native HLS AVPlayer path for compatible non-YouTube sources.
 - Multilingual interface using Apple's single Xcode String Catalog (TypeTypeTV/Localizable.xcstrings), with semantic keys, dynamic language discovery and an in-app language picker. German is the default; English, French and Spanish are included. See LOCALIZATION.md.
-- CI validates translation resources, builds unsigned simulator and Apple TV Debug/Release targets and runs native SABR/network tests plus the evolving tvOS UI test suite. The last completed passing combined workflow before the new Home filter was [#44111404428](https://github.com/bernhy/TypeType-tvOS/actions/runs/44111404428).
+- CI validates translation resources, builds unsigned simulator and Apple TV Debug/Release targets and runs native SABR/network tests plus the evolving tvOS UI test suite. The last fully passing historical combined checkpoint was [#44111404428](https://github.com/bernhy/TypeType-tvOS/actions/runs/44111404428). More recent [#45062229700](https://github.com/bernhy/TypeType-tvOS/actions/runs/45062229700) passed builds and all 350 unit tests but failed one of 57 UI tests; see [current verification status](docs/CAPABILITIES.md#verification-checkpoint-2026-11-24).
 
 ## Technical playback path
 
@@ -44,7 +48,7 @@ TypeType Server SABR session and segments → Swift SABR transport + cache → i
 
 **Seeking:** For nonzero positions the server is asked for up to 5 seconds of bounded compressed preroll while playback and audio begin at the exact requested target. Video samples before that target are marked `DoNotDisplay` so reference frames can be decoded without flashing old pictures. This targets the reported 10–20-second post-seek video freeze. A November 17 hardware test reported immediate A/V sync after seeking; seek latency under different codecs, network conditions and hardware generations is not yet established.
 
-**Separate review:** Liquid Glass OSD Concept B is still an unmerged, open [draft PR #18](https://github.com/bernhy/TypeType-tvOS/pull/18); it is not part of the stable Main interface.
+**Separate review:** Liquid Glass OSD Concept B remains [draft PR #18](https://github.com/bernhy/TypeType-tvOS/pull/18); Top Shelf Continue Watching remains [draft PR #33](https://github.com/bernhy/TypeType-tvOS/pull/33). Neither is part of `main`.
 
 ## Still required for a production release
 
