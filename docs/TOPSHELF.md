@@ -47,6 +47,34 @@ progress indicators and a link to each video's detail page.
   publishing and clears the saved list and local images.
 - Empty/new installations show the app's existing static Top Shelf artwork.
 
+## Per-account Top Shelf privacy switch
+
+- **Einstellungen → Konten** shows a compact Top Shelf on/off switch immediately
+  to the left of the existing per-profile **Konto entfernen** action.
+  Both controls have independent focus targets. Entry from the Settings
+  category rail chooses the profile's remove action; Left moves to Top Shelf
+  and a second Left returns to the Settings rail. Up/Down between account rows
+  and Right between same-row actions use native tvOS focus movement.
+- The choice is local to this Apple TV, separately persisted for each
+  combination of server origin and verified household account ID. The
+  UserDefaults key is SHA-256-derived, without raw server addresses/account
+  names or credentials. **Default OFF** until the user explicitly enables it.
+- Only the **currently selected**, verified, opted-in account with a
+  successful history request can publish dynamic Top Shelf. All other cases
+  show the existing static TypeType logo.
+- Turning OFF the active account clears its published snapshot immediately,
+  cancelling any ongoing poster jobs. Turning ON republishes only already
+  loaded history, without a new server request. Inactive profiles' toggles
+  never change the active account's Top Shelf.
+- A successful account switch already clears the old snapshot and local
+  progress and verifies the newly active account. Its own opt-in is checked
+  before publishing again.
+- Removing an individual saved profile or logging it out also removes its
+  locally saved Top Shelf permission. Other profiles retain theirs.
+- The settings are local to the Apple TV, not synchronized with TypeType
+  server preferences or other clients. This is deliberate for a
+  homescreen-specific privacy decision.
+
 ## Static logo on first launch, sign-out and network errors
 
 - The extension deliberately returns `nil` when no readable snapshot or
@@ -54,7 +82,8 @@ progress indicators and a link to each video's detail page.
   artwork; there is no additional image asset or placeholder view.
 - A new installation / server setup clears previously published content.
 - The existing `/auth/me` check is the gate for personalized Top Shelf:
-  missing credentials, guest identity and invalid sessions are not eligible.
+  missing credentials, guest identity, invalid sessions and disabled per-account
+  opt-in are not eligible.
   An empty history also produces static artwork.
 - Failure of the existing Home history request hides any previous posters.
   The local JPEG cache is retained for efficient recovery. On a successful

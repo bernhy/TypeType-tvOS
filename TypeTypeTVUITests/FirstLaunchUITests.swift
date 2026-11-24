@@ -645,6 +645,54 @@ final class TypeTypeTVUITests: XCTestCase {
                       app.buttons["Mit Passwort anmelden"].exists)
     }
 
+
+    func testAccountTopShelfSwitchUsesNativeTwoColumnFocus() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-account-profiles",
+            "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let category = app.buttons["settings-group-account"]
+        let firstRemove = app.buttons["accounts-remove-ui-profile-a"]
+        let firstToggle = app.buttons["accounts-topshelf-ui-profile-a"]
+        let secondRemove = app.buttons["accounts-remove-ui-profile-b"]
+        let secondToggle = app.buttons["accounts-topshelf-ui-profile-b"]
+        XCTAssertTrue(waitForFocus(category, timeout: 20))
+        XCTAssertTrue(firstRemove.waitForExistence(timeout: 10))
+        XCTAssertTrue(secondRemove.exists)
+
+        // Entering from the left Settings rail must prefer "Konto entfernen",
+        // rather than focusing the new switch on the same row.
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(firstRemove))
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(firstToggle),
+                      "Left from the remove action must reach Top Shelf")
+
+        // Vertical moves stay on the same column; horizontal moves cross the
+        // row. No delayed FocusState correction or background polling.
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(secondToggle))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(secondRemove))
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(firstRemove))
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(firstToggle))
+
+        let before = firstToggle.value as? String
+        XCUIRemote.shared.press(.select)
+        XCTAssertNotEqual(firstToggle.value as? String, before,
+                          "Select must toggle this profile's local opt-in")
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(category),
+                      "Left from Top Shelf must return directly to Settings")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(firstRemove),
+                      "Re-entering Accounts should prefer the first remove action")
+    }
+
     func testChannelTabsReachSubscriptionButtonWithRemote() throws {
         let app = XCUIApplication()
         app.launchArguments = [

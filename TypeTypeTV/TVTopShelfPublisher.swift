@@ -21,6 +21,7 @@ final class TVTopShelfPublisher {
     private var lastSignature: String?
     private var generation = 0
     private var active: Task<Void, Never>?
+    private let accountPreferences = TVTopShelfAccountPreferences()
 
     private init() {}
 
@@ -42,6 +43,12 @@ final class TVTopShelfPublisher {
         // An authenticated /auth/me alone does not establish that the
         // history source succeeded. A failed Home request must keep the logo.
         serverAvailable = historyValidatedOrigin == origin
+        // A valid login and reachable history are insufficient without
+        // explicit permission to display this account's viewing activity.
+        guard accountPreferences.isAllowed(accountID: account.id, origin: api.origin) else {
+            hideSnapshot(removeImages: false)
+            return
+        }
         if serverAvailable, let container = TVTopShelfSnapshotStore.container(),
            candidateOrigin == origin,
            candidateScope == Self.accountFingerprint(for: api) {
@@ -72,6 +79,25 @@ final class TVTopShelfPublisher {
         guard verifiedOrigin == api.origin.absoluteString,
               verifiedAccountID != nil else { return }
         serverAvailable = true
+        if mayPublish(api: api),
+           candidateOrigin == api.origin.absoluteString,
+           candidateScope == Self.accountFingerprint(for: api),
+           let container = TVTopShelfSnapshotStore.container() {
+            schedule(api: api, scope: candidateScope!, container: container)
+        }
+    }
+
+    /// Called after the Settings switch changes. An inactive profile must
+    /// never replace or clear the currently active profile's shelf.
+    func accountPermissionChanged(accountID: String, api: TypeTypeAPI) {
+        guard verifiedOrigin == api.origin.absoluteString,
+              verifiedAccountID == accountID else { return }
+        guard mayPublish(api: api) else {
+            hideSnapshot(removeImages: false)
+            diagnostics("static artwork: account opt-in disabled or unavailable")
+            return
+        }
+        // Use only already-loaded Home history; never fetch it on toggle.
         if candidateOrigin == api.origin.absoluteString,
            candidateScope == Self.accountFingerprint(for: api),
            let container = TVTopShelfSnapshotStore.container() {
@@ -80,8 +106,9 @@ final class TVTopShelfPublisher {
     }
 
     private func mayPublish(api: TypeTypeAPI) -> Bool {
-        serverAvailable && verifiedOrigin == api.origin.absoluteString &&
-            verifiedAccountID != nil
+        guard serverAvailable, verifiedOrigin == api.origin.absoluteString,
+              let id = verifiedAccountID else { return false }
+        return accountPreferences.isAllowed(accountID: id, origin: api.origin)
     }
 
     /// Use the stable account identity, not the rotating access JWT.
@@ -114,7 +141,10 @@ final class TVTopShelfPublisher {
             hideSnapshot(removeImages: false)
             return
         }
-        guard mayPublish(api: api) else { return }
+        guard mayPublish(api: api) else {
+            hideSnapshot(removeImages: false)
+            return
+        }
         schedule(api: api, scope: scope, container: container)
     }
 

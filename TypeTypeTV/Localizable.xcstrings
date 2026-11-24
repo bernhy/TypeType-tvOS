@@ -1,6 +1,34 @@
 {
   "sourceLanguage": "de",
   "strings": {
+    "settings.accountTopShelf": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top Shelf"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top Shelf"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top Shelf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top Shelf"
+          }
+        }
+      }
+    },
     "nav.channels": {
       "localizations": {
         "de": {

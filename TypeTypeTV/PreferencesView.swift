@@ -43,6 +43,9 @@ struct PreferencesView: View {
     @State private var showAddAccountSheet = false
     @State private var accountIdentity: TVAccountIdentity?
     @State private var savedAccounts: [TVSavedAccount] = []
+    // Local privacy opt-ins for the displayed household profiles. Only this
+    // Settings view observes their values; Home tiles remain unchanged.
+    @State private var topShelfAllowed: [String: Bool] = [:]
     @State private var pendingProfileRemoval: TVSavedAccount?
     @State private var confirmProfileRemoval = false
     @State private var accountLoading = false
@@ -154,6 +157,7 @@ struct PreferencesView: View {
                 // The add-account sheet persists the new profile before
                 // switching the active TypeType session.
                 savedAccounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
+                refreshTopShelfChoices()
                 showAddAccountSheet = false
                 onAccountChanged()
             }
@@ -267,8 +271,10 @@ struct PreferencesView: View {
            (remote == nil || remembered == "content.retry") {
             return fallback
         }
-        if item == .account, remembered.hasPrefix("account.remove."),
-           !savedAccounts.contains(where: { "account.remove." + $0.id == remembered }) {
+        if item == .account {
+            // Enter from the group rail on the per-profile remove action,
+            // never on the Top Shelf switch to its left. Native Up/Down
+            // still traverses the rows; Left visits the opt-in switch.
             return fallback
         }
         return remembered
@@ -625,6 +631,27 @@ struct PreferencesView: View {
                                 }
                             }
                             Spacer(minLength: 12)
+                            TVSettingsSwitchRow(
+                                "settings.accountTopShelf",
+                                isOn: Binding(
+                                    get: {
+                                        topShelfAllowed[profile.id] ??
+                                            TVTopShelfAccountPreferences().isAllowed(
+                                                accountID: profile.id, origin: api.origin
+                                            )
+                                    },
+                                    set: { enabled in
+                                        setTopShelfAllowed(enabled, profile: profile)
+                                    }
+                                ),
+                                focus: $focusedControl,
+                                focusID: "account.topshelf." + profile.id,
+                                accessibilityID: "accounts-topshelf-\(profile.id)",
+                                // Only the leftmost boundary needs a manual
+                                // handoff. Up/Down and Right stay native.
+                                onMoveLeft: returnFocusToGroup
+                            )
+                            .frame(width: 255)
                             Button(role: .destructive) {
                                 lastRemovalID = profile.id
                                 pendingProfileRemoval = profile
@@ -853,10 +880,43 @@ struct PreferencesView: View {
         }
     }
 
+    private func refreshTopShelfChoices() {
+        let preferences = TVTopShelfAccountPreferences()
+        topShelfAllowed = Dictionary(uniqueKeysWithValues: savedAccounts.map {
+            ($0.id, preferences.isAllowed(accountID: $0.id, origin: api.origin))
+        })
+    }
+
+    @MainActor
+    private func setTopShelfAllowed(_ allowed: Bool, profile: TVSavedAccount) {
+        guard savedAccounts.contains(where: { $0.id == profile.id }) else { return }
+        TVTopShelfAccountPreferences().setAllowed(
+            allowed, accountID: profile.id, origin: api.origin
+        )
+        topShelfAllowed[profile.id] = allowed
+        // An inactive household profile changes only its stored permission.
+        // The active profile publishes/clears its snapshot without any API call.
+        TVTopShelfPublisher.shared.accountPermissionChanged(
+            accountID: profile.id, api: api
+        )
+    }
+
     @MainActor
     private func refreshAccountIdentity() async {
         savedAccounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
+        refreshTopShelfChoices()
         if api.origin.host == "preview.invalid" {
+            #if DEBUG
+            // Deterministic account rows for tvOS native FocusState regression
+            // tests, with no Keychain or network dependency.
+            if ProcessInfo.processInfo.arguments.contains("settings-account-profiles") {
+                savedAccounts = [
+                    TVSavedAccount(id: "ui-profile-a", label: "Profil A"),
+                    TVSavedAccount(id: "ui-profile-b", label: "Profil B")
+                ]
+                refreshTopShelfChoices()
+            }
+            #endif
             accountIdentity = nil
             accountError = nil
             return
@@ -871,6 +931,7 @@ struct PreferencesView: View {
                 TypeTypeCredentials.shared.rememberActive(accountIdentity, for: api.origin)
             }
             savedAccounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
+            refreshTopShelfChoices()
         } catch {
             if TVServerErrorMapping.httpStatus(error) == 401 {
                 // The server rejected the session, not the saved Keychain
@@ -892,6 +953,8 @@ struct PreferencesView: View {
             status = TVL10n.value("settings.removeProfileFailed")
             return
         }
+        TVTopShelfAccountPreferences().remove(accountID: profile.id, origin: api.origin)
+        topShelfAllowed.removeValue(forKey: profile.id)
         if accountIdentity?.id == profile.id {
             // Forgetting the active profile must also clear the legacy
             // selected token. Otherwise refreshAccountIdentity would silently
@@ -913,12 +976,18 @@ struct PreferencesView: View {
         // and is cancelled when the modal closes.
         showAddAccountSheet = false
         if let accountIdentity, !accountIdentity.isGuest {
-            // Logging out removes the selected user from this Apple TV, but
-            // never wipes another household member's saved credentials.
-            TypeTypeCredentials.shared.forget(accountIdentity.id, for: api.origin)
+            // Logging out removes this user's saved credentials and consent.
+            // Never touch another household member's saved opt-in.
+            if TypeTypeCredentials.shared.forget(accountIdentity.id, for: api.origin) {
+                TVTopShelfAccountPreferences().remove(
+                    accountID: accountIdentity.id, origin: api.origin
+                )
+                topShelfAllowed.removeValue(forKey: accountIdentity.id)
+            }
         }
         TypeTypeCredentials.shared.clear(for: api.origin)
         savedAccounts = TypeTypeCredentials.shared.savedAccounts(for: api.origin)
+        refreshTopShelfChoices()
         accountIdentity = nil
         accountError = nil
         onAccountChanged()
