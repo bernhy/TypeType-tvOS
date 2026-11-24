@@ -859,6 +859,7 @@ struct TVHomeSubscriptionsBaselineView: View {
             historyHasMore = raw.count == historyPageSize
             recentNeedsLogin = false
             recentError = nil
+            TVTopShelfPublisher.shared.serverRecovered(api: api)
         } catch is CancellationError {
             return
         } catch {
@@ -869,6 +870,9 @@ struct TVHomeSubscriptionsBaselineView: View {
             let status = TVServerErrorMapping.httpStatus(error)
             recentNeedsLogin = status == 401 || status == 403
             recentError = recentNeedsLogin ? nil : error.localizedDescription
+            TVTopShelfPublisher.shared.serverUnavailable(
+                api: api, unauthorized: recentNeedsLogin
+            )
         }
     }
 

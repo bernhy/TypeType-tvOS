@@ -430,10 +430,17 @@ struct BrowseView: View {
     @MainActor
     private func reloadSidebarIdentity(api: TypeTypeAPI) async {
         guard api.origin.host != "preview.invalid" else { return }
+        let generation = accountGeneration
         do {
-            sidebarIdentity = try await api.currentAccount()
+            let identity = try await api.currentAccount()
+            guard !Task.isCancelled && generation == accountGeneration else { return }
+            sidebarIdentity = identity
+            TVTopShelfPublisher.shared.accountChecked(identity, api: api)
         } catch {
-            // Network hiccups must not discard the last known identity.
+            guard !Task.isCancelled && generation == accountGeneration else { return }
+            // Keep the sidebar label on transient network errors, but never
+            // continue displaying personal Top Shelf content while offline.
+            TVTopShelfPublisher.shared.serverUnavailable(api: api)
         }
     }
 

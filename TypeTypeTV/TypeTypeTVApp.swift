@@ -72,6 +72,11 @@ struct RootView: View {
     private var configuredContent: some View {
         if instanceOrigin.isEmpty {
             ServerSetupView { instanceOrigin = $0 }
+                .onAppear {
+                    // A new installation or disconnected server must never
+                    // retain another account's Top Shelf posters.
+                    TVTopShelfPublisher.shared.clear()
+                }
         } else {
             BrowseView(instanceOrigin: instanceOrigin) {
                 TVTopShelfPublisher.shared.clear()

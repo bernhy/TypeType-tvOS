@@ -11,11 +11,75 @@ final class TVTopShelfPublisher {
     private var candidates: [VideoItem] = []
     private var candidateScope: String?
     private var candidateOrigin: String?
+    // A real signed-in user must be confirmed by the existing /auth/me request.
+    // A successfully completed request to Home history is not authentication:
+    // the server can also allow guest access.
+    private var verifiedOrigin: String?
+    private var verifiedAccountID: String?
+    private var historyValidatedOrigin: String?
+    private var serverAvailable = false
     private var lastSignature: String?
     private var generation = 0
     private var active: Task<Void, Never>?
 
     private init() {}
+
+    /// This is called from the existing sidebar /auth/me request. In particular,
+    /// a guest token and a missing token are *not* a logged-in household user.
+    func accountChecked(_ account: TVAccountIdentity?, api: TypeTypeAPI) {
+        guard TVTopShelfVisibilityPolicy.permits(account), let account else {
+            clear()
+            diagnostics("showing static artwork: no signed-in account")
+            return
+        }
+        let origin = api.origin.absoluteString
+        if let oldID = verifiedAccountID,
+           (oldID != account.id || verifiedOrigin != origin) {
+            clear()
+        }
+        verifiedOrigin = origin
+        verifiedAccountID = account.id
+        // An authenticated /auth/me alone does not establish that the
+        // history source succeeded. A failed Home request must keep the logo.
+        serverAvailable = historyValidatedOrigin == origin
+        if serverAvailable, let container = TVTopShelfSnapshotStore.container(),
+           candidateOrigin == origin,
+           candidateScope == Self.accountFingerprint(for: api) {
+            schedule(api: api, scope: candidateScope!, container: container)
+        }
+    }
+
+    /// React to existing Home history requests; never perform another probe.
+    /// On errors hide stale personal posters, keeping JPEGs cached for recovery.
+    func serverUnavailable(api: TypeTypeAPI, unauthorized: Bool = false) {
+        let origin = api.origin.absoluteString
+        guard verifiedOrigin == origin || candidateOrigin == origin else { return }
+        serverAvailable = false
+        historyValidatedOrigin = nil
+        if unauthorized {
+            verifiedOrigin = nil
+            verifiedAccountID = nil
+        }
+        hideSnapshot(removeImages: false)
+        diagnostics("showing static artwork: server unavailable or authorization failed")
+    }
+
+    func serverRecovered(api: TypeTypeAPI) {
+        historyValidatedOrigin = api.origin.absoluteString
+        guard verifiedOrigin == api.origin.absoluteString,
+              verifiedAccountID != nil else { return }
+        serverAvailable = true
+        if candidateOrigin == api.origin.absoluteString,
+           candidateScope == Self.accountFingerprint(for: api),
+           let container = TVTopShelfSnapshotStore.container() {
+            schedule(api: api, scope: candidateScope!, container: container)
+        }
+    }
+
+    private func mayPublish(api: TypeTypeAPI) -> Bool {
+        serverAvailable && verifiedOrigin == api.origin.absoluteString &&
+            verifiedAccountID != nil
+    }
 
     /// Use the stable account identity, not the rotating access JWT.
     /// A profile change explicitly clears the snapshot.
@@ -40,6 +104,14 @@ final class TVTopShelfPublisher {
         let scope = Self.accountFingerprint(for: api)
         adoptScope(scope, origin: api.origin.absoluteString)
         candidates = Array(videos.prefix(Self.candidateLimit))
+        // The user explicitly hid this rail. Do not leave a previously
+        // published personalized snapshot behind, even if no history request
+        // runs for the hidden section.
+        if TVContentPreferences.shared.settings?.hideContinueWatching == true {
+            hideSnapshot(removeImages: false)
+            return
+        }
+        guard mayPublish(api: api) else { return }
         schedule(api: api, scope: scope, container: container)
     }
 
@@ -47,6 +119,7 @@ final class TVTopShelfPublisher {
     /// and explicit watched toggles. No new timer, observer, or API request.
     func notePlayback(_ video: VideoItem, positionMs: Int64, api: TypeTypeAPI) {
         guard api.origin.host != "preview.invalid", positionMs >= 0,
+              mayPublish(api: api),
               TVContentPreferences.shared.settings?.hideContinueWatching != true,
               let container = TVTopShelfSnapshotStore.container() else { return }
         let scope = Self.accountFingerprint(for: api)
@@ -185,30 +258,41 @@ final class TVTopShelfPublisher {
     }
 
     func clear() {
-        generation &+= 1
-        active?.cancel()
-        active = nil
         candidates = []
         candidateScope = nil
         candidateOrigin = nil
+        verifiedOrigin = nil
+        verifiedAccountID = nil
+        historyValidatedOrigin = nil
+        serverAvailable = false
+        hideSnapshot(removeImages: true)
+    }
+
+    private func hideSnapshot(removeImages: Bool) {
+        generation &+= 1
+        active?.cancel()
+        active = nil
         lastSignature = nil
         guard let container = TVTopShelfSnapshotStore.container() else {
             diagnostics("clear skipped: shared container unavailable")
             return
         }
-        do {
-            try FileManager.default.removeItem(
-                at: container.appendingPathComponent("resume.json")
-            )
-        } catch {
-            if (error as NSError).code != NSFileNoSuchFileError {
+        let path = container.appendingPathComponent("resume.json")
+        let existed = FileManager.default.fileExists(atPath: path.path)
+        if existed {
+            do {
+                try FileManager.default.removeItem(at: path)
+            } catch {
                 diagnostics("snapshot removal failed")
             }
         }
-        try? FileManager.default.removeItem(
-            at: container.appendingPathComponent("images", isDirectory: true)
-        )
-        TVTopShelfContentProvider.topShelfContentDidChange()
+        if removeImages {
+            try? FileManager.default.removeItem(
+                at: container.appendingPathComponent("images", isDirectory: true)
+            )
+        }
+        // Only invalidate tvOS when content has actually changed.
+        if existed { TVTopShelfContentProvider.topShelfContentDidChange() }
         diagnostics("snapshot cleared")
     }
 
@@ -303,5 +387,13 @@ final class TVTopShelfPublisher {
         #if DEBUG
         NSLog("TypeType TOPSHELF %@", event)
         #endif
+    }
+}
+
+/// Unit-testable policy: a guest token is not a signed-in household account.
+enum TVTopShelfVisibilityPolicy {
+    static func permits(_ account: TVAccountIdentity?) -> Bool {
+        guard let account else { return false }
+        return !account.isGuest && !account.id.isEmpty
     }
 }

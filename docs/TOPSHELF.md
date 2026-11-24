@@ -47,6 +47,25 @@ progress indicators and a link to each video's detail page.
   publishing and clears the saved list and local images.
 - Empty/new installations show the app's existing static Top Shelf artwork.
 
+## Static logo on first launch, sign-out and network errors
+
+- The extension deliberately returns `nil` when no readable snapshot or
+  eligible posters exist. tvOS then uses the app's regular static Top Shelf
+  artwork; there is no additional image asset or placeholder view.
+- A new installation / server setup clears previously published content.
+- The existing `/auth/me` check is the gate for personalized Top Shelf:
+  missing credentials, guest identity and invalid sessions are not eligible.
+  An empty history also produces static artwork.
+- Failure of the existing Home history request hides any previous posters.
+  The local JPEG cache is retained for efficient recovery. On a successful
+  authenticated request, publication can resume without extra API calls.
+- The extension is intentionally network-free: if the server goes offline
+  while TypeType is entirely closed, the extension cannot detect that outage
+  immediately. The fallback takes effect when the app detects a failed
+  existing request, not by polling from the Home screen.
+- No account IDs, personally configured App Groups or server addresses are
+  hardcoded in this public repository.
+
 ## App Groups signing
 
 For an app extension to display locally cached data while the app is closed,

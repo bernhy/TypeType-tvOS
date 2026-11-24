@@ -5,12 +5,25 @@ final class TVTopShelfSnapshotTests: XCTestCase {
     private func entry(_ identifier: String, positionMs: Int64 = 60_000) ->
         TVTopShelfSnapshotStore.Item {
         TVTopShelfSnapshotStore.Item(
-            key: TVTopShelfSnapshotStore.key(for: identifier),
+            key: TVTopShelfSnapshotStore.key(for: "https://youtu.be/" + identifier),
             videoID: identifier, title: "Video " + identifier,
             videoURL: "https://youtu.be/" + identifier,
             thumbnailURL: "https://i.ytimg.com/vi/" + identifier + "/hqdefault.jpg",
             imageName: nil, duration: 300, positionMs: positionMs
         )
+    }
+
+    func testNoLoginAndGuestAccountsUseStaticTopShelfArtwork() {
+        XCTAssertFalse(TVTopShelfVisibilityPolicy.permits(nil))
+        XCTAssertFalse(TVTopShelfVisibilityPolicy.permits(
+            TVAccountIdentity(id: "guest:session", role: nil, publicUsername: nil)
+        ))
+        XCTAssertFalse(TVTopShelfVisibilityPolicy.permits(
+            TVAccountIdentity(id: "", role: nil, publicUsername: nil)
+        ))
+        XCTAssertTrue(TVTopShelfVisibilityPolicy.permits(
+            TVAccountIdentity(id: "account-123", role: nil, publicUsername: "Example")
+        ))
     }
 
     func testSnapshotCapsContentsAtFiveAndKeepsOrder() {
