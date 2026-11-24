@@ -3,6 +3,9 @@ import SwiftUI
 @main
 struct TypeTypeTVApp: App {
     @AppStorage("typetype.uiLanguage") private var language = TVLanguages.followSystem
+    #if DEBUG
+    @Environment(\.scenePhase) private var scenePhase
+    #endif
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -10,6 +13,18 @@ struct TypeTypeTVApp: App {
                 // TypeType uses a consistently dark surface. Do not inherit
                 // tvOS Light/Automatic for the foreground text and controls.
                 .preferredColorScheme(.dark)
+                #if DEBUG
+                .onAppear {
+                    TVTopShelfStorageProbe.startOnce()
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active {
+                        // Read only when the app becomes active again after
+                        // visiting the Home screen; no timer or extra request.
+                        TVTopShelfStorageProbe.reportExtensionAcknowledgement()
+                    }
+                }
+                #endif
         }
     }
 }

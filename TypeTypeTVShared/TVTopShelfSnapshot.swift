@@ -9,6 +9,13 @@ enum TVTopShelfSnapshotStore {
     private static let version = 1
     private static let snapshotName = "resume.json"
 
+    #if DEBUG
+    // Random, non-sensitive test marker, shared between the host app and
+    // Top Shelf extension. Never used for real history or credentials.
+    static let debugProbeChallengeKey = "typetype.topshelf.debug.challenge.v1"
+    static let debugProbeAckKey = "typetype.topshelf.debug.extension-ack.v1"
+    #endif
+
     struct Item: Codable, Hashable, Identifiable {
         var id: String { key }
         let key: String

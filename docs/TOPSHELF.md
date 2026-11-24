@@ -113,6 +113,41 @@ On failed snapshot writes the publisher does not attempt poster downloads,
 because the extension cannot display the result. When writing succeeds,
 the existing async image cache and HTTPS fallback remain unchanged.
 
+### One-time DEBUG storage probe for real Apple TV hardware
+
+In Debug builds (not the simulator UI-preview fixtures), TypeType performs
+one nonblocking storage probe per app process at launch. It tests the normal
+app's `Application Support` as a control, then the shared App Group root and
+`Library/Application Support` inside that group. Each location is tested with
+a uniquely named small file using both **direct** and **atomic** writes and a
+read-back, then the diagnostic files are deleted. No existing Top Shelf
+snapshots, thumbnails or user settings are modified.
+
+The app also writes a random challenge to `UserDefaults(suiteName:)`. The
+extension tries to read and acknowledge that exact challenge when tvOS calls
+`loadTopShelfContent` (for example, when the first-row TypeType app is
+highlighted on the Apple TV Home screen). On returning to the app, an
+`extension acknowledgement=MATCH` message confirms **cross-process** sharing,
+which an app-only read-back would not prove.
+
+Filter the device log for `TypeType TOPSHELF PROBE`. Example results:
+
+- `app-support direct write=PASS read=PASS`: private sandbox works.
+- `group-root direct-write failed domain=NSCocoaErrorDomain code=513`:
+  writing at the shared container root is denied.
+- `group-library-support atomic write=PASS read=PASS`: a standard shared
+  support directory can be used instead (pending a separate fix).
+- `suite localRead=PASS flush=PASS marker=...` and
+  `extension acknowledgement=MATCH`: shared preferences work across processes.
+
+All logging omits paths, configured App Group identifiers, account names,
+server addresses, tokens and content titles. The only printed marker is the
+first eight characters of a random UUID. The probe requires no network,
+timers or user interaction, apart from visiting the Apple TV Home screen
+to let the extension load. It does **not** change the production snapshot
+storage location; do not treat it as a fix until hardware results are reviewed.
+Release builds contain none of this probe.
+
 ## App Groups signing
 
 For an app extension to display locally cached data while the app is closed,
