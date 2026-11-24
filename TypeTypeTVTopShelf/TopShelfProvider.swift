@@ -27,6 +27,10 @@ final class TopShelfProvider: TVTopShelfContentProvider {
                   url.user == nil, url.password == nil else { return nil }
             // Poster metadata contains only public HTTPS thumbnail URLs.
             // The extension has no bearer token and never runs our API.
+            // Both output modes use the same URL. TVServices chooses by
+            // device scale (e.g. a 1080p Apple TV can require 1x); these
+            // variants are not a network-failure fallback.
+            poster.setImageURL(url, for: .screenScale1x)
             poster.setImageURL(url, for: .screenScale2x)
             poster.displayAction = TVTopShelfSnapshotStore.actionURL(for: saved.key)
                 .map { TVTopShelfAction(url: $0) }

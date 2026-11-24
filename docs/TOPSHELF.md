@@ -25,6 +25,9 @@ progress indicators, per-video channel names and deep links to detail pages.
   callback for retrying another URL. Therefore a failed Top Shelf poster can
   still be blank even if the app successfully displays its original image.
   No duplicate HEAD/GET checks are performed merely to populate Top Shelf.
+- Both 1x and 2x TVServices image traits reference the same public URL;
+  TVServices selects the appropriate representation for the Apple TV's
+  output mode. These traits are **not** automatic retry/fallback URLs.
 - Each video's existing `uploaderName` is stored as optional `channelName`
   in the snapshot. The sectioned Top Shelf row uses one collection per video:
   the video title remains the item title, while the channel appears above it
