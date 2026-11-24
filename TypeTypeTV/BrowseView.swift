@@ -240,8 +240,7 @@ struct BrowseView: View {
             .background(TTTheme.ink.ignoresSafeArea())
             .task { await reloadSidebarIdentity(api: api) }
             .onOpenURL { url in
-                guard let container = TVTopShelfSnapshotStore.container(),
-                      let snapshot = TVTopShelfSnapshotStore.read(from: container),
+                guard let snapshot = TVTopShelfSnapshotStore.read(),
                       let item = TVTopShelfSnapshotStore.item(
                           for: url, in: snapshot,
                           origin: api.origin.absoluteString,

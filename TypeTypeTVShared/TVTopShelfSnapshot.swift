@@ -1,17 +1,17 @@
 import Foundation
 import CryptoKit
 
-/// Minimal, token-free metadata exchanged with the tvOS Top Shelf extension.
-/// The extension never starts an API session or receives account credentials.
+/// Token-free metadata shared with the independent tvOS Top Shelf extension.
+/// One small encoded Data value replaces the whole snapshot atomically at the
+/// API level. Images and credentials are never placed in UserDefaults.
 enum TVTopShelfSnapshotStore {
     static let maximumItems = 5
     static let scheme = "typetype-tv"
-    private static let version = 1
-    private static let snapshotName = "resume.json"
+    static let maximumBytes = 64 * 1024
+    private static let version = 2
+    private static let snapshotKey = "typetype.topShelf.resume.v2"
 
     #if DEBUG
-    // Random, non-sensitive test marker, shared between the host app and
-    // Top Shelf extension. Never used for real history or credentials.
     static let debugProbeChallengeKey = "typetype.topshelf.debug.challenge.v1"
     static let debugProbeAckKey = "typetype.topshelf.debug.extension-ack.v1"
     #endif
@@ -23,7 +23,6 @@ enum TVTopShelfSnapshotStore {
         let title: String
         let videoURL: String
         let thumbnailURL: String?
-        let imageName: String?
         let duration: Int
         let positionMs: Int64
 
@@ -36,7 +35,6 @@ enum TVTopShelfSnapshotStore {
     struct Snapshot: Codable, Equatable {
         let version: Int
         let origin: String
-        // SHA-256 of the account-specific local scope; never store its token.
         let scopeFingerprint: String
         let items: [Item]
     }
@@ -48,68 +46,53 @@ enum TVTopShelfSnapshotStore {
 
     static func key(for videoURL: String) -> String { fingerprint(videoURL) }
 
+    static func sharedDefaults() -> UserDefaults? {
+        guard let group = Bundle.main.object(forInfoDictionaryKey: "TopShelfAppGroupID")
+            as? String, group.hasPrefix("group.") else { return nil }
+        return UserDefaults(suiteName: group)
+    }
+
+    /// Used only by the temporary DEBUG filesystem probe. Not used for
+    /// publication, reading, or image downloads.
+    #if DEBUG
     static func container() -> URL? {
         guard let group = Bundle.main.object(forInfoDictionaryKey: "TopShelfAppGroupID")
             as? String, group.hasPrefix("group.") else { return nil }
         return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
     }
+    #endif
 
-    static func imageURL(named name: String, in container: URL) -> URL? {
-        let basename = name.dropLast(4)
-        guard name.hasSuffix(".jpg"), basename.count == 64,
-              basename.allSatisfy({ $0.isHexDigit }) else { return nil }
-        return container.appendingPathComponent("images", isDirectory: true)
-            .appendingPathComponent(name, isDirectory: false)
-    }
-
-    static func read(from container: URL) -> Snapshot? {
-        let url = container.appendingPathComponent(snapshotName)
-        guard let data = try? Data(contentsOf: url),
-              data.count < 128_000,
+    static func read(using supplied: UserDefaults? = nil) -> Snapshot? {
+        guard let defaults = supplied ?? sharedDefaults(),
+              let data = defaults.data(forKey: snapshotKey),
+              data.count <= maximumBytes,
               let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data),
               snapshot.version == version,
               snapshot.items.count <= maximumItems else { return nil }
         return snapshot
     }
 
-    static func write(_ snapshot: Snapshot, to container: URL) -> Bool {
+    @discardableResult
+    static func write(_ snapshot: Snapshot,
+                      using supplied: UserDefaults? = nil) -> Bool {
         guard snapshot.version == version,
-              snapshot.items.count <= maximumItems else { return false }
-        let data: Data
-        do {
-            data = try JSONEncoder().encode(snapshot)
-        } catch {
-            logWriteError("JSON encoding", error: error)
-            return false
-        }
-        do {
-            try FileManager.default.createDirectory(at: container,
-                                                    withIntermediateDirectories: true)
-        } catch {
-            // Apple's containerURL API can return a plausible URL even if the
-            // app is *not* entitled to access that App Group. In that case
-            // the directory cannot actually be created. No group IDs/paths
-            // are written to logs.
-            logWriteError("shared directory", error: error)
-            return false
-        }
-        do {
-            try data.write(to: container.appendingPathComponent(snapshotName),
-                           options: .atomic)
-            return true
-        } catch {
-            logWriteError("atomic snapshot", error: error)
-            return false
-        }
+              snapshot.items.count <= maximumItems,
+              let defaults = supplied ?? sharedDefaults(),
+              let data = try? JSONEncoder().encode(snapshot),
+              data.count <= maximumBytes else { return false }
+        defaults.set(data, forKey: snapshotKey)
+        // This same-process readback is a basic sanity check, NOT proof that
+        // another process has received the value. The hardware probe already
+        // established cross-process UserDefaults(suiteName:) communication.
+        return defaults.data(forKey: snapshotKey) == data
     }
 
-    private static func logWriteError(_ stage: String, error: Error) {
-        #if DEBUG
-        let ns = error as NSError
-        NSLog("TypeType TOPSHELF %@ failed domain=%@ code=%ld; verify that " +
-              "TopShelfAppGroupID matches the signed App Groups entitlement",
-              stage, ns.domain, ns.code)
-        #endif
+    @discardableResult
+    static func clear(using supplied: UserDefaults? = nil) -> Bool {
+        guard let defaults = supplied ?? sharedDefaults(),
+              defaults.object(forKey: snapshotKey) != nil else { return false }
+        defaults.removeObject(forKey: snapshotKey)
+        return true
     }
 
     static func make(origin: String, scopeFingerprint: String, items: [Item]) -> Snapshot {

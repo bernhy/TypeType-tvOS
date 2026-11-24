@@ -9,7 +9,7 @@ final class TVTopShelfSnapshotTests: XCTestCase {
             videoID: identifier, title: "Video " + identifier,
             videoURL: "https://youtu.be/" + identifier,
             thumbnailURL: "https://i.ytimg.com/vi/" + identifier + "/hqdefault.jpg",
-            imageName: nil, duration: 300, positionMs: positionMs
+            duration: 300, positionMs: positionMs
         )
     }
 
@@ -72,16 +72,10 @@ final class TVTopShelfSnapshotTests: XCTestCase {
         XCTAssertFalse(String(decoding: json, as: UTF8.self).contains("bearer-not-for-disk"))
     }
 
-    func testSnapshotRejectsMalformedURLsAndEscapingImageNames() {
+    func testSnapshotRejectsMalformedActionURLs() {
         let key = TVTopShelfSnapshotStore.key(for: "sample")
         XCTAssertNil(TVTopShelfSnapshotStore.actionURL(for: "invalid-key"))
-        XCTAssertNil(TVTopShelfSnapshotStore.imageURL(
-            named: "../secrets.jpg", in: URL(fileURLWithPath: "/tmp")
-        ))
         XCTAssertNotNil(TVTopShelfSnapshotStore.actionURL(for: key))
-        XCTAssertNotNil(TVTopShelfSnapshotStore.imageURL(
-            named: key + ".jpg", in: URL(fileURLWithPath: "/tmp")
-        ))
     }
 
     func testActionRejectsExtraParametersFragmentsAndInvalidKeys() throws {
@@ -112,7 +106,7 @@ final class TVTopShelfSnapshotTests: XCTestCase {
         let tampered = TVTopShelfSnapshotStore.Item(
             key: video.key, videoID: video.videoID, title: video.title,
             videoURL: "https://youtu.be/not-the-same", thumbnailURL: video.thumbnailURL,
-            imageName: nil, duration: video.duration, positionMs: video.positionMs
+            duration: video.duration, positionMs: video.positionMs
         )
         let snapshot = TVTopShelfSnapshotStore.make(
             origin: "https://example.invalid", scopeFingerprint: "one",
@@ -125,36 +119,75 @@ final class TVTopShelfSnapshotTests: XCTestCase {
         ))
     }
 
-    func testSnapshotWriteFailsCleanlyForNonDirectoryContainer() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: root, withIntermediateDirectories: true
+    func testPosterPolicyAvoidsPrivateServerArtwork() {
+        let publicURL = TVTopShelfPosterPolicy.publicThumbnail(
+            primary: URL(string: "https://private.example.invalid/protected?t=secret"),
+            videoURL: "https://youtu.be/abc123def45"
         )
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let invalidContainer = root.appendingPathComponent("not-a-directory")
-        try Data("file".utf8).write(to: invalidContainer)
-        let snapshot = TVTopShelfSnapshotStore.make(
-            origin: "https://example.invalid", scopeFingerprint: "one",
-            items: [entry("abc123def45")]
-        )
-        XCTAssertFalse(TVTopShelfSnapshotStore.write(snapshot, to: invalidContainer))
-        XCTAssertNil(TVTopShelfSnapshotStore.read(from: invalidContainer))
-    }
-
-    func testAtomicSnapshotWriteAndRead() {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let snapshot = TVTopShelfSnapshotStore.make(
-            origin: "https://example.invalid", scopeFingerprint: "one",
-            items: [entry("abc123def45")]
-        )
-        XCTAssertTrue(TVTopShelfSnapshotStore.write(snapshot, to: directory))
-        XCTAssertEqual(TVTopShelfSnapshotStore.read(from: directory), snapshot)
-        XCTAssertFalse(FileManager.default.fileExists(
-            atPath: directory.appendingPathComponent("resume.json.tmp").path
+        XCTAssertEqual(publicURL, "https://i.ytimg.com/vi/abc123def45/hqdefault.jpg")
+        XCTAssertFalse(publicURL?.contains("secret") ?? false)
+        XCTAssertNil(TVTopShelfPosterPolicy.publicThumbnail(
+            primary: URL(string: "https://private.example.invalid/private"),
+            videoURL: "not-a-youtube-video"
         ))
     }
+
+    func testSharedDefaultsStoreWritesReadsAndClearsOneSnapshot() throws {
+        let suite = "typetype.test.topshelf." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let snapshot = TVTopShelfSnapshotStore.make(
+            origin: "https://example.invalid", scopeFingerprint: "one",
+            items: [entry("abc123def45")]
+        )
+        XCTAssertNil(TVTopShelfSnapshotStore.read(using: defaults))
+        XCTAssertTrue(TVTopShelfSnapshotStore.write(snapshot, using: defaults))
+        XCTAssertEqual(TVTopShelfSnapshotStore.read(using: defaults), snapshot)
+        XCTAssertTrue(TVTopShelfSnapshotStore.clear(using: defaults))
+        XCTAssertNil(TVTopShelfSnapshotStore.read(using: defaults))
+        XCTAssertFalse(TVTopShelfSnapshotStore.clear(using: defaults))
+    }
+
+    func testOversizedSharedSnapshotIsRejectedWithoutOverwritingExisting() throws {
+        let suite = "typetype.test.topshelf." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let good = TVTopShelfSnapshotStore.make(
+            origin: "https://example.invalid", scopeFingerprint: "account",
+            items: [entry("abc123def45")]
+        )
+        XCTAssertTrue(TVTopShelfSnapshotStore.write(good, using: defaults))
+        let longTitle = String(repeating: "L", count: TVTopShelfSnapshotStore.maximumBytes)
+        let oversized = TVTopShelfSnapshotStore.make(
+            origin: good.origin, scopeFingerprint: good.scopeFingerprint,
+            items: [TVTopShelfSnapshotStore.Item(
+                key: good.items[0].key, videoID: good.items[0].videoID,
+                title: longTitle, videoURL: good.items[0].videoURL,
+                thumbnailURL: good.items[0].thumbnailURL,
+                duration: 300, positionMs: 60_000
+            )]
+        )
+        XCTAssertFalse(TVTopShelfSnapshotStore.write(oversized, using: defaults))
+        XCTAssertEqual(TVTopShelfSnapshotStore.read(using: defaults), good)
+    }
+
+    func testCorruptSharedSnapshotIsNotRead() throws {
+        let suite = "typetype.test.topshelf." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        // A malformed object must never yield incomplete or cross-account
+        // personal content. A valid snapshot can subsequently replace it.
+        let garbage = Data("not a snapshot".utf8)
+        defaults.set(garbage, forKey: "typetype.topShelf.resume.v2")
+        XCTAssertNil(TVTopShelfSnapshotStore.read(using: defaults))
+        XCTAssertTrue(TVTopShelfSnapshotStore.write(
+            TVTopShelfSnapshotStore.make(
+                origin: "https://example.invalid", scopeFingerprint: "one",
+                items: [entry("abc123def45")]
+            ), using: defaults
+        ))
+        XCTAssertNotNil(TVTopShelfSnapshotStore.read(using: defaults))
+    }
+
 }

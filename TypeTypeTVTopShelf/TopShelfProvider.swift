@@ -40,8 +40,7 @@ final class TopShelfProvider: TVTopShelfContentProvider {
         #if DEBUG
         verifySharedDefaultsProbe()
         #endif
-        guard let container = TVTopShelfSnapshotStore.container(),
-              let snapshot = TVTopShelfSnapshotStore.read(from: container) else {
+        guard let snapshot = TVTopShelfSnapshotStore.read() else {
             #if DEBUG
             NSLog("TypeType TOPSHELF provider: no readable snapshot")
             #endif
@@ -54,19 +53,12 @@ final class TopShelfProvider: TVTopShelfContentProvider {
             poster.title = saved.title
             poster.imageShape = .hdtv
             poster.playbackProgress = saved.playbackFraction
-            if let imageName = saved.imageName,
-               let image = TVTopShelfSnapshotStore.imageURL(
-                   named: imageName, in: container
-               ), FileManager.default.fileExists(atPath: image.path) {
-                poster.setImageURL(image, for: .screenScale2x)
-            } else if let raw = saved.thumbnailURL,
-                      let url = URL(string: raw), url.scheme == "https" {
-                // Public CDN fallback only; private TypeType URLs require
-                // the app's authenticated, pinned thumbnail fetch.
-                poster.setImageURL(url, for: .screenScale2x)
-            } else {
-                return nil
-            }
+            guard let raw = saved.thumbnailURL,
+                  let url = URL(string: raw), url.scheme == "https",
+                  url.user == nil, url.password == nil else { return nil }
+            // Poster metadata contains only public HTTPS thumbnail URLs.
+            // The extension has no bearer token and never runs our API.
+            poster.setImageURL(url, for: .screenScale2x)
             poster.displayAction = TVTopShelfSnapshotStore.actionURL(for: saved.key)
                 .map { TVTopShelfAction(url: $0) }
             return poster

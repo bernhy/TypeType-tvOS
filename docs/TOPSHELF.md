@@ -6,45 +6,42 @@ progress indicators and a link to each video's detail page.
 
 ## Data flow and performance
 
-- Home uses its existing /history and batch progress results. No new history,
-  saved-position, or recommendation request is made for Top Shelf.
-- The publisher retains up to 24 already-loaded local resume candidates, but
-  publishes at most five eligible videos. Finishing a video can reveal the next
-  cached candidate without reloading /history.
-- Home triggers publication on changes to membership or card metadata, **not**
-  on every position update or focus/scroll event.
-- SABR and HLS use their existing forced progress checkpoints (pause, stop,
-  background); watched/unwatched actions also signal the publisher. No new
-  timer, per-card subscription, or network poll is introduced.
-- A progress-only change with already prepared images writes a small atomic
-  JSON snapshot synchronously, then calls tvOS Top Shelf invalidation. It
-  neither starts an asynchronous image task nor downloads any artwork.
-- When membership changes, the new list is also written immediately, before
-  any missing posters are downloaded; images fill in asynchronously.
-- The first export or a changed poster may download an image. The app reuses
-  existing JPEGs by matching URL and cached file, and checks *all* candidate
-  fallback files before attempting another download. The disk cache is bounded
-  to 24 JPEGs. The extension itself does no network or image decoding.
-- An initial Home load does not replace a valid snapshot with an empty one
-  while /history is still pending (important for cold-start deep links).
-- Each async export has a generation guard. Clear/account switch cancels
-  unfinished work; cancelled image decoding cannot repopulate shared files.
-- Failed writes are not treated as successful publications; a later event can
-  retry. Diagnostics are Debug-only, use the prefix "TypeType TOPSHELF" and
-  contain no URLs, tokens, account names or video titles.
-- Progress and watched decisions use the same account-configured threshold as
-  Home (90% fallback). Hidden Continue Watching does not publish new entries.
+- Top Shelf receives up to five unfinished videos from already loaded Home
+  history; up to 24 candidates are kept in memory to fill empty slots.
+- A single JSON-encoded value (maximum 64 KiB) in App Group
+  `UserDefaults(suiteName:)` contains the complete versioned snapshot.
+  Reading and writing `resume.json` was removed after hardware testing showed
+  `NSCocoaErrorDomain 513` for both direct and atomic file writes.
+- Shared `UserDefaults` cross-process exchange was verified on a physical
+  Apple TV through the DEBUG challenge/acknowledgement probe.
+- No JPEGs or base64 images are saved in preferences. Only canonical public
+  YouTube HTTPS thumbnails are used at this stage. Server-private and DeArrow
+  images are not yet available in the Top Shelf extension.
+- The tvOS Top Shelf extension performs no TypeType API request or token access.
+  The OS may fetch public poster images from the supplied URLs.
+- Home publishes only when candidate membership or metadata changes; normal
+  scrolling and focus moves never publish. Pause, stop, background and explicit
+  watched toggles reuse existing player checkpoints.
+- Shared preference writes are not a cross-process transaction; tvOS may apply
+  updates to the extension asynchronously. Each write is a single replaceable
+  encoded value, not multiple independently updated video keys.
+- On clear, the entire shared value is removed. Sign-out, server change,
+  account switch, privacy opt-out and authentication errors invalidate Top Shelf.
+- No new timers, history requests or background polling. All conversion and
+  publication run only for eligible changes; no poster image decoding in-app.
+- tvOS warns when the defaults database grows to 512 KiB and may terminate
+  apps at 1 MiB. The 64 KiB snapshot cap leaves ample room for other settings.
 
 ## Data protection and deep links
 
 - No access token, refresh token, user cookie or password is copied to the
-  JSON snapshot. Poster assets are local shared-container JPEG files; external
-  HTTPS thumbnail URLs are only an extension fallback.
+  shared snapshot. Poster URLs point only to known public HTTPS sources.
+  The entire payload is limited to 64 KiB.
 - Deep links contain an opaque SHA-256 video key, **not** the video URL.
   The app accepts only the expected scheme, host and single key query, and
   checks the current server/account scope against the saved snapshot.
-- On sign-out, server change or household profile switch, the app cancels
-  publishing and clears the saved list and local images.
+- On sign-out, server change or household profile switch, the app stops
+  publishing and clears the shared snapshot. There is no JPEG cache to clear.
 - Empty/new installations show the app's existing static Top Shelf artwork.
 
 ## Per-account Top Shelf privacy switch
@@ -85,9 +82,9 @@ progress indicators and a link to each video's detail page.
   missing credentials, guest identity, invalid sessions and disabled per-account
   opt-in are not eligible.
   An empty history also produces static artwork.
-- Failure of the existing Home history request hides any previous posters.
-  The local JPEG cache is retained for efficient recovery. On a successful
-  authenticated request, publication can resume without extra API calls.
+- Failure of the existing Home history request clears previous posters.
+  On a successful authenticated request, publication can resume without
+  extra API calls.
 - The extension is intentionally network-free: if the server goes offline
   while TypeType is entirely closed, the extension cannot detect that outage
   immediately. The fallback takes effect when the app detects a failed
@@ -95,62 +92,26 @@ progress indicators and a link to each video's detail page.
 - No account IDs, personally configured App Groups or server addresses are
   hardcoded in this public repository.
 
-### Diagnosing Top Shelf on a physical Apple TV
+### Debugging on a physical Apple TV
 
-If the static logo remains despite an opted-in account and resume videos,
-look for `TypeType TOPSHELF` in the **app** console. In a Debug build,
-a failed write now includes its stage and the error domain/code without
-printing paths, group identifiers, URLs or account details. In particular,
-an unauthorized App Group can yield a non-nil container URL but still be
-unwritable. Compare the built app's `TopShelfAppGroupID` in `Info.plist`
-with the **signed** `com.apple.security.application-groups` entitlement;
-the embedded extension must use the same group. Running
-`xcodegen generate` from the public `project.yml` regenerates generic
-`org.example` placeholders, so make required private signing changes
-locally before generating the Xcode project.
+Earlier real-device tests showed denied local file writes (`NSCocoaErrorDomain
+513`) to both normal `Application Support` and the shared App Group root.
+Shared UserDefaults worked: the Top Shelf extension acknowledged the exact
+challenge written by the main app (`extension acknowledgement=MATCH`).
 
-On failed snapshot writes the publisher does not attempt poster downloads,
-because the extension cannot display the result. When writing succeeds,
-the existing async image cache and HTTPS fallback remain unchanged.
+A temporary DEBUG-only probe still logs `TypeType TOPSHELF PROBE` and
+attempts one-off writes for diagnostics; it is not involved in publication and
+is absent from Release builds. Only non-sensitive data is logged.
 
-### One-time DEBUG storage probe for real Apple TV hardware
-
-In Debug builds (not the simulator UI-preview fixtures), TypeType performs
-one nonblocking storage probe per app process at launch. It tests the normal
-app's `Application Support` as a control, then the shared App Group root and
-`Library/Application Support` inside that group. Each location is tested with
-a uniquely named small file using both **direct** and **atomic** writes and a
-read-back, then the diagnostic files are deleted. No existing Top Shelf
-snapshots, thumbnails or user settings are modified.
-
-The app also writes a random challenge to `UserDefaults(suiteName:)`. The
-extension tries to read and acknowledge that exact challenge when tvOS calls
-`loadTopShelfContent` (for example, when the first-row TypeType app is
-highlighted on the Apple TV Home screen). On returning to the app, an
-`extension acknowledgement=MATCH` message confirms **cross-process** sharing,
-which an app-only read-back would not prove.
-
-Filter the device log for `TypeType TOPSHELF PROBE`. Example results:
-
-- `app-support direct write=PASS read=PASS`: private sandbox works.
-- `group-root direct-write failed domain=NSCocoaErrorDomain code=513`:
-  writing at the shared container root is denied.
-- `group-library-support atomic write=PASS read=PASS`: a standard shared
-  support directory can be used instead (pending a separate fix).
-- `suite localRead=PASS flush=PASS marker=...` and
-  `extension acknowledgement=MATCH`: shared preferences work across processes.
-
-All logging omits paths, configured App Group identifiers, account names,
-server addresses, tokens and content titles. The only printed marker is the
-first eight characters of a random UUID. The probe requires no network,
-timers or user interaction, apart from visiting the Apple TV Home screen
-to let the extension load. It does **not** change the production snapshot
-storage location; do not treat it as a fix until hardware results are reviewed.
-Release builds contain none of this probe.
+Check `TypeType TOPSHELF shared preferences updated` in the app log and
+then inspect the Apple TV Home screen with TypeType in the first row. If
+personal posters do not appear, distinguish whether the extension has read
+the snapshot from whether public thumbnail downloads are accessible. The
+shared preferences approach does not rely on writable `Caches` or `tmp`.
 
 ## App Groups signing
 
-For an app extension to display locally cached data while the app is closed,
+For an app extension to read shared preferences while the app is closed,
 both targets require access to the **same App Group**.
 
 The public repository uses placeholder group `group.org.example.typetype.tv`
@@ -178,8 +139,8 @@ The two generated entitlements paths are excluded in `.gitignore`:
    and the next cached candidate should take its place.
 6. Change watched/unwatched via detail; test a fast account/profile switch.
    No previous account's data should remain.
-7. Repeat with cached images and (if appropriate) temporarily unavailable
-   thumbnails: progress-only updates must not cause repeated downloads.
+7. Test unavailable public thumbnails: the Top Shelf should fall back to
+   static artwork if no playable poster is available.
 8. Compare Home navigation/scroll and startup with main; monitor Debug
    `TypeType TOPSHELF` messages for failures.
 
