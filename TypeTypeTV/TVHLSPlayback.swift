@@ -396,6 +396,11 @@ final class TVHLSPlaybackController: ObservableObject {
         )
         guard historyEnabled else { return }
         TVLocalProgress.shared.record(video.url, positionMs: position)
+        if force {
+            TVTopShelfPublisher.shared.notePlayback(
+                video, positionMs: position, api: api
+            )
+        }
         let predecessor = lastProgressSubmission
         let writer = progressWriter
         lastProgressSubmission = Task {

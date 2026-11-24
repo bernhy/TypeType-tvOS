@@ -274,19 +274,23 @@ struct TVHomeSubscriptionsBaselineView: View {
     private var visibleRecent: [VideoItem] {
         filteredRecent()
     }
-    // Recompute only when the resume shelf's first five items or their
-    // playback positions change, never on focus/scroll transitions.
+    // Recompute on Top Shelf membership or metadata changes.
+    // The playback checkpoints update the shelf directly, without
+    // progress-driven image work during Home focus or scrolling.
     private var topShelfSignature: String {
         let items = showRecent ? Array(visibleRecent.prefix(5)) : []
         return api.origin.absoluteString + "|" + items.map {
-            "\($0.url)|\($0.title)|\($0.duration ?? 0)|\($0.thumbnailUrl ?? "")|" +
-            "\(localProgress.position(for: $0.url) ?? $0.watchPositionMs ?? 0)"
+            "\($0.url)|\($0.title)|\($0.duration ?? 0)|\($0.thumbnailUrl ?? "")"
         }.joined(separator: "\n")
     }
     @MainActor
     private func publishTopShelf() {
+        // Keep the previous snapshot while the initial /history loads.
+        // A cold Top Shelf deep link must not race an empty Home export.
+        guard previewVideos == nil,
+              !showRecent || (historyLoadedOnce && !loadingRecent) else { return }
         TVTopShelfPublisher.shared.publish(
-            showRecent ? Array(visibleRecent.prefix(5)) : [], api: api
+            showRecent ? Array(visibleRecent.prefix(24)) : [], api: api
         )
     }
     private func filteredRecent() -> [VideoItem] {
@@ -500,6 +504,9 @@ struct TVHomeSubscriptionsBaselineView: View {
                 await refresh()
             }
             .onChange(of: topShelfSignature) { _, _ in publishTopShelf() }
+            .onChange(of: loadingRecent) { _, loading in
+                if !loading { publishTopShelf() }
+            }
             .onAppear { publishTopShelf() }
             .onChange(of: showRecent) { _, enabled in
                 if !enabled { resumeMetadata.stop() }

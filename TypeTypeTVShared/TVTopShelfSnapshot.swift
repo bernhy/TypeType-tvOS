@@ -99,10 +99,15 @@ enum TVTopShelfSnapshotStore {
               snapshot.scopeFingerprint == scopeFingerprint,
               let url = URLComponents(url: action, resolvingAgainstBaseURL: false),
               url.scheme == scheme, url.host == "resume",
-              url.path.isEmpty,
-              let key = url.queryItems?.first(where: { $0.name == "key" })?.value else {
+              url.user == nil, url.password == nil, url.port == nil,
+              url.fragment == nil, url.path.isEmpty,
+              let query = url.queryItems, query.count == 1,
+              query[0].name == "key", let key = query[0].value,
+              key.count == 64, key.allSatisfy({ $0.isHexDigit }) else {
             return nil
         }
-        return snapshot.items.first(where: { $0.key == key })
+        return snapshot.items.first(where: {
+            $0.key == key && $0.key == Self.key(for: $0.videoURL)
+        })
     }
 }

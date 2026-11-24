@@ -534,6 +534,9 @@ struct VideoDetailView: View {
             let position = next ? Int64(duration) * 1_000 : 0
             savedPositionMs = position
             TVLocalProgress.shared.record(video.url, positionMs: position)
+            TVTopShelfPublisher.shared.notePlayback(
+                target, positionMs: position, api: api
+            )
             playbackOpened = true
         } catch {
             progressError = error.localizedDescription

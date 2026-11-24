@@ -248,7 +248,12 @@ struct BrowseView: View {
                           scopeFingerprint: TVTopShelfPublisher.accountFingerprint(
                               for: api
                           )
-                      ) else { return }
+                      ) else {
+                    #if DEBUG
+                    NSLog("TypeType TOPSHELF action ignored: unavailable snapshot or account mismatch")
+                    #endif
+                    return
+                }
                 topShelfSelection = item
             }
             .onDisappear { playlistPopup.finish() }

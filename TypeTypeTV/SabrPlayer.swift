@@ -915,6 +915,11 @@ final class SabrPlayerController: ObservableObject {
         )
         guard historyEnabled else { return }
         TVLocalProgress.shared.record(video.url, positionMs: position)
+        if force {
+            TVTopShelfPublisher.shared.notePlayback(
+                video, positionMs: position, api: api
+            )
+        }
         let predecessor = lastProgressSubmission
         let writer = progressWriter
         lastProgressSubmission = Task {
@@ -3187,6 +3192,7 @@ struct SabrPlaybackErrorDialog: View {
 
 struct SabrPlayerView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     let api: TypeTypeAPI
     let video: VideoItem
     var onPlaybackEvent: ((TVPlaybackEvent) -> Void)? = nil
@@ -3683,6 +3689,9 @@ struct SabrPlayerView: View {
                 TVSabrNowPlayingCenter.shared.deactivate(for: engine)
                 onPlaybackEvent?(.finished)
             }
+        }
+        .onChange(of: scenePhase) { _, next in
+            if next != .active { engine.recordProgress(force: true) }
         }
         .task {
             while !Task.isCancelled {

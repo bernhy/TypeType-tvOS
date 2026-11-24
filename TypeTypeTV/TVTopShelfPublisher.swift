@@ -2,20 +2,23 @@ import Foundation
 import UIKit
 import TVServices
 
-/// Publishes only when Home's existing Continue Watching data changes.
-/// No additional /history calls and no per-card or focus-driven work.
+/// A single screen-level publisher; no focus observers, polling, or history requests.
+/// The player supplies final checkpoints even if Home is no longer on screen.
 @MainActor
 final class TVTopShelfPublisher {
     static let shared = TVTopShelfPublisher()
+    private static let candidateLimit = 24
+    private var candidates: [VideoItem] = []
+    private var candidateScope: String?
+    private var candidateOrigin: String?
     private var lastSignature: String?
     private var generation = 0
     private var active: Task<Void, Never>?
 
     private init() {}
 
-    // The access JWT rotates. Never use it as a durable snapshot identity:
-    // Top Shelf links must still resolve after an ordinary token refresh.
-    // Profile switches explicitly clear the entire snapshot and image cache.
+    /// Use the stable account identity, not the rotating access JWT.
+    /// A profile change explicitly clears the snapshot.
     static func accountFingerprint(for api: TypeTypeAPI) -> String {
         let credentials = TypeTypeCredentials.shared
         let label = credentials.displayIdentifier(for: api.origin)
@@ -26,14 +29,56 @@ final class TVTopShelfPublisher {
         )
     }
 
+    /// Home provides already-loaded resume entries; retain some extra rows so
+    /// completing one of the visible five can promote the next without /history.
     func publish(_ videos: [VideoItem], api: TypeTypeAPI) {
         guard api.origin.host != "preview.invalid",
-              let container = TVTopShelfSnapshotStore.container() else { return }
-        let chosen = Array(videos.prefix(TVTopShelfSnapshotStore.maximumItems))
-        let thresholdPercent = TVContentPreferences.shared.watchedThresholdPercent
+              let container = TVTopShelfSnapshotStore.container() else {
+            diagnostics("publish skipped: shared container unavailable")
+            return
+        }
         let scope = Self.accountFingerprint(for: api)
-        let signature = scope + "|" + chosen.map {
-            "\($0.url)|\($0.title)|\($0.duration ?? 0)|\($0.thumbnailUrl ?? "")|" +
+        adoptScope(scope, origin: api.origin.absoluteString)
+        candidates = Array(videos.prefix(Self.candidateLimit))
+        schedule(api: api, scope: scope, container: container)
+    }
+
+    /// Called only for deliberate player checkpoints (pause/stop/background)
+    /// and explicit watched toggles. No new timer, observer, or API request.
+    func notePlayback(_ video: VideoItem, positionMs: Int64, api: TypeTypeAPI) {
+        guard api.origin.host != "preview.invalid", positionMs >= 0,
+              TVContentPreferences.shared.settings?.hideContinueWatching != true,
+              let container = TVTopShelfSnapshotStore.container() else { return }
+        let scope = Self.accountFingerprint(for: api)
+        adoptScope(scope, origin: api.origin.absoluteString)
+        candidates = Array(TVContinueWatchingLocalUpdate.applying(
+            candidates, video: video, positionMs: positionMs,
+            thresholdPercent: TVContentPreferences.shared.watchedThresholdPercent
+        ).prefix(Self.candidateLimit))
+        schedule(api: api, scope: scope, container: container)
+    }
+
+    private func adoptScope(_ scope: String, origin: String) {
+        if candidateScope != nil &&
+            (candidateScope != scope || candidateOrigin != origin) {
+            clear()
+        }
+        candidateScope = scope
+        candidateOrigin = origin
+    }
+
+    private func schedule(api: TypeTypeAPI, scope: String, container: URL) {
+        let threshold = TVContentPreferences.shared.watchedThresholdPercent
+        let chosen = Array(candidates.filter {
+            TVContinueWatchingPolicy.isEligible(
+                $0, positionMs: TVLocalProgress.shared.position(for: $0.url) ??
+                    $0.watchPositionMs, thresholdPercent: threshold
+            )
+        }.prefix(TVTopShelfSnapshotStore.maximumItems))
+
+        let signature = scope + "|" + api.origin.absoluteString + "|" + chosen.map {
+            "\($0.url)|\($0.title)|\($0.id)|\($0.duration ?? 0)|" +
+            "\($0.thumbnailUrl ?? "")|" +
             "\(TVLocalProgress.shared.position(for: $0.url) ?? $0.watchPositionMs ?? 0)"
         }.joined(separator: "\n")
         guard signature != lastSignature else { return }
@@ -41,40 +86,101 @@ final class TVTopShelfPublisher {
         generation &+= 1
         let expected = generation
         active?.cancel()
+        active = nil
+
+        let previous = TVTopShelfSnapshotStore.read(from: container)
+        let matching = previous?.origin == api.origin.absoluteString &&
+            previous?.scopeFingerprint == scope ? previous : nil
+
+        func savedImage(for video: VideoItem, thumbnail: URL?) -> String? {
+            guard let item = matching?.items.first(where: {
+                $0.key == TVTopShelfSnapshotStore.key(for: video.url)
+            }), item.thumbnailURL == thumbnail?.absoluteString,
+                  let name = item.imageName,
+                  let url = TVTopShelfSnapshotStore.imageURL(named: name, in: container),
+                  FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return name
+        }
+
+        // Progress-only snapshots never perform image work or launch a Task.
+        // The synchronous atomic write also survives an immediate Home-button
+        // background transition, without waiting for image downloads.
+        let interimItems: [TVTopShelfSnapshotStore.Item] = chosen.map { video in
+            let thumbnail = api.relativeMediaURL(video.thumbnailUrl)
+            return makeItem(
+                video, thumbnail: thumbnail,
+                imageName: savedImage(for: video, thumbnail: thumbnail)
+            )
+        }
+        let interim = TVTopShelfSnapshotStore.make(
+            origin: api.origin.absoluteString, scopeFingerprint: scope,
+            items: interimItems
+        )
+        // Commit the updated membership/progress before any image download.
+        // tvOS can suspend the app immediately after the Home button; leaving
+        // a completed video visible while its replacement poster loads is worse
+        // than briefly showing a public HTTPS fallback or a smaller row.
+        finish(interim, previous: previous, container: container,
+               expected: expected)
+        if chosen.isEmpty || interimItems.allSatisfy({ $0.imageName != nil }) {
+            return
+        }
 
         active = Task { [weak self] in
             guard let self else { return }
-            var snapshotItems: [TVTopShelfSnapshotStore.Item] = []
+            var items: [TVTopShelfSnapshotStore.Item] = []
             for video in chosen {
                 guard !Task.isCancelled, self.generation == expected else { return }
-                let duration = video.duration ?? 0
-                let positionMs = TVLocalProgress.shared.position(for: video.url) ??
-                    video.watchPositionMs ?? 0
-                guard TVContinueWatchingPolicy.isEligible(
-                    video, positionMs: positionMs, thresholdPercent: thresholdPercent
-                ), duration > 0 else { continue }
                 let thumbnail = api.relativeMediaURL(video.thumbnailUrl)
-                let imageName = await self.prepareImage(
-                    primary: thumbnail, videoURL: video.url,
-                    origin: api.origin, container: container
-                )
+                let imageName: String?
+                if let cached = savedImage(for: video, thumbnail: thumbnail) {
+                    imageName = cached
+                } else {
+                    imageName = await self.prepareImage(
+                        primary: thumbnail, videoURL: video.url,
+                        origin: api.origin, container: container
+                    )
+                }
                 guard !Task.isCancelled, self.generation == expected else { return }
-                snapshotItems.append(.init(
-                    key: TVTopShelfSnapshotStore.key(for: video.url),
-                    videoID: video.id, title: video.title,
-                    videoURL: video.url, thumbnailURL: thumbnail?.absoluteString,
-                    imageName: imageName, duration: duration, positionMs: positionMs
+                items.append(self.makeItem(
+                    video, thumbnail: thumbnail, imageName: imageName
                 ))
             }
             guard !Task.isCancelled, self.generation == expected else { return }
             let snapshot = TVTopShelfSnapshotStore.make(
-                origin: api.origin.absoluteString, scopeFingerprint: scope,
-                items: snapshotItems
+                origin: api.origin.absoluteString,
+                scopeFingerprint: scope, items: items
             )
-            if TVTopShelfSnapshotStore.write(snapshot, to: container) {
-                self.pruneImages(in: container, keeping: snapshotItems)
-                TVTopShelfContentProvider.topShelfContentDidChange()
-            }
+            self.finish(snapshot, previous: previous, container: container,
+                        expected: expected)
+            self.pruneImages(in: container, keeping: items)
+        }
+    }
+
+    private func makeItem(_ video: VideoItem, thumbnail: URL?,
+                          imageName: String?) -> TVTopShelfSnapshotStore.Item {
+        TVTopShelfSnapshotStore.Item(
+            key: TVTopShelfSnapshotStore.key(for: video.url),
+            videoID: video.id, title: video.title,
+            videoURL: video.url, thumbnailURL: thumbnail?.absoluteString,
+            imageName: imageName, duration: video.duration ?? 0,
+            positionMs: TVLocalProgress.shared.position(for: video.url) ??
+                video.watchPositionMs ?? 0
+        )
+    }
+
+    private func finish(_ snapshot: TVTopShelfSnapshotStore.Snapshot,
+                        previous: TVTopShelfSnapshotStore.Snapshot?,
+                        container: URL, expected: Int) {
+        guard generation == expected else { return }
+        guard snapshot != previous else { return }
+        if TVTopShelfSnapshotStore.write(snapshot, to: container) {
+            TVTopShelfContentProvider.topShelfContentDidChange()
+            diagnostics("snapshot updated; item count=\(snapshot.items.count)")
+        } else {
+            // A transient file-system error must not permanently suppress retry.
+            lastSignature = nil
+            diagnostics("snapshot write failed")
         }
     }
 
@@ -82,20 +188,30 @@ final class TVTopShelfPublisher {
         generation &+= 1
         active?.cancel()
         active = nil
+        candidates = []
+        candidateScope = nil
+        candidateOrigin = nil
         lastSignature = nil
-        guard let container = TVTopShelfSnapshotStore.container() else { return }
-        try? FileManager.default.removeItem(
-            at: container.appendingPathComponent("resume.json")
-        )
+        guard let container = TVTopShelfSnapshotStore.container() else {
+            diagnostics("clear skipped: shared container unavailable")
+            return
+        }
+        do {
+            try FileManager.default.removeItem(
+                at: container.appendingPathComponent("resume.json")
+            )
+        } catch {
+            if (error as NSError).code != NSFileNoSuchFileError {
+                diagnostics("snapshot removal failed")
+            }
+        }
         try? FileManager.default.removeItem(
             at: container.appendingPathComponent("images", isDirectory: true)
         )
-        // Never display another household profile's activity after switching.
         TVTopShelfContentProvider.topShelfContentDidChange()
+        diagnostics("snapshot cleared")
     }
 
-    // Prevent months of history changes from accumulating unlimited JPEGs.
-    // Keep the five visible images and at most 24 recently cached files.
     private func pruneImages(
         in container: URL, keeping items: [TVTopShelfSnapshotStore.Item]
     ) {
@@ -128,16 +244,30 @@ final class TVTopShelfPublisher {
         let candidates = TVThumbnailSources.urls(
             primary: primary, videoURL: videoURL, quality: .hero
         )
-        for candidate in candidates {
-            guard !Task.isCancelled else { return nil }
+        // Check every candidate's disk cache first. A failed primary CDN
+        // must not cause repeated downloads when the fallback is already saved.
+        let allowed: [(url: URL, name: String)] = candidates.compactMap { candidate in
             let firstParty = candidate.scheme == origin.scheme &&
                 candidate.host?.lowercased() == origin.host?.lowercased() &&
                 candidate.port == origin.port
             guard candidate.scheme == "https" ||
-                (firstParty && candidate.scheme == "http") else { continue }
-            let name = TVTopShelfSnapshotStore.fingerprint(candidate.absoluteString) + ".jpg"
-            let path = images.appendingPathComponent(name)
-            if FileManager.default.fileExists(atPath: path.path) { return name }
+                (firstParty && candidate.scheme == "http") else { return nil }
+            return (candidate,
+                    TVTopShelfSnapshotStore.fingerprint(candidate.absoluteString) + ".jpg")
+        }
+        for item in allowed {
+            let path = images.appendingPathComponent(item.name)
+            if FileManager.default.fileExists(atPath: path.path) {
+                return item.name
+            }
+        }
+        for item in allowed {
+            guard !Task.isCancelled else { return nil }
+            let candidate = item.url
+            let path = images.appendingPathComponent(item.name)
+            let firstParty = candidate.scheme == origin.scheme &&
+                candidate.host?.lowercased() == origin.host?.lowercased() &&
+                candidate.port == origin.port
             var request = URLRequest(url: candidate)
             request.timeoutInterval = 12
             request.setValue("image/jpeg,image/png,image/webp,image/avif,*/*",
@@ -155,14 +285,23 @@ final class TVTopShelfPublisher {
                     TVThumbnailDecoder.decode(data, maximumDimension: 1280)?
                         .jpegData(compressionQuality: 0.84)
                 }.value
+                guard !Task.isCancelled else { return nil }
                 if let jpeg {
                     try jpeg.write(to: path, options: .atomic)
-                    return name
+                    return item.name
                 }
             } catch {
-                continue // Static artwork remains until the app can retrieve it.
+                // The extension may still use a public HTTPS thumbnail.
+                continue
             }
         }
+        diagnostics("thumbnail unavailable; using extension fallback")
         return nil
+    }
+
+    private func diagnostics(_ event: String) {
+        #if DEBUG
+        NSLog("TypeType TOPSHELF %@", event)
+        #endif
     }
 }

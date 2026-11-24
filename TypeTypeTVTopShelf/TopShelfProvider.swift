@@ -10,7 +10,10 @@ final class TopShelfProvider: TVTopShelfContentProvider {
     ) {
         guard let container = TVTopShelfSnapshotStore.container(),
               let snapshot = TVTopShelfSnapshotStore.read(from: container) else {
-            completionHandler(nil)
+            #if DEBUG
+            NSLog("TypeType TOPSHELF provider: no readable snapshot")
+            #endif
+            completionHandler(nil
             return
         }
 

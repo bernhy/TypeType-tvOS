@@ -1,63 +1,85 @@
 # TypeType-tvOS: Top Shelf (experimental)
 
-The feature branch adds a native **TVTopShelfContentProvider** extension. It
-shows the five newest *eligible* items from the existing **Ansehen fortsetzen**
-rail, using 16:9 / HDTV thumbnails, titles and playback progress. Tapping
-opens the matching video detail page.
+Native **TVTopShelfContentProvider** extension shows up to five unfinished videos
+from **Ansehen fortsetzen** on the tvOS Home screen, with landscape posters,
+progress indicators and a link to each video's detail page.
 
 ## Data flow and performance
 
-- Home continues using its existing `/history`, batch progress and
-  `TVContinueWatchingPolicy` (started, unfinished, known duration,
-  account-configured watched threshold; 90% when the setting is absent).
-- Only an actual change to the first five items, their thumbnails, or their
-  positions schedules snapshot export. Focus and scrolling do not schedule it.
-- The app locally caches up to five JPEG thumbnails for the extension, using
-  its existing authenticated TLS session if necessary. Initial export can
-  download up to five **images**, with fallback requests if an image source
-  is unavailable; there are no extra video/history API calls. Cached URLs
-  can be reused, and the disk cache is bounded to 24 JPEGs.
-- The extension does no network or image decoding. It only loads a small JSON
-  snapshot and already prepared local files.
+- Home uses its existing /history and batch progress results. No new history,
+  saved-position, or recommendation request is made for Top Shelf.
+- The publisher retains up to 24 already-loaded local resume candidates, but
+  publishes at most five eligible videos. Finishing a video can reveal the next
+  cached candidate without reloading /history.
+- Home triggers publication on changes to membership or card metadata, **not**
+  on every position update or focus/scroll event.
+- SABR and HLS use their existing forced progress checkpoints (pause, stop,
+  background); watched/unwatched actions also signal the publisher. No new
+  timer, per-card subscription, or network poll is introduced.
+- A progress-only change with already prepared images writes a small atomic
+  JSON snapshot synchronously, then calls tvOS Top Shelf invalidation. It
+  neither starts an asynchronous image task nor downloads any artwork.
+- When membership changes, the new list is also written immediately, before
+  any missing posters are downloaded; images fill in asynchronously.
+- The first export or a changed poster may download an image. The app reuses
+  existing JPEGs by matching URL and cached file, and checks *all* candidate
+  fallback files before attempting another download. The disk cache is bounded
+  to 24 JPEGs. The extension itself does no network or image decoding.
+- An initial Home load does not replace a valid snapshot with an empty one
+  while /history is still pending (important for cold-start deep links).
+- Each async export has a generation guard. Clear/account switch cancels
+  unfinished work; cancelled image decoding cannot repopulate shared files.
+- Failed writes are not treated as successful publications; a later event can
+  retry. Diagnostics are Debug-only, use the prefix "TypeType TOPSHELF" and
+  contain no URLs, tokens, account names or video titles.
+- Progress and watched decisions use the same account-configured threshold as
+  Home (90% fallback). Hidden Continue Watching does not publish new entries.
+
+## Data protection and deep links
+
 - No access token, refresh token, user cookie or password is copied to the
-  snapshot. Deep links contain only an opaque key and are accepted by the app
-  for the matching account scope and server.
-- On sign-out, server change, or household profile switch, the app clears
-  the published list to prevent showing a previous account's activity.
+  JSON snapshot. Poster assets are local shared-container JPEG files; external
+  HTTPS thumbnail URLs are only an extension fallback.
+- Deep links contain an opaque SHA-256 video key, **not** the video URL.
+  The app accepts only the expected scheme, host and single key query, and
+  checks the current server/account scope against the saved snapshot.
+- On sign-out, server change or household profile switch, the app cancels
+  publishing and clears the saved list and local images.
 - Empty/new installations show the app's existing static Top Shelf artwork.
 
-## Important: Apple App Groups signing
+## App Groups signing
 
-For an app extension to display private, locally cached data while the app
-is closed, both targets must have access to the **same App Group**.
+For an app extension to display locally cached data while the app is closed,
+both targets require access to the **same App Group**.
 
-This experiment ships a **placeholder** `group.org.example.typetype.tv` in
-`project.yml` on both targets. You must replace it with an App Group
-registered for your own Apple team, and sign both the app and the embedded
-`TypeTypeTVTopShelf` extension using that team. Also use matching bundle IDs
-for the app and extension (the extension should be a child ID of the app).
+The public repository uses placeholder group `group.org.example.typetype.tv`
+and matching `org.example.typetype.tv` bundle IDs in `project.yml`. Keep
+personal group/team IDs and generated entitlements out of Git. Replace these
+values only in a local working copy before using `xcodegen generate`.
+Both app and extension must have matching signed App Group capabilities.
+Free/Personal Team entitlement support can vary by signing configuration.
 
-**Xcode Personal Team/free provisioning may not permit App Groups.** The
-extension can build unsigned in CI, but *functioning shared data on a physical
-Apple TV requires entitlement support in your provisioning profiles*. Do
-not bypass this restriction by copying authenticated URLs or credentials into
-an unprotected location. If Personal Team rejects the capability, the dynamic
-five-video shelf cannot be validated with that signing setup.
+The two generated entitlements paths are excluded in `.gitignore`:
+`TypeTypeTV/TypeTypeTV.entitlements` and
+`TypeTypeTVTopShelf/TopShelf.entitlements`.
 
-Run `xcodegen generate` after checking out the branch. Before using this on
-a physical Apple TV, inspect Signing & Capabilities for both targets.
+## Validation on an Apple TV
 
-## Validation
+1. Build/install the **TypeTypeTV** scheme, not the extension separately.
+   Place TypeType in the Apple TV Home screen's first row.
+2. Open Home with a signed-in account and unfinished history. The Top Shelf
+   should show up to five posters, titles and progress.
+3. Select a poster when the app is closed. It must open the matching detail
+   page; different server or profile state must reject a stale link.
+4. Watch a video, use the Apple TV Home button **without returning to TypeType
+   Home**, then check Top Shelf progress. Also test pause and normal Back.
+5. Finish a video past the configured completion threshold. It should disappear
+   and the next cached candidate should take its place.
+6. Change watched/unwatched via detail; test a fast account/profile switch.
+   No previous account's data should remain.
+7. Repeat with cached images and (if appropriate) temporarily unavailable
+   thumbnails: progress-only updates must not cause repeated downloads.
+8. Compare Home navigation/scroll and startup with main; monitor Debug
+   `TypeType TOPSHELF` messages for failures.
 
-1. Install the signed app and launch Home with a signed-in account that has
-   five unfinished VODs and known positions.
-2. Move TypeType into the Apple TV's top row; highlight the app icon and
-   inspect the Top Shelf.
-3. Confirm five landscape images, titles, and progress. Selecting a poster
-   should open the corresponding detail page.
-4. Complete a video beyond 90%, return Home, and verify that it disappears.
-5. Switch household profiles or disconnect the server; the former user's
-   activity must not remain in Top Shelf.
-6. Compare the app's launch and Home scroll performance with main.
-
-All changes remain isolated in the feature branch until user approval.
+Changes remain isolated in the feature branch pending validation and approval.
