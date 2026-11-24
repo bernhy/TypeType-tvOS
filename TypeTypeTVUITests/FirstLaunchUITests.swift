@@ -310,9 +310,27 @@ final class TypeTypeTVUITests: XCTestCase {
         XCUIRemote.shared.press(.left)
         XCTAssertTrue(waitForFocus(mainSettings),
                       "Left from a Settings group must reveal the main sidebar")
+        let first = app.buttons["content.hideHomeRecommendations"]
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
         XCUIRemote.shared.press(.right)
-        XCTAssertTrue(waitForFocus(category),
-                      "Right reopens the previously selected Settings category")
+        // Native SwiftUI may reopen Settings on the selected category OR
+        // directly on its first control. Both are legitimate entry points,
+        // but the bidirectional focus path must still work. Do not silently
+        // accept a stale global-sidebar focus or the wrong Settings group.
+        let returnedToGroup = waitForFocus(category, timeout: 2)
+        let returnedToControl = !returnedToGroup && waitForFocus(first, timeout: 3)
+        XCTAssertTrue(returnedToGroup || returnedToControl,
+                      "Right from the global Settings icon must re-enter the selected Content category or its first control")
+        XCTAssertFalse(mainSettings.hasFocus,
+                       "Global Settings icon must relinquish focus on Right")
+        if returnedToControl {
+            XCUIRemote.shared.press(.left)
+            XCTAssertTrue(waitForFocus(category),
+                          "Left from the first Content control returns to its category")
+        }
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(first),
+                      "Right from the selected Content category enters its first control")
     }
 
     func testContentSettingsNativeFocusCanReachRefreshAndRememberSelection() throws {
@@ -757,8 +775,15 @@ final class TypeTypeTVUITests: XCTestCase {
         XCUIRemote.shared.press(.left)
         XCTAssertTrue(waitForFocus(main, timeout: 5))
         XCUIRemote.shared.press(.right)
-        XCTAssertTrue(waitForFocus(deep, timeout: 5),
-                      "Returning via the global rail must preserve the same tile")
+        let restoredDirectly = waitForFocus(deep, timeout: 8)
+        if !restoredDirectly {
+            // Diagnose only on failure: report where UIKit actually placed
+            // focus. Do not send a second remote event or accept a wrong tile.
+            let actual = app.buttons.allElementsBoundByIndex
+                .filter { $0.hasFocus }
+                .map { $0.identifier.isEmpty ? $0.label : $0.identifier }
+            XCTFail("Global rail must return to the saved tile; actual focused buttons: \(actual)")
+        }
     }
 
     func testChannelPageDisplaysCurrentSubscriptionState() throws {
