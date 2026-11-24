@@ -711,6 +711,59 @@ final class TypeTypeTVUITests: XCTestCase {
                       "Re-entering Accounts should prefer the first remove action")
     }
 
+    func testAccountLastRowMovesDownToAddAndLocalLogoutFromEitherColumn() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-account-profiles",
+            "test-account-local-logout", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+
+        let category = app.buttons["settings-group-account"]
+        let firstRemove = app.buttons["accounts-remove-ui-profile-a"]
+        let lastRemove = app.buttons["accounts-remove-ui-profile-b"]
+        let lastToggle = app.buttons["accounts-topshelf-ui-profile-b"]
+        let add = app.buttons["accounts-add"]
+        let logout = app.buttons["accounts-logout"]
+
+        XCTAssertTrue(waitForFocus(category, timeout: 20))
+        XCTAssertTrue(add.waitForExistence(timeout: 10))
+        XCTAssertTrue(logout.waitForExistence(timeout: 10))
+
+        // The right column must still be the native Settings entry target.
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(firstRemove))
+
+        // Vertical focus within saved accounts remains native.
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(lastRemove))
+
+        // Last row's far-right button must reach the left-aligned footer.
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(add),
+                      "Down from the last Remove must reach Add Account")
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(logout),
+                      "Down from Add Account must reach Local Logout")
+
+        // Reverse navigation returns to the saved account's default action.
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(add))
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(lastRemove))
+
+        // Exactly the same exit from the other column, with no timer,
+        // scrolling workaround or additional remote movement.
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(lastToggle))
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(add),
+                      "Down from last Top Shelf must reach Add Account")
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(logout),
+                      "Local Logout must also be reachable from Top Shelf")
+    }
+
     func testChannelTabsReachSubscriptionButtonWithRemote() throws {
         let app = XCUIApplication()
         app.launchArguments = [

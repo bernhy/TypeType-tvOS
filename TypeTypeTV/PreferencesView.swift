@@ -649,7 +649,17 @@ struct PreferencesView: View {
                                 accessibilityID: "accounts-topshelf-\(profile.id)",
                                 // Only the leftmost boundary needs a manual
                                 // handoff. Up/Down and Right stay native.
-                                onMoveLeft: returnFocusToGroup
+                                onMoveLeft: returnFocusToGroup,
+                                onVerticalMove: { direction in
+                                    // Within the saved accounts, vertical focus
+                                    // remains native. Only the last row needs a
+                                    // boundary handoff to the left-aligned
+                                    // Add Account button below both columns.
+                                    if direction == .down,
+                                       profile.id == savedAccounts.last?.id {
+                                        focusedControl = "account.add"
+                                    }
+                                }
                             )
                             .frame(width: 255)
                             Button(role: .destructive) {
@@ -662,6 +672,12 @@ struct PreferencesView: View {
                             .buttonStyle(.bordered)
                             .accessibilityIdentifier("accounts-remove-\(profile.id)")
                             .focused($focusedControl, equals: "account.remove." + profile.id)
+                            .onMoveCommand { direction in
+                                if direction == .down,
+                                   profile.id == savedAccounts.last?.id {
+                                    focusedControl = "account.add"
+                                }
+                            }
                         }
                         .padding(.vertical, 10)
                         if profile.id != savedAccounts.last?.id { Divider() }
@@ -679,6 +695,14 @@ struct PreferencesView: View {
                 .tint(TTTheme.accent)
                 .accessibilityIdentifier("accounts-add")
                 .focused($focusedControl, equals: "account.add")
+                .onMoveCommand { direction in
+                    if direction == .down, accountIdentity?.isGuest == false {
+                        focusedControl = "account.logout"
+                    } else if direction == .up, let last = savedAccounts.last {
+                        // Same native-focus boundary in the reverse direction.
+                        focusedControl = "account.remove." + last.id
+                    }
+                }
                 // Logging out differs from deleting a saved family profile:
                 // it closes the active session, but keeps the account in
                 // the local profile list for later sign-in/switching.
@@ -687,7 +711,11 @@ struct PreferencesView: View {
                         confirmLogout = true
                     }
                     .buttonStyle(.bordered)
+                    .accessibilityIdentifier("accounts-logout")
                     .focused($focusedControl, equals: "account.logout")
+                    .onMoveCommand { direction in
+                        if direction == .up { focusedControl = "account.add" }
+                    }
                 }
 
                 if let accountError {
@@ -918,6 +946,15 @@ struct PreferencesView: View {
             }
             #endif
             accountIdentity = nil
+            #if DEBUG
+            // Only the navigation fixture requesting this state shows
+            // Local Logout; the regular preview never fakes a login.
+            if ProcessInfo.processInfo.arguments.contains("test-account-local-logout") {
+                accountIdentity = TVAccountIdentity(
+                    id: "ui-profile-a", role: nil, publicUsername: "Profil A"
+                )
+            }
+            #endif
             accountError = nil
             return
         }
