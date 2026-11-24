@@ -229,8 +229,10 @@ final class TVTopShelfPublisher {
         // tvOS can suspend the app immediately after the Home button; leaving
         // a completed video visible while its replacement poster loads is worse
         // than briefly showing a public HTTPS fallback or a smaller row.
-        finish(interim, previous: previous, container: container,
-               expected: expected)
+        // Do not fetch five posters when the shared container is unwritable:
+        // those downloads can never reach the Top Shelf extension.
+        guard finish(interim, previous: previous, container: container,
+                     expected: expected) else { return }
         if chosen.isEmpty || interimItems.allSatisfy({ $0.imageName != nil }) {
             return
         }
@@ -260,9 +262,10 @@ final class TVTopShelfPublisher {
                 origin: api.origin.absoluteString,
                 scopeFingerprint: scope, items: items
             )
-            self.finish(snapshot, previous: previous, container: container,
-                        expected: expected)
-            self.pruneImages(in: container, keeping: items)
+            if self.finish(snapshot, previous: interim, container: container,
+                           expected: expected) {
+                self.pruneImages(in: container, keeping: items)
+            }
         }
     }
 
@@ -278,18 +281,21 @@ final class TVTopShelfPublisher {
         )
     }
 
+    @discardableResult
     private func finish(_ snapshot: TVTopShelfSnapshotStore.Snapshot,
                         previous: TVTopShelfSnapshotStore.Snapshot?,
-                        container: URL, expected: Int) {
-        guard generation == expected else { return }
-        guard snapshot != previous else { return }
+                        container: URL, expected: Int) -> Bool {
+        guard generation == expected else { return false }
+        guard snapshot != previous else { return true }
         if TVTopShelfSnapshotStore.write(snapshot, to: container) {
             TVTopShelfContentProvider.topShelfContentDidChange()
             diagnostics("snapshot updated; item count=\(snapshot.items.count)")
+            return true
         } else {
             // A transient file-system error must not permanently suppress retry.
             lastSignature = nil
-            diagnostics("snapshot write failed")
+            diagnostics("snapshot write failed; no poster downloads attempted")
+            return false
         }
     }
 

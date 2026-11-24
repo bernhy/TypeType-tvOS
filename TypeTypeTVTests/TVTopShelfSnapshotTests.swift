@@ -125,6 +125,24 @@ final class TVTopShelfSnapshotTests: XCTestCase {
         ))
     }
 
+    func testSnapshotWriteFailsCleanlyForNonDirectoryContainer() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root, withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let invalidContainer = root.appendingPathComponent("not-a-directory")
+        try Data("file".utf8).write(to: invalidContainer)
+        let snapshot = TVTopShelfSnapshotStore.make(
+            origin: "https://example.invalid", scopeFingerprint: "one",
+            items: [entry("abc123def45")]
+        )
+        XCTAssertFalse(TVTopShelfSnapshotStore.write(snapshot, to: invalidContainer))
+        XCTAssertNil(TVTopShelfSnapshotStore.read(from: invalidContainer))
+    }
+
     func testAtomicSnapshotWriteAndRead() {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

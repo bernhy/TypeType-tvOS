@@ -95,6 +95,24 @@ progress indicators and a link to each video's detail page.
 - No account IDs, personally configured App Groups or server addresses are
   hardcoded in this public repository.
 
+### Diagnosing Top Shelf on a physical Apple TV
+
+If the static logo remains despite an opted-in account and resume videos,
+look for `TypeType TOPSHELF` in the **app** console. In a Debug build,
+a failed write now includes its stage and the error domain/code without
+printing paths, group identifiers, URLs or account details. In particular,
+an unauthorized App Group can yield a non-nil container URL but still be
+unwritable. Compare the built app's `TopShelfAppGroupID` in `Info.plist`
+with the **signed** `com.apple.security.application-groups` entitlement;
+the embedded extension must use the same group. Running
+`xcodegen generate` from the public `project.yml` regenerates generic
+`org.example` placeholders, so make required private signing changes
+locally before generating the Xcode project.
+
+On failed snapshot writes the publisher does not attempt poster downloads,
+because the extension cannot display the result. When writing succeeds,
+the existing async image cache and HTTPS fallback remain unchanged.
+
 ## App Groups signing
 
 For an app extension to display locally cached data while the app is closed,

@@ -67,15 +67,42 @@ enum TVTopShelfSnapshotStore {
 
     static func write(_ snapshot: Snapshot, to container: URL) -> Bool {
         guard snapshot.version == version,
-              snapshot.items.count <= maximumItems,
-              let data = try? JSONEncoder().encode(snapshot) else { return false }
+              snapshot.items.count <= maximumItems else { return false }
+        let data: Data
+        do {
+            data = try JSONEncoder().encode(snapshot)
+        } catch {
+            logWriteError("JSON encoding", error: error)
+            return false
+        }
         do {
             try FileManager.default.createDirectory(at: container,
                                                     withIntermediateDirectories: true)
+        } catch {
+            // Apple's containerURL API can return a plausible URL even if the
+            // app is *not* entitled to access that App Group. In that case
+            // the directory cannot actually be created. No group IDs/paths
+            // are written to logs.
+            logWriteError("shared directory", error: error)
+            return false
+        }
+        do {
             try data.write(to: container.appendingPathComponent(snapshotName),
                            options: .atomic)
             return true
-        } catch { return false }
+        } catch {
+            logWriteError("atomic snapshot", error: error)
+            return false
+        }
+    }
+
+    private static func logWriteError(_ stage: String, error: Error) {
+        #if DEBUG
+        let ns = error as NSError
+        NSLog("TypeType TOPSHELF %@ failed domain=%@ code=%ld; verify that " +
+              "TopShelfAppGroupID matches the signed App Groups entitlement",
+              stage, ns.domain, ns.code)
+        #endif
     }
 
     static func make(origin: String, scopeFingerprint: String, items: [Item]) -> Snapshot {
