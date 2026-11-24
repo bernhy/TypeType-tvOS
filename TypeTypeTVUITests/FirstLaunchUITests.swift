@@ -1206,9 +1206,29 @@ final class TypeTypeTVUITests: XCTestCase {
                       "Up after returning must reach the Account icon")
         XCUIRemote.shared.press(.down)
         XCTAssertTrue(waitForFocus(settings))
+        let first = app.descendants(matching: .any)["settings-about-first"].firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
         XCUIRemote.shared.press(.right)
-        XCTAssertTrue(waitForFocus(about),
-                      "Right must return to the previously chosen Settings group")
+        // Native tvOS may enter the selected About group or its first
+        // focusable information row. Both are valid; a wrong group or a
+        // lingering global-menu focus is not. This parallels the Content
+        // Settings regression test already proven on main.
+        let returnedToGroup = waitForFocus(about, timeout: 2)
+        let returnedToFirstRow = !returnedToGroup && waitForFocus(first, timeout: 3)
+        XCTAssertTrue(returnedToGroup || returnedToFirstRow,
+                      "Right must re-enter About on its group or first info row")
+        XCTAssertFalse(settings.hasFocus,
+                       "Global Settings icon must relinquish focus on Right")
+        XCTAssertFalse(account.hasFocus,
+                       "Account must not steal focus during Settings re-entry")
+        if returnedToFirstRow {
+            XCUIRemote.shared.press(.left)
+            XCTAssertTrue(waitForFocus(about),
+                          "Left from first About row must return to About group")
+        }
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(first),
+                      "Right from About group must focus the first info row")
     }
 
     func testImmediateDownAfterReturningToMainRailIsNotSwallowed() throws {
