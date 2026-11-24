@@ -9,7 +9,7 @@
 
 ## Scope and conventions
 
-- Reference: TypeType Server, Android, and Frontend **main** branches (2026-11-16).
+- Historical reference: TypeType Server, Android, and Frontend **main** branches (2026-11-16). Current compatibility checkpoint: official Server **v1.19.1** with tvOS `main` at `e4d44d462620`; see [CAPABILITIES.md](CAPABILITIES.md).
 - **Code**: `[x]` means feature implementation is committed; `[ ]` means open or partial.
 - **Verified**: `[x]` means the combined CI build/tests passed; `[ ]` means still unverified.
 - `CI pending` in Notes means code exists but validation is outstanding.
@@ -17,6 +17,17 @@
 - Link source changes via commit SHA, not a date-only note. Put dependencies and
   known API-version limitations in the Notes column.
 - Distinguish a setting stored via `/settings` from an effect actually applied to tvOS.
+
+## Current main checkpoint — 2026-11-24
+
+- **Server:** Official TypeType Server v1.19.1 exposes and persists `watchedThresholdPercent`. A monorepo `v1.19.1` checkout can have **older component gitlinks**; build/install the actual matching component tag and verify the API response. The live v1.19.1 test returned `0`; GET/PUT tests with `52` and `0` succeeded on physical Apple TV.
+- **Watch threshold / progress:** `0` means last minute for videos longer than 60 s, otherwise 90%; explicit 50–100% supported. Shared policy applies to badges, resume and complete restart; Shorts restart from zero, live excludes VOD progress badges. Missing server field uses a 90% compatibility fallback. `main` fixes include `878c4fe9` and `72ac9231` (settings navigation/write correction), `e4d44d46` (audio-bitrate display; no streaming-path changes).
+- **Home and lists:** One horizontal Continue Watching rail, paginated history/recommendations, stable native focus re-entry, on-demand metadata enrichment and targeted card mutation updates. No per-focus network request or global list reload on a single playlist/Watch Later mutation.
+- **Audio/playback:** Native direct compressed-sample fMP4 pipeline retained. Server may send SABR audio bitrate in raw bit/s; the client normalizes **labels/logs only**, not the chosen stream or samples (`e4d44d46`). Successful playback after server restart; isolated earlier HTTP 422/attestation logs did **not** reproduce after restart.
+- **Current CI:** [main run #45062229700](https://github.com/bernhy/TypeType-tvOS/actions/runs/45062229700) successfully built unsigned simulator and Apple TV Debug/Release; **350 unit/contract tests passed**, six skipped. Of 57 UI tests **one failed** (Settings category re-entry expectation). Identical failure on [experimental branch run #45062245645](https://github.com/bernhy/TypeType-tvOS/actions/runs/45062245645). Any follow-up adjustment requires its own passing CI; do not count this checkpoint as fully green.
+- **Separate experiments:** Draft [OSD PR #18](https://github.com/bernhy/TypeType-tvOS/pull/18) and [Top Shelf PR #33](https://github.com/bernhy/TypeType-tvOS/pull/33) are not in `main`. The in-app Home Continue Watching shelf *is* in `main`.
+
+For the complete supported/partial/not-shipped matrix and performance rationale, see **[CAPABILITIES.md](CAPABILITIES.md)**. The legacy 2026-11-17 tables below are retained as a chronology; an unchecked older QA row should not be mistaken for a statement that the feature is missing from today's code.
 
 ## Planned work
 
@@ -34,7 +45,7 @@
 | BLOCK-02 | [x] | [x] | Manage blocked title keywords in Settings | `db9f5e79` | Adds, lists and removes user keywords. |
 | DETAIL-01 | [x] | [x] | Related videos from `relatedStreams` on detail page | `7315e7f9, 4882e4c3` | Honors hideRelatedVideos and filter preferences. |
 | CONTENT-01 | [x] | [x] | Honor hideContinueWatching and hideHomeRecommendations | `443554bf, 744bf946` | Existing saved history still visible in Library. Hiding Home resume does not erase history. |
-| HOME-RESUME-01 | [x] | [ ] | "Ansehen fortsetzen": only started/uncompleted VODs, four-language labels and specific empty state | `6be64f7, c02d0fb` | Positive saved position, known duration and under 90% watched. Full History still in Library; new CI and hardware check pending. |
+| HOME-RESUME-01 | [x] | [ ] | "Ansehen fortsetzen": only started/uncompleted VODs, four-language labels and specific empty state | `6be64f7, c02d0fb` | Positive saved position, known duration and below account-configured watched threshold (0 = last minute/90% for ≤60 s; fallback 90% if missing). Full History stays in Library; current CI has one unrelated UI failure. |
 | HOME-RESUME-02 | [x] | [ ] | One horizontal Continue Watching shelf with four visible cards and remote-controlled pagination | `a7e08d1` | Native focus scrolls Right into card five and later results; no eight-card limit, fetches older history pages on approach, and restores a deep horizontal card after details. CI/device test pending. |
 | CONTENT-02 | [x] | [x] | Honor hideShorts, hideSubscriptionLiveStreams, hideMembersOnlyContent | `443554bf, 0931b730, 4882e4c3` | Visibility metadata may be unavailable for some provider rows. |
 | CONTENT-03 | [x] | [ ] | Honor hideRelatedVideos, hideEndScreens, hideComments | `7315e7f9, 4882e4c3, fbc8450a` | Creator-placed YouTube end-screen cards now display over SABR VOD video with remote focus. hideEndScreens is respected; physical Apple TV confirmation pending. |
@@ -103,6 +114,11 @@ remains **open, unmerged and under review**.
 
 - Compact playlist and favorite badges in thumbnail metadata: `13b21db8` (follow-up `dad2969d`).
 - Playlist picker shown over existing video UI: `0e6a4f0`.
+
+## Current CI test regression — 2026-11-22
+
+- The **350 unit/contract tests are passing**. The failing UI assertion is `testContentSettingsLeftFromSubnavigationRevealsMainSettings` at line 314 (2026-11-22 baseline): after Left to the global Settings icon, it required Right to focus the Settings category, whereas native focus can enter the first setting control directly. The follow-up test accepts either native entry *only when it can subsequently navigate between the category and first control*. This is not a blanket test skip. See [test diagnostics](../TESTING.md).
+- Do not infer from the one UI failure that SABR startup is broken. The same baseline built simulator and Apple TV Debug/Release and passed the transport tests.
 
 ## API audit notes
 
