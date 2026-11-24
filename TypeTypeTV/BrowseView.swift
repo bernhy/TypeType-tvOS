@@ -275,7 +275,7 @@ struct BrowseView: View {
                                 item: TVTopShelfSnapshotStore.Item) -> some View {
         var video = VideoItem(
             id: item.videoID, title: item.title, url: item.videoURL,
-            thumbnailUrl: item.thumbnailURL, uploaderName: nil,
+            thumbnailUrl: item.thumbnailURL, uploaderName: item.channelName,
             duration: item.duration, isLive: false
         )
         video.watchPositionMs = item.positionMs

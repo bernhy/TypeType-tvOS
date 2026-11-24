@@ -156,7 +156,9 @@ final class TVTopShelfPublisher {
         let items: [TVTopShelfSnapshotStore.Item] = chosen.map { video in
             TVTopShelfSnapshotStore.Item(
                 key: TVTopShelfSnapshotStore.key(for: video.url),
-                videoID: video.id, title: video.title, videoURL: video.url,
+                videoID: video.id, title: video.title,
+                channelName: video.uploaderName,
+                videoURL: video.url,
                 thumbnailURL: TVTopShelfPosterPolicy.publicThumbnail(
                     primary: api.relativeMediaURL(video.thumbnailUrl), videoURL: video.url
                 ),
@@ -171,7 +173,8 @@ final class TVTopShelfPublisher {
         )
         let signature = scope + "|" + api.origin.absoluteString + "|" +
             items.map {
-                "\($0.key)|\($0.title)|\($0.duration)|\($0.positionMs)|" +
+                "\($0.key)|\($0.title)|\($0.channelName ?? "")|" +
+                "\($0.duration)|\($0.positionMs)|" +
                 "\($0.thumbnailURL ?? "")"
             }.joined(separator: "\n")
         guard signature != lastSignature else { return }

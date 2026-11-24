@@ -5,41 +5,9 @@ import TVServices
 /// All artwork and metadata are prepared by the app, so Top Shelf needs
 /// neither an authentication token nor server/network access.
 final class TopShelfProvider: TVTopShelfContentProvider {
-    #if DEBUG
-    private static var lastProbeMarker: String?
-    private static var reportedMissingProbe = false
-
-    private func verifySharedDefaultsProbe() {
-        guard let group = Bundle.main.object(
-            forInfoDictionaryKey: "TopShelfAppGroupID"
-        ) as? String, let suite = UserDefaults(suiteName: group) else {
-            NSLog("TypeType TOPSHELF PROBE extension suite=UNAVAILABLE")
-            return
-        }
-        guard let marker = suite.string(
-            forKey: TVTopShelfSnapshotStore.debugProbeChallengeKey
-        ) else {
-            if !Self.reportedMissingProbe {
-                Self.reportedMissingProbe = true
-                NSLog("TypeType TOPSHELF PROBE extension challenge=NOT_FOUND")
-            }
-            return
-        }
-        guard Self.lastProbeMarker != marker else { return }
-        Self.lastProbeMarker = marker
-        suite.set(marker, forKey: TVTopShelfSnapshotStore.debugProbeAckKey)
-        let flushed = suite.synchronize()
-        NSLog("TypeType TOPSHELF PROBE extension challenge=FOUND marker=%@ ackFlush=%@",
-              String(marker.prefix(8)), flushed ? "PASS" : "FAIL")
-    }
-    #endif
-
     override func loadTopShelfContent(
         completionHandler: @escaping (TVTopShelfContent?) -> Void
     ) {
-        #if DEBUG
-        verifySharedDefaultsProbe()
-        #endif
         guard let snapshot = TVTopShelfSnapshotStore.read() else {
             #if DEBUG
             NSLog("TypeType TOPSHELF provider: no readable snapshot")
@@ -48,7 +16,8 @@ final class TopShelfProvider: TVTopShelfContentProvider {
             return
         }
 
-        let items: [TVTopShelfSectionedItem] = snapshot.items.compactMap { saved in
+        let sections: [TVTopShelfItemCollection<TVTopShelfSectionedItem>] =
+            snapshot.items.compactMap { saved in
             let poster = TVTopShelfSectionedItem(identifier: saved.key)
             poster.title = saved.title
             poster.imageShape = .hdtv
@@ -61,14 +30,20 @@ final class TopShelfProvider: TVTopShelfContentProvider {
             poster.setImageURL(url, for: .screenScale2x)
             poster.displayAction = TVTopShelfSnapshotStore.actionURL(for: saved.key)
                 .map { TVTopShelfAction(url: $0) }
-            return poster
+            // Sectioned content is one horizontal row across collections.
+            // A single video per collection lets the label above the row
+            // follow the focused video's channel without conflating it
+            // with the individual video's title.
+            let section = TVTopShelfItemCollection<TVTopShelfSectionedItem>(
+                items: [poster]
+            )
+            section.title = saved.sectionTitle
+            return section
         }
-        guard !items.isEmpty else {
+        guard !sections.isEmpty else {
             completionHandler(nil)
             return
         }
-        let section = TVTopShelfItemCollection<TVTopShelfSectionedItem>(items: items)
-        section.title = "Ansehen fortsetzen"
-        completionHandler(TVTopShelfSectionedContent(sections: [section]))
+        completionHandler(TVTopShelfSectionedContent(sections: sections))
     }
 }

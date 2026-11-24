@@ -2,7 +2,7 @@
 
 Native **TVTopShelfContentProvider** extension shows up to five unfinished videos
 from **Ansehen fortsetzen** on the tvOS Home screen, with landscape posters,
-progress indicators and a link to each video's detail page.
+progress indicators, per-video channel names and deep links to detail pages.
 
 ## Data flow and performance
 
@@ -13,10 +13,26 @@ progress indicators and a link to each video's detail page.
   Reading and writing `resume.json` was removed after hardware testing showed
   `NSCocoaErrorDomain 513` for both direct and atomic file writes.
 - Shared `UserDefaults` cross-process exchange was verified on a physical
-  Apple TV through the DEBUG challenge/acknowledgement probe.
-- No JPEGs or base64 images are saved in preferences. Only canonical public
-  YouTube HTTPS thumbnails are used at this stage. Server-private and DeArrow
-  images are not yet available in the Top Shelf extension.
+  Apple TV through the one-time DEBUG challenge/acknowledgement probe.
+  That temporary probe has now been removed.
+- No JPEGs or base64 images are saved in preferences. Top Shelf uses the
+  already supplied public YouTube thumbnail (when trusted), or a canonical
+  YouTube HTTPS fallback. Server-private and DeArrow images are not yet
+  available in the Top Shelf extension.
+- The main app has its own thumbnail downloader and iterates sources from
+  `TVThumbnailSources.urls`: original image, then YouTube fallback. The tvOS
+  system only accepts one URL per image trait and offers no download failure
+  callback for retrying another URL. Therefore a failed Top Shelf poster can
+  still be blank even if the app successfully displays its original image.
+  No duplicate HEAD/GET checks are performed merely to populate Top Shelf.
+- Each video's existing `uploaderName` is stored as optional `channelName`
+  in the snapshot. The sectioned Top Shelf row uses one collection per video:
+  the video title remains the item title, while the channel appears above it
+  as `Ansehen fortsetzen · <Kanalname>`. Missing channel metadata falls back
+  to `Ansehen fortsetzen`. The layout is still one horizontal row.
+- The native sectioned Top Shelf API does not support separate channel
+  avatar icons or thumbnail overlays. A server-generated composite poster
+  would be a future option, not part of this change.
 - The tvOS Top Shelf extension performs no TypeType API request or token access.
   The OS may fetch public poster images from the supplied URLs.
 - Home publishes only when candidate membership or metadata changes; normal
@@ -99,9 +115,9 @@ Earlier real-device tests showed denied local file writes (`NSCocoaErrorDomain
 Shared UserDefaults worked: the Top Shelf extension acknowledged the exact
 challenge written by the main app (`extension acknowledgement=MATCH`).
 
-A temporary DEBUG-only probe still logs `TypeType TOPSHELF PROBE` and
-attempts one-off writes for diagnostics; it is not involved in publication and
-is absent from Release builds. Only non-sensitive data is logged.
+The temporary DEBUG-only filesystem write probe was removed after proving
+the shared `UserDefaults` path on physical Apple TV hardware. It no longer
+creates error 513 log messages or invokes `synchronize()`.
 
 Check `TypeType TOPSHELF shared preferences updated` in the app log and
 then inspect the Apple TV Home screen with TypeType in the first row. If
@@ -130,7 +146,7 @@ The two generated entitlements paths are excluded in `.gitignore`:
 1. Build/install the **TypeTypeTV** scheme, not the extension separately.
    Place TypeType in the Apple TV Home screen's first row.
 2. Open Home with a signed-in account and unfinished history. The Top Shelf
-   should show up to five posters, titles and progress.
+   should show up to five posters, video titles, channel section labels and progress.
 3. Select a poster when the app is closed. It must open the matching detail
    page; different server or profile state must reject a stale link.
 4. Watch a video, use the Apple TV Home button **without returning to TypeType

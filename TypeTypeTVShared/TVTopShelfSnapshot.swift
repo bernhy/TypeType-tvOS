@@ -11,16 +11,14 @@ enum TVTopShelfSnapshotStore {
     private static let version = 2
     private static let snapshotKey = "typetype.topShelf.resume.v2"
 
-    #if DEBUG
-    static let debugProbeChallengeKey = "typetype.topshelf.debug.challenge.v1"
-    static let debugProbeAckKey = "typetype.topshelf.debug.extension-ack.v1"
-    #endif
-
     struct Item: Codable, Hashable, Identifiable {
         var id: String { key }
         let key: String
         let videoID: String
         let title: String
+        // The server supplies the uploader name with the history video;
+        // no additional channel request is necessary.
+        let channelName: String?
         let videoURL: String
         let thumbnailURL: String?
         let duration: Int
@@ -29,6 +27,15 @@ enum TVTopShelfSnapshotStore {
         var playbackFraction: Double {
             guard duration > 0 else { return 0 }
             return min(1, max(0, Double(positionMs) / (Double(duration) * 1_000)))
+        }
+
+        /// A one-item TVTopShelfItemCollection can expose its channel in the
+        /// native section heading, leaving the original video title intact.
+        /// Missing channels keep the original section title.
+        var sectionTitle: String {
+            guard let channel = channelName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !channel.isEmpty else { return "Ansehen fortsetzen" }
+            return "Ansehen fortsetzen · " + channel
         }
     }
 
@@ -52,16 +59,6 @@ enum TVTopShelfSnapshotStore {
         return UserDefaults(suiteName: group)
     }
 
-    /// Used only by the temporary DEBUG filesystem probe. Not used for
-    /// publication, reading, or image downloads.
-    #if DEBUG
-    static func container() -> URL? {
-        guard let group = Bundle.main.object(forInfoDictionaryKey: "TopShelfAppGroupID")
-            as? String, group.hasPrefix("group.") else { return nil }
-        return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
-    }
-    #endif
-
     static func read(using supplied: UserDefaults? = nil) -> Snapshot? {
         guard let defaults = supplied ?? sharedDefaults(),
               let data = defaults.data(forKey: snapshotKey),
@@ -81,9 +78,8 @@ enum TVTopShelfSnapshotStore {
               let data = try? JSONEncoder().encode(snapshot),
               data.count <= maximumBytes else { return false }
         defaults.set(data, forKey: snapshotKey)
-        // This same-process readback is a basic sanity check, NOT proof that
-        // another process has received the value. The hardware probe already
-        // established cross-process UserDefaults(suiteName:) communication.
+        // Same-process readback is a basic sanity check. Cross-process
+        // UserDefaults(suiteName:) was verified on physical Apple TV hardware.
         return defaults.data(forKey: snapshotKey) == data
     }
 

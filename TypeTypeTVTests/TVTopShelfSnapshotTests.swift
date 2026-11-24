@@ -7,7 +7,7 @@ final class TVTopShelfSnapshotTests: XCTestCase {
         TVTopShelfSnapshotStore.Item(
             key: TVTopShelfSnapshotStore.key(for: "https://youtu.be/" + identifier),
             videoID: identifier, title: "Video " + identifier,
-            videoURL: "https://youtu.be/" + identifier,
+            channelName: "Testkanal", videoURL: "https://youtu.be/" + identifier,
             thumbnailURL: "https://i.ytimg.com/vi/" + identifier + "/hqdefault.jpg",
             duration: 300, positionMs: positionMs
         )
@@ -105,7 +105,7 @@ final class TVTopShelfSnapshotTests: XCTestCase {
         let video = entry("abc123def45")
         let tampered = TVTopShelfSnapshotStore.Item(
             key: video.key, videoID: video.videoID, title: video.title,
-            videoURL: "https://youtu.be/not-the-same", thumbnailURL: video.thumbnailURL,
+            channelName: video.channelName, videoURL: "https://youtu.be/not-the-same", thumbnailURL: video.thumbnailURL,
             duration: video.duration, positionMs: video.positionMs
         )
         let snapshot = TVTopShelfSnapshotStore.make(
@@ -130,6 +130,60 @@ final class TVTopShelfSnapshotTests: XCTestCase {
             primary: URL(string: "https://private.example.invalid/private"),
             videoURL: "not-a-youtube-video"
         ))
+    }
+
+    func testSectionHeaderShowsChannelWithoutChangingVideoTitle() {
+        let original = entry("abc123def45")
+        XCTAssertEqual(original.title, "Video abc123def45")
+        XCTAssertEqual(original.channelName, "Testkanal")
+        XCTAssertEqual(original.sectionTitle, "Ansehen fortsetzen · Testkanal")
+
+        let blankChannel = TVTopShelfSnapshotStore.Item(
+            key: original.key, videoID: original.videoID,
+            title: original.title, channelName: "   ",
+            videoURL: original.videoURL, thumbnailURL: original.thumbnailURL,
+            duration: original.duration, positionMs: original.positionMs
+        )
+        XCTAssertEqual(blankChannel.sectionTitle, "Ansehen fortsetzen")
+
+        let missingChannel = TVTopShelfSnapshotStore.Item(
+            key: original.key, videoID: original.videoID,
+            title: original.title, channelName: nil,
+            videoURL: original.videoURL, thumbnailURL: original.thumbnailURL,
+            duration: original.duration, positionMs: original.positionMs
+        )
+        XCTAssertEqual(missingChannel.sectionTitle, "Ansehen fortsetzen")
+    }
+
+    func testPreviousSnapshotWithoutChannelNameIsStillReadable() throws {
+        let old = entry("abc123def45")
+        let snapshot = TVTopShelfSnapshotStore.make(
+            origin: "https://example.invalid", scopeFingerprint: "one",
+            items: [old]
+        )
+        var obj = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(snapshot)
+        ) as? [String: Any])
+        var items = try XCTUnwrap(obj["items"] as? [[String: Any]])
+        items[0].removeValue(forKey: "channelName")
+        obj["items"] = items
+        let legacyData = try JSONSerialization.data(withJSONObject: obj)
+        let decoded = try JSONDecoder().decode(
+            TVTopShelfSnapshotStore.Snapshot.self, from: legacyData
+        )
+        XCTAssertNil(decoded.items.first?.channelName)
+        XCTAssertEqual(decoded.items.first?.sectionTitle, "Ansehen fortsetzen")
+    }
+
+    func testPosterPolicyKeepsExistingPublicImageBeforeFallback() {
+        let original = URL(
+            string: "https://i.ytimg.com/vi/abc123def45/sddefault.jpg"
+        )
+        XCTAssertEqual(TVTopShelfPosterPolicy.publicThumbnail(
+            primary: original, videoURL: "https://youtu.be/abc123def45"
+        ), original?.absoluteString)
+        // Top Shelf can choose a canonical fallback when the source is
+        // private, but Apple's image loader cannot retry after a failed GET.
     }
 
     func testSharedDefaultsStoreWritesReadsAndClearsOneSnapshot() throws {
@@ -163,7 +217,8 @@ final class TVTopShelfSnapshotTests: XCTestCase {
             origin: good.origin, scopeFingerprint: good.scopeFingerprint,
             items: [TVTopShelfSnapshotStore.Item(
                 key: good.items[0].key, videoID: good.items[0].videoID,
-                title: longTitle, videoURL: good.items[0].videoURL,
+                title: longTitle, channelName: good.items[0].channelName,
+                videoURL: good.items[0].videoURL,
                 thumbnailURL: good.items[0].thumbnailURL,
                 duration: 300, positionMs: 60_000
             )]
