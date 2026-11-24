@@ -1215,8 +1215,18 @@ final class TypeTypeTVUITests: XCTestCase {
         // Settings regression test already proven on main.
         let returnedToGroup = waitForFocus(about, timeout: 2)
         let returnedToFirstRow = !returnedToGroup && waitForFocus(first, timeout: 3)
-        XCTAssertTrue(returnedToGroup || returnedToFirstRow,
-                      "Right must re-enter About on its group or first info row")
+        if !returnedToGroup && !returnedToFirstRow {
+            // Temporary CI focus diagnosis: no second Siri Remote command.
+            // Identify where native tvOS actually landed after Right.
+            let focused = app.buttons.allElementsBoundByIndex
+                .filter { $0.hasFocus }
+                .map { $0.identifier.isEmpty ? $0.label : $0.identifier }
+            XCTFail("Wrong Settings re-entry. Focused buttons=\(focused) " +
+                    "accountPreview=\(app.staticTexts["Profile wechseln"].exists) " +
+                    "aboutPreview=\(app.staticTexts["App-Informationen"].exists) " +
+                    "globalSettings=\(settings.hasFocus) accountIcon=\(account.hasFocus) " +
+                    "aboutGroup=\(about.hasFocus) infoRow=\(first.hasFocus)")
+        }
         XCTAssertFalse(settings.hasFocus,
                        "Global Settings icon must relinquish focus on Right")
         XCTAssertFalse(account.hasFocus,

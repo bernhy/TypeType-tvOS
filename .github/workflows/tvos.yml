@@ -95,6 +95,8 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/typetype-build" \
             CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath "$RUNNER_TEMP/typetype-tests.xcresult" \
+            -only-testing:TypeTypeTVUITests/TypeTypeTVUITests/testLeftFromSettingsSubrailFocusesGlobalSettingsWithoutAccountFlash \
+            -test-iterations 8 \
             test
       - name: Export first-run UI screenshots
         if: always()
