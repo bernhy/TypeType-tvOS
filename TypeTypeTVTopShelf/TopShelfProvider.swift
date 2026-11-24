@@ -13,7 +13,7 @@ final class TopShelfProvider: TVTopShelfContentProvider {
             #if DEBUG
             NSLog("TypeType TOPSHELF provider: no readable snapshot")
             #endif
-            completionHandler(nil
+            completionHandler(nil)
             return
         }
 
