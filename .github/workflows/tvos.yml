@@ -87,7 +87,7 @@ jobs:
       - name: Run native contract/unit and tvOS UI tests
         run: |
           set -euo pipefail
-          # Two native-focus tests require separate XCTest sessions on tvOS 26.2.
+          # Three native-focus tests require separate XCTest sessions on tvOS 26.2.
           # Keep them mandatory below; do not retry failures or loosen assertions.
           xcodebuild \
             -project TypeTypeTV.xcodeproj \
@@ -99,6 +99,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath "$RUNNER_TEMP/typetype-tests.xcresult" \
             -skip-testing:TypeTypeTVUITests/TypeTypeTVUITests/testChannelVideoFocusReturnsToSavedTileFromBothRails \
+            -skip-testing:TypeTypeTVUITests/TypeTypeTVUITests/testContentSettingsLeftFromSubnavigationRevealsMainSettings \
             -skip-testing:TypeTypeTVUITests/TypeTypeTVUITests/testLeftFromSettingsSubrailFocusesGlobalSettingsWithoutAccountFlash \
             test
       - name: Verify focus regressions in independent tvOS XCTest sessions
@@ -110,6 +111,7 @@ jobs:
           # or artificial delays. The About test passed 8/8 in isolation.
           for test_name in \
             testChannelVideoFocusReturnsToSavedTileFromBothRails \
+            testContentSettingsLeftFromSubnavigationRevealsMainSettings \
             testLeftFromSettingsSubrailFocusesGlobalSettingsWithoutAccountFlash
           do
             xcodebuild \
