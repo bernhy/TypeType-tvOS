@@ -46,3 +46,11 @@ Die Auswahl gilt für gemeinsame Videokarten (Home, History, Suche, Bibliothek, 
 4. TypeType-Bildendpunkt `/api/dearrow/thumbnail` künstlich scheitern lassen; zuerst Original, dann die bisherigen TypeType-Proxy-/YouTube-Fallbacks prüfen.
 5. Einstellungen über einen zweiten Client ändern und Inhaltseinstellungen am Apple TV erneut öffnen; Werte müssen vom Server übernommen werden.
 6. In langen Listen schnell scrollen: keine Fokusverzögerung, höchstens 3 parallele DeArrow-Metadatenanfragen; Top Shelf darf keine zusätzlichen History-Anfragen auslösen.
+
+## Einstellungen: Fokus und störungsfreie Aktualisierung (25.11.2026)
+
+- **Speichern ohne Layoutsprung:** Der asynchrone Save-Indikator liegt jetzt als Overlay über dem bestehenden Aktualisieren-Button. Das Ein-/Ausblenden fügt keinen neuen Eintrag in die vertikale ScrollView ein, sodass Inhaltskarten, Scrollposition und aktueller Fokus stabil bleiben sollen. Der bisherige einzelne Settings-PUT bleibt unverändert; Fehlerhinweise werden bei echten Fehlern weiterhin angezeigt.
+- **Auswahl startet bei gespeichertem Wert:** Der `Picker(.menu)` unter tvOS fokussiert beim Öffnen nicht verlässlich den ausgewählten Eintrag. Für **Einstellungen → Inhalte** gibt es daher eine eigene SwiftUI-Auswahlansicht mit `@FocusState`, `.defaultFocus` und `ScrollViewReader`; sie fokussiert die aktuelle Option nativ ohne Timer, Reordering oder UIKit-Hack. Das gilt auch für die umfangreiche 0/50–100%-Auswahl des Wiedergabeschwellwertes. Andere Settings-Picker bleiben unverändert.
+- **DeArrow ausgeschaltet:** Der Hauptschalter bleibt anwählbar; die drei darunterliegenden Einstellungen Titel/Bild/Vertrauen sind sichtbar, ausgegraut und deaktiviert. Die gewählten Werte bleiben gespeichert, bis DeArrow wieder eingeschaltet wird.
+- **Performance:** Auswahloptionen sind statisch vorgehalten; die bis zu 52 fokussierbaren Elemente für den Wiedergabeschwellwert existieren erst im geöffneten Auswahlfenster. Kein Timer, keine neue Netzwerkanfrage, keine neuen globalen Fokus-Observer.
+- **UI-Regressionschecks:** Debug-Vorschau für einen nicht ersten Auswahlwert (75 %), automatischer Siri-Remote-Fokus auf diesen Wert und gesperrte DeArrow-Unteroptionen. Simulator-/Hardware-Fokusverhalten muss über die Tests und auf dem Apple TV bestätigt werden.
