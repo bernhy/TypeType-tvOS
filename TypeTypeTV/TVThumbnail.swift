@@ -44,49 +44,32 @@ enum TVThumbnailRequestPolicy {
     }
 }
 
-/// Resolve thumbnail sources once: prefer the exact TypeType-provided image
-/// (which may be a DeArrow replacement), but recover from missing/stale
-/// stored artwork in older history, playlist or watch-later rows. Only a
-/// validated YouTube video URL qualifies for the canonical fallback.
+/// All TypeType video images share the server-first policy used by Top Shelf.
+/// Normal rails remain inexpensive; large detail/startup artwork tries the
+/// highest YouTube resolutions before small canonical thumbnails.
 enum TVThumbnailImageQuality: String {
     case standard, hero
 }
 
 enum TVThumbnailSources {
-    static func urls(primary: URL?, videoURL: String?,
+    static func urls(primary: URL?, videoURL: String?, origin: URL,
                      quality: TVThumbnailImageQuality = .standard) -> [URL] {
-        guard let id = videoURL.flatMap(VideoAddress.youtubeID),
-              let fallback = URL(string: "https://i.ytimg.com/vi/\(id)/hqdefault.jpg") else {
-            return primary.map { [$0] } ?? []
-        }
-        if quality == .standard {
-            // Standard grid cards share the same inexpensive YouTube
-            // fallback order as Top Shelf. mqdefault is only requested if
-            // the original art and hqdefault both fail.
-            let lower = URL(
-                string: "https://i.ytimg.com/vi/\(id)/mqdefault.jpg"
-            )
-            let ordered = [primary, fallback, lower].compactMap { $0 }
-            var unique: [URL] = []
-            for candidate in ordered where !unique.contains(candidate) {
-                unique.append(candidate)
-            }
-            return unique
-        }
+        let variants = quality == .hero
+            ? ["maxresdefault", "hq720", "sddefault", "hqdefault", "mqdefault"]
+            : ["hqdefault", "mqdefault"]
+        var candidates = TVTopShelfPosterPolicy.candidates(
+            primary: primary, videoURL: videoURL ?? "", origin: origin,
+            variants: variants, highResolutionFirst: quality == .hero
+        )
 
-        // High-resolution variants are reserved for the detail hero and
-        // playback startup poster; normal grid cards remain inexpensive.
-        // Prefer custom DeArrow/server art over standard YouTube artwork.
-        let host = primary?.host?.lowercased() ?? ""
-        let youtubeArtwork = host == "img.youtube.com" ||
-            host == "ytimg.com" || host.hasSuffix(".ytimg.com")
-        let maxres = URL(string: "https://i.ytimg.com/vi/\(id)/maxresdefault.jpg")!
-        let sd = URL(string: "https://i.ytimg.com/vi/\(id)/sddefault.jpg")!
-        var candidates: [URL] = []
-        if let primary, !youtubeArtwork { candidates.append(primary) }
-        candidates.append(contentsOf: [maxres, sd])
-        if let primary { candidates.append(primary) }
-        candidates.append(fallback)
+        // The native app may display account-authorized images and other
+        // server-supplied third-party artwork which the credential-free Top
+        // Shelf extension deliberately cannot publish. Preserve those URLs;
+        // known public hosts are already routed through TypeType's proxy.
+        if let primary,
+           TVTopShelfPosterPolicy.publicServerURL(primary, origin: origin) == nil {
+            candidates.insert(primary, at: 0)
+        }
         var ordered: [URL] = []
         for candidate in candidates where !ordered.contains(candidate) {
             ordered.append(candidate)
@@ -94,13 +77,22 @@ enum TVThumbnailSources {
         return ordered
     }
 
+    /// Some missing high-resolution images return tiny, valid JPEGs rather
+    /// than HTTP errors. Check the nested filename for proxied images too.
     static func accepts(_ image: UIImage, from url: URL,
                         quality: TVThumbnailImageQuality) -> Bool {
-        guard quality == .hero,
-              ["maxresdefault.jpg", "sddefault.jpg"]
-                .contains(url.lastPathComponent.lowercased()) else { return true }
-        // Some unavailable maxres variants respond with a tiny image instead
-        // of a 404. Do not upscale their placeholder into a fullscreen hero.
+        guard quality == .hero else { return true }
+        let originalURL: URL
+        if url.path == "/api/proxy" || url.path == "/proxy",
+           let raw = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "url" })?.value,
+           let remote = URL(string: raw) {
+            originalURL = remote
+        } else {
+            originalURL = url
+        }
+        guard ["maxresdefault.jpg", "hq720.jpg", "sddefault.jpg"]
+            .contains(originalURL.lastPathComponent.lowercased()) else { return true }
         guard let bitmap = image.cgImage else { return false }
         return bitmap.width >= 640 && bitmap.height >= 360
     }
@@ -280,7 +272,7 @@ struct TVThumbnail: View {
     @MainActor
     private func load() async {
         let candidates = TVThumbnailSources.urls(
-            primary: url, videoURL: videoURL, quality: quality
+            primary: url, videoURL: videoURL, origin: origin, quality: quality
         )
         guard !candidates.isEmpty else {
             bitmap = nil
@@ -305,7 +297,7 @@ struct TVThumbnail: View {
                 TVThumbnailMemory.shared.configuredCache().removeObject(forKey: key)
             }
             var request = URLRequest(url: candidate)
-            request.timeoutInterval = 20
+            request.timeoutInterval = (candidate.path == "/api/proxy" || candidate.path == "/proxy") ? 6 : 20
             request.setValue("image/avif,image/webp,image/png,image/jpeg,*/*",
                              forHTTPHeaderField: "Accept")
             if firstParty, let token = TypeTypeCredentials.shared.token(for: origin) {
@@ -374,7 +366,7 @@ struct TVTransientStartupImage: UIViewRepresentable {
     func updateUIView(_ view: UIImageView, context: Context) {
         let coordinator = context.coordinator
         let urls = TVThumbnailSources.urls(
-            primary: url, videoURL: videoURL, quality: .hero
+            primary: url, videoURL: videoURL, origin: origin, quality: .hero
         )
         guard retainsImage, !urls.isEmpty else {
             if coordinator.requestKey != nil || view.image != nil {
@@ -412,7 +404,7 @@ struct TVTransientStartupImage: UIViewRepresentable {
                       (firstParty && source.scheme == "http") else { continue }
 
                 var request = URLRequest(url: source)
-                request.timeoutInterval = 20
+                request.timeoutInterval = (source.path == "/api/proxy" || source.path == "/proxy") ? 6 : 20
                 request.setValue("image/avif,image/webp,image/png,image/jpeg,*/*",
                                  forHTTPHeaderField: "Accept")
                 if firstParty, let token = TypeTypeCredentials.shared.token(for: origin) {
