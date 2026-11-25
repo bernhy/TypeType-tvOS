@@ -141,11 +141,13 @@ The temporary DEBUG-only filesystem write probe was removed after proving
 the shared `UserDefaults` path on physical Apple TV hardware. It no longer
 creates error 513 log messages or invokes `synchronize()`.
 
-Check `TypeType TOPSHELF shared preferences updated` in the app log and
-then inspect the Apple TV Home screen with TypeType in the first row. If
-personal posters do not appear, distinguish whether the extension has read
-the snapshot from whether public thumbnail downloads are accessible. The
-shared preferences approach does not rely on writable `Caches` or `tmp`.
+Inspect the Apple TV Home screen with TypeType in the first row. If
+personal posters do not appear, check the per-account opt-in, successful
+authenticated Home/history loading and publicly accessible poster URLs.
+Normal snapshot publish/clear operations and the extension's expected
+no-snapshot state are intentionally silent. A failed shared-preferences
+write is still reported in DEBUG builds. Shared preferences do not
+depend on writable `Caches` or `tmp`.
 
 ## App Groups signing
 
@@ -181,7 +183,9 @@ The two generated entitlements paths are excluded in `.gitignore`:
    The app should choose the next successful URL asynchronously without
    blocking Home. If all sources fail, the initial image may stay blank until
    the source recovers or history refreshes.
-8. Compare Home navigation/scroll and startup with main; monitor Debug
-   `TypeType TOPSHELF` messages for failures.
+8. Compare Home navigation/scroll and startup with the pre-Top-Shelf build.
+   Use an Apple TV Debug build for diagnosing genuine shared-preferences
+   write errors; normal snapshot updates and removals produce no log noise.
 
-Changes remain isolated in the feature branch pending validation and approval.
+These native Top Shelf checks complement automated tvOS build, unit and
+UI tests. Personal device signing and App Group configuration remain local.
