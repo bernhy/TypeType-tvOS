@@ -54,6 +54,7 @@ enum TVDeArrowPolicy {
     static func key(video: VideoItem, api: TypeTypeAPI,
                     settings: TVServerSettings?) -> String? {
         guard requiresLookup(settings),
+              !TVLiveStreamDisplayPolicy.isOngoing(video),
               let id = VideoAddress.youtubeID(video.url) else { return nil }
         return api.metadataCacheScope + "|dearrow|" + id + "|" + signature(settings)
     }
@@ -185,16 +186,25 @@ final class TVDeArrowCache {
         // Navigating a huge feed must not queue unbounded lookup tasks.
         guard inFlight.count < maximumPending else { return nil }
 
-        let task = Task<TVDeArrowDisplay?, Never> {
+        let task = Task<TVDeArrowDisplay?, Never> { @MainActor in
             let item = await TVDeArrowRequestGate.shared.fetch(api: api, videoID: id)
-            return item.flatMap {
+            let result = item.flatMap {
                 TVDeArrowPolicy.display($0, videoID: id, origin: api.origin,
                                        settings: settings)
             }
+            // Cache *inside* the shared Task before notifying all waiters.
+            // Otherwise Top Shelf can observe a finished coalesced lookup
+            // before the card's original caller has populated the cache.
+            self.remember(result, key: key)
+            return result
         }
         inFlight[key] = task
         let value = await task.value
         inFlight[key] = nil
+        return value
+    }
+
+    private func remember(_ value: TVDeArrowDisplay?, key: String) {
         if entries.count >= capacity {
             let now = Date()
             entries = entries.filter { $0.value.expires > now }
@@ -206,7 +216,6 @@ final class TVDeArrowCache {
         }
         entries[key] = Entry(value: value, expires:
             Date().addingTimeInterval(value == nil ? 90 : 3600))
-        return value
     }
 }
 
