@@ -254,7 +254,8 @@ final class TVTopShelfSnapshotTests: XCTestCase {
     func testNormalAppAlsoFallsBackToMQWhenNeeded() {
         let origin = URL(string: "https://instance.example/")!
         let urls = TVThumbnailSources.urls(
-            primary: URL(string: "https://instance.example/dearrow/thumbnail"),
+            primary: URL(string:
+                "https://instance.example/dearrow/thumbnail?videoId=abc123def45&time=12"),
             videoURL: "https://youtu.be/abc123def45", origin: origin
         )
         XCTAssertEqual(urls.map(\.path),
