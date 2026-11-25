@@ -51,6 +51,29 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
         )
     }
 
+    func testPublicImageRequestsAreAnonymousButPrivateMediaStayAuthenticated() {
+        let origin = URL(string: "https://instance.example/")!
+        for path in [
+            "/api/proxy?url=https%3A%2F%2Fi.ytimg.com%2Fvi%2Fabc123def45%2Fhqdefault.jpg",
+            "/api/dearrow/thumbnail?videoId=abc123def45&time=30",
+            "/proxy?url=https%3A%2F%2Fi.ytimg.com%2Fvi%2Fabc123def45%2Fhqdefault.jpg"
+        ] {
+            XCTAssertTrue(TVThumbnailRequestPolicy.isPublicServerImage(
+                URL(string: "https://instance.example" + path)!, origin: origin
+            ))
+        }
+        for address in [
+            "https://instance.example/api/files/private.jpg",
+            "https://instance.example/api/streams/youtube/sabr",
+            "https://other.example/api/proxy?url=x",
+            "http://instance.example/api/proxy?url=x"
+        ] {
+            XCTAssertFalse(TVThumbnailRequestPolicy.isPublicServerImage(
+                URL(string: address)!, origin: origin
+            ))
+        }
+    }
+
     func testYouTubeThumbnailFallbackFollowsTopShelfServerFirstOrder() throws {
         let origin = try XCTUnwrap(URL(string: "https://instance.example/"))
         let video = "https://www.youtube.com/watch?v=ABCDEFGHIJK"
