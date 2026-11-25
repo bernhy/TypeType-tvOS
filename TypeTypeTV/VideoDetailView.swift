@@ -38,6 +38,8 @@ struct VideoDetailView: View {
     @State private var fullDescriptionPresented = false
     @State private var playbackOpened = false
     @State private var playPauseRequested = false
+    @State private var deArrowKey: String?
+    @State private var deArrowDisplay: TVDeArrowDisplay?
 
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
     private var isOngoingLive: Bool {
@@ -73,6 +75,13 @@ struct VideoDetailView: View {
     private var detailedVideo: VideoItem {
         TVVideoMetadata.merged(video, stream: streamMetadata)
     }
+    private var selectedDeArrow: TVDeArrowDisplay? {
+        let key = TVDeArrowPolicy.key(
+            video: video, api: api, settings: contentPreferences.settings
+        )
+        guard key != nil, key == deArrowKey else { return nil }
+        return deArrowDisplay
+    }
     private var playbackPosition: Int64 {
         let saved = max(0, localProgress.position(for: video.url) ??
             savedPositionMs ?? video.watchPositionMs ?? 0)
@@ -106,7 +115,7 @@ struct VideoDetailView: View {
                     Text(TVL10n.value(isOngoingLive ? "video.liveBadge" : "video.badge"))
                         .font(.subheadline.bold()).tracking(2.5)
                         .foregroundStyle(TTTheme.accent)
-                    Text(video.title)
+                    Text(selectedDeArrow?.title ?? video.title)
                         .font(.system(size: 53, weight: .bold))
                         .frame(maxWidth: 830, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -308,9 +317,15 @@ struct VideoDetailView: View {
             .background {
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
-                        TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
-                                    origin: api.origin, maximumPixelDimension: 2_048,
-                                    videoURL: video.url, quality: .hero)
+                        TVThumbnail(
+                            url: selectedDeArrow?.thumbnailURL ??
+                                api.relativeMediaURL(video.thumbnailUrl),
+                            origin: api.origin,
+                            fallbackPrimary: selectedDeArrow?.thumbnailURL == nil ? nil :
+                                api.relativeMediaURL(video.thumbnailUrl),
+                            maximumPixelDimension: 2_048,
+                            videoURL: video.url, quality: .hero
+                        )
                             .frame(width: proxy.size.width, height: proxy.size.height)
                             .scaleEffect(heroVisible || reduceMotion ? 1 : 0.94)
                             .opacity(heroVisible || reduceMotion ? 1 : 0)
@@ -458,6 +473,24 @@ struct VideoDetailView: View {
             async let enrichment: Void = loadMetadata()
             _ = await (activity, enrichment)
             await contentPreferences.ensureLoaded(api: api)
+        }
+        .task(id: TVDeArrowPolicy.key(
+            video: video, api: api, settings: contentPreferences.settings
+        ) ?? "dearrow-off-" + video.url) {
+            guard let key = TVDeArrowPolicy.key(
+                video: video, api: api, settings: contentPreferences.settings
+            ) else {
+                deArrowKey = nil
+                deArrowDisplay = nil
+                return
+            }
+            deArrowKey = key
+            deArrowDisplay = nil
+            let currentSettings = contentPreferences.settings
+            let resolved = await TVDeArrowCache.shared.resolve(
+                for: video, api: api, settings: currentSettings
+            )
+            if !Task.isCancelled { deArrowDisplay = resolved }
         }
         .task(id: channelURL) {
             channelArtwork = nil
