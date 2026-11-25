@@ -9,9 +9,6 @@ final class TopShelfProvider: TVTopShelfContentProvider {
         completionHandler: @escaping (TVTopShelfContent?) -> Void
     ) {
         guard let snapshot = TVTopShelfSnapshotStore.read() else {
-            #if DEBUG
-            NSLog("TypeType TOPSHELF provider: no readable snapshot")
-            #endif
             completionHandler(nil)
             return
         }
