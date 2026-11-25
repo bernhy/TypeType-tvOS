@@ -899,7 +899,11 @@ struct PreferencesView: View {
     private func refreshRemote() async {
         #if DEBUG
         if api.origin.host == "preview.invalid" {
-            let sample = #"{"hideHomeRecommendations":false,"hideContinueWatching":false,"hideRelatedVideos":false,"hideShorts":true,"hideComments":false,"disableWatchHistory":false,"watchedThresholdPercent":0}"#
+            let focusedSelectionFixture = ProcessInfo.processInfo.arguments
+                .contains("settings-choice-focus-preview")
+            let sample = focusedSelectionFixture
+                ? #"{"hideHomeRecommendations":false,"hideContinueWatching":false,"hideRelatedVideos":false,"watchedThresholdPercent":75,"deArrowEnabled":true}"#
+                : #"{"hideHomeRecommendations":false,"hideContinueWatching":false,"hideRelatedVideos":false,"hideShorts":true,"hideComments":false,"disableWatchHistory":false,"watchedThresholdPercent":0}"#
             remote = try? JSONDecoder().decode(TVServerSettings.self, from: Data(sample.utf8))
             remoteError = nil
             return
