@@ -125,6 +125,14 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 - Settings → Content → Show end screens must hide/show the cards based on the account's `hideEndScreens` server setting. Videos without end-screen metadata should never display fabricated recommendations. Websites are intentionally unsupported on tvOS (no browser).
 - Playback must not wait for end-screen metadata. Prefer SABR bootstrap, reuse already-cached details, and only attempt optional stream metadata lookup within 60 seconds of the end. Confirm frequent seek/recovery and A/V synchronization remain unchanged.
 
+## Siri Remote Play/Pause quick playback (tvOS 26)
+
+- On a focused video thumbnail in Home recommendations, Continue Watching, Search, Library, subscriptions, channels, public playlists and Related Videos, press **Play/Pause**. Playback must open immediately without entering Video Details. **Select/OK** must still open Video Details, and all focus/scroll positions must be preserved on return.
+- From a playlist or Watch Later video tile, direct playback must preserve the existing playlist queue, starting at the selected item rather than the beginning. Other cards should launch the ordinary SABR/HLS player.
+- On Video Details, focus Play, Back, Favorite, Watch Later, Channel and description controls in turn; **Play/Pause** must always launch that video's playback without activating the focused control. A visible modal/picker must remain modal.
+- Inside SABR/HLS playback, **Play/Pause** must still toggle the player's native playback state. It must never stack another player or reopen Video Details. Test a second direct launch after backing out, then verify Home Continue Watching progress and native focus restoration.
+- This uses one programmatic navigation destination in the browsing stack, the existing player implementation and a focused-card command handler. No per-focus requests, timers or new thumbnail work. Physical Siri Remote validation is required; unit tests cover route/queue selection but not tvOS command delivery.
+
 ## Home — "Ansehen fortsetzen"
 
 - The Home rail is **not** the full recently-watched history. Eligible cards must have a saved playback position greater than zero and a known positive duration, and must not have reached the shared **configurable watched threshold (90% fallback)**. Completed, never-started, live and duration-unknown entries do not qualify.
