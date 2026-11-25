@@ -83,6 +83,8 @@ struct BrowseView: View {
     @State private var accountGeneration = 0
     @State private var returnToSwitcherAfterLogin = false
     @State private var topShelfSelection: TVTopShelfSnapshotStore.Item?
+    // One route for all video cards, never per-tile navigation state.
+    @State private var directPlaybackSelection: TVDirectPlaybackRequest?
     @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
     @FocusState private var menuFocus: TVSection?
 
@@ -209,7 +211,30 @@ struct BrowseView: View {
                     .navigationDestination(item: $topShelfSelection) { item in
                         varVideoDetail(api: api, item: item)
                     }
+                    .navigationDestination(item: $directPlaybackSelection) { request in
+                        TVDirectPlaybackDestination(
+                            api: api, video: request.video,
+                            playbackQueue: request.playbackQueue
+                        )
+                        .onDisappear {
+                            // Same existing one-video resume reconciliation
+                            // as returning from VideoDetailView after playback.
+                            request.onReturnedVideo?(request.video)
+                        }
+                    }
                 }
+                .environment(
+                    \.tvDirectPlayback,
+                    TVDirectPlaybackAction { video, queue, onReturn in
+                        guard !playbackVisibility.isVisible,
+                              playlistPopup.request == nil,
+                              directPlaybackSelection == nil else { return }
+                        directPlaybackSelection = TVDirectPlaybackRequest(
+                            video: video, playbackQueue: queue,
+                            onReturnedVideo: onReturn
+                        )
+                    }
+                )
                 .id("\(section.rawValue)-\(accountGeneration)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .focusSection()
