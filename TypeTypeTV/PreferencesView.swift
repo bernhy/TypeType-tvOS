@@ -52,6 +52,28 @@ struct PreferencesView: View {
     @State private var accountError: String?
     @State private var status = ""
 
+    // Immutable options: no reconstruction of fifty-one menu choices after
+    // each settings response. Only the choice sheet creates focusable rows.
+    private static let watchedChoices: [TVSettingsChoice<Int>] =
+        [TVSettingsChoice(value: 0, titleKey: "settings.watchedLastMinute")] +
+        (50...100).map { TVSettingsChoice(value: $0, titleKey: "\($0) %") }
+
+    private static let deArrowTitleChoices = [
+        TVSettingsChoice(value: "original", titleKey: "settings.deArrow.modeOriginal"),
+        TVSettingsChoice(value: "dearrow", titleKey: "settings.deArrow.modeTitle")
+    ]
+    private static let deArrowImageChoices = [
+        TVSettingsChoice(value: "original", titleKey: "settings.deArrow.modeOriginal"),
+        TVSettingsChoice(value: "dearrow", titleKey: "settings.deArrow.modeThumbnail"),
+        TVSettingsChoice(value: "random", titleKey: "settings.deArrow.modeRandom"),
+        TVSettingsChoice(value: "dearrow_or_random",
+                         titleKey: "settings.deArrow.modeThumbnailOrRandom")
+    ]
+    private static let deArrowTrustChoices = [
+        TVSettingsChoice(value: "accepted", titleKey: "settings.deArrow.trustAccepted"),
+        TVSettingsChoice(value: "locked", titleKey: "settings.deArrow.trustLocked")
+    ]
+
     init(api: TypeTypeAPI, onDisconnect: @escaping () -> Void,
          initialGroup: TVSettingsGroup = .playback,
          focusRequest: Int = 0,
@@ -379,8 +401,8 @@ struct PreferencesView: View {
                         // setRemote itself serializes requests and ignores
                         // input while saving, without destroying focus.
                     }
-                    TVSettingsMenuRow(
-                        "settings.watchedThreshold",
+                    TVSettingsFocusedChoiceRow(
+                        titleKey: "settings.watchedThreshold",
                         selection: Binding(
                             get: {
                                 pendingWatchedThreshold ??
@@ -389,13 +411,9 @@ struct PreferencesView: View {
                             },
                             set: { setWatchedThreshold($0) }
                         ),
+                        choices: Self.watchedChoices,
                         focus: $focusedControl, focusTarget: "content.watchedThreshold"
-                    ) {
-                        Text("settings.watchedLastMinute").tag(0)
-                        ForEach(50...100, id: \.self) { value in
-                            Text("\(value) %").tag(value)
-                        }
-                    }
+                    )
                     Text("settings.watchedThresholdHelp")
                         .font(.callout)
                         .foregroundStyle(TTTheme.muted)
@@ -410,8 +428,17 @@ struct PreferencesView: View {
                             .buttonStyle(.bordered)
                             .focused($focusedControl, equals: "content.refresh")
                             .accessibilityIdentifier("settings-content-refresh")
+                            // Saving never inserts a new row into the stack:
+                            // preserve all control positions and scroll offset.
+                            .overlay(alignment: .leading) {
+                                if remoteSaving {
+                                    ProgressView()
+                                        .offset(x: -34)
+                                        .allowsHitTesting(false)
+                                        .accessibilityLabel("settings.remoteSaving")
+                                }
+                            }
                     }
-                    if remoteSaving { ProgressView("settings.remoteSaving") }
                     if remoteLoading { ProgressView("settings.remoteLoading") }
                 } else {
                     Text(remoteError ?? TVL10n.value("settings.remoteLoginHelp"))
@@ -440,23 +467,27 @@ struct PreferencesView: View {
                         ),
                         focus: $focusedControl, focusID: "content.deArrow.enabled"
                     )
-                    TVSettingsMenuRow(
-                        "settings.deArrow.titleMode",
+                    // Only the master switch remains focusable when DeArrow
+                    // is off. Native disabled state dims the subordinate rows.
+                    let deArrowOn = self.remote?.deArrowEnabled ??
+                        remote.deArrowEnabled ?? false
+                    TVSettingsFocusedChoiceRow(
+                        titleKey: "settings.deArrow.titleMode",
                         selection: Binding(
-                            get: { self.remote?.deArrowTitleMode ?? remote.deArrowTitleMode ?? "dearrow" },
+                            get: { self.remote?.deArrowTitleMode ??
+                                remote.deArrowTitleMode ?? "dearrow" },
                             set: { mode in
                                 saveDeArrow("deArrowTitleMode", value: .text(mode)) {
                                     $0.deArrowTitleMode = mode
                                 }
                             }
                         ),
-                        focus: $focusedControl, focusTarget: "content.deArrow.title"
-                    ) {
-                        Text("settings.deArrow.modeOriginal").tag("original")
-                        Text("settings.deArrow.modeTitle").tag("dearrow")
-                    }
-                    TVSettingsMenuRow(
-                        "settings.deArrow.thumbnailMode",
+                        choices: Self.deArrowTitleChoices,
+                        focus: $focusedControl, focusTarget: "content.deArrow.title",
+                        enabled: deArrowOn
+                    )
+                    TVSettingsFocusedChoiceRow(
+                        titleKey: "settings.deArrow.thumbnailMode",
                         selection: Binding(
                             get: { self.remote?.deArrowThumbnailMode ??
                                 remote.deArrowThumbnailMode ?? "dearrow_or_random" },
@@ -466,28 +497,25 @@ struct PreferencesView: View {
                                 }
                             }
                         ),
-                        focus: $focusedControl, focusTarget: "content.deArrow.thumbnail"
-                    ) {
-                        Text("settings.deArrow.modeOriginal").tag("original")
-                        Text("settings.deArrow.modeThumbnail").tag("dearrow")
-                        Text("settings.deArrow.modeRandom").tag("random")
-                        Text("settings.deArrow.modeThumbnailOrRandom").tag("dearrow_or_random")
-                    }
-                    TVSettingsMenuRow(
-                        "settings.deArrow.trustMode",
+                        choices: Self.deArrowImageChoices,
+                        focus: $focusedControl, focusTarget: "content.deArrow.thumbnail",
+                        enabled: deArrowOn
+                    )
+                    TVSettingsFocusedChoiceRow(
+                        titleKey: "settings.deArrow.trustMode",
                         selection: Binding(
-                            get: { self.remote?.deArrowTrustMode ?? remote.deArrowTrustMode ?? "accepted" },
+                            get: { self.remote?.deArrowTrustMode ??
+                                remote.deArrowTrustMode ?? "accepted" },
                             set: { mode in
                                 saveDeArrow("deArrowTrustMode", value: .text(mode)) {
                                     $0.deArrowTrustMode = mode
                                 }
                             }
                         ),
-                        focus: $focusedControl, focusTarget: "content.deArrow.trust"
-                    ) {
-                        Text("settings.deArrow.trustAccepted").tag("accepted")
-                        Text("settings.deArrow.trustLocked").tag("locked")
-                    }
+                        choices: Self.deArrowTrustChoices,
+                        focus: $focusedControl, focusTarget: "content.deArrow.trust",
+                        enabled: deArrowOn
+                    )
                     Text("settings.deArrow.fallback")
                         .font(.callout)
                         .foregroundStyle(TTTheme.muted)
