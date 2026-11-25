@@ -3197,6 +3197,7 @@ struct SabrPlayerView: View {
     let video: VideoItem
     var onPlaybackEvent: ((TVPlaybackEvent) -> Void)? = nil
     @StateObject private var engine = SabrPlayerController()
+    @ObservedObject private var contentPreferences = TVContentPreferences.shared
     @AppStorage("typetype.skipSeconds") private var skipSeconds = 10
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var controlsVisible = true
@@ -3212,6 +3213,20 @@ struct SabrPlayerView: View {
     @State private var chosenEndScreen: TVEndScreenElement?
     @State private var sponsorSkipCooldown: Date = .distantPast
     @State private var dismissedSponsorSegmentID: String?
+    @State private var deArrowOSDKey: String?
+    @State private var deArrowOSDTitle: String?
+
+    /// DeArrow changes display text only. Stream identity, account history,
+    /// playback presence and Now Playing metadata keep their original data.
+    private var osdTitle: String {
+        let activeKey = TVDeArrowPolicy.key(
+            video: video, api: api, settings: contentPreferences.settings
+        )
+        return TVDeArrowPolicy.playerOSDTitle(
+            original: video.title, replacement: deArrowOSDTitle,
+            current: activeKey != nil && activeKey == deArrowOSDKey
+        )
+    }
 
     /// Initial playback only. Never reset the poster on seeking.
     /// The actual display layer and A/V clock are the readiness authority;
@@ -3415,7 +3430,7 @@ struct SabrPlayerView: View {
                 VStack {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 9) {
-                            Text(video.title).font(.title.bold()).lineLimit(2)
+                            Text(osdTitle).font(.title.bold()).lineLimit(2)
                             if let channel = video.uploaderName, !channel.isEmpty {
                                 HStack(spacing: 10) {
                                     TVChannelAvatar(
@@ -3531,6 +3546,37 @@ struct SabrPlayerView: View {
         }
         .task(id: startupPosterProbe) {
             await hideStartupPosterWhenReady()
+        }
+        .task(id: TVDeArrowPolicy.key(
+            video: video, api: api, settings: contentPreferences.settings
+        ) ?? "dearrow-off|" + api.metadataCacheScope + "|" + video.url) {
+            // Resolve on the OSD's own, cancellable lifecycle. Shared metadata
+            // is normally cached from a video card or its detail page; on a
+            // cold direct launch, at most one existing bounded DeArrow lookup
+            // is started in parallel without delaying SABR playback.
+            let settings = contentPreferences.settings
+            guard let key = TVDeArrowPolicy.key(
+                video: video, api: api, settings: settings
+            ) else {
+                deArrowOSDKey = nil
+                deArrowOSDTitle = nil
+                return
+            }
+            deArrowOSDKey = key
+            deArrowOSDTitle = TVDeArrowCache.shared.cached(
+                for: video, api: api, settings: settings
+            )?.title
+            guard !TVDeArrowCache.shared.hasResult(
+                for: video, api: api, settings: settings
+            ) else { return }
+            let resolved = await TVDeArrowCache.shared.resolve(
+                for: video, api: api, settings: settings
+            )
+            guard !Task.isCancelled, TVDeArrowPolicy.key(
+                video: video, api: api,
+                settings: contentPreferences.settings
+            ) == key else { return }
+            deArrowOSDTitle = resolved?.title
         }
         .task(id: video.url) {
             channelArtwork = nil
