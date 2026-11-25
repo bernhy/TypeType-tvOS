@@ -125,6 +125,25 @@ final class TVDeArrowTests: XCTestCase {
         }
     }
 
+    func testPlayerOSDTitleUsesDeArrowWithoutChangingOriginalMetadata() {
+        let original = "Original video title"
+        let branded = "  Community DeArrow title  "
+        XCTAssertEqual(TVDeArrowPolicy.playerOSDTitle(
+            original: original, replacement: branded, current: true
+        ), "Community DeArrow title")
+        XCTAssertEqual(TVDeArrowPolicy.playerOSDTitle(
+            original: original, replacement: branded, current: false
+        ), original, "A different account/video/settings must not reuse stale branding")
+        XCTAssertEqual(TVDeArrowPolicy.playerOSDTitle(
+            original: original, replacement: nil, current: true
+        ), original)
+        XCTAssertEqual(TVDeArrowPolicy.playerOSDTitle(
+            original: original, replacement: "   ", current: true
+        ), original)
+        XCTAssertEqual(original, "Original video title",
+                       "Display branding must not rewrite server/history metadata")
+    }
+
     func testAccountScopedCacheKeysChangeWhenOptionsChange() throws {
         let api = try TypeTypeAPI(address: "https://instance.example/")
         let video = VideoItem(
