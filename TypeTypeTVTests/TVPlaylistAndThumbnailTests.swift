@@ -130,7 +130,8 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
         XCTAssertEqual(remote, "https://i.ytimg.com/vi/ABCDEFGHIJK/maxresdefault.jpg")
         XCTAssertEqual(hero[5].lastPathComponent, "maxresdefault.jpg")
         XCTAssertEqual(hero[6].lastPathComponent, "hq720.jpg")
-        XCTAssertEqual(hero[9], hq)
+        XCTAssertEqual(hero[8], hq)
+        XCTAssertEqual(hero[9].lastPathComponent, "mqdefault.jpg")
         XCTAssertEqual(TVThumbnailSources.urls(
             primary: custom, videoURL: video, origin: origin, quality: .hero
         ), [custom] + hero)
@@ -146,11 +147,18 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
 
     func testYouTubePlaceholderFallbackInStandardCardsAndHero() {
         func artwork(width: CGFloat, height: CGFloat) -> UIImage {
-            UIGraphicsImageRenderer(size: CGSize(width: width, height: height))
-                .image { context in
-                    UIColor.red.setFill()
-                    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-                }
+            // UIImageRenderer defaults to the simulator's screen scale.
+            // Pixel-based thumbnail validation must use exact 1x pixels,
+            // otherwise a 120x90 fixture is decoded as 240x180 at 2x.
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let renderer = UIGraphicsImageRenderer(
+                size: CGSize(width: width, height: height), format: format
+            )
+            return renderer.image { context in
+                UIColor.red.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            }
         }
 
         let placeholder = artwork(width: 120, height: 90)
