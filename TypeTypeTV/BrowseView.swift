@@ -660,7 +660,10 @@ struct VideoCard: View {
                     fallbackPrimary: replacement?.thumbnailURL == nil ? nil :
                         api.relativeMediaURL(video.thumbnailUrl),
                     contentMode: .fit,
-                    maximumPixelDimension: 768, videoURL: video.url
+                    maximumPixelDimension: 768, videoURL: video.url,
+                    // Members-only labels already occupy the top-left corner.
+                    // Keep both unobstructed without changing the card layout.
+                    deArrowBadgeTopInset: video.requiresMembership == true ? 52 : 8
                 )
                     .grayscale(completed ? 1 : 0)
                     // Never scale thumbnail content: on tvOS the duration
