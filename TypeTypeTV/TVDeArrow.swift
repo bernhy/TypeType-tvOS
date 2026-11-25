@@ -51,6 +51,16 @@ enum TVDeArrowPolicy {
             "\(settings?.deArrowTrustMode ?? "accepted")"
     }
 
+    /// OSD branding is display-only and never mutates the VideoItem used by
+    /// progress reporting, Now Playing, playback presence, or history.
+    static func playerOSDTitle(original: String, replacement: String?,
+                               current: Bool) -> String {
+        guard current, let replacement = replacement?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !replacement.isEmpty else { return original }
+        return replacement
+    }
+
     static func key(video: VideoItem, api: TypeTypeAPI,
                     settings: TVServerSettings?) -> String? {
         guard requiresLookup(settings),
