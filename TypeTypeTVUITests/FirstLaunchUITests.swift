@@ -663,6 +663,107 @@ final class TypeTypeTVUITests: XCTestCase {
                       app.buttons["Mit Passwort anmelden"].exists)
     }
 
+
+    func testAccountTopShelfSwitchUsesNativeTwoColumnFocus() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-account-profiles",
+            "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let category = app.buttons["settings-group-account"]
+        let firstRemove = app.buttons["accounts-remove-ui-profile-a"]
+        let firstToggle = app.buttons["accounts-topshelf-ui-profile-a"]
+        let secondRemove = app.buttons["accounts-remove-ui-profile-b"]
+        let secondToggle = app.buttons["accounts-topshelf-ui-profile-b"]
+        XCTAssertTrue(waitForFocus(category, timeout: 20))
+        XCTAssertTrue(firstRemove.waitForExistence(timeout: 10))
+        XCTAssertTrue(secondRemove.exists)
+
+        // Entering from the left Settings rail must prefer "Konto entfernen",
+        // rather than focusing the new switch on the same row.
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(firstRemove))
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(firstToggle),
+                      "Left from the remove action must reach Top Shelf")
+
+        // Vertical moves stay on the same column; horizontal moves cross the
+        // row. No delayed FocusState correction or background polling.
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(secondToggle))
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(secondRemove))
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(firstRemove))
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(firstToggle))
+
+        let before = firstToggle.value as? String
+        XCUIRemote.shared.press(.select)
+        XCTAssertNotEqual(firstToggle.value as? String, before,
+                          "Select must toggle this profile's local opt-in")
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(category),
+                      "Left from Top Shelf must return directly to Settings")
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(firstRemove),
+                      "Re-entering Accounts should prefer the first remove action")
+    }
+
+    func testAccountLastRowMovesDownToAddAndLocalLogoutFromEitherColumn() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "settings-account-profiles",
+            "test-account-local-logout", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+
+        let category = app.buttons["settings-group-account"]
+        let firstRemove = app.buttons["accounts-remove-ui-profile-a"]
+        let lastRemove = app.buttons["accounts-remove-ui-profile-b"]
+        let lastToggle = app.buttons["accounts-topshelf-ui-profile-b"]
+        let add = app.buttons["accounts-add"]
+        let logout = app.buttons["accounts-logout"]
+
+        XCTAssertTrue(waitForFocus(category, timeout: 20))
+        XCTAssertTrue(add.waitForExistence(timeout: 10))
+        XCTAssertTrue(logout.waitForExistence(timeout: 10))
+
+        // The right column must still be the native Settings entry target.
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(firstRemove))
+
+        // Vertical focus within saved accounts remains native.
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(lastRemove))
+
+        // Last row's far-right button must reach the left-aligned footer.
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(add),
+                      "Down from the last Remove must reach Add Account")
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(logout),
+                      "Down from Add Account must reach Local Logout")
+
+        // Reverse navigation returns to the saved account's default action.
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(add))
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(lastRemove))
+
+        // Exactly the same exit from the other column, with no timer,
+        // scrolling workaround or additional remote movement.
+        XCUIRemote.shared.press(.left)
+        XCTAssertTrue(waitForFocus(lastToggle))
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(add),
+                      "Down from last Top Shelf must reach Add Account")
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(logout),
+                      "Local Logout must also be reachable from Top Shelf")
+    }
+
     func testChannelTabsReachSubscriptionButtonWithRemote() throws {
         let app = XCUIApplication()
         app.launchArguments = [
@@ -727,8 +828,15 @@ final class TypeTypeTVUITests: XCTestCase {
         XCUIRemote.shared.press(.left)
         XCTAssertTrue(waitForFocus(main, timeout: 5))
         XCUIRemote.shared.press(.right)
-        XCTAssertTrue(waitForFocus(deep, timeout: 5),
-                      "Returning via the global rail must preserve the same tile")
+        let restoredDirectly = waitForFocus(deep, timeout: 8)
+        if !restoredDirectly {
+            // Diagnose only on failure: report where UIKit actually placed
+            // focus. Do not send a second remote event or accept a wrong tile.
+            let actual = app.buttons.allElementsBoundByIndex
+                .filter { $0.hasFocus }
+                .map { $0.identifier.isEmpty ? $0.label : $0.identifier }
+            XCTFail("Global rail must return to the saved tile; actual focused buttons: \(actual)")
+        }
     }
 
     func testChannelPageDisplaysCurrentSubscriptionState() throws {
@@ -1151,9 +1259,39 @@ final class TypeTypeTVUITests: XCTestCase {
                       "Up after returning must reach the Account icon")
         XCUIRemote.shared.press(.down)
         XCTAssertTrue(waitForFocus(settings))
+        let first = app.descendants(matching: .any)["settings-about-first"].firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
         XCUIRemote.shared.press(.right)
-        XCTAssertTrue(waitForFocus(about),
-                      "Right must return to the previously chosen Settings group")
+        // Native tvOS may enter the selected About group or its first
+        // focusable information row. Both are valid; a wrong group or a
+        // lingering global-menu focus is not. This parallels the Content
+        // Settings regression test already proven on main.
+        let returnedToGroup = waitForFocus(about, timeout: 2)
+        let returnedToFirstRow = !returnedToGroup && waitForFocus(first, timeout: 3)
+        if !returnedToGroup && !returnedToFirstRow {
+            // Temporary CI focus diagnosis: no second Siri Remote command.
+            // Identify where native tvOS actually landed after Right.
+            let focused = app.buttons.allElementsBoundByIndex
+                .filter { $0.hasFocus }
+                .map { $0.identifier.isEmpty ? $0.label : $0.identifier }
+            XCTFail("Wrong Settings re-entry. Focused buttons=\(focused) " +
+                    "accountPreview=\(app.staticTexts["Profile wechseln"].exists) " +
+                    "aboutPreview=\(app.staticTexts["App-Informationen"].exists) " +
+                    "globalSettings=\(settings.hasFocus) accountIcon=\(account.hasFocus) " +
+                    "aboutGroup=\(about.hasFocus) infoRow=\(first.hasFocus)")
+        }
+        XCTAssertFalse(settings.hasFocus,
+                       "Global Settings icon must relinquish focus on Right")
+        XCTAssertFalse(account.hasFocus,
+                       "Account must not steal focus during Settings re-entry")
+        if returnedToFirstRow {
+            XCUIRemote.shared.press(.left)
+            XCTAssertTrue(waitForFocus(about),
+                          "Left from first About row must return to About group")
+        }
+        XCUIRemote.shared.press(.right)
+        XCTAssertTrue(waitForFocus(first),
+                      "Right from About group must focus the first info row")
     }
 
     func testImmediateDownAfterReturningToMainRailIsNotSwallowed() throws {

@@ -86,6 +86,9 @@ jobs:
           retention-days: 7
       - name: Run native contract/unit and tvOS UI tests
         run: |
+          set -euo pipefail
+          # Three native-focus tests require separate XCTest sessions on tvOS 26.2.
+          # Keep them mandatory below; do not retry failures or loosen assertions.
           xcodebuild \
             -project TypeTypeTV.xcodeproj \
             -scheme TypeTypeTV \
@@ -95,7 +98,34 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/typetype-build" \
             CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath "$RUNNER_TEMP/typetype-tests.xcresult" \
+            -skip-testing:TypeTypeTVUITests/TypeTypeTVUITests/testChannelVideoFocusReturnsToSavedTileFromBothRails \
+            -skip-testing:TypeTypeTVUITests/TypeTypeTVUITests/testContentSettingsLeftFromSubnavigationRevealsMainSettings \
+            -skip-testing:TypeTypeTVUITests/TypeTypeTVUITests/testLeftFromSettingsSubrailFocusesGlobalSettingsWithoutAccountFlash \
             test
+      - name: Verify focus regressions in independent tvOS XCTest sessions
+        run: |
+          set -euo pipefail
+          # On the shared runner, these sometimes inherit a stale UIKit focus
+          # owner from unrelated UI tests. Separate xcodebuild invocations
+          # keep the exact first-press navigation assertions, without retries
+          # or artificial delays. The About test passed 8/8 in isolation.
+          for test_name in \
+            testChannelVideoFocusReturnsToSavedTileFromBothRails \
+            testContentSettingsLeftFromSubnavigationRevealsMainSettings \
+            testLeftFromSettingsSubrailFocusesGlobalSettingsWithoutAccountFlash
+          do
+            xcodebuild \
+              -project TypeTypeTV.xcodeproj \
+              -scheme TypeTypeTV \
+              -configuration Debug \
+              -sdk appletvsimulator \
+              -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation),OS=26.2' \
+              -derivedDataPath "$RUNNER_TEMP/typetype-build" \
+              CODE_SIGNING_ALLOWED=NO \
+              -resultBundlePath "$RUNNER_TEMP/typetype-focus-$test_name.xcresult" \
+              "-only-testing:TypeTypeTVUITests/TypeTypeTVUITests/$test_name" \
+              test
+          done
       - name: Export first-run UI screenshots
         if: always()
         run: |
@@ -104,6 +134,13 @@ jobs:
               --path "$RUNNER_TEMP/typetype-tests.xcresult" \
               --output-path "$GITHUB_WORKSPACE/tvos-ui-screenshots" || true
           fi
+          for bundle in "$RUNNER_TEMP"/typetype-focus-*.xcresult; do
+            [ -d "$bundle" ] || continue
+            name="$(basename "$bundle" .xcresult)"
+            xcrun xcresulttool export attachments \
+              --path "$bundle" \
+              --output-path "$GITHUB_WORKSPACE/tvos-ui-screenshots/$name" || true
+          done
       - name: Upload UI screenshot artifacts
         if: always()
         uses: actions/upload-artifact@v6

@@ -274,6 +274,25 @@ struct TVHomeSubscriptionsBaselineView: View {
     private var visibleRecent: [VideoItem] {
         filteredRecent()
     }
+    // Recompute on Top Shelf membership or metadata changes.
+    // The playback checkpoints update the shelf directly, without
+    // progress-driven image work during Home focus or scrolling.
+    private var topShelfSignature: String {
+        let items = showRecent ? Array(visibleRecent.prefix(5)) : []
+        return api.origin.absoluteString + "|" + items.map {
+            "\($0.url)|\($0.title)|\($0.duration ?? 0)|\($0.thumbnailUrl ?? "")"
+        }.joined(separator: "\n")
+    }
+    @MainActor
+    private func publishTopShelf() {
+        // Keep the previous snapshot while the initial /history loads.
+        // A cold Top Shelf deep link must not race an empty Home export.
+        guard previewVideos == nil,
+              !showRecent || (historyLoadedOnce && !loadingRecent) else { return }
+        TVTopShelfPublisher.shared.publish(
+            showRecent ? Array(visibleRecent.prefix(24)) : [], api: api
+        )
+    }
     private func filteredRecent() -> [VideoItem] {
         // Configured completion threshold, with local progress override.
         contentPreferences.displayed(recentVideos).filter {
@@ -484,6 +503,11 @@ struct TVHomeSubscriptionsBaselineView: View {
                 loadedOnce = true
                 await refresh()
             }
+            .onChange(of: topShelfSignature) { _, _ in publishTopShelf() }
+            .onChange(of: loadingRecent) { _, loading in
+                if !loading { publishTopShelf() }
+            }
+            .onAppear { publishTopShelf() }
             .onChange(of: showRecent) { _, enabled in
                 if !enabled { resumeMetadata.stop() }
                 if enabled && !historyLoadedOnce && previewVideos == nil {
@@ -835,6 +859,7 @@ struct TVHomeSubscriptionsBaselineView: View {
             historyHasMore = raw.count == historyPageSize
             recentNeedsLogin = false
             recentError = nil
+            TVTopShelfPublisher.shared.serverRecovered(api: api)
         } catch is CancellationError {
             return
         } catch {
@@ -845,6 +870,9 @@ struct TVHomeSubscriptionsBaselineView: View {
             let status = TVServerErrorMapping.httpStatus(error)
             recentNeedsLogin = status == 401 || status == 403
             recentError = recentNeedsLogin ? nil : error.localizedDescription
+            TVTopShelfPublisher.shared.serverUnavailable(
+                api: api, unauthorized: recentNeedsLogin
+            )
         }
     }
 
@@ -894,6 +922,10 @@ struct TVHomeSubscriptionsBaselineView: View {
         } catch {
             guard historyRequestID == request else { return }
             historyHasMore = false
+            let status = TVServerErrorMapping.httpStatus(error)
+            TVTopShelfPublisher.shared.serverUnavailable(
+                api: api, unauthorized: status == 401 || status == 403
+            )
         }
     }
 

@@ -82,6 +82,7 @@ struct BrowseView: View {
     @State private var accountFocusRequest = 0
     @State private var accountGeneration = 0
     @State private var returnToSwitcherAfterLogin = false
+    @State private var topShelfSelection: TVTopShelfSnapshotStore.Item?
     @AppStorage("typetype.navigationAnimations") private var navigationAnimations = true
     @FocusState private var menuFocus: TVSection?
 
@@ -205,6 +206,9 @@ struct BrowseView: View {
                             )
                         }
                     }
+                    .navigationDestination(item: $topShelfSelection) { item in
+                        varVideoDetail(api: api, item: item)
+                    }
                 }
                 .id("\(section.rawValue)-\(accountGeneration)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -235,6 +239,22 @@ struct BrowseView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(TTTheme.ink.ignoresSafeArea())
             .task { await reloadSidebarIdentity(api: api) }
+            .onOpenURL { url in
+                guard let snapshot = TVTopShelfSnapshotStore.read(),
+                      let item = TVTopShelfSnapshotStore.item(
+                          for: url, in: snapshot,
+                          origin: api.origin.absoluteString,
+                          scopeFingerprint: TVTopShelfPublisher.accountFingerprint(
+                              for: api
+                          )
+                      ) else {
+                    #if DEBUG
+                    NSLog("TypeType TOPSHELF action ignored: unavailable snapshot or account mismatch")
+                    #endif
+                    return
+                }
+                topShelfSelection = item
+            }
             .onDisappear { playlistPopup.finish() }
             .onChange(of: section) { old, _ in
                 if old == .account || old == .settings {
@@ -249,6 +269,17 @@ struct BrowseView: View {
                              action: onDisconnect,
                              actionTitle: TVL10n.value("common.changeServer"))
         }
+    }
+
+    private func varVideoDetail(api: TypeTypeAPI,
+                                item: TVTopShelfSnapshotStore.Item) -> some View {
+        var video = VideoItem(
+            id: item.videoID, title: item.title, url: item.videoURL,
+            thumbnailUrl: item.thumbnailURL, uploaderName: item.channelName,
+            duration: item.duration, isLive: false
+        )
+        video.watchPositionMs = item.positionMs
+        return VideoDetailView(api: api, video: video)
     }
 
     private var sidebar: some View {
@@ -398,10 +429,20 @@ struct BrowseView: View {
     @MainActor
     private func reloadSidebarIdentity(api: TypeTypeAPI) async {
         guard api.origin.host != "preview.invalid" else { return }
+        let generation = accountGeneration
         do {
-            sidebarIdentity = try await api.currentAccount()
+            let identity = try await api.currentAccount()
+            guard !Task.isCancelled && generation == accountGeneration else { return }
+            sidebarIdentity = identity
+            TVTopShelfPublisher.shared.accountChecked(identity, api: api)
         } catch {
-            // Network hiccups must not discard the last known identity.
+            guard !Task.isCancelled && generation == accountGeneration else { return }
+            // Keep the sidebar label on transient network errors, but never
+            // continue displaying personal Top Shelf content while offline.
+            let status = TVServerErrorMapping.httpStatus(error)
+            TVTopShelfPublisher.shared.serverUnavailable(
+                api: api, unauthorized: status == 401 || status == 403
+            )
         }
     }
 
@@ -410,6 +451,8 @@ struct BrowseView: View {
         // Unmount the previous user's Home/Library/player state immediately.
         // Later requests and progress UI must belong to the newly selected user.
         TVLocalProgress.shared.clear()
+        TVTopShelfPublisher.shared.clear()
+        topShelfSelection = nil
         TVWatchLaterMembership.shared.invalidate()
         TVFavoriteMembership.shared.invalidate()
         TVContentPreferences.shared.invalidate()

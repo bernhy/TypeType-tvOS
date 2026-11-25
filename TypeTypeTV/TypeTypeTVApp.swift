@@ -25,7 +25,7 @@ struct RootView: View {
                 SabrPlaybackErrorPreview()
             } else if ["home", "home-expanded", "search", "library", "subscriptions", "channels", "account",
                 "settings", "settings-sponsor", "settings-content", "settings-blocked", "settings-performance", "settings-device",
-                "settings-language", "settings-account", "settings-instance",
+                "settings-language", "settings-account", "settings-account-profiles", "settings-instance",
                 "settings-about"].contains(preview) {
                 BrowseView(
                     instanceOrigin: "https://preview.invalid",
@@ -45,7 +45,7 @@ struct RootView: View {
                         case "settings-blocked": return .blocked
                         case "settings-performance", "settings-device": return .device
                         case "settings-language": return .language
-                        case "settings-account": return .account
+                        case "settings-account", "settings-account-profiles": return .account
                         case "settings-instance": return .instance
                         case "settings-about": return .about
                         default: return .playback
@@ -72,8 +72,16 @@ struct RootView: View {
     private var configuredContent: some View {
         if instanceOrigin.isEmpty {
             ServerSetupView { instanceOrigin = $0 }
+                .onAppear {
+                    // A new installation or disconnected server must never
+                    // retain another account's Top Shelf posters.
+                    TVTopShelfPublisher.shared.clear()
+                }
         } else {
-            BrowseView(instanceOrigin: instanceOrigin) { instanceOrigin = "" }
+            BrowseView(instanceOrigin: instanceOrigin) {
+                TVTopShelfPublisher.shared.clear()
+                instanceOrigin = ""
+            }
         }
     }
 
