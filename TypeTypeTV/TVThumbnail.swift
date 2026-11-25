@@ -304,7 +304,13 @@ struct TVThumbnail: View {
                 if let bitmap {
                     Image(uiImage: bitmap)
                         .resizable()
-                        .aspectRatio(contentMode: contentMode)
+                        // The server can return 4:3 YouTube hqdefault JPEG
+                        // within the DeArrow route when frame extraction
+                        // fails. Fit shows pillarboxes (and embedded bars);
+                        // fill crops those margins to the 16:9 viewport.
+                        // Ordinary cards preserve their original fit policy.
+                        .aspectRatio(contentMode: displayedDeArrowArtwork
+                            ? .fill : contentMode)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                 } else {
                     LinearGradient(
