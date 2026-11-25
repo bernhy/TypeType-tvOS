@@ -61,8 +61,21 @@ enum TVThumbnailImageQuality: String {
 }
 
 enum TVThumbnailSources {
-    static func urls(primary: URL?, videoURL: String?, origin: URL,
+    static func urls(primary: URL?, fallbackPrimary: URL? = nil,
+                     videoURL: String?, origin: URL,
                      quality: TVThumbnailImageQuality = .standard) -> [URL] {
+        // DeArrow precedes the original TypeType image. If the DeArrow fetch
+        // fails, preserve that original URL before regular proxy/CDN fallback.
+        if let fallbackPrimary, let primary, primary != fallbackPrimary {
+            let normal = urls(
+                primary: fallbackPrimary, videoURL: videoURL, origin: origin,
+                quality: quality
+            )
+            let preferred = TVTopShelfPosterPolicy.publicServerURL(
+                primary, origin: origin
+            ) ?? primary
+            return [preferred] + normal.filter { $0 != preferred }
+        }
         let variants = quality == .hero
             ? ["maxresdefault", "hq720", "sddefault", "hqdefault", "mqdefault"]
             : ["hqdefault", "mqdefault"]
@@ -247,6 +260,7 @@ private final class TVThumbnailMemory {
 struct TVThumbnail: View {
     let url: URL?
     let origin: URL
+    var fallbackPrimary: URL? = nil
     // Default to cover for hero artwork. Card artwork instead uses .fit so
     // focusing it never cuts off faces/text along the edges.
     var contentMode: ContentMode = .fill
@@ -283,7 +297,7 @@ struct TVThumbnail: View {
             .clipped()
         }
         .clipped()
-        .task(id: "\(origin.absoluteString)|\(url?.absoluteString ?? "")|\(maximumPixelDimension)|\(videoURL ?? "")|\(quality.rawValue)") {
+        .task(id: "\(origin.absoluteString)|\(url?.absoluteString ?? "")|\(fallbackPrimary?.absoluteString ?? "")|\(maximumPixelDimension)|\(videoURL ?? "")|\(quality.rawValue)") {
             // SwiftUI may reuse a card for a different URL. Do not keep the
             // previous video's artwork visible while the new image loads.
             bitmap = nil
@@ -299,7 +313,8 @@ struct TVThumbnail: View {
     @MainActor
     private func load() async {
         let candidates = TVThumbnailSources.urls(
-            primary: url, videoURL: videoURL, origin: origin, quality: quality
+            primary: url, fallbackPrimary: fallbackPrimary,
+            videoURL: videoURL, origin: origin, quality: quality
         )
         guard !candidates.isEmpty else {
             bitmap = nil
