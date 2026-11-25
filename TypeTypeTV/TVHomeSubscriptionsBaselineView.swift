@@ -24,6 +24,7 @@ private struct TVHomeResumeTile: View {
     let onReturnToList: () -> Void
     let onReturnedVideo: (VideoItem) -> Void
     let onNavigation: () -> Void
+    @Environment(\.tvDirectPlayback) private var directPlayback
 
     private var focusID: String { "recent-" + entry.video.url }
 
@@ -54,6 +55,10 @@ private struct TVHomeResumeTile: View {
             // while remote navigation is active.
             onNavigation()
             if direction == .left && entry.index == 0 { onRevealMenu(id) }
+        }
+        .onPlayPauseCommand {
+            guard focus.wrappedValue == id else { return }
+            directPlayback(video, onReturnedVideo: onReturnedVideo)
         }
         .accessibilityIdentifier("home-baseline-recent-\(entry.index)")
         .containerRelativeFrame(.horizontal, count: 4, spacing: 26)
