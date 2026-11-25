@@ -49,17 +49,30 @@ enum TVSettingsGroup: String, CaseIterable, Identifiable {
 struct TVSettingsCard<Content: View>: View {
     let title: String
     let summary: String?
+    let headerImage: String?
     @ViewBuilder let content: Content
 
-    init(_ title: String, summary: String? = nil, @ViewBuilder content: () -> Content) {
+    init(_ title: String, summary: String? = nil,
+         headerImage: String? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
         self.summary = summary
+        self.headerImage = headerImage
         self.content = content()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 23) {
-            Text(TVL10n.value(title)).font(.title2.bold())
+            HStack(spacing: 12) {
+                if let headerImage {
+                    Image(headerImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(width: 28, height: 28)
+                        .accessibilityHidden(true)
+                }
+                Text(TVL10n.value(title)).font(.title2.bold())
+            }
             if let summary {
                 Text(TVL10n.value(summary))
                     .font(.callout)
