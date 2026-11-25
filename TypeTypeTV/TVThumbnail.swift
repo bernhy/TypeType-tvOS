@@ -2,41 +2,6 @@ import SwiftUI
 import UIKit
 import ImageIO
 
-#if DEBUG
-/// Temporary, targeted logging for a thumbnail that is visible in Top Shelf
-/// and the detail hero but not in standard lists. Do not log tokens or full URLs.
-private enum TVThumbnailDiagnostics {
-    static let videoID = "OWw8wb_byN8"
-
-    static func tracks(videoURL: String?, primary: URL?) -> Bool {
-        (videoURL?.contains(videoID) == true) ||
-            (primary?.absoluteString.contains(videoID) == true)
-    }
-
-    static func tracks(_ candidate: URL?) -> Bool {
-        candidate?.absoluteString.contains(videoID) == true
-    }
-
-    static func source(_ url: URL) -> String {
-        if url.path == "/api/proxy" || url.path == "/proxy" {
-            let raw = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                .queryItems?.first(where: { $0.name == "url" })?.value
-            let remote = raw.flatMap { URL(string: $0) }
-            return "TT-proxy/" + (remote?.lastPathComponent ?? "unknown")
-        }
-        if url.path == "/api/dearrow/thumbnail" ||
-           url.path == "/dearrow/thumbnail" {
-            return "TT-DeArrow"
-        }
-        return (url.host ?? "unknown-host") + "/" + url.lastPathComponent
-    }
-
-    static func log(_ message: String) {
-        NSLog("TypeType THUMB %@", message)
-    }
-}
-#endif
-
 /// Decode only a bounded thumbnail instead of eagerly expanding potentially
 /// huge third-party images. This limits memory spikes from highly compressed
 /// CDN artwork without changing the original aspect ratio.
@@ -125,7 +90,6 @@ enum TVThumbnailSources {
     /// than HTTP errors. Check the nested filename for proxied images too.
     static func accepts(_ image: UIImage, from url: URL,
                         quality: TVThumbnailImageQuality) -> Bool {
-        guard quality == .hero else { return true }
         let originalURL: URL
         if url.path == "/api/proxy" || url.path == "/proxy",
            let raw = URLComponents(url: url, resolvingAgainstBaseURL: false)?
@@ -135,10 +99,27 @@ enum TVThumbnailSources {
         } else {
             originalURL = url
         }
-        guard ["maxresdefault.jpg", "hq720.jpg", "sddefault.jpg"]
-            .contains(originalURL.lastPathComponent.lowercased()) else { return true }
-        guard let bitmap = image.cgImage else { return false }
-        return bitmap.width >= 640 && bitmap.height >= 360
+
+        // YouTube returns a valid 120x90 JPEG with HTTP 200 when some
+        // thumbnail sizes are unavailable. Reject that placeholder in
+        // standard cards too, so the existing HQ/MQ fallbacks can run.
+        // Custom TypeType and DeArrow artwork must retain its own size.
+        let host = originalURL.host?.lowercased() ?? ""
+        guard host == "ytimg.com" || host.hasSuffix(".ytimg.com") ||
+              host == "img.youtube.com" else { return true }
+        let filename = originalURL.lastPathComponent.lowercased()
+        let variants = ["maxresdefault.jpg", "hq720.jpg", "sddefault.jpg",
+                        "hqdefault.jpg", "mqdefault.jpg"]
+        guard variants.contains(filename) else { return true }
+        guard let bitmap = image.cgImage, bitmap.width >= 160,
+              bitmap.height >= 90 else { return false }
+
+        // Preserve the stricter policy for fullscreen hero variants.
+        if quality == .hero &&
+            ["maxresdefault.jpg", "hq720.jpg", "sddefault.jpg"].contains(filename) {
+            return bitmap.width >= 640 && bitmap.height >= 360
+        }
+        return true
     }
 }
 
@@ -232,37 +213,10 @@ private actor TVThumbnailWorkPool {
                   let image = TVThumbnailDecoder.decode(
                     data, maximumDimension: pixels
                   ) else {
-                #if DEBUG
-                if TVThumbnailDiagnostics.tracks(request.url) {
-                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                    let source = request.url.map(TVThumbnailDiagnostics.source) ?? "unknown"
-                    TVThumbnailDiagnostics.log(
-                        "HTTP/decode rejected source=\(source) status=\(status) bytes=\(data.count)"
-                    )
-                }
-                #endif
                 return nil
             }
-            #if DEBUG
-            if TVThumbnailDiagnostics.tracks(request.url) {
-                let source = request.url.map(TVThumbnailDiagnostics.source) ?? "unknown"
-                TVThumbnailDiagnostics.log(
-                    "HTTP/decode success source=\(source) status=200 bytes=\(data.count) " +
-                    "image=\(image.size.width)x\(image.size.height)"
-                )
-            }
-            #endif
             return TVThumbnailDecoded(image: image)
         } catch {
-            #if DEBUG
-            if TVThumbnailDiagnostics.tracks(request.url) {
-                let source = request.url.map(TVThumbnailDiagnostics.source) ?? "unknown"
-                let failure = error as NSError
-                TVThumbnailDiagnostics.log(
-                    "network error source=\(source) domain=\(failure.domain) code=\(failure.code)"
-                )
-            }
-            #endif
             // A failed thumbnail must never block browsing or video playback.
             return nil
         }
@@ -330,35 +284,12 @@ struct TVThumbnail: View {
         }
         .clipped()
         .task(id: "\(origin.absoluteString)|\(url?.absoluteString ?? "")|\(maximumPixelDimension)|\(videoURL ?? "")|\(quality.rawValue)") {
-            #if DEBUG
-            if TVThumbnailDiagnostics.tracks(videoURL: videoURL, primary: url) {
-                TVThumbnailDiagnostics.log(
-                    "task started quality=\(quality.rawValue) pixels=\(maximumPixelDimension) " +
-                    "primary=\(url.map(TVThumbnailDiagnostics.source) ?? "none")"
-                )
-            }
-            #endif
             // SwiftUI may reuse a card for a different URL. Do not keep the
             // previous video's artwork visible while the new image loads.
             bitmap = nil
             await load()
-            #if DEBUG
-            if TVThumbnailDiagnostics.tracks(videoURL: videoURL, primary: url) {
-                TVThumbnailDiagnostics.log(
-                    "task finished quality=\(quality.rawValue) " +
-                    "cancelled=\(Task.isCancelled) hasBitmap=\(bitmap != nil)"
-                )
-            }
-            #endif
         }
         .onDisappear {
-            #if DEBUG
-            if TVThumbnailDiagnostics.tracks(videoURL: videoURL, primary: url) {
-                TVThumbnailDiagnostics.log(
-                    "onDisappear quality=\(quality.rawValue) hadBitmap=\(bitmap != nil)"
-                )
-            }
-            #endif
             // Lazy grid cells may survive offscreen in SwiftUI's view graph.
             // Release their bitmap; the bounded shared cache can repopulate it.
             bitmap = nil
@@ -370,26 +301,12 @@ struct TVThumbnail: View {
         let candidates = TVThumbnailSources.urls(
             primary: url, videoURL: videoURL, origin: origin, quality: quality
         )
-        #if DEBUG
-        let trace = TVThumbnailDiagnostics.tracks(videoURL: videoURL, primary: url)
-        if trace {
-            TVThumbnailDiagnostics.log(
-                "sources quality=\(quality.rawValue) count=\(candidates.count) " +
-                "order=\(candidates.map(TVThumbnailDiagnostics.source).joined(separator: ","))"
-            )
-        }
-        #endif
         guard !candidates.isEmpty else {
             bitmap = nil
             return
         }
         let pixels = TVThumbnailRequestPolicy.pixelLimit(maximumPixelDimension)
         for candidate in candidates {
-            #if DEBUG
-            if trace && Task.isCancelled {
-                TVThumbnailDiagnostics.log("cancelled before source=\(TVThumbnailDiagnostics.source(candidate))")
-            }
-            #endif
             guard !Task.isCancelled else { return }
             let firstParty = candidate.host?.lowercased() == origin.host?.lowercased() &&
                 candidate.scheme == origin.scheme && candidate.port == origin.port
@@ -401,27 +318,11 @@ struct TVThumbnail: View {
             ) as NSString
             if let cached = TVThumbnailMemory.shared.configuredCache().object(forKey: key) {
                 if TVThumbnailSources.accepts(cached, from: candidate, quality: quality) {
-                    #if DEBUG
-                    if trace {
-                        TVThumbnailDiagnostics.log(
-                            "cache hit source=\(TVThumbnailDiagnostics.source(candidate)) " +
-                            "image=\(cached.size.width)x\(cached.size.height)"
-                        )
-                    }
-                    #endif
                     bitmap = cached
                     return
                 }
                 TVThumbnailMemory.shared.configuredCache().removeObject(forKey: key)
             }
-            #if DEBUG
-            if trace {
-                TVThumbnailDiagnostics.log(
-                    "request source=\(TVThumbnailDiagnostics.source(candidate)) " +
-                    "pixels=\(pixels)"
-                )
-            }
-            #endif
             var request = URLRequest(url: candidate)
             request.timeoutInterval = (candidate.path == "/api/proxy" || candidate.path == "/proxy") ? 6 : 20
             request.setValue("image/avif,image/webp,image/png,image/jpeg,*/*",
@@ -432,47 +333,21 @@ struct TVThumbnail: View {
                       let token = TypeTypeCredentials.shared.token(for: origin) {
                 request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
-            let decoded = await TVThumbnailWorkPool.shared.image(
+            guard let decoded = await TVThumbnailWorkPool.shared.image(
                 key: key as String, request: request, origin: origin,
                 firstParty: firstParty, pixels: pixels
-            )
-            #if DEBUG
-            if trace {
-                TVThumbnailDiagnostics.log(
-                    "result source=\(TVThumbnailDiagnostics.source(candidate)) " +
-                    "decoded=\(decoded != nil) cancelled=\(Task.isCancelled)"
-                )
-            }
-            #endif
-            guard let decoded, !Task.isCancelled,
-                  TVThumbnailSources.accepts(decoded.image, from: candidate,
-                                             quality: quality) else { continue }
+            ), !Task.isCancelled,
+               TVThumbnailSources.accepts(decoded.image, from: candidate,
+                                          quality: quality) else { continue }
             if let image = decoded.image.cgImage {
                 let size = image.bytesPerRow * image.height
                 TVThumbnailMemory.shared.configuredCache().setObject(
                     decoded.image, forKey: key, cost: size
                 )
             }
-            #if DEBUG
-            if trace {
-                TVThumbnailDiagnostics.log(
-                    "bitmap assigned source=\(TVThumbnailDiagnostics.source(candidate)) " +
-                    "quality=\(quality.rawValue)"
-                )
-            }
-            #endif
             bitmap = decoded.image
             return
         }
-        #if DEBUG
-        if !Task.isCancelled {
-            let videoID = videoURL.flatMap(VideoAddress.youtubeID) ?? "(unknown)"
-            TVThumbnailDiagnostics.log(
-                "unresolved videoId=\(videoID) quality=\(quality.rawValue) " +
-                "candidates=\(candidates.count)"
-            )
-        }
-        #endif
     }
 }
 
