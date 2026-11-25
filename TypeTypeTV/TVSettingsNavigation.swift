@@ -148,6 +148,7 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
     let focusTarget: String?
     let onMoveLeft: (() -> Void)?
     let onVerticalMove: ((MoveCommandDirection) -> Void)?
+    let enabled: Bool
     @FocusState private var pickerFocus: Bool
     @ViewBuilder let options: Options
 
@@ -156,6 +157,7 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
          focusTarget: String? = nil,
          onMoveLeft: (() -> Void)? = nil,
          onVerticalMove: ((MoveCommandDirection) -> Void)? = nil,
+         enabled: Bool = true,
          @ViewBuilder options: () -> Options) {
         self.title = title
         self._selection = selection
@@ -163,6 +165,7 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
         self.focusTarget = focusTarget
         self.onMoveLeft = onMoveLeft
         self.onVerticalMove = onVerticalMove
+        self.enabled = enabled
         self.options = options()
     }
 
@@ -203,6 +206,8 @@ struct TVSettingsMenuRow<Value: Hashable, Options: View>: View {
             }
         }
         .padding(.vertical, 6)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.38)
         .accessibilityElement(children: .contain)
     }
 }
