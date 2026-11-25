@@ -593,6 +593,8 @@ struct VideoCard: View {
     @Environment(\.isFocused) private var isFocused
     @State private var streamMetadata: StreamInfo?
     @State private var metadataVideoURL: String?
+    @State private var deArrowKey: String?
+    @State private var deArrowDisplay: TVDeArrowDisplay?
 
     init(api: TypeTypeAPI, video: VideoItem,
          lookupMissingMetadata: Bool = false) {
@@ -644,13 +646,22 @@ struct VideoCard: View {
 
     var body: some View {
         let _ = cardStatus.revision
+        let settings = TVContentPreferences.shared.settings
+        let key = TVDeArrowPolicy.key(video: video, api: api, settings: settings)
+        let replacement = deArrowKey == key && key != nil ? deArrowDisplay : nil
         // One card surface, no transparent 10-point gap between artwork
         // and the info panel. That gap used to reveal the black grid behind.
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomTrailing) {
-                TVThumbnail(url: api.relativeMediaURL(video.thumbnailUrl),
-                            origin: api.origin, contentMode: .fit,
-                            maximumPixelDimension: 768, videoURL: video.url)
+                TVThumbnail(
+                    url: replacement?.thumbnailURL ??
+                        api.relativeMediaURL(video.thumbnailUrl),
+                    origin: api.origin,
+                    fallbackPrimary: replacement?.thumbnailURL == nil ? nil :
+                        api.relativeMediaURL(video.thumbnailUrl),
+                    contentMode: .fit,
+                    maximumPixelDimension: 768, videoURL: video.url
+                )
                     .grayscale(completed ? 1 : 0)
                     // Never scale thumbnail content: on tvOS the duration
                     // badge at the bottom-right otherwise appears enlarged
@@ -727,7 +738,7 @@ struct VideoCard: View {
             // the artwork viewport. It was previously a fixed gradient.
             .modifier(TVFocusedArtworkGlint())
             VStack(alignment: .leading, spacing: 7) {
-                Text(video.title)
+                Text(replacement?.title ?? video.title)
                     .font(.system(size: 21, weight: .semibold))
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, minHeight: 54, alignment: .topLeading)
@@ -795,6 +806,10 @@ struct VideoCard: View {
             video: video, api: api, enabled: lookupMissingMetadata,
             metadataVideoURL: $metadataVideoURL,
             streamMetadata: $streamMetadata
+        ))
+        .modifier(TVDeArrowCardTask(
+            video: video, api: api, settings: settings,
+            selectedKey: $deArrowKey, selected: $deArrowDisplay
         ))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(TTTheme.accessibilityText(for: video))
