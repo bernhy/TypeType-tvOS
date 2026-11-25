@@ -252,12 +252,15 @@ final class TVTopShelfSnapshotTests: XCTestCase {
     }
 
     func testNormalAppAlsoFallsBackToMQWhenNeeded() {
+        let origin = URL(string: "https://instance.example/")!
         let urls = TVThumbnailSources.urls(
             primary: URL(string: "https://instance.example/dearrow/thumbnail"),
-            videoURL: "https://youtu.be/abc123def45"
+            videoURL: "https://youtu.be/abc123def45", origin: origin
         )
-        XCTAssertEqual(urls.map(\.lastPathComponent),
-                       ["thumbnail", "hqdefault.jpg", "mqdefault.jpg"])
+        XCTAssertEqual(urls.map(\.path),
+                       ["/api/dearrow/thumbnail", "/api/proxy", "/api/proxy",
+                        "/vi/abc123def45/hqdefault.jpg",
+                        "/vi/abc123def45/mqdefault.jpg"])
     }
 
     func testSectionHeaderShowsChannelWithoutChangingVideoTitle() {
