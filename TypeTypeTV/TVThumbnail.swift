@@ -19,9 +19,9 @@ private enum TVThumbnailDiagnostics {
 
     static func source(_ url: URL) -> String {
         if url.path == "/api/proxy" || url.path == "/proxy" {
-            let remote = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            let raw = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "url" })?.value
-                .flatMap(URL.init(string:))
+            let remote = raw.flatMap { URL(string: $0) }
             return "TT-proxy/" + (remote?.lastPathComponent ?? "unknown")
         }
         if url.path == "/api/dearrow/thumbnail" ||
