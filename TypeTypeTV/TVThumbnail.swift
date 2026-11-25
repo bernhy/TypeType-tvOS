@@ -279,6 +279,7 @@ struct TVThumbnail: View {
     var videoURL: String? = nil
     var quality: TVThumbnailImageQuality = .standard
     @State private var bitmap: UIImage?
+    @State private var displayedVideoIdentity: String?
 
     var body: some View {
         // Both axes stay bounded to the thumbnail viewport. For video
@@ -306,9 +307,16 @@ struct TVThumbnail: View {
         }
         .clipped()
         .task(id: "\(origin.absoluteString)|\(url?.absoluteString ?? "")|\(fallbackPrimary?.absoluteString ?? "")|\(maximumPixelDimension)|\(videoURL ?? "")|\(quality.rawValue)") {
-            // SwiftUI may reuse a card for a different URL. Do not keep the
-            // previous video's artwork visible while the new image loads.
-            bitmap = nil
+            // A DeArrow replacement may arrive after the original image.
+            // Keep the visible original while its replacement is fetched;
+            // reset immediately only if SwiftUI reused this view for a
+            // different video/server. No extra thumbnail request or timer.
+            let identity = origin.absoluteString + "|" +
+                (videoURL ?? url?.absoluteString ?? "")
+            if displayedVideoIdentity != identity {
+                displayedVideoIdentity = identity
+                bitmap = nil
+            }
             await load()
         }
         .onDisappear {
