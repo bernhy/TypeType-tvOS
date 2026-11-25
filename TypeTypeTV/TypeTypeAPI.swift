@@ -1034,6 +1034,19 @@ struct TypeTypeAPI {
         return try await get("playlist", query: query)
     }
 
+    /// Public server-side DeArrow metadata, never the third-party service.
+    /// Eight seconds bounds optional artwork/title lookup latency.
+    func deArrow(videoID: String) async throws -> TVDeArrowItem {
+        guard videoID.count == 11,
+              videoID.allSatisfy({ $0.isASCII &&
+                  ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") })
+        else { throw TypeTypeError.unavailableFormat }
+        return try await get(
+            "dearrow", query: [URLQueryItem(name: "videoId", value: videoID)],
+            timeout: 8
+        )
+    }
+
     func stream(for video: VideoItem) async throws -> StreamInfo {
         let endpoint: String
         let host = URLComponents(string: video.url)?.host?.lowercased()
@@ -1051,11 +1064,15 @@ struct TypeTypeAPI {
         return try await get(endpoint, query: [URLQueryItem(name: "url", value: video.url)])
     }
 
-    private func get<T: Decodable>(_ endpoint: String, query: [URLQueryItem] = []) async throws -> T {
+    private func get<T: Decodable>(
+        _ endpoint: String, query: [URLQueryItem] = [],
+        timeout: TimeInterval? = nil
+    ) async throws -> T {
         var parts = URLComponents(url: base.appendingPathComponent(endpoint), resolvingAgainstBaseURL: false)
         parts?.queryItems = query.isEmpty ? nil : query
         guard let url = parts?.url else { throw TypeTypeError.invalidServerAddress }
         var request = URLRequest(url: url)
+        if let timeout { request.timeoutInterval = timeout }
         request.setValue("TypeTypeTV-tvOS/0.1", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let bearer = accountToken {
