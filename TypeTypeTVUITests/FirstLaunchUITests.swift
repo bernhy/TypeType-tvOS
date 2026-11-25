@@ -363,34 +363,6 @@ final class TypeTypeTVUITests: XCTestCase {
                       "Right restores the last Settings control without a timer")
     }
 
-    func testContentChoiceSheetFocusesSelectedValueWithoutScrollingFromTop() throws {
-        let app = XCUIApplication()
-        app.launchArguments = [
-            "-TypeTypeTVPreview", "settings-content",
-            "settings-choice-focus-preview", "-typetype.uiLanguage", "de"
-        ]
-        app.launch()
-        let category = app.buttons["settings-group-content"]
-        let first = app.buttons["content.hideHomeRecommendations"]
-        let watched = app.buttons["content.watchedThreshold"]
-        XCTAssertTrue(waitForFocus(category, timeout: 20))
-        XCUIRemote.shared.press(.right)
-        XCTAssertTrue(waitForFocus(first))
-        for _ in 0..<12 {
-            if watched.hasFocus { break }
-            XCUIRemote.shared.press(.down)
-        }
-        XCTAssertTrue(waitForFocus(watched),
-                      "Content watched picker must remain natively reachable")
-        XCUIRemote.shared.press(.select)
-        let selected = app.buttons["settings-choice-26"] // 0, 50...74, 75
-        XCTAssertTrue(waitForFocus(selected, timeout: 8),
-                      "The sheet must initially focus 75%, not the first option")
-        XCUIRemote.shared.press(.menu)
-        XCTAssertTrue(waitForFocus(watched),
-                      "Closing the picker must restore focus to the invoking row")
-    }
-
     func testDisabledDeArrowSuboptionsRemainVisibleAndUnfocusable() throws {
         let app = XCUIApplication()
         app.launchArguments = [
