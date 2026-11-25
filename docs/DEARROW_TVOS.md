@@ -1,6 +1,6 @@
-# DeArrow auf TypeType tvOS (Experiment, 25.11.2026)
+# DeArrow auf TypeType tvOS (Integration, 25.11.2026)
 
-Branch: `feature/dearrow-tvos-20261125`. **Nicht** nach `main` übernommen, kein Pull Request.
+Entwicklungsbranch: `feature/dearrow-tvos-20261125`. Am 25.11.2026 nach Tests und Bereinigung ohne Pull Request nach `main` übernommen.
 
 ## Server-API und Optionen
 
@@ -29,14 +29,14 @@ Die Auswahl gilt für gemeinsame Videokarten (Home, History, Suche, Bibliothek, 
 - Top Shelf prüft bei neuen/metadatengeänderten Einträgen höchstens die veröffentlichten **5 Videos**, verwendet denselben DeArrow-Cache und startet erst anschließend die vorhandene Poster-Vorabprüfung. Keine zusätzlichen History-Requests.
 - Originale Bilddecoder, vier parallele Thumbnail-Downloads, Bild-NSCache und Fokusnavigation bleiben unverändert.
 
-## Grenzen, die vor Merge überprüft werden müssen
+## Bekannte Grenzen und weitere Geräteprüfungen
 
-- Es gibt noch **keine Bestätigung durch einen physischen Apple-TV-Test**, dass die Serverversion in der eigenen Installation die Kandidaten in allen Konfigurationen liefert.
+- Ein physisches Apple TV bestätigte die alternativen DeArrow-Titel und Bild-URLs. Nicht alle Modi und die erfolgreiche Erzeugung eines tatsächlich anderen Videoframes wurden auf Hardware überprüft.
 - TypeType liefert bei `/dearrow/thumbnail` unter Umständen selbst ein Fallback-Bild. Die tvOS-App kann am HTTP-200-Bild nicht erkennen, ob serverseitig ein originales Fallback statt des DeArrow-Frames zurückgegeben wurde.
 - Der **Player-OSD und die Wiedergabe-Historienobjekte** behalten weiterhin den originalen Videotitel; Listen, Details und Top Shelf zeigen DeArrow-Titel. Die Kontodaten/History-Titel werden absichtlich nicht überschrieben.
 - Kein zusätzliches Speichern lokaler Posterdateien und kein DeArrow-Direktzugriff auf `dearrow.ajay.app`.
 - Die Servereinstellungen wirken nur, wenn ein verwendbares Konto-/Settings-API verfügbar ist. Gastzugriffe ohne Einstellungsdaten zeigen die Standardbilder.
-- Für das Experiment werden Build/Unit/UI-Tests über einen Branch-spezifischen GitHub-Actions-Pushlauf benötigt. Der grüne Status wird erst nach tatsächlichem Erfolg dokumentiert.
+- Der letzte vollständige CI-Lauf vor den Testkorrekturen bestätigte Simulator-/Geräte-Debug-/Release-Build sowie 57 UI-Tests. Thumbnail-Unit-Test-Fixtures und URL-Erwartungen wurden korrigiert; der abschließende Folgelauf muss separat erfolgreich sein.
 
 ## Gerätetest
 

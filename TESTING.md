@@ -163,9 +163,9 @@ boundaries. Record elapsed time until the **first correctly moving frame**
 - Check 180-second lookahead for 1080p AVC/AAC, then progressively higher bitrates, pause and resume, seek and restart, session expiry, server stalls, cache eviction and disconnection. Limits are conservative for unknown bitrate. Verify the cache stays within its configured MiB ceiling.
 - Verify the pipeline reports a network error after draining already downloaded windows rather than silently discarding them.
 
-## DeArrow experimental branch — device and performance checks
+## DeArrow — device and performance checks
 
-- Build `feature/dearrow-tvos-20261125` separately; `main` is unchanged by DeArrow. Existing TypeType Server must provide `/api/dearrow`, `/api/dearrow/thumbnail` and the four DeArrow settings fields.
+- Build current `main` (the feature was developed on `feature/dearrow-tvos-20261125`). Existing TypeType Server must provide `/api/dearrow`, `/api/dearrow/thumbnail` and the four DeArrow settings fields.
 - Under Einstellungen → Inhalte → DeArrow, set Enabled, title mode Original/DeArrow, image mode Original/DeArrow/Random/DeArrow-or-Random, trust Accepted/Locked. Confirm settings round-trip to the server and switch back correctly from another client.
 - Verify visible YouTube cards in Home, Continue Watching, History, Search, Library, subscriptions, channels, related videos; opening details must use the chosen title/hero when available, while existing native focus and smooth scrolling stay unchanged. Live/other-provider items should not generate DeArrow lookups.
 - With DeArrow switched off, observe **zero** DeArrow metadata requests, no card-specific tasks. With it switched on, one metadata request per video per cache window, max 3 concurrently, shared between lists/details/Top Shelf, no per-focus requests. Verify the normal TypeType image, TT-Proxy HQ/MQ, YouTube HQ/MQ fallback after an invalid DeArrow thumbnail.

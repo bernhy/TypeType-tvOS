@@ -1,7 +1,7 @@
 name: tvOS (unsigned simulator + Apple TV device builds)
 on:
   push:
-    branches: [main, dev, experiment/home-performance-focus-20261120, feature/dearrow-tvos-20261125]
+    branches: [main, dev, experiment/home-performance-focus-20261120]
   pull_request:
   workflow_dispatch:
 
