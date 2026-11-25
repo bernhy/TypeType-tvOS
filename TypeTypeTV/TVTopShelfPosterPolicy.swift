@@ -15,7 +15,7 @@ enum TVTopShelfPosterPolicy {
     /// Public TypeType artwork, then canonical YouTube variants through the
     /// TypeType image proxy, and finally direct YouTube as a last resort.
     static func candidates(
-        primary: URL?, videoURL: String, origin: URL,
+        primary: URL?, secondary: URL? = nil, videoURL: String, origin: URL,
         variants: [String] = ["hqdefault", "mqdefault"],
         highResolutionFirst: Bool = false
     ) -> [URL] {
@@ -26,6 +26,10 @@ enum TVTopShelfPosterPolicy {
         if let primary, (!highResolutionFirst || !isYouTubeArtwork(primary)),
            let preferred = publicServerURL(primary, origin: origin) {
             urls.append(preferred)
+        }
+        if let secondary, (!highResolutionFirst || !isYouTubeArtwork(secondary)),
+           let original = publicServerURL(secondary, origin: origin) {
+            urls.append(original)
         }
         if let id = VideoAddress.youtubeID(videoURL) {
             for variant in variants {
@@ -51,10 +55,12 @@ enum TVTopShelfPosterPolicy {
         return unique
     }
 
-    static func identity(for videoURL: String, primary: URL?, origin: URL) -> String {
+    static func identity(for videoURL: String, primary: URL?,
+                         secondary: URL? = nil, origin: URL) -> String {
         TVTopShelfSnapshotStore.fingerprint(
             origin.absoluteString + "\n" + videoURL + "\n" +
-                (primary?.absoluteString ?? "")
+                (primary?.absoluteString ?? "") + "\n" +
+                (secondary?.absoluteString ?? "")
         )
     }
 
