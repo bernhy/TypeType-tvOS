@@ -6,7 +6,7 @@ final class TVDirectPlaybackTests: XCTestCase {
         VideoItem(
             id: id, title: "Video " + id,
             url: "https://www.youtube.com/watch?v=" + id,
-            thumbnailUrl: nil, duration: 300, isLive: false
+            thumbnailUrl: nil, uploaderName: nil, duration: 300, isLive: false
         )
     }
 
