@@ -28,6 +28,10 @@ struct TVServerSettings: Decodable {
     var sponsorBlockSkipNonMusicOnlyOnMusicVideos: Bool?
     var sponsorBlockMuteInsteadOfSkip: Bool?
     var defaultQuality: String?
+    var deArrowEnabled: Bool?
+    var deArrowTitleMode: String?
+    var deArrowThumbnailMode: String?
+    var deArrowTrustMode: String?
 
     var effectiveWatchedThresholdPercent: Int {
         TVWatchedThresholdPolicy.resolved(watchedThresholdPercent)
