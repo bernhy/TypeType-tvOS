@@ -454,7 +454,8 @@ struct PreferencesView: View {
                 }
             }
             if let remote {
-                TVSettingsCard("settings.deArrow.title", summary: "settings.deArrow.help") {
+                TVSettingsCard("settings.deArrow.title", summary: "settings.deArrow.help",
+                               headerImage: "DeArrowLogo") {
                     TVSettingsSwitchRow(
                         "settings.deArrow.enabled",
                         isOn: Binding(
