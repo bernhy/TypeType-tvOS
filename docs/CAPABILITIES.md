@@ -1,6 +1,6 @@
 # TypeType tvOS — implementation and server compatibility
 
-> Audited 2026-11-24. Client baseline: `bernhy/TypeType-tvOS` `main` at `e4d44d462620`. Server contract baseline: official `TypeType-Video/TypeType-Server` **v1.19.1** (`8fc0b3aab7c0`). This is a **code/API inventory**, not a claim that every feature has been exercised on every Apple TV. Consult [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for historical commits and [../TESTING.md](../TESTING.md) for QA.
+> Audited 2026-11-24 (historical main baseline; DeArrow experiment updated 2026-11-25). Client baseline: `bernhy/TypeType-tvOS` `main` at `e4d44d462620`. Server contract baseline: official `TypeType-Video/TypeType-Server` **v1.19.1** (`8fc0b3aab7c0`). This is a **code/API inventory**, not a claim that every feature has been exercised on every Apple TV. Consult [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for historical commits and [../TESTING.md](../TESTING.md) for QA.
 
 ## Status vocabulary
 
@@ -55,7 +55,7 @@ The **main TypeType monorepo tag alone is not sufficient to identify submodule s
 - `watchedThresholdPercent` as above. `subtitlesEnabled`, subtitle/audio language and `preferOriginalLanguage` are read where the player applies them; do not assume every server playback setting is exposed in tvOS.
 - SponsorBlock global mode, per-category actions, minimum duration, current-segment and chapter visibility, full-video behavior, music filtering, mute/skip flags. The app reads/writes these through server settings; actual skip policy is local to the player.
 - **Apple-TV-local settings:** software-allowed flag, max resolution, directional skip (5/10/15/20 s), notice timeout, forward/back buffer, disk cache size, navigation animations, thumbnail memory, UI language and hardware diagnostics.
-- Server settings such as web `playerEngine`, `miniPlayerEnabled`, ambient-light/DeArrow preferences, default landing page and web-grid geometry are **not evidence of matching native tvOS controls**. The tvOS client has its own native player and layout.
+- Server settings such as web `playerEngine`, `miniPlayerEnabled`, ambient-light, default landing page and web-grid geometry are **not evidence of matching native tvOS controls**. The tvOS client has its own native player and layout. DeArrow settings are implemented **only in `feature/dearrow-tvos-20261125`**, not in the audited main checkpoint.
 
 ## Performance and stability decisions
 
@@ -67,8 +67,8 @@ The **main TypeType monorepo tag alone is not sufficient to identify submodule s
 ## Explicitly not shipped / open work
 
 - **Liquid Glass player OSD Concept B** remains [draft PR #18](https://github.com/bernhy/TypeType-tvOS/pull/18), not merged into `main`. Existing Glass popups/settings are **not** that player OSD overhaul.
-- **Apple TV Top Shelf Continue Watching** remains [draft PR #33](https://github.com/bernhy/TypeType-tvOS/pull/33), not merged into `main`. Home's in-app resume rail **is** in `main`.
-- No full live-SABR renderer, interactive live-chat overlay, persistent queue/shuffle/repeat parity, general-purpose webview for website end-screen cards, full DeArrow/ambient-light/web-player setting parity, or all server account/profile/import tools.
+- **Native Top Shelf Continue Watching** was merged into `main` via [PR #33](https://github.com/bernhy/TypeType-tvOS/pull/33) on 25 November 2026. `UserDefaults(suiteName:)` shares account-scoped snapshots with the extension; no shared JPEG folder is used.
+- No full live-SABR renderer, interactive live-chat overlay, persistent queue/shuffle/repeat parity, general-purpose webview for website end-screen cards, ambient-light/web-player setting parity, or all server account/profile/import tools. **DeArrow experiment:** `/api/dearrow` with settings/UI, lists/details/Top Shelf replacement and original/proxy/YouTube fallback implemented in `feature/dearrow-tvos-20261125`; CI, physical hardware, and player-OSD title parity still outstanding (see [DEARROW_TVOS.md](DEARROW_TVOS.md)).
 - Additional real-device QA: first-generation/other Apple TV models, 4K/HDR/frame rate, VP9/AV1/HEVC, audio/subtitle variants, long sessions, remote touch gestures, server restarts/attestation and memory/thermal measurements.
 
 ## Verification checkpoint (2026-11-24)
