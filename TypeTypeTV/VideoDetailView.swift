@@ -37,6 +37,7 @@ struct VideoDetailView: View {
     @FocusState private var focusedDetail: DetailFocus?
     @State private var fullDescriptionPresented = false
     @State private var playbackOpened = false
+    @State private var playPauseRequested = false
 
     private var youtube: Bool { VideoAddress.youtubeID(video.url) != nil }
     private var isOngoingLive: Bool {
@@ -171,21 +172,11 @@ struct VideoDetailView: View {
                             // Native tvOS focus navigation remains unchanged.
                                 HStack(spacing: 18) {
                                     NavigationLink {
-                                        if let playbackQueue,
-                                           let position = playbackQueue.firstIndex(where: {
-                                               $0.url == video.url
-                                           }) {
-                                            TVPlaylistPlaybackView(
-                                                api: api, videos: playbackQueue,
-                                                startIndex: position
-                                            )
-                                            .onAppear { playbackOpened = true }
-                                        } else {
-                                            // The detail screen has already enriched views/date
-                                            // via the existing metadata request; forward it to OSD.
-                                            PlaybackView(api: api, video: detailedVideo)
-                                                .onAppear { playbackOpened = true }
-                                        }
+                                        TVDirectPlaybackDestination(
+                                            api: api, video: detailedVideo,
+                                            playbackQueue: playbackQueue
+                                        )
+                                        .onAppear { playbackOpened = true }
                                     } label: {
                                         Label {
                                             if isOngoingLive {
@@ -483,6 +474,21 @@ struct VideoDetailView: View {
         }
         .sheet(isPresented: $fullDescriptionPresented) {
             TVFullDescriptionPanel(description: descriptionText ?? "")
+        }
+        .navigationDestination(isPresented: $playPauseRequested) {
+            TVDirectPlaybackDestination(
+                api: api, video: detailedVideo, playbackQueue: playbackQueue
+            )
+            .onAppear { playbackOpened = true }
+        }
+        .onPlayPauseCommand {
+            // The detail's whole focus region, not just its Play button.
+            // A modal description or playlist picker must keep input.
+            guard !fullDescriptionPresented,
+                  TVPlaylistPopupPresenter.shared.request == nil,
+                  !TVPlaybackVisibility.shared.isVisible,
+                  !playPauseRequested else { return }
+            playPauseRequested = true
         }
         .onExitCommand {
             if fullDescriptionPresented {
