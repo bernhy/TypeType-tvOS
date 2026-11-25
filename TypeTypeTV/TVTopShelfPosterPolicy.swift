@@ -14,13 +14,21 @@ enum TVTopShelfPosterPolicy {
 
     /// Public TypeType artwork, then canonical YouTube variants through the
     /// TypeType image proxy, and finally direct YouTube as a last resort.
-    static func candidates(primary: URL?, videoURL: String, origin: URL) -> [URL] {
+    static func candidates(
+        primary: URL?, videoURL: String, origin: URL,
+        variants: [String] = ["hqdefault", "mqdefault"],
+        highResolutionFirst: Bool = false
+    ) -> [URL] {
         var urls: [URL] = []
-        if let primary, let preferred = publicServerURL(primary, origin: origin) {
+        // Standard cards and Top Shelf prefer the server-provided artwork.
+        // A fullscreen hero instead tries maxres first when the primary is
+        // standard YouTube artwork; custom/DeArrow art retains its priority.
+        if let primary, (!highResolutionFirst || !isYouTubeArtwork(primary)),
+           let preferred = publicServerURL(primary, origin: origin) {
             urls.append(preferred)
         }
         if let id = VideoAddress.youtubeID(videoURL) {
-            for variant in ["hqdefault", "mqdefault"] {
+            for variant in variants {
                 guard let remote = URL(
                     string: "https://i.ytimg.com/vi/\(id)/\(variant).jpg"
                 ) else { continue }
@@ -28,7 +36,7 @@ enum TVTopShelfPosterPolicy {
                     urls.append(proxied)
                 }
             }
-            for variant in ["hqdefault", "mqdefault"] {
+            for variant in variants {
                 if let direct = URL(
                     string: "https://i.ytimg.com/vi/\(id)/\(variant).jpg"
                 ) {
@@ -54,7 +62,7 @@ enum TVTopShelfPosterPolicy {
     /// Local TypeType paths are restricted to explicitly public image routes.
     /// Never put access tokens, arbitrary server paths or private media URLs
     /// in the App Group preferences consumed by the independent extension.
-    private static func publicServerURL(_ primary: URL, origin: URL) -> URL? {
+    static func publicServerURL(_ primary: URL, origin: URL) -> URL? {
         guard origin.scheme == "https",
               primary.scheme == "https",
               primary.user == nil, primary.password == nil,
@@ -105,6 +113,23 @@ enum TVTopShelfPosterPolicy {
         parts.path = "/api/" + path
         parts.queryItems = queryItems
         return parts.url
+    }
+
+    /// Treat a TypeType-proxied YouTube primary like a direct YouTube primary:
+    /// fullscreen heroes may try higher-resolution variants before it.
+    private static func isYouTubeArtwork(_ url: URL) -> Bool {
+        let remote: URL
+        if url.path == "/api/proxy" || url.path == "/proxy",
+           let raw = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "url" })?.value,
+           let wrapped = URL(string: raw) {
+            remote = wrapped
+        } else {
+            remote = url
+        }
+        let host = remote.host?.lowercased() ?? ""
+        return host == "ytimg.com" || host.hasSuffix(".ytimg.com") ||
+            host == "img.youtube.com"
     }
 
     private static func isSupportedRemoteImage(_ url: URL) -> Bool {
