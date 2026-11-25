@@ -192,16 +192,21 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
         XCTAssertFalse(TVThumbnailSources.accepts(validHQ, from: maxres, quality: .hero))
         XCTAssertTrue(TVThumbnailSources.accepts(validHero, from: maxres, quality: .hero))
 
-        // Deliberate DeArrow/custom images may have a different aspect/size.
+        // Custom images are unrestricted, but TypeType's DeArrow renderer
+        // must not claim a 120x90 HTTP-200 placeholder as real artwork.
         let custom = URL(string: "https://cdn.example/dearrow/\(videoID).webp")!
         let deArrow = URL(string:
             "https://instance.example/api/dearrow/thumbnail?videoId=\(videoID)&time=12")!
-        for url in [custom, deArrow] {
-            XCTAssertTrue(TVThumbnailSources.accepts(placeholder, from: url,
-                                                     quality: .standard))
-            XCTAssertTrue(TVThumbnailSources.accepts(placeholder, from: url,
-                                                     quality: .hero))
-        }
+        XCTAssertTrue(TVThumbnailSources.accepts(placeholder, from: custom,
+                                                 quality: .standard))
+        XCTAssertTrue(TVThumbnailSources.accepts(placeholder, from: custom,
+                                                 quality: .hero))
+        XCTAssertFalse(TVThumbnailSources.accepts(placeholder, from: deArrow,
+                                                  quality: .standard))
+        XCTAssertFalse(TVThumbnailSources.accepts(placeholder, from: deArrow,
+                                                  quality: .hero))
+        XCTAssertTrue(TVThumbnailSources.accepts(validMQ, from: deArrow,
+                                                 quality: .standard))
     }
 
     func testEmptyStoredWatchLaterAndPlaylistThumbnailsCanRecover() throws {
