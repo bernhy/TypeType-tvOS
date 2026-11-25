@@ -106,6 +106,25 @@ final class TVDeArrowTests: XCTestCase {
         XCTAssertEqual(shelf.last?.lastPathComponent, "mqdefault.jpg")
     }
 
+    func testDeArrowBadgeOnlyAppliesToDisplayedServerDeArrowArtwork() {
+        let origin = URL(string: "https://instance.example/")!
+        let publicDeArrow = URL(string:
+            "https://instance.example/api/dearrow/thumbnail?videoId=abc123def45&time=42")!
+        let legacyDeArrow = URL(string:
+            "https://instance.example/dearrow/thumbnail?videoId=abc123def45&time=42")!
+        let original = URL(string:
+            "https://i.ytimg.com/vi/abc123def45/hqdefault.jpg")!
+        let proxy = URL(string:
+            "https://instance.example/api/proxy?url=https%3A%2F%2Fi.ytimg.com")!
+        let foreignDeArrow = URL(string:
+            "https://foreign.example/api/dearrow/thumbnail?videoId=abc123def45&time=42")!
+        XCTAssertTrue(TVThumbnailSources.isDeArrowArtwork(publicDeArrow, origin: origin))
+        XCTAssertTrue(TVThumbnailSources.isDeArrowArtwork(legacyDeArrow, origin: origin))
+        for url in [original, proxy, foreignDeArrow] {
+            XCTAssertFalse(TVThumbnailSources.isDeArrowArtwork(url, origin: origin))
+        }
+    }
+
     func testAccountScopedCacheKeysChangeWhenOptionsChange() throws {
         let api = try TypeTypeAPI(address: "https://instance.example/")
         let video = VideoItem(
