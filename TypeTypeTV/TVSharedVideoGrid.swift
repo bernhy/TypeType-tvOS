@@ -45,6 +45,7 @@ private struct TVSharedVideoGridTile: View {
     let onNavigation: () -> Void
     let onTopEdge: (String) -> Void
     let onRemoveFromPlaylist: (() async throws -> Void)?
+    @Environment(\.tvDirectPlayback) private var directPlayback
 
     var body: some View {
         let video = entry.video
@@ -80,6 +81,15 @@ private struct TVSharedVideoGridTile: View {
             } else if direction == .up && entry.index < columns {
                 onTopEdge(focusID)
             }
+        }
+        .onPlayPauseCommand {
+            // Only the actually focused video card may consume the command.
+            // Select/OK still opens details via the original NavigationLink.
+            guard focus.wrappedValue == focusID else { return }
+            directPlayback(
+                video, playbackQueue: playbackQueue,
+                onReturnedVideo: onReturnedVideo
+            )
         }
         .accessibilityLabel(TTTheme.accessibilityText(for: video))
         .accessibilityIdentifier(accessibilityPrefix + String(entry.index))
