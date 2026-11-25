@@ -25,6 +25,11 @@ final class TVTopShelfPublisher {
     private var posterCheckTask: Task<Void, Never>?
     private var posterCheckSignature: String?
     private var posterCheckGeneration = 0
+    // One deduplicated batch only for the five published videos, not for
+    // all history candidates or every progress checkpoint.
+    private var deArrowCheckTask: Task<Void, Never>?
+    private var deArrowCheckSignature: String?
+    private var deArrowCheckGeneration = 0
     private let accountPreferences = TVTopShelfAccountPreferences()
 
     private init() {}
@@ -158,24 +163,33 @@ final class TVTopShelfPublisher {
             )
         }.prefix(TVTopShelfSnapshotStore.maximumItems))
 
-        let checks: [TVTopShelfPosterPolicy.Check] = chosen.map { video in
-            let primary = api.relativeMediaURL(video.thumbnailUrl)
+        let settings = TVContentPreferences.shared.settings
+        let artwork = chosen.map {
+            TVDeArrowCache.shared.cached(for: $0, api: api, settings: settings)
+        }
+        let checks: [TVTopShelfPosterPolicy.Check] = chosen.enumerated().map {
+            index, video in
+            let original = api.relativeMediaURL(video.thumbnailUrl)
+            let primary = artwork[index]?.thumbnailURL ?? original
+            let secondary = artwork[index]?.thumbnailURL == nil ? nil : original
             return TVTopShelfPosterPolicy.Check(
                 identity: TVTopShelfPosterPolicy.identity(
-                    for: video.url, primary: primary, origin: api.origin
+                    for: video.url, primary: primary,
+                    secondary: secondary, origin: api.origin
                 ),
                 candidates: TVTopShelfPosterPolicy.candidates(
-                    primary: primary, videoURL: video.url, origin: api.origin
+                    primary: primary, secondary: secondary,
+                    videoURL: video.url, origin: api.origin
                 )
             )
         }
-        let items: [TVTopShelfSnapshotStore.Item] = zip(chosen, checks).map { pair in
-            let video = pair.0
-            let check = pair.1
+        let items: [TVTopShelfSnapshotStore.Item] = chosen.enumerated().map {
+            index, video in
+            let check = checks[index]
             let url = resolvedPosters[check.identity] ?? check.candidates.first
             return TVTopShelfSnapshotStore.Item(
                 key: TVTopShelfSnapshotStore.key(for: video.url),
-                videoID: video.id, title: video.title,
+                videoID: video.id, title: artwork[index]?.title ?? video.title,
                 channelName: video.uploaderName,
                 videoURL: video.url,
                 thumbnailURL: url?.absoluteString,
@@ -211,7 +225,71 @@ final class TVTopShelfPublisher {
                 return
             }
         }
-        startPosterChecks(checks, api: api, scope: scope)
+        // Resolve optional DeArrow metadata before preflighting candidate
+        // images. Otherwise each new card might download two poster variants.
+        if !startDeArrowChecks(chosen, api: api, scope: scope,
+                              settings: settings) {
+            startPosterChecks(checks, api: api, scope: scope)
+        }
+    }
+
+    /// Start a single background batch only for currently published videos.
+    /// Already cached (including negative) metadata results cost no network.
+    @discardableResult
+    private func startDeArrowChecks(
+        _ videos: [VideoItem], api: TypeTypeAPI,
+        scope: String, settings: TVServerSettings?
+    ) -> Bool {
+        guard TVDeArrowPolicy.requiresLookup(settings) else {
+            cancelDeArrowChecks()
+            return false
+        }
+        let unresolved = videos.filter {
+            TVDeArrowPolicy.key(video: $0, api: api, settings: settings) != nil &&
+                !TVDeArrowCache.shared.hasResult(
+                    for: $0, api: api, settings: settings
+                )
+        }
+        guard !unresolved.isEmpty else {
+            cancelDeArrowChecks()
+            return false
+        }
+        let signature = scope + "|" + TVDeArrowPolicy.signature(settings) +
+            "|" + videos.map(\.url).joined(separator: "|")
+        if deArrowCheckSignature == signature {
+            return deArrowCheckTask != nil
+        }
+        cancelDeArrowChecks()
+        deArrowCheckGeneration += 1
+        let generation = deArrowCheckGeneration
+        deArrowCheckSignature = signature
+        deArrowCheckTask = Task(priority: .utility) { [weak self] in
+            await withTaskGroup(of: Void.self) { group in
+                for video in unresolved {
+                    group.addTask {
+                        _ = await TVDeArrowCache.shared.resolve(
+                            for: video, api: api, settings: settings
+                        )
+                    }
+                }
+                await group.waitForAll()
+            }
+            guard !Task.isCancelled, let self,
+                  self.deArrowCheckGeneration == generation,
+                  self.candidateOrigin == api.origin.absoluteString,
+                  self.candidateScope == scope,
+                  self.mayPublish(api: api) else { return }
+            self.deArrowCheckTask = nil
+            self.schedule(api: api, scope: scope)
+        }
+        return true
+    }
+
+    private func cancelDeArrowChecks() {
+        deArrowCheckGeneration += 1
+        deArrowCheckTask?.cancel()
+        deArrowCheckTask = nil
+        deArrowCheckSignature = nil
     }
 
     /// Reuse public image choices while the app is alive. Changing only a
@@ -295,6 +373,7 @@ final class TVTopShelfPublisher {
 
     private func hideSnapshot() {
         cancelPosterChecks()
+        cancelDeArrowChecks()
         resolvedPosters.removeAll()
         lastSignature = nil
         if TVTopShelfSnapshotStore.clear() {
