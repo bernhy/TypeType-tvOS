@@ -45,9 +45,11 @@ final class TVContentPreferences: ObservableObject {
             let result = try? await api.accountSettings()
             guard !Task.isCancelled, self.scope == key else { return }
             let oldThreshold = self.watchedThresholdPercent
+            let oldDeArrow = TVDeArrowPolicy.signature(self.settings)
             settings = result
             loaded = result != nil
-            if self.watchedThresholdPercent != oldThreshold {
+            if self.watchedThresholdPercent != oldThreshold ||
+                TVDeArrowPolicy.signature(self.settings) != oldDeArrow {
                 TVVideoCardStatusCenter.changedAll(scope: key)
             }
         }
@@ -59,23 +61,27 @@ final class TVContentPreferences: ObservableObject {
     func apply(_ value: TVServerSettings, api: TypeTypeAPI) {
         guard scope.isEmpty || scope == api.metadataCacheScope else { return }
         let oldThreshold = watchedThresholdPercent
+        let oldDeArrow = TVDeArrowPolicy.signature(settings)
         scope = api.metadataCacheScope
         settings = value
         loaded = true
-        if watchedThresholdPercent != oldThreshold {
+        if watchedThresholdPercent != oldThreshold ||
+            TVDeArrowPolicy.signature(settings) != oldDeArrow {
             TVVideoCardStatusCenter.changedAll(scope: scope)
         }
     }
 
     func invalidate() {
         let oldThreshold = watchedThresholdPercent
+        let oldDeArrow = TVDeArrowPolicy.signature(settings)
         let oldScope = scope
         fetch?.cancel()
         fetch = nil
         scope = ""
         loaded = false
         settings = nil
-        if watchedThresholdPercent != oldThreshold {
+        if watchedThresholdPercent != oldThreshold ||
+            TVDeArrowPolicy.signature(settings) != oldDeArrow {
             TVVideoCardStatusCenter.changedAll(scope: oldScope)
         }
     }
