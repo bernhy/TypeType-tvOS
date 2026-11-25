@@ -32,7 +32,6 @@ final class TVTopShelfPublisher {
     func accountChecked(_ account: TVAccountIdentity?, api: TypeTypeAPI) {
         guard TVTopShelfVisibilityPolicy.permits(account), let account else {
             clear()
-            diagnostics("showing static artwork: no signed-in account")
             return
         }
         let origin = api.origin.absoluteString
@@ -65,7 +64,6 @@ final class TVTopShelfPublisher {
             verifiedAccountID = nil
         }
         hideSnapshot()
-        diagnostics("showing static artwork: server unavailable or authorization failed")
     }
 
     func serverRecovered(api: TypeTypeAPI) {
@@ -86,7 +84,6 @@ final class TVTopShelfPublisher {
               verifiedAccountID == accountID else { return }
         guard mayPublish(api: api) else {
             hideSnapshot()
-            diagnostics("static artwork: account opt-in disabled or unavailable")
             return
         }
         if candidateOrigin == api.origin.absoluteString,
@@ -204,12 +201,13 @@ final class TVTopShelfPublisher {
             } else if TVTopShelfSnapshotStore.write(snapshot) {
                 lastSignature = signature
                 TVTopShelfContentProvider.topShelfContentDidChange()
-                diagnostics("shared preferences updated; item count=\(items.count)")
             } else {
                 // Do not retry across every progress checkpoint if the group
                 // preferences are unavailable. Preserve the failure signal.
                 lastSignature = nil
-                diagnostics("shared preferences write failed")
+                #if DEBUG
+                NSLog("TypeType TOPSHELF: shared preferences write failed")
+                #endif
                 return
             }
         }
@@ -301,15 +299,9 @@ final class TVTopShelfPublisher {
         lastSignature = nil
         if TVTopShelfSnapshotStore.clear() {
             TVTopShelfContentProvider.topShelfContentDidChange()
-            diagnostics("shared snapshot cleared")
         }
     }
 
-    private func diagnostics(_ event: String) {
-        #if DEBUG
-        NSLog("TypeType TOPSHELF %@", event)
-        #endif
-    }
 }
 
 /// Unit-testable policy: a guest token is not a signed-in household account.
