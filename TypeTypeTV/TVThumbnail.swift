@@ -61,6 +61,17 @@ enum TVThumbnailImageQuality: String {
 }
 
 enum TVThumbnailSources {
+    /// Only artwork actually downloaded from the current TypeType DeArrow
+    /// thumbnail endpoint earns a DeArrow mark. Failed DeArrow attempts
+    /// followed by the original/proxy/YouTube image do not show the badge.
+    static func isDeArrowArtwork(_ url: URL, origin: URL) -> Bool {
+        url.scheme == origin.scheme &&
+            url.host?.lowercased() == origin.host?.lowercased() &&
+            url.port == origin.port &&
+            (url.path == "/api/dearrow/thumbnail" ||
+             url.path == "/dearrow/thumbnail")
+    }
+
     static func urls(primary: URL?, fallbackPrimary: URL? = nil,
                      videoURL: String?, origin: URL,
                      quality: TVThumbnailImageQuality = .standard) -> [URL] {
@@ -278,7 +289,10 @@ struct TVThumbnail: View {
     var maximumPixelDimension = 1_024
     var videoURL: String? = nil
     var quality: TVThumbnailImageQuality = .standard
+    // Leave room below the members-only icon in those video cards.
+    var deArrowBadgeTopInset: CGFloat = 8
     @State private var bitmap: UIImage?
+    @State private var displayedDeArrowArtwork = false
     @State private var displayedVideoIdentity: String?
 
     var body: some View {
@@ -303,6 +317,24 @@ struct TVThumbnail: View {
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
+            // Overlay does not contribute to size/focus/layout or trigger a
+            // network request. 18pt artwork is sourced from a bundled PNG.
+            .overlay(alignment: .topLeading) {
+                if bitmap != nil && displayedDeArrowArtwork {
+                    Image("DeArrowLogo")
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .frame(width: 18, height: 18)
+                        .padding(4)
+                        .background(.black.opacity(0.62),
+                                    in: RoundedRectangle(cornerRadius: 7))
+                        .padding(.leading, 8)
+                        .padding(.top, deArrowBadgeTopInset)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
             .clipped()
         }
         .clipped()
@@ -316,6 +348,7 @@ struct TVThumbnail: View {
             if displayedVideoIdentity != identity {
                 displayedVideoIdentity = identity
                 bitmap = nil
+                displayedDeArrowArtwork = false
             }
             await load()
         }
@@ -323,6 +356,7 @@ struct TVThumbnail: View {
             // Lazy grid cells may survive offscreen in SwiftUI's view graph.
             // Release their bitmap; the bounded shared cache can repopulate it.
             bitmap = nil
+            displayedDeArrowArtwork = false
         }
     }
 
@@ -334,6 +368,7 @@ struct TVThumbnail: View {
         )
         guard !candidates.isEmpty else {
             bitmap = nil
+            displayedDeArrowArtwork = false
             return
         }
         let pixels = TVThumbnailRequestPolicy.pixelLimit(maximumPixelDimension)
@@ -349,6 +384,9 @@ struct TVThumbnail: View {
             ) as NSString
             if let cached = TVThumbnailMemory.shared.configuredCache().object(forKey: key) {
                 if TVThumbnailSources.accepts(cached, from: candidate, quality: quality) {
+                    displayedDeArrowArtwork = TVThumbnailSources.isDeArrowArtwork(
+                        candidate, origin: origin
+                    )
                     bitmap = cached
                     return
                 }
@@ -376,6 +414,9 @@ struct TVThumbnail: View {
                     decoded.image, forKey: key, cost: size
                 )
             }
+            displayedDeArrowArtwork = TVThumbnailSources.isDeArrowArtwork(
+                candidate, origin: origin
+            )
             bitmap = decoded.image
             return
         }
