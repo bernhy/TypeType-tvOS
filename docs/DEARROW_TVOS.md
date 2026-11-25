@@ -33,7 +33,7 @@ Die Auswahl gilt für gemeinsame Videokarten (Home, History, Suche, Bibliothek, 
 
 - Ein physisches Apple TV bestätigte die alternativen DeArrow-Titel und Bild-URLs. Nicht alle Modi und die erfolgreiche Erzeugung eines tatsächlich anderen Videoframes wurden auf Hardware überprüft.
 - TypeType liefert bei `/dearrow/thumbnail` unter Umständen selbst ein Fallback-Bild. Die tvOS-App kann am HTTP-200-Bild nicht erkennen, ob serverseitig ein originales Fallback statt des DeArrow-Frames zurückgegeben wurde.
-- Der **Player-OSD und die Wiedergabe-Historienobjekte** behalten weiterhin den originalen Videotitel; Listen, Details und Top Shelf zeigen DeArrow-Titel. Die Kontodaten/History-Titel werden absichtlich nicht überschrieben.
+- Der **SABR-Player-OSD** zeigt jetzt ebenfalls den DeArrow-Titel, wenn eine aktuelle und vertrauenswürdige Titelvariante verfügbar ist. Die Kontodaten, der Verlauf, Now Playing, die Videoidentität und die Wiedergabefortschritte behalten den ursprünglichen Server-Titel. Das native HLS-System-OSD wird durch die Änderung nicht angepasst.
 - Kein zusätzliches Speichern lokaler Posterdateien und kein DeArrow-Direktzugriff auf `dearrow.ajay.app`.
 - Die Servereinstellungen wirken nur, wenn ein verwendbares Konto-/Settings-API verfügbar ist. Gastzugriffe ohne Einstellungsdaten zeigen die Standardbilder.
 - Der letzte vollständige CI-Lauf vor den Testkorrekturen bestätigte Simulator-/Geräte-Debug-/Release-Build sowie 57 UI-Tests. Thumbnail-Unit-Test-Fixtures und URL-Erwartungen wurden korrigiert; der abschließende Folgelauf muss separat erfolgreich sein.
@@ -70,3 +70,10 @@ Im Apple-TV-Gerätetest traten bei drei DeArrow-Bildadressen links und rechts sc
 Der sichtbare DeArrow-Thumbnail-Pfad wird deshalb nur in normalen **16:9-Videokarten** mit SwiftUI `aspectRatio(.fill)` statt `.fit` gerendert und auf die Kartengrenzen beschnitten; die Originale und normalen Fallbacks bleiben `.fit`. Das skaliert das Bild proportional, erzeugt keine zusätzliche HTTP-Anfrage und ändert den Thumbnail-Decoder oder Bildcache nicht. Die Heroansicht nutzt bereits `.fill`.
 
 **Noch offen:** Die TypeType-Server-Antwort zeigt den Fallback-Status derzeit nicht ausdrücklich als Header an. Der Client kann folglich aus dem URL-Pfad nicht eindeutig feststellen, ob ein Original-YouTube-Bild statt eines erzeugten DeArrow-Frames zurückkam. Die kleine DeArrow-Markierung bedeutet daher vorerst: *Bild über den DeArrow-Endpunkt geladen*, nicht beweisbar *Frame erfolgreich generiert*. Eine später ergänzte eindeutige Server-Kennzeichnung wäre für die präzise Badge-Anzeige sinnvoll. Ebenfalls auf Hardware nachtesten: ob sämtliche 4:3-Fallbackbilder ohne relevante Ausschnittverluste gerendert werden.
+
+## SABR-Player-OSD: DeArrow-Titel (25.11.2026)
+
+- SABR zeigt bei aktivierter DeArrow-Titelauswahl und einem geeigneten Kandidaten den DeArrow-Titel im vorhandenen OSD. Während eine nicht gecachte Antwort noch aussteht, bleibt der Originaltitel ohne Wiedergabeverzögerung sichtbar.
+- Bei einem Video mit bereits in Listen/Details geladenen Branding-Daten wird **derselbe** konten-/server-/modusabhängige `TVDeArrowCache` verwendet: **kein** zusätzlicher Netzwerkaufruf. Bei einem kalten Direktstart kann höchstens eine Metadatenabfrage durch den vorhandenen deduplizierten, auf drei gleichzeitige Requests begrenzten Cache erfolgen. Bei ausgeschaltetem DeArrow gibt es **keinen** zusätzlichen Branding-Request.
+- Die Änderung greift ausschließlich in die Textanzeige des SwiftUI-SABR-OSD ein; die Original-Metadaten für Playlist, History, Status/Presence und Now Playing bleiben unverändert. Wird das Konto, Video oder der Titelmodus gewechselt, wird ein alter DeArrow-Titel nicht in einen anderen Auswahlkontext übernommen.
+- Der native HLS-Player verwendet Apples AVPlayerViewController-OSD und bleibt unverändert.
