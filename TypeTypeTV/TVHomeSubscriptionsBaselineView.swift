@@ -284,7 +284,9 @@ struct TVHomeSubscriptionsBaselineView: View {
     // progress-driven image work during Home focus or scrolling.
     private var topShelfSignature: String {
         let items = showRecent ? Array(visibleRecent.prefix(5)) : []
-        return api.origin.absoluteString + "|" + items.map {
+        return api.origin.absoluteString + "|" +
+            TVDeArrowPolicy.signature(contentPreferences.settings) + "|" +
+            items.map {
             "\($0.url)|\($0.title)|\($0.duration ?? 0)|\($0.thumbnailUrl ?? "")"
         }.joined(separator: "\n")
     }
