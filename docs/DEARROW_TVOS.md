@@ -54,3 +54,11 @@ Die Auswahl gilt für gemeinsame Videokarten (Home, History, Suche, Bibliothek, 
 - **DeArrow ausgeschaltet:** Der Hauptschalter bleibt anwählbar; die drei darunterliegenden Einstellungen Titel/Bild/Vertrauen sind sichtbar, ausgegraut und deaktiviert. Die gewählten Werte bleiben gespeichert, bis DeArrow wieder eingeschaltet wird.
 - **Performance:** Auswahloptionen sind statisch vorgehalten; die bis zu 52 fokussierbaren Elemente für den Wiedergabeschwellwert existieren erst im geöffneten Auswahlfenster. Kein Timer, keine neue Netzwerkanfrage, keine neuen globalen Fokus-Observer.
 - **UI-Regressionschecks:** Debug-Vorschau für einen nicht ersten Auswahlwert (75 %), automatischer Siri-Remote-Fokus auf diesen Wert und gesperrte DeArrow-Unteroptionen. Simulator-/Hardware-Fokusverhalten muss über die Tests und auf dem Apple TV bestätigt werden.
+
+## DeArrow-Markierung und lokale Ressourcen
+
+- Das offizielle DeArrow-Logo stammt aus dem upstream-Repository `ajayyy/DeArrow`, `public/icons/logo.svg` und `public/icons/logo-128.png`.
+- Das 128-px-PNG liegt in `TypeTypeTV/Assets.xcassets/DeArrowLogo.imageset/`. Die SVG-Originaldatei und die CC-BY-4.0-Attribution liegen unter `docs/third-party/`; keine Laufzeit-Netzwerkzugriffe für die Kennzeichnung.
+- Die App zeigt auf erfolgreich geladenen DeArrow-Thumbnails ein dezentes **18-pt-Logo links oben** mit halbtransparentem Hintergrund. Es ist an die tatsächlich verwendete Bildquelle gebunden: bei Fallback zum normalen TypeType-/YouTube-Bild bleibt es unsichtbar. Bei Mitgliedervideos wird die Kennzeichnung unter das bereits dort befindliche Mitglieder-Badge versetzt, damit sie nicht verdeckt wird.
+- Der DeArrow-Einstellungsblock verwendet dasselbe lokale Logo **28 pt links neben der Überschrift**. Nur dieser Block trägt es; andere Einstellungen bleiben unverändert.
+- Die native Top-Shelf-Extension erhält aktuell eine öffentliche Bild-URL, aber keine fertig zusammengesetzte Bilddatei. Daher erscheint die DeArrow-Kennzeichnung **noch nicht als zusätzliches Overlay auf dem tvOS-Home-Screen-Top-Shelf-Poster**; dazu wäre eine gesonderte, zusammengesetzte Bildquelle erforderlich.
