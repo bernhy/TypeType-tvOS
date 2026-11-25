@@ -158,6 +158,9 @@ enum TVTopShelfPosterPolicy {
             url.host?.lowercased() == origin.host?.lowercased() &&
             url.port == origin.port
         var request = URLRequest(url: url, timeoutInterval: 6)
+        // This must be a truly anonymous probe, including when the shared
+        // TypeType URLSession has handled authenticated API requests.
+        request.httpShouldHandleCookies = false
         request.setValue("image/avif,image/webp,image/png,image/jpeg,*/*",
                          forHTTPHeaderField: "Accept")
         do {

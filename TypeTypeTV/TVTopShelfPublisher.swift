@@ -5,7 +5,7 @@ import TVServices
 /// preferences. No filesystem writes, polling, or new server API requests.
 /// New public posters are checked asynchronously using bounded image GETs;
 /// progress updates never recheck already-resolved images.
- /// All published state belongs to a verified, opted-in account.
+/// All published state belongs to a verified, opted-in account.
 @MainActor
 final class TVTopShelfPublisher {
     static let shared = TVTopShelfPublisher()
@@ -258,20 +258,21 @@ final class TVTopShelfPublisher {
                 }
             }
             guard !Task.isCancelled, let self,
-                  posterCheckGeneration == generation,
-                  candidateOrigin == origin.absoluteString,
-                  candidateScope == scope, mayPublish(api: api) else { return }
-            posterCheckTask = nil
+                  self.posterCheckGeneration == generation,
+                  self.candidateOrigin == origin.absoluteString,
+                  self.candidateScope == scope,
+                  self.mayPublish(api: api) else { return }
+            self.posterCheckTask = nil
 
             var changed = false
-            for (identity, url) in checked where resolvedPosters[identity] != url {
-                resolvedPosters[identity] = url
+            for (identity, url) in checked where self.resolvedPosters[identity] != url {
+                self.resolvedPosters[identity] = url
                 changed = true
             }
             if changed {
                 // One publication after the entire batch, not five repeated
                 // updates that would refresh the TV Home screen unnecessarily.
-                schedule(api: api, scope: scope)
+                self.schedule(api: api, scope: scope)
             }
         }
     }
