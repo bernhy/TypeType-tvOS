@@ -2,8 +2,10 @@ import Foundation
 import TVServices
 
 /// Publishes a small, replaceable five-item snapshot to the shared App Group
-/// preferences. No filesystem writes, artwork downloads, polling or new API
-/// requests. All published state belongs to a verified, opted-in account.
+/// preferences. No filesystem writes, polling, or new server API requests.
+/// New public posters are checked asynchronously using bounded image GETs;
+/// progress updates never recheck already-resolved images.
+ /// All published state belongs to a verified, opted-in account.
 @MainActor
 final class TVTopShelfPublisher {
     static let shared = TVTopShelfPublisher()
@@ -17,6 +19,12 @@ final class TVTopShelfPublisher {
     private var historyValidatedOrigin: String?
     private var serverAvailable = false
     private var lastSignature: String?
+    // In-memory only: a newly selected source is probed once per app process.
+    // The account-specific snapshot itself stays small and token-free.
+    private var resolvedPosters: [String: URL] = [:]
+    private var posterCheckTask: Task<Void, Never>?
+    private var posterCheckSignature: String?
+    private var posterCheckGeneration = 0
     private let accountPreferences = TVTopShelfAccountPreferences()
 
     private init() {}
@@ -153,15 +161,27 @@ final class TVTopShelfPublisher {
             )
         }.prefix(TVTopShelfSnapshotStore.maximumItems))
 
-        let items: [TVTopShelfSnapshotStore.Item] = chosen.map { video in
-            TVTopShelfSnapshotStore.Item(
+        let checks: [TVTopShelfPosterPolicy.Check] = chosen.map { video in
+            let primary = api.relativeMediaURL(video.thumbnailUrl)
+            return TVTopShelfPosterPolicy.Check(
+                identity: TVTopShelfPosterPolicy.identity(
+                    for: video.url, primary: primary, origin: api.origin
+                ),
+                candidates: TVTopShelfPosterPolicy.candidates(
+                    primary: primary, videoURL: video.url, origin: api.origin
+                )
+            )
+        }
+        let items: [TVTopShelfSnapshotStore.Item] = zip(chosen, checks).map { pair in
+            let video = pair.0
+            let check = pair.1
+            let url = resolvedPosters[check.identity] ?? check.candidates.first
+            return TVTopShelfSnapshotStore.Item(
                 key: TVTopShelfSnapshotStore.key(for: video.url),
                 videoID: video.id, title: video.title,
                 channelName: video.uploaderName,
                 videoURL: video.url,
-                thumbnailURL: TVTopShelfPosterPolicy.publicThumbnail(
-                    primary: api.relativeMediaURL(video.thumbnailUrl), videoURL: video.url
-                ),
+                thumbnailURL: url?.absoluteString,
                 duration: video.duration ?? 0,
                 positionMs: TVLocalProgress.shared.position(for: video.url) ??
                     video.watchPositionMs ?? 0
@@ -177,22 +197,90 @@ final class TVTopShelfPublisher {
                 "\($0.duration)|\($0.positionMs)|" +
                 "\($0.thumbnailURL ?? "")"
             }.joined(separator: "\n")
-        guard signature != lastSignature else { return }
+        if signature != lastSignature {
+            let previous = TVTopShelfSnapshotStore.read()
+            if snapshot == previous {
+                lastSignature = signature
+            } else if TVTopShelfSnapshotStore.write(snapshot) {
+                lastSignature = signature
+                TVTopShelfContentProvider.topShelfContentDidChange()
+                diagnostics("shared preferences updated; item count=\(items.count)")
+            } else {
+                // Do not retry across every progress checkpoint if the group
+                // preferences are unavailable. Preserve the failure signal.
+                lastSignature = nil
+                diagnostics("shared preferences write failed")
+                return
+            }
+        }
+        startPosterChecks(checks, api: api, scope: scope)
+    }
 
-        let previous = TVTopShelfSnapshotStore.read()
-        if snapshot == previous {
-            lastSignature = signature
-            return
+    /// Reuse public image choices while the app is alive. Changing only a
+    /// playback position does not trigger new GETs. Every revision cancels
+    /// outstanding checks before launching replacements.
+    private func startPosterChecks(
+        _ checks: [TVTopShelfPosterPolicy.Check], api: TypeTypeAPI, scope: String
+    ) {
+        let fingerprint = checks.map(\.identity).joined(separator: "|")
+        guard posterCheckSignature != fingerprint else { return }
+        posterCheckGeneration += 1
+        let generation = posterCheckGeneration
+        posterCheckSignature = fingerprint
+        posterCheckTask?.cancel()
+        posterCheckTask = nil
+
+        let unresolved = checks.filter {
+            resolvedPosters[$0.identity] == nil && !$0.candidates.isEmpty
         }
-        if TVTopShelfSnapshotStore.write(snapshot) {
-            lastSignature = signature
-            TVTopShelfContentProvider.topShelfContentDidChange()
-            diagnostics("shared preferences updated; item count=\(items.count)")
-        } else {
-            // Do not suppress a later retry if shared preferences are unavailable.
-            lastSignature = nil
-            diagnostics("shared preferences write failed")
+        guard !unresolved.isEmpty else { return }
+        let origin = api.origin
+
+        posterCheckTask = Task(priority: .utility) { [weak self] in
+            var checked: [(String, URL)] = []
+            await withTaskGroup(of: (String, URL?).self) { group in
+                // Maximum five concurrent checks. Each video only tries its
+                // next candidate when the previous one really failed.
+                for check in unresolved {
+                    group.addTask {
+                        let url = await TVTopShelfPosterPolicy.firstReachable(
+                            candidates: check.candidates, origin: origin
+                        )
+                        return (check.identity, url)
+                    }
+                }
+                for await (identity, url) in group {
+                    if Task.isCancelled {
+                        group.cancelAll()
+                        break
+                    }
+                    if let url { checked.append((identity, url)) }
+                }
+            }
+            guard !Task.isCancelled, let self,
+                  posterCheckGeneration == generation,
+                  candidateOrigin == origin.absoluteString,
+                  candidateScope == scope, mayPublish(api: api) else { return }
+            posterCheckTask = nil
+
+            var changed = false
+            for (identity, url) in checked where resolvedPosters[identity] != url {
+                resolvedPosters[identity] = url
+                changed = true
+            }
+            if changed {
+                // One publication after the entire batch, not five repeated
+                // updates that would refresh the TV Home screen unnecessarily.
+                schedule(api: api, scope: scope)
+            }
         }
+    }
+
+    private func cancelPosterChecks() {
+        posterCheckGeneration += 1
+        posterCheckTask?.cancel()
+        posterCheckTask = nil
+        posterCheckSignature = nil
     }
 
     func clear() {
@@ -207,6 +295,8 @@ final class TVTopShelfPublisher {
     }
 
     private func hideSnapshot() {
+        cancelPosterChecks()
+        resolvedPosters.removeAll()
         lastSignature = nil
         if TVTopShelfSnapshotStore.clear() {
             TVTopShelfContentProvider.topShelfContentDidChange()
@@ -229,20 +319,3 @@ enum TVTopShelfVisibilityPolicy {
     }
 }
 
-
-/// Avoid leaking authenticated TypeType media URLs into a token-free
-/// extension or an OS-managed image fetch. Public YouTube images only.
-enum TVTopShelfPosterPolicy {
-    static func publicThumbnail(primary: URL?, videoURL: String) -> String? {
-        let options = TVThumbnailSources.urls(
-            primary: primary, videoURL: videoURL, quality: .standard
-        )
-        return options.first(where: { url in
-            let host = url.host?.lowercased() ?? ""
-            return url.scheme == "https" && url.user == nil &&
-                url.password == nil &&
-                (host == "i.ytimg.com" || host == "img.youtube.com" ||
-                 host == "ytimg.com" || host.hasSuffix(".ytimg.com"))
-        })?.absoluteString
-    }
-}

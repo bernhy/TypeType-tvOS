@@ -119,17 +119,145 @@ final class TVTopShelfSnapshotTests: XCTestCase {
         ))
     }
 
-    func testPosterPolicyAvoidsPrivateServerArtwork() {
-        let publicURL = TVTopShelfPosterPolicy.publicThumbnail(
-            primary: URL(string: "https://private.example.invalid/protected?t=secret"),
+    func testServerDeArrowPrecedesProxyAndDirectYouTube() throws {
+        let origin = try XCTUnwrap(URL(string: "https://instance.example/"))
+        let primary = try XCTUnwrap(URL(
+            string: "https://instance.example/dearrow/thumbnail?videoId=abc123def45&time=15.5"
+        ))
+        let urls = TVTopShelfPosterPolicy.candidates(
+            primary: primary, videoURL: "https://youtu.be/abc123def45",
+            origin: origin
+        )
+        XCTAssertEqual(urls.count, 5)
+        XCTAssertEqual(urls[0].path, "/api/dearrow/thumbnail")
+        XCTAssertEqual(
+            URLComponents(url: urls[0], resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "time" })?.value,
+            "15.5"
+        )
+        XCTAssertEqual(urls[1].path, "/api/proxy")
+        XCTAssertEqual(urls[2].path, "/api/proxy")
+        let proxiedHQ = URLComponents(url: urls[1], resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "url" })?.value
+        let proxiedMQ = URLComponents(url: urls[2], resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "url" })?.value
+        XCTAssertEqual(proxiedHQ,
+                       "https://i.ytimg.com/vi/abc123def45/hqdefault.jpg")
+        XCTAssertEqual(proxiedMQ,
+                       "https://i.ytimg.com/vi/abc123def45/mqdefault.jpg")
+        XCTAssertEqual(urls[3].absoluteString,
+                       "https://i.ytimg.com/vi/abc123def45/hqdefault.jpg")
+        XCTAssertEqual(urls[4].absoluteString,
+                       "https://i.ytimg.com/vi/abc123def45/mqdefault.jpg")
+    }
+
+    func testServerProvidedRemoteArtworkIsProxiedBeforeCanonicals() throws {
+        let origin = try XCTUnwrap(URL(string: "https://instance.example/"))
+        let primary = try XCTUnwrap(URL(
+            string: "https://i.ytimg.com/vi/abc123def45/sddefault.jpg"
+        ))
+        let urls = TVTopShelfPosterPolicy.candidates(
+            primary: primary, videoURL: "https://youtu.be/abc123def45",
+            origin: origin
+        )
+        XCTAssertEqual(urls[0].path, "/api/proxy")
+        XCTAssertEqual(
+            URLComponents(url: urls[0], resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "url" })?.value,
+            primary.absoluteString
+        )
+        XCTAssertEqual(urls.count, 5)
+    }
+
+    func testPrivateServerPathsAndUnapprovedExternalHostsNeverLeaveApp() throws {
+        let origin = try XCTUnwrap(URL(string: "https://instance.example/"))
+        for value in [
+            "https://instance.example/api/private/thumbnail?token=secret",
+            "https://instance.example/api/dearrow/thumbnail?videoId=x&token=secret",
+            "https://untrusted.example/secret.jpg"
+        ] {
+            let urls = TVTopShelfPosterPolicy.candidates(
+                primary: URL(string: value),
+                videoURL: "https://youtu.be/abc123def45",
+                origin: origin
+            )
+            XCTAssertEqual(urls.count, 4)
+            XCTAssertTrue(urls.allSatisfy {
+                !$0.absoluteString.contains("secret") &&
+                !$0.absoluteString.contains("untrusted")
+            })
+            XCTAssertTrue(urls[0].absoluteString.hasPrefix(
+                "https://instance.example/api/proxy?"
+            ))
+        }
+    }
+
+    func testRemoteSignedImageURLNeverGetsIntoSharedSnapshot() throws {
+        let origin = try XCTUnwrap(URL(string: "https://instance.example/"))
+        let primary = URL(
+            string: "https://i.ytimg.com/vi/abc123def45/sddefault.jpg?token=private"
+        )
+        let urls = TVTopShelfPosterPolicy.candidates(
+            primary: primary, videoURL: "https://youtu.be/abc123def45",
+            origin: origin
+        )
+        XCTAssertEqual(urls.count, 4)
+        XCTAssertTrue(urls.allSatisfy {
+            !$0.absoluteString.contains("token") &&
+                !$0.absoluteString.contains("private")
+        })
+    }
+
+    func testDuplicateCanonicalYouTubePrimaryIsOnlyProxiedOnce() throws {
+        let origin = try XCTUnwrap(URL(string: "https://instance.example/"))
+        let primary = try XCTUnwrap(URL(
+            string: "https://i.ytimg.com/vi/abc123def45/hqdefault.jpg"
+        ))
+        let urls = TVTopShelfPosterPolicy.candidates(
+            primary: primary, videoURL: "https://youtu.be/abc123def45",
+            origin: origin
+        )
+        XCTAssertEqual(urls.count, 4)
+        XCTAssertEqual(Set(urls).count, urls.count)
+    }
+
+    func testUnrelatedProvidersUseTheirPublicTypeTypeProxy() throws {
+        let origin = try XCTUnwrap(URL(string: "https://instance.example/"))
+        let remote = try XCTUnwrap(URL(string: "https://i0.hdslb.com/bfs/archive/test.jpg"))
+        let urls = TVTopShelfPosterPolicy.candidates(
+            primary: remote, videoURL: "https://www.bilibili.com/video/BV123",
+            origin: origin
+        )
+        XCTAssertEqual(urls.count, 1)
+        XCTAssertEqual(urls.first?.path, "/api/proxy")
+    }
+
+    func testImageFallbackMovesToNextSourceOnlyWhenPreviousFails() async {
+        let origin = URL(string: "https://instance.example/")!
+        let urls = TVTopShelfPosterPolicy.candidates(
+            primary: nil, videoURL: "https://youtu.be/abc123def45",
+            origin: origin
+        )
+        XCTAssertEqual(urls.count, 4)
+        // Both server-proxy images failed; the direct high-quality image
+        // succeeded. No network requests are made by this deterministic test.
+        let chosen = await TVTopShelfPosterPolicy.firstReachable(
+            candidates: urls
+        ) { $0 == urls[2] }
+        XCTAssertEqual(chosen, urls[2])
+        let failed = await TVTopShelfPosterPolicy.firstReachable(
+            candidates: urls
+        ) { _ in false }
+        XCTAssertNil(failed)
+    }
+
+    func testNormalAppAlsoFallsBackToMQWhenNeeded() {
+        let urls = TVThumbnailSources.urls(
+            primary: URL(string: "https://instance.example/dearrow/thumbnail"),
             videoURL: "https://youtu.be/abc123def45"
         )
-        XCTAssertEqual(publicURL, "https://i.ytimg.com/vi/abc123def45/hqdefault.jpg")
-        XCTAssertFalse(publicURL?.contains("secret") ?? false)
-        XCTAssertNil(TVTopShelfPosterPolicy.publicThumbnail(
-            primary: URL(string: "https://private.example.invalid/private"),
-            videoURL: "not-a-youtube-video"
-        ))
+        XCTAssertEqual(urls.map(\.lastPathComponent),
+                       ["thumbnail", "hqdefault.jpg", "mqdefault.jpg"])
     }
 
     func testSectionHeaderShowsChannelWithoutChangingVideoTitle() {
@@ -173,17 +301,6 @@ final class TVTopShelfSnapshotTests: XCTestCase {
         )
         XCTAssertNil(decoded.items.first?.channelName)
         XCTAssertEqual(decoded.items.first?.sectionTitle, "Ansehen fortsetzen")
-    }
-
-    func testPosterPolicyKeepsExistingPublicImageBeforeFallback() {
-        let original = URL(
-            string: "https://i.ytimg.com/vi/abc123def45/sddefault.jpg"
-        )
-        XCTAssertEqual(TVTopShelfPosterPolicy.publicThumbnail(
-            primary: original, videoURL: "https://youtu.be/abc123def45"
-        ), original?.absoluteString)
-        // Top Shelf can choose a canonical fallback when the source is
-        // private, but Apple's image loader cannot retry after a failed GET.
     }
 
     func testSharedDefaultsStoreWritesReadsAndClearsOneSnapshot() throws {

@@ -15,19 +15,33 @@ progress indicators, per-video channel names and deep links to detail pages.
 - Shared `UserDefaults` cross-process exchange was verified on a physical
   Apple TV through the one-time DEBUG challenge/acknowledgement probe.
   That temporary probe has now been removed.
-- No JPEGs or base64 images are saved in preferences. Top Shelf uses the
-  already supplied public YouTube thumbnail (when trusted), or a canonical
-  YouTube HTTPS fallback. Server-private and DeArrow images are not yet
-  available in the Top Shelf extension.
-- The main app has its own thumbnail downloader and iterates sources from
-  `TVThumbnailSources.urls`: original image, then YouTube fallback. The tvOS
-  system only accepts one URL per image trait and offers no download failure
-  callback for retrying another URL. Therefore a failed Top Shelf poster can
-  still be blank even if the app successfully displays its original image.
-  No duplicate HEAD/GET checks are performed merely to populate Top Shelf.
-- Both 1x and 2x TVServices image traits reference the same public URL;
-  TVServices selects the appropriate representation for the Apple TV's
-  output mode. These traits are **not** automatic retry/fallback URLs.
+- No JPEGs or base64 images are stored in shared preferences. The main
+  application checks the following public candidates for each *new* poster:
+  (1) the original TypeType-provided image through a known public server
+  endpoint (including `/api/dearrow/thumbnail` or a supported upstream image
+  wrapped in `/api/proxy`), (2) `hqdefault` and then `mqdefault` via
+  TypeType's public `/api/proxy`, (3) the same two YouTube URLs **directly**.
+  Private account media and arbitrary server paths are never published.
+- Publication of the initial snapshot does **not** wait for thumbnail GETs.
+  Up to five posters are checked asynchronously, and candidates are tried
+  sequentially *per video*. A maximum six-second request timeout applies to
+  each image. HTTP 200 and an actual image payload are required; a successful
+  HTML page or error placeholder is not a valid thumbnail. Results are kept
+  in a small in-memory dictionary for the lifetime of the app. Updated poster
+  URLs are published together in one shared snapshot after verification.
+- Existing player checkpoints and focus movement never restart verification
+  for an unchanged poster. A profile/server change, authentication failure
+  or opt-out cancels in-flight jobs and clears their temporary results.
+  No new history request, repeat timer, on-focus request or background service
+  is introduced. Apple TV may suspend validation when the main app exits;
+  cached or already published URLs remain usable by the system.
+- A verified image URL is handed to tvOS; both 1x and 2x TVServices traits
+  use that same URL. tvOS remains responsible for the final download and its
+  own system cache. A successful preflight does not guarantee that a later
+  system download cannot fail.
+- Normal app thumbnail cards also try `mqdefault` if their original image
+  and `hqdefault` fail. Successful images use the existing bounded
+  in-memory image cache. Top Shelf uses independent URL-only validation.
 - Each video's existing `uploaderName` is stored as optional `channelName`
   in the snapshot. The sectioned Top Shelf row uses one collection per video:
   the video title remains the item title, while the channel appears above it
@@ -37,7 +51,9 @@ progress indicators, per-video channel names and deep links to detail pages.
   avatar icons or thumbnail overlays. A server-generated composite poster
   would be a future option, not part of this change.
 - The tvOS Top Shelf extension performs no TypeType API request or token access.
-  The OS may fetch public poster images from the supplied URLs.
+  The OS may fetch public poster images from the supplied TypeType/YouTube
+  URLs. The app's *optional* bounded preflight uses existing certificate
+  pinning for its own server and never attaches account credentials.
 - Home publishes only when candidate membership or metadata changes; normal
   scrolling and focus moves never publish. Pause, stop, background and explicit
   watched toggles reuse existing player checkpoints.
@@ -46,16 +62,18 @@ progress indicators, per-video channel names and deep links to detail pages.
   encoded value, not multiple independently updated video keys.
 - On clear, the entire shared value is removed. Sign-out, server change,
   account switch, privacy opt-out and authentication errors invalidate Top Shelf.
-- No new timers, history requests or background polling. All conversion and
-  publication run only for eligible changes; no poster image decoding in-app.
+- No new timers, history requests or background polling. Thumbnail preflight
+  is limited to new candidates and may use network/CPU on a background task.
+  There is no image bitmap retained or written in the app group.
 - tvOS warns when the defaults database grows to 512 KiB and may terminate
   apps at 1 MiB. The 64 KiB snapshot cap leaves ample room for other settings.
 
 ## Data protection and deep links
 
 - No access token, refresh token, user cookie or password is copied to the
-  shared snapshot. Poster URLs point only to known public HTTPS sources.
-  The entire payload is limited to 64 KiB.
+  shared snapshot. Poster URLs are restricted to verified public TypeType
+  image paths, allowlisted upstream media via the TypeType proxy, or direct
+  public YouTube CDN URLs. The entire payload is limited to 64 KiB.
 - Deep links contain an opaque SHA-256 video key, **not** the video URL.
   The app accepts only the expected scheme, host and single key query, and
   checks the current server/account scope against the saved snapshot.
@@ -79,9 +97,10 @@ progress indicators, per-video channel names and deep links to detail pages.
   successful history request can publish dynamic Top Shelf. All other cases
   show the existing static TypeType logo.
 - Turning OFF the active account clears its published snapshot immediately,
-  cancelling any ongoing poster jobs. Turning ON republishes only already
-  loaded history, without a new server request. Inactive profiles' toggles
-  never change the active account's Top Shelf.
+  cancelling any ongoing poster checks. Turning ON republishes only already
+  loaded history; it may validate public poster URLs but never requests
+  additional history. Inactive profiles' toggles never change the active
+  account's Top Shelf.
 - A successful account switch already clears the old snapshot and local
   progress and verifies the newly active account. Its own opt-in is checked
   before publishing again.
@@ -158,8 +177,10 @@ The two generated entitlements paths are excluded in `.gitignore`:
    and the next cached candidate should take its place.
 6. Change watched/unwatched via detail; test a fast account/profile switch.
    No previous account's data should remain.
-7. Test unavailable public thumbnails: the Top Shelf should fall back to
-   static artwork if no playable poster is available.
+7. Test failing original/DeArrow, proxied hq/mq and direct YouTube artwork.
+   The app should choose the next successful URL asynchronously without
+   blocking Home. If all sources fail, the initial image may stay blank until
+   the source recovers or history refreshes.
 8. Compare Home navigation/scroll and startup with main; monitor Debug
    `TypeType TOPSHELF` messages for failures.
 

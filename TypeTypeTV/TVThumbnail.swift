@@ -60,8 +60,18 @@ enum TVThumbnailSources {
             return primary.map { [$0] } ?? []
         }
         if quality == .standard {
-            if let primary, primary != fallback { return [primary, fallback] }
-            return [fallback]
+            // Standard grid cards share the same inexpensive YouTube
+            // fallback order as Top Shelf. mqdefault is only requested if
+            // the original art and hqdefault both fail.
+            let lower = URL(
+                string: "https://i.ytimg.com/vi/\(id)/mqdefault.jpg"
+            )
+            let ordered = [primary, fallback, lower].compactMap { $0 }
+            var unique: [URL] = []
+            for candidate in ordered where !unique.contains(candidate) {
+                unique.append(candidate)
+            }
+            return unique
         }
 
         // High-resolution variants are reserved for the detail hero and
