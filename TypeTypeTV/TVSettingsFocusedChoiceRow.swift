@@ -21,7 +21,7 @@ struct TVSettingsFocusedChoiceRow<Value: Hashable>: View {
 
     private var selectedTitle: String {
         let key = choices.first(where: { $0.value == selection })?.titleKey
-        return key.map(TVL10n.value) ?? ""
+        return key.map { TVL10n.value($0) } ?? ""
     }
 
     var body: some View {
