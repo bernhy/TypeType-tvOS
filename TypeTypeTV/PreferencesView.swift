@@ -426,6 +426,74 @@ struct PreferencesView: View {
                         .font(.callout).foregroundStyle(.orange)
                 }
             }
+            if let remote {
+                TVSettingsCard("settings.deArrow.title", summary: "settings.deArrow.help") {
+                    TVSettingsSwitchRow(
+                        "settings.deArrow.enabled",
+                        isOn: Binding(
+                            get: { self.remote?.deArrowEnabled ?? remote.deArrowEnabled ?? false },
+                            set: { enabled in
+                                saveDeArrow(
+                                    "deArrowEnabled", value: .boolean(enabled)
+                                ) { $0.deArrowEnabled = enabled }
+                            }
+                        ),
+                        focus: $focusedControl, focusID: "content.deArrow.enabled"
+                    )
+                    TVSettingsMenuRow(
+                        "settings.deArrow.titleMode",
+                        selection: Binding(
+                            get: { self.remote?.deArrowTitleMode ?? remote.deArrowTitleMode ?? "dearrow" },
+                            set: { mode in
+                                saveDeArrow("deArrowTitleMode", value: .text(mode)) {
+                                    $0.deArrowTitleMode = mode
+                                }
+                            }
+                        ),
+                        focus: $focusedControl, focusTarget: "content.deArrow.title"
+                    ) {
+                        Text("settings.deArrow.modeOriginal").tag("original")
+                        Text("settings.deArrow.modeTitle").tag("dearrow")
+                    }
+                    TVSettingsMenuRow(
+                        "settings.deArrow.thumbnailMode",
+                        selection: Binding(
+                            get: { self.remote?.deArrowThumbnailMode ??
+                                remote.deArrowThumbnailMode ?? "dearrow_or_random" },
+                            set: { mode in
+                                saveDeArrow("deArrowThumbnailMode", value: .text(mode)) {
+                                    $0.deArrowThumbnailMode = mode
+                                }
+                            }
+                        ),
+                        focus: $focusedControl, focusTarget: "content.deArrow.thumbnail"
+                    ) {
+                        Text("settings.deArrow.modeOriginal").tag("original")
+                        Text("settings.deArrow.modeThumbnail").tag("dearrow")
+                        Text("settings.deArrow.modeRandom").tag("random")
+                        Text("settings.deArrow.modeThumbnailOrRandom").tag("dearrow_or_random")
+                    }
+                    TVSettingsMenuRow(
+                        "settings.deArrow.trustMode",
+                        selection: Binding(
+                            get: { self.remote?.deArrowTrustMode ?? remote.deArrowTrustMode ?? "accepted" },
+                            set: { mode in
+                                saveDeArrow("deArrowTrustMode", value: .text(mode)) {
+                                    $0.deArrowTrustMode = mode
+                                }
+                            }
+                        ),
+                        focus: $focusedControl, focusTarget: "content.deArrow.trust"
+                    ) {
+                        Text("settings.deArrow.trustAccepted").tag("accepted")
+                        Text("settings.deArrow.trustLocked").tag("locked")
+                    }
+                    Text("settings.deArrow.fallback")
+                        .font(.callout)
+                        .foregroundStyle(TTTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             TVSettingsCard("settings.contentVisibilityNote") {
                 Text("settings.contentVisibilityNoteHelp")
                     .font(.callout).foregroundStyle(TTTheme.muted)
@@ -837,6 +905,32 @@ struct PreferencesView: View {
         Task {
             do {
                 remote = try await api.setAccountSetting(field.rawValue, value: .boolean(!enabled))
+                if let remote { TVContentPreferences.shared.apply(remote, api: api) }
+            } catch {
+                remote = previous
+                remoteError = error.localizedDescription
+            }
+            remoteSaving = false
+            savePendingWatchedThresholdIfNeeded()
+        }
+    }
+
+    /// Save each account-wide DeArrow option via the existing settings API.
+    /// Serialise writes without disabling the currently focused native control.
+    @MainActor
+    private func saveDeArrow(
+        _ field: String, value: TVSettingValue,
+        update: (inout TVServerSettings) -> Void
+    ) {
+        guard var next = remote, !remoteSaving else { return }
+        let previous = next
+        update(&next)
+        remote = next
+        remoteSaving = true
+        remoteError = nil
+        Task {
+            do {
+                remote = try await api.setAccountSetting(field, value: value)
                 if let remote { TVContentPreferences.shared.apply(remote, api: api) }
             } catch {
                 remote = previous
