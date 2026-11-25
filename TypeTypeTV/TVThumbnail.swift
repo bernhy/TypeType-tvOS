@@ -318,7 +318,7 @@ struct TVThumbnail: View {
                 TVThumbnailMemory.shared.configuredCache().removeObject(forKey: key)
             }
             var request = URLRequest(url: candidate)
-            request.timeoutInterval = 20
+            request.timeoutInterval = (candidate.path == "/api/proxy" || candidate.path == "/proxy") ? 6 : 20
             request.setValue("image/avif,image/webp,image/png,image/jpeg,*/*",
                              forHTTPHeaderField: "Accept")
             if TVThumbnailRequestPolicy.isPublicServerImage(candidate, origin: origin) {
@@ -435,7 +435,7 @@ struct TVTransientStartupImage: UIViewRepresentable {
                       (firstParty && source.scheme == "http") else { continue }
 
                 var request = URLRequest(url: source)
-                request.timeoutInterval = 20
+                request.timeoutInterval = (source.path == "/api/proxy" || source.path == "/proxy") ? 6 : 20
                 request.setValue("image/avif,image/webp,image/png,image/jpeg,*/*",
                                  forHTTPHeaderField: "Accept")
                 if TVThumbnailRequestPolicy.isPublicServerImage(source, origin: origin) {
