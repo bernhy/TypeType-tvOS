@@ -144,16 +144,64 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
         ).count, 4, "Grid cells must not fetch high-resolution variants")
     }
 
-    func testProxiedHeroRejectsTinyHighResolutionPlaceholder() {
-        let url = URL(string:
-            "https://instance.example/api/proxy?url=https%3A%2F%2Fi.ytimg.com%2Fvi%2FABCDEFGHIJK%2Fmaxresdefault.jpg"
-        )!
-        let small = UIGraphicsImageRenderer(size: CGSize(width: 120, height: 90)).image {
-            context in UIColor.red.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 120, height: 90))
+    func testYouTubePlaceholderFallbackInStandardCardsAndHero() {
+        func artwork(width: CGFloat, height: CGFloat) -> UIImage {
+            UIGraphicsImageRenderer(size: CGSize(width: width, height: height))
+                .image { context in
+                    UIColor.red.setFill()
+                    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+                }
         }
-        XCTAssertFalse(TVThumbnailSources.accepts(small, from: url, quality: .hero))
-        XCTAssertTrue(TVThumbnailSources.accepts(small, from: url, quality: .standard))
+
+        let placeholder = artwork(width: 120, height: 90)
+        let validMQ = artwork(width: 320, height: 180)
+        let validHQ = artwork(width: 480, height: 360)
+        let validHero = artwork(width: 640, height: 360)
+        let videoID = "ABCDEFGHIJK"
+
+        for name in ["maxresdefault.jpg", "hq720.jpg", "sddefault.jpg",
+                     "hqdefault.jpg", "mqdefault.jpg"] {
+            let direct = URL(string: "https://i.ytimg.com/vi/\(videoID)/\(name)")!
+            var proxied = URLComponents(string: "https://instance.example/api/proxy")!
+            proxied.queryItems = [
+                URLQueryItem(name: "url", value: direct.absoluteString)
+            ]
+            let proxyURL = proxied.url!
+            for url in [direct, proxyURL] {
+                XCTAssertFalse(
+                    TVThumbnailSources.accepts(placeholder, from: url, quality: .standard),
+                    "\(name): 120x90 placeholder must be rejected in standard cards"
+                )
+                XCTAssertFalse(
+                    TVThumbnailSources.accepts(placeholder, from: url, quality: .hero),
+                    "\(name): 120x90 placeholder must be rejected in hero"
+                )
+                XCTAssertTrue(TVThumbnailSources.accepts(validMQ, from: url,
+                                                         quality: .standard))
+            }
+        }
+
+        let mq = URL(string: "https://i.ytimg.com/vi/\(videoID)/mqdefault.jpg")!
+        let hq = URL(string: "https://i.ytimg.com/vi/\(videoID)/hqdefault.jpg")!
+        XCTAssertTrue(TVThumbnailSources.accepts(validMQ, from: mq, quality: .standard))
+        XCTAssertTrue(TVThumbnailSources.accepts(validHQ, from: hq, quality: .standard))
+        XCTAssertTrue(TVThumbnailSources.accepts(validHQ, from: hq, quality: .hero))
+
+        let maxres = URL(string:
+            "https://i.ytimg.com/vi/\(videoID)/maxresdefault.jpg")!
+        XCTAssertFalse(TVThumbnailSources.accepts(validHQ, from: maxres, quality: .hero))
+        XCTAssertTrue(TVThumbnailSources.accepts(validHero, from: maxres, quality: .hero))
+
+        // Deliberate DeArrow/custom images may have a different aspect/size.
+        let custom = URL(string: "https://cdn.example/dearrow/\(videoID).webp")!
+        let deArrow = URL(string:
+            "https://instance.example/api/dearrow/thumbnail?videoId=\(videoID)&time=12")!
+        for url in [custom, deArrow] {
+            XCTAssertTrue(TVThumbnailSources.accepts(placeholder, from: url,
+                                                     quality: .standard))
+            XCTAssertTrue(TVThumbnailSources.accepts(placeholder, from: url,
+                                                     quality: .hero))
+        }
     }
 
     func testEmptyStoredWatchLaterAndPlaylistThumbnailsCanRecover() throws {
