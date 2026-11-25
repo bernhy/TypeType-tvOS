@@ -51,44 +51,90 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
         )
     }
 
-    func testYouTubeThumbnailFallbackPreservesServerArtworkAndRecoversMissingURL() throws {
-        let videoURL = "https://www.youtube.com/watch?v=ABCDEFGHIJK"
-        let fallback = try XCTUnwrap(URL(string:
-            "https://i.ytimg.com/vi/ABCDEFGHIJK/hqdefault.jpg"
-        ))
-        let original = try XCTUnwrap(URL(string:
-            "https://cdn.example.com/dearrow/ABCDEFGHIJK.jpg"
-        ))
-        // DeArrow and server-provided images have priority: fall back only
-        // when the image is missing or the request/decoder fails.
-        XCTAssertEqual(TVThumbnailSources.urls(primary: original, videoURL: videoURL),
-                       [original, fallback])
-        XCTAssertEqual(TVThumbnailSources.urls(primary: nil, videoURL: videoURL),
-                       [fallback])
-        XCTAssertEqual(TVThumbnailSources.urls(primary: fallback, videoURL: videoURL),
-                       [fallback])
-        XCTAssertEqual(TVThumbnailSources.urls(primary: original, videoURL: nil),
-                       [original])
-        XCTAssertTrue(TVThumbnailSources.urls(primary: nil, videoURL: nil).isEmpty)
+    func testYouTubeThumbnailFallbackFollowsTopShelfServerFirstOrder() throws {
+        let origin = try XCTUnwrap(URL(string: "https://instance.example/"))
+        let video = "https://www.youtube.com/watch?v=ABCDEFGHIJK"
+        let hq = try XCTUnwrap(URL(string: "https://i.ytimg.com/vi/ABCDEFGHIJK/hqdefault.jpg"))
+        let mq = try XCTUnwrap(URL(string: "https://i.ytimg.com/vi/ABCDEFGHIJK/mqdefault.jpg"))
+        let original = try XCTUnwrap(URL(string: "https://cdn.example.com/dearrow/ABCDEFGHIJK.jpg"))
+        func remote(_ url: URL) -> String? {
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "url" })?.value
+        }
+        let standard = TVThumbnailSources.urls(primary: nil, videoURL: video, origin: origin)
+        XCTAssertEqual(standard.count, 4)
+        XCTAssertEqual(standard.map(\.path), ["/api/proxy", "/api/proxy",
+                                                   hq.path, mq.path])
+        XCTAssertEqual(remote(standard[0]), hq.absoluteString)
+        XCTAssertEqual(remote(standard[1]), mq.absoluteString)
+        XCTAssertEqual(Array(standard.suffix(2)), [hq, mq])
+        // TypeType-provided artwork stays first, even when its host is not
+        // eligible for the public/anonymous Top Shelf proxy.
+        XCTAssertEqual(TVThumbnailSources.urls(
+            primary: original, videoURL: video, origin: origin
+        ), [original] + standard)
+        XCTAssertEqual(TVThumbnailSources.urls(
+            primary: hq, videoURL: video, origin: origin
+        ), standard, "A canonical YouTube primary must go through TypeType first")
+        XCTAssertEqual(TVThumbnailSources.urls(
+            primary: original, videoURL: nil, origin: origin
+        ), [original])
+        XCTAssertTrue(TVThumbnailSources.urls(
+            primary: nil, videoURL: nil, origin: origin
+        ).isEmpty)
+
+        let deArrow = URL(string:
+            "https://instance.example/dearrow/thumbnail?videoId=ABCDEFGHIJK&time=12")!
+        let serverArtwork = TVThumbnailSources.urls(
+            primary: deArrow, videoURL: video, origin: origin
+        )
+        XCTAssertEqual(serverArtwork.first?.path, "/api/dearrow/thumbnail")
+        XCTAssertEqual(Array(serverArtwork.dropFirst()), standard)
     }
 
-    func testHeroArtworkPrefersHighResolutionAndPreservesCustomThumbnails() throws {
+    func testHeroArtworkPrefersMaxResolutionAndPreservesDeArrow() throws {
+        let origin = URL(string: "https://instance.example/")!
         let video = "https://youtu.be/ABCDEFGHIJK"
         let hq = URL(string: "https://i.ytimg.com/vi/ABCDEFGHIJK/hqdefault.jpg")!
-        let maxres = URL(string: "https://i.ytimg.com/vi/ABCDEFGHIJK/maxresdefault.jpg")!
-        let sd = URL(string: "https://i.ytimg.com/vi/ABCDEFGHIJK/sddefault.jpg")!
         let custom = URL(string: "https://cdn.example/dearrow/ABCDEFGHIJK.webp")!
-        XCTAssertEqual(TVThumbnailSources.urls(primary: hq, videoURL: video,
-                                                quality: .hero), [maxres, sd, hq])
-        XCTAssertEqual(TVThumbnailSources.urls(primary: nil, videoURL: video,
-                                                quality: .hero), [maxres, sd, hq])
-        XCTAssertEqual(TVThumbnailSources.urls(primary: custom, videoURL: video,
-                                                quality: .hero), [custom, maxres, sd, hq])
-        XCTAssertEqual(TVThumbnailSources.urls(primary: hq, videoURL: video),
-                       [hq], "Grid cells must retain their inexpensive image policy")
+        let hero = TVThumbnailSources.urls(
+            primary: hq, videoURL: video, origin: origin, quality: .hero
+        )
+        XCTAssertEqual(hero.count, 10)
+        XCTAssertEqual(hero.prefix(5).map(\.path), Array(repeating: "/api/proxy", count: 5))
+        let remote = URLComponents(url: hero[0], resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "url" })?.value
+        XCTAssertEqual(remote, "https://i.ytimg.com/vi/ABCDEFGHIJK/maxresdefault.jpg")
+        XCTAssertEqual(hero[5].lastPathComponent, "maxresdefault.jpg")
+        XCTAssertEqual(hero[6].lastPathComponent, "hq720.jpg")
+        XCTAssertEqual(hero[9], hq)
+        XCTAssertEqual(TVThumbnailSources.urls(
+            primary: custom, videoURL: video, origin: origin, quality: .hero
+        ), [custom] + hero)
+        let deArrow = URL(string:
+            "https://instance.example/api/dearrow/thumbnail?videoId=ABCDEFGHIJK&time=12")!
+        XCTAssertEqual(TVThumbnailSources.urls(
+            primary: deArrow, videoURL: video, origin: origin, quality: .hero
+        ).first, deArrow)
+        XCTAssertEqual(TVThumbnailSources.urls(
+            primary: hq, videoURL: video, origin: origin
+        ).count, 4, "Grid cells must not fetch high-resolution variants")
+    }
+
+    func testProxiedHeroRejectsTinyHighResolutionPlaceholder() {
+        let url = URL(string:
+            "https://instance.example/api/proxy?url=https%3A%2F%2Fi.ytimg.com%2Fvi%2FABCDEFGHIJK%2Fmaxresdefault.jpg"
+        )!
+        let small = UIGraphicsImageRenderer(size: CGSize(width: 120, height: 90)).image {
+            context in UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 120, height: 90))
+        }
+        XCTAssertFalse(TVThumbnailSources.accepts(small, from: url, quality: .hero))
+        XCTAssertTrue(TVThumbnailSources.accepts(small, from: url, quality: .standard))
     }
 
     func testEmptyStoredWatchLaterAndPlaylistThumbnailsCanRecover() throws {
+        let origin = URL(string: "https://instance.example/")!
         let watchLater = try JSONDecoder().decode(TVWatchLaterDTO.self, from: Data(#"""
         {"url":"https://www.youtube.com/watch?v=ABCDEFGHIJK",
          "title":"Missing persisted thumbnail","thumbnail":"","channelName":"Author",
@@ -99,16 +145,19 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
          "title":"Missing persisted thumbnail","thumbnail":"","duration":120}
         """#.utf8))
         for video in [watchLater.video, playlist.video] {
-            XCTAssertEqual(TVThumbnailSources.urls(
+            let urls = TVThumbnailSources.urls(
                 primary: URL(string: video.thumbnailUrl ?? ""),
-                videoURL: video.url
-            ).map(\.absoluteString), [
-                "https://i.ytimg.com/vi/ABCDEFGHIJK/hqdefault.jpg"
-            ])
+                videoURL: video.url, origin: origin
+            )
+            XCTAssertEqual(urls.count, 4)
+            XCTAssertEqual(urls[0].path, "/api/proxy")
+            XCTAssertEqual(urls.last?.absoluteString,
+                           "https://i.ytimg.com/vi/ABCDEFGHIJK/mqdefault.jpg")
         }
     }
 
     func testThumbnailFallbackRejectsSpoofedOrUnsupportedVideoAddresses() throws {
+        let origin = URL(string: "https://instance.example/")!
         let original = try XCTUnwrap(URL(string: "https://cdn.example.com/cover.webp"))
         for videoURL in [
             "https://youtube.com.evil.example/watch?v=ABCDEFGHIJK",
@@ -116,13 +165,16 @@ final class TVPlaylistAndThumbnailTests: XCTestCase {
             "https://www.twitch.tv/videos/123456789",
             "file:///private/ABCDEFGHIJK"
         ] {
-            XCTAssertTrue(TVThumbnailSources.urls(primary: nil, videoURL: videoURL).isEmpty)
-            XCTAssertEqual(TVThumbnailSources.urls(primary: original, videoURL: videoURL),
-                           [original])
+            XCTAssertTrue(TVThumbnailSources.urls(
+                primary: nil, videoURL: videoURL, origin: origin
+            ).isEmpty)
+            XCTAssertEqual(TVThumbnailSources.urls(
+                primary: original, videoURL: videoURL, origin: origin
+            ), [original])
         }
         XCTAssertEqual(TVThumbnailSources.urls(
-            primary: nil, videoURL: "https://youtu.be/ABCDEFGHIJK"
-        ).first?.absoluteString, "https://i.ytimg.com/vi/ABCDEFGHIJK/hqdefault.jpg")
+            primary: nil, videoURL: "https://youtu.be/ABCDEFGHIJK", origin: origin
+        ).first?.path, "/api/proxy")
     }
 
     func testThumbnailDecoderDownsamplesButPreservesAspectRatio() throws {
