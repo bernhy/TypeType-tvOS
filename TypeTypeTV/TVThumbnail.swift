@@ -42,6 +42,15 @@ enum TVThumbnailRequestPolicy {
     static func cacheKey(url: URL, pixels: Int) -> String {
         "\(url.absoluteString)\n#pixels=\(pixelLimit(pixels))"
     }
+    /// Public image routes are intentionally guest-accessible. Keep account
+    /// authentication for private TypeType media but not for these endpoints.
+    static func isPublicServerImage(_ url: URL, origin: URL) -> Bool {
+        guard url.scheme == origin.scheme,
+              url.host?.lowercased() == origin.host?.lowercased(),
+              url.port == origin.port else { return false }
+        return ["/api/proxy", "/api/dearrow/thumbnail",
+                "/proxy", "/dearrow/thumbnail"].contains(url.path)
+    }
 }
 
 /// All TypeType video images share the server-first policy used by Top Shelf.
@@ -187,9 +196,21 @@ private actor TVThumbnailWorkPool {
                   http.statusCode == 200, data.count <= 8_000_000,
                   let image = TVThumbnailDecoder.decode(
                     data, maximumDimension: pixels
-                  ) else { return nil }
+                  ) else {
+                #if DEBUG
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                print("TypeType THUMB rejected host=\(request.url?.host ?? "-") " +
+                      "path=\(request.url?.path ?? "-") status=\(status) " +
+                      "bytes=\(data.count)")
+                #endif
+                return nil
+            }
             return TVThumbnailDecoded(image: image)
         } catch {
+            #if DEBUG
+            print("TypeType THUMB error host=\(request.url?.host ?? "-") " +
+                  "path=\(request.url?.path ?? "-") error=\(error)")
+            #endif
             // A failed thumbnail must never block browsing or video playback.
             return nil
         }
@@ -297,10 +318,13 @@ struct TVThumbnail: View {
                 TVThumbnailMemory.shared.configuredCache().removeObject(forKey: key)
             }
             var request = URLRequest(url: candidate)
-            request.timeoutInterval = (candidate.path == "/api/proxy" || candidate.path == "/proxy") ? 6 : 20
+            request.timeoutInterval = 20
             request.setValue("image/avif,image/webp,image/png,image/jpeg,*/*",
                              forHTTPHeaderField: "Accept")
-            if firstParty, let token = TypeTypeCredentials.shared.token(for: origin) {
+            if TVThumbnailRequestPolicy.isPublicServerImage(candidate, origin: origin) {
+                request.httpShouldHandleCookies = false
+            } else if firstParty,
+                      let token = TypeTypeCredentials.shared.token(for: origin) {
                 request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
             guard let decoded = await TVThumbnailWorkPool.shared.image(
@@ -318,6 +342,13 @@ struct TVThumbnail: View {
             bitmap = decoded.image
             return
         }
+        #if DEBUG
+        if !Task.isCancelled {
+            let videoID = videoURL.flatMap(VideoAddress.youtubeID) ?? "(unknown)"
+            print("TypeType THUMB unresolved videoId=\(videoID) " +
+                  "quality=\(quality.rawValue) candidates=\(candidates.count)")
+        }
+        #endif
     }
 }
 
@@ -404,10 +435,13 @@ struct TVTransientStartupImage: UIViewRepresentable {
                       (firstParty && source.scheme == "http") else { continue }
 
                 var request = URLRequest(url: source)
-                request.timeoutInterval = (source.path == "/api/proxy" || source.path == "/proxy") ? 6 : 20
+                request.timeoutInterval = 20
                 request.setValue("image/avif,image/webp,image/png,image/jpeg,*/*",
                                  forHTTPHeaderField: "Accept")
-                if firstParty, let token = TypeTypeCredentials.shared.token(for: origin) {
+                if TVThumbnailRequestPolicy.isPublicServerImage(source, origin: origin) {
+                    request.httpShouldHandleCookies = false
+                } else if firstParty,
+                          let token = TypeTypeCredentials.shared.token(for: origin) {
                     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                 }
                 let key = TVThumbnailRequestPolicy.cacheKey(
