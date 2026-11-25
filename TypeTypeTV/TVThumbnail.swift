@@ -116,7 +116,15 @@ enum TVThumbnailSources {
         // YouTube returns a valid 120x90 JPEG with HTTP 200 when some
         // thumbnail sizes are unavailable. Reject that placeholder in
         // standard cards too, so the existing HQ/MQ fallbacks can run.
-        // Custom TypeType and DeArrow artwork must retain its own size.
+        // The public DeArrow renderer can also return a tiny HTTP-200
+        // fallback when a frame is unavailable. Treat those 120x90 images
+        // as failed so the original TypeType artwork is tried next.
+        // Other custom TypeType/provider artwork is left untouched.
+        if url.path == "/api/dearrow/thumbnail" ||
+           url.path == "/dearrow/thumbnail" {
+            guard let bitmap = image.cgImage else { return false }
+            return bitmap.width >= 160 && bitmap.height >= 90
+        }
         let host = originalURL.host?.lowercased() ?? ""
         guard host == "ytimg.com" || host.hasSuffix(".ytimg.com") ||
               host == "img.youtube.com" else { return true }
