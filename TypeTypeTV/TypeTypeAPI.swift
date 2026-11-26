@@ -442,10 +442,14 @@ struct TypeTypeAPI {
         try await writeLibrary(url, method: "DELETE", body: nil)
     }
 
-    func subscriptionFeed(cursor: String? = nil, limit: Int = 30) async throws -> TVSubscriptionFeedPage {
+    /// Stable server-side cursor ordering: dates are filtered client-side.
+    /// The order must accompany every cursor request to keep the snapshot
+    /// consistent; only the subscriptions screen changes this value.
+    func subscriptionFeed(cursor: String? = nil, limit: Int = 30,
+                          order: TVSubscriptionFeedOrder = .newest) async throws -> TVSubscriptionFeedPage {
         var query = [
             URLQueryItem(name: "limit", value: String(max(1, min(limit, 100)))),
-            URLQueryItem(name: "order", value: "newest")
+            URLQueryItem(name: "order", value: order.rawValue)
         ]
         if let cursor, !cursor.isEmpty {
             query.append(URLQueryItem(name: "cursor", value: cursor))
