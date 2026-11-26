@@ -444,10 +444,17 @@ struct TVSubscriptionFeedView: View {
         // to fire the lazy grid's end sentinel. Fetch at most three more
         // consecutive empty-result pages, then leave manual Load More.
         guard hideWatched || dateRange != .all else { return }
+        var attempts = 0
         while !Task.isCancelled, visibleVideos.isEmpty, !loading, !loadingMore,
               nextCursor != nil, pageError == nil,
+              attempts < TVSubscriptionAutoLoadPolicy.maximumEmptyPages,
               TVSubscriptionAutoLoadPolicy.mayAutoLoad(emptyPageStreak) {
+            let beforeCursor = nextCursor
+            attempts += 1
             await loadMore()
+            // A stale cursor (409) may trigger one reload. Never spin
+            // indefinitely if the replacement cursor is itself invalid.
+            if nextCursor == beforeCursor { break }
         }
     }
 
