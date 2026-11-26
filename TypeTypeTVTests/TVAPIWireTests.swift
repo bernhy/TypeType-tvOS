@@ -503,6 +503,29 @@ final class TVAPIWireTests: XCTestCase {
         XCTAssertEqual(recorded[2].2, channelURL)
     }
 
+    func testSubscriptionFeedOrderIsSentForEveryCursorPage() async throws {
+        let lock = NSLock()
+        var seenQueries: [String] = []
+        TVAPIWireProtocol.install(host: "subscription-sort.example") { request in
+            lock.withLock { seenQueries.append(request.url?.query ?? "") }
+            return (200, Data(#"{"videos":[],"nextpage":null}"#.utf8))
+        }
+        let api = try fixtureAPI(host: "subscription-sort.example")
+        _ = try await api.subscriptionFeed(order: .oldest)
+        _ = try await api.subscriptionFeed(cursor: "next-page", order: .oldest)
+        _ = try await api.subscriptionFeed()
+        let urls = lock.withLock { seenQueries }
+        XCTAssertEqual(urls.count, 3)
+        func value(_ query: String, _ key: String) -> String? {
+            URLComponents(string: "https://example.invalid/?" + query)?
+                .queryItems?.first(where: { $0.name == key })?.value
+        }
+        XCTAssertEqual(value(urls[0], "order"), "oldest")
+        XCTAssertEqual(value(urls[1], "order"), "oldest")
+        XCTAssertEqual(value(urls[1], "cursor"), "next-page")
+        XCTAssertEqual(value(urls[2], "order"), "newest")
+    }
+
     func testRecommendationsForwardServerCursor() async throws {
         let lock = NSLock()
         var queries: [String] = []
