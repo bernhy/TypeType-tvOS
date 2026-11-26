@@ -292,7 +292,9 @@ struct TVSubscriptionFeedView: View {
             // Cross-device account toggle: fetch once when re-entering the
             // subscription page, never on individual tile/focus movement.
             if loadedOnce && !watchedSettingSaving {
-                await refreshAccountSettings()
+                // A slow GET must never hold the Siri Remote's native focus
+                // handoff while entering the already-cached subscription feed.
+                Task { await refreshAccountSettings() }
             }
             if let saved = railReturnVideoID,
                visibleVideos.contains(where: { $0.url == saved }) {
@@ -426,6 +428,8 @@ struct TVSubscriptionFeedView: View {
         #endif
         do {
             let remote = try await api.accountSettings()
+            // A save begun after this GET must win over its stale response.
+            guard !Task.isCancelled, !watchedSettingSaving else { return }
             contentPreferences.apply(remote, api: api)
         } catch {
             // This is an optional sync operation; the existing filter and
