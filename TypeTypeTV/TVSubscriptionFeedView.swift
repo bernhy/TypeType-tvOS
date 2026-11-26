@@ -263,7 +263,13 @@ struct TVSubscriptionFeedView: View {
             _ = await (playlists, favorites)
         }
         .task {
+            #if DEBUG
+            if api.origin.host != "preview.invalid" {
+                await contentPreferences.ensureLoaded(api: api)
+            }
+            #else
             await contentPreferences.ensureLoaded(api: api)
+            #endif
             guard !loadedOnce else { return }
             loadedOnce = true
             await reload()
@@ -291,7 +297,7 @@ struct TVSubscriptionFeedView: View {
             }
         }
         .onChange(of: visibleVideos.map(\.url)) { _, urls in
-            guard focusRequest > 0 else { return }
+            guard focusRequest >= 0 else { return }
             if urls.isEmpty {
                 if focusedVideo != nil {
                     focusedVideo = nil
@@ -306,6 +312,10 @@ struct TVSubscriptionFeedView: View {
                 // Only recover a focus target which was actually removed,
                 // not a transient nil during NavigationStack pop.
                 self.focusedVideo = urls.first
+            } else if focusedVideo == nil && focusedHeader == nil {
+                // The fixture and first async page both materialize after
+                // the initial focus pass. Still start inside the video grid.
+                focusedVideo = urls.first
             }
         }
         .onExitCommand {
@@ -400,6 +410,9 @@ struct TVSubscriptionFeedView: View {
     @MainActor
     private func refreshAccountSettings() async {
         guard !watchedSettingSaving else { return }
+        #if DEBUG
+        if api.origin.host == "preview.invalid" { return }
+        #endif
         do {
             let remote = try await api.accountSettings()
             contentPreferences.apply(remote, api: api)
