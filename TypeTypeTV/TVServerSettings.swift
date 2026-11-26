@@ -8,6 +8,8 @@ struct TVServerSettings: Decodable {
     var hideRelatedVideos: Bool?
     var hideEndScreens: Bool?
     var hideSubscriptionLiveStreams: Bool?
+    // v1.20: account-synced subscriptions feed filter, shown only on that page.
+    var hideWatchedSubscriptionVideos: Bool?
     var hideMembersOnlyContent: Bool?
     var hideShorts: Bool?
     var hideComments: Bool?
