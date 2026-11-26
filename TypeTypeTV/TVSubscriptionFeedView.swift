@@ -243,10 +243,18 @@ struct TVSubscriptionFeedView: View {
         .onAppear { reconcileMutations(TVVideoMutationCenter.shared.events) }
         .onChange(of: feedOrder) { _, _ in
             emptyPageStreak = 0
-            Task { await reload(replacing: true) }
+            Task {
+                await reload(replacing: true)
+                await autoLoadFilteredEmptyPages()
+            }
         }
         .onChange(of: dateRange) { _, _ in
             emptyPageStreak = 0
+            Task { await autoLoadFilteredEmptyPages() }
+        }
+        .onChange(of: contentPreferences.settings?.hideWatchedSubscriptionVideos) { _, _ in
+            emptyPageStreak = 0
+            Task { await autoLoadFilteredEmptyPages() }
         }
         .onChange(of: videoMenu.focusRestoreRequest) { _, _ in
             if let id = videoMenu.focusRestoreTarget,
@@ -273,6 +281,7 @@ struct TVSubscriptionFeedView: View {
             guard !loadedOnce else { return }
             loadedOnce = true
             await reload()
+            await autoLoadFilteredEmptyPages()
         }
         .task(id: focusRequest) {
             guard focusRequest > 0,
@@ -426,6 +435,20 @@ struct TVSubscriptionFeedView: View {
     private func refreshFeed() async {
         await refreshAccountSettings()
         await reload(replacing: true)
+        await autoLoadFilteredEmptyPages()
+    }
+
+    @MainActor
+    private func autoLoadFilteredEmptyPages() async {
+        // When every item on the first page is filtered out, no tile exists
+        // to fire the lazy grid's end sentinel. Fetch at most three more
+        // consecutive empty-result pages, then leave manual Load More.
+        guard hideWatched || dateRange != .all else { return }
+        while !Task.isCancelled, visibleVideos.isEmpty, !loading, !loadingMore,
+              nextCursor != nil, pageError == nil,
+              TVSubscriptionAutoLoadPolicy.mayAutoLoad(emptyPageStreak) {
+            await loadMore()
+        }
     }
 
     @MainActor
