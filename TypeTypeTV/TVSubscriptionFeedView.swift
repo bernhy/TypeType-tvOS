@@ -42,7 +42,9 @@ struct TVSubscriptionFeedView: View {
     @State private var requestID = UUID()
     @State private var loadedOnce = false
     @State private var handledFocusRequest: Int?
-    @State private var initialGridFocusPending = false
+    // The header may receive tvOS focus before the asynchronous first page
+    // materializes. Always transfer that first focus to the first video once.
+    @State private var initialGridFocusPending = true
     @FocusState private var focusedVideo: String?
     @FocusState private var focusedHeader: HeaderControl?
     @State private var headerReturnVideoID: String?

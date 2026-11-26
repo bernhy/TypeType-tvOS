@@ -25,6 +25,15 @@
 
 The tvOS client uses public tvOS 26 SwiftUI, AVFoundation/CoreMedia/VideoToolbox and URLSession APIs; minimum target is Apple TV 4K (2017). `AVSampleBufferVideoRenderer` does **not** reveal the actual hardware/software decoder chosen for each frame. The `allowSoftwareDecode` preference permits an otherwise-filtered representation; it does not bundle a custom decoder.
 
+## TypeType 1.20.0 — subscriptions feed (2026-11-26)
+
+- The tvOS subscription feed has a **single native control row**: a watched/unwatched toggle, newest/oldest server-cursor sort, local **All / Today / This week / This month** date filter, and Refresh on the right. No redundant watched toggle was added to Settings.
+- The watched toggle saves **`hideWatchedSubscriptionVideos`** through the existing account-scoped `PUT /api/settings` and accepts success only when the returned account settings confirm the value. A rejected/unsupported value shows a red error and does not alter the visible filter.
+- The date filter does not add an API query; it filters existing video timestamps in the device's calendar/time zone. `order=newest|oldest` is sent consistently on *every* `/subscriptions/feed` cursor request.
+- Watched filtering uses the existing server account threshold and batched `/progress/batch` results. New rows are published only after progress settles, without briefly showing watched videos. Returning from playback or marking a video watched updates the affected list entries from existing local progress, with no extra per-card network work.
+- Following server issue #443, auto paging stops after **three consecutive pages with no new visible videos**, including when a completely filtered first page has no tile to trigger loading. Manual **Load more** remains available. The initial Siri Remote focus stays on the first video; Up accesses the header controls and Down returns to the same card.
+- The Web frontend also exposes this preference in Settings, but tvOS intentionally keeps it only on the feed. Go server support is not required; Kotlin continues to be the selected backend. Performance and Siri Remote behavior require a device-level check.
+
 ## Implemented tvOS features
 
 | Area | User-visible behavior / source | State and important caveat |
