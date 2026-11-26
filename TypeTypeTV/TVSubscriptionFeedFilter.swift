@@ -12,23 +12,27 @@ enum TVSubscriptionFeedDateRange: String, CaseIterable {
 }
 
 enum TVSubscriptionFeedFilter {
+    private static func dateWindow(
+        for dateRange: TVSubscriptionFeedDateRange,
+        now: Date, calendar: Calendar
+    ) -> DateInterval? {
+        switch dateRange {
+        case .all: return nil
+        case .today: return calendar.dateInterval(of: .day, for: now)
+        case .week: return calendar.dateInterval(of: .weekOfYear, for: now)
+        case .month: return calendar.dateInterval(of: .month, for: now)
+        }
+    }
+
     static func contains(_ video: VideoItem, dateRange: TVSubscriptionFeedDateRange,
                          now: Date = Date(), calendar: Calendar = .current) -> Bool {
         guard dateRange != .all else { return true }
-        guard let date = TVVideoMetadata.publicationDate(for: video) else {
-            // An unknown publication date is not evidence that a video
-            // belongs to today, this week or this month.
+        guard let window = dateWindow(for: dateRange, now: now, calendar: calendar),
+              let date = TVVideoMetadata.publicationDate(for: video) else {
+            // Missing dates are not evidence of this day/week/month.
             return false
         }
-        switch dateRange {
-        case .all: return true
-        case .today:
-            return calendar.isDate(date, inSameDayAs: now)
-        case .week:
-            return calendar.dateInterval(of: .weekOfYear, for: now)?.contains(date) == true
-        case .month:
-            return calendar.dateInterval(of: .month, for: now)?.contains(date) == true
-        }
+        return window.contains(date)
     }
 
     static func visible(_ videos: [VideoItem],
@@ -38,13 +42,19 @@ enum TVSubscriptionFeedFilter {
                         now: Date = Date(),
                         calendar: Calendar = .current,
                         position: (VideoItem) -> Int64?) -> [VideoItem] {
-        videos.filter { item in
-            contains(item, dateRange: dateRange, now: now, calendar: calendar) &&
-                (!hideWatched ||
-                 !TVWatchedState.isWatched(
-                    item, positionMs: position(item),
-                    thresholdPercent: thresholdPercent
-                 ))
+        // Calculate the local calendar boundary ONCE per grid snapshot,
+        // not separately for every thumbnail on a Siri Remote focus move.
+        let window = dateWindow(for: dateRange, now: now, calendar: calendar)
+        return videos.filter { item in
+            if dateRange != .all {
+                guard let window,
+                      let published = TVVideoMetadata.publicationDate(for: item),
+                      window.contains(published) else { return false }
+            }
+            return !hideWatched || !TVWatchedState.isWatched(
+                item, positionMs: position(item),
+                thresholdPercent: thresholdPercent
+            )
         }
     }
 }
