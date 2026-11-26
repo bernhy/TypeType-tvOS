@@ -1483,6 +1483,31 @@ final class TypeTypeTVUITests: XCTestCase {
                       "Back from Library rail must go to Library icon")
     }
 
+    func testSubscriptionsFeedNativeFiltersStartWithVideoFocus() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-TypeTypeTVPreview", "subscriptions", "-typetype.uiLanguage", "de"
+        ]
+        app.launch()
+        let first = app.buttons["subscriptions-video-0"]
+        let watched = app.buttons["subscriptions-feed-watched"]
+        XCTAssertTrue(waitForFocus(first, timeout: 15),
+                      "The subscriptions feed must start in its first video")
+        XCTAssertTrue(watched.exists)
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(identifier: "subscriptions-feed-order").firstMatch.exists)
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(identifier: "subscriptions-feed-date").firstMatch.exists)
+        XCTAssertTrue(app.buttons["subscriptions-feed-refresh"].exists)
+
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(waitForFocus(watched),
+                      "Up from the first video should enter the native filter row")
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(waitForFocus(first),
+                      "Down must return to the same grid tile without a timer")
+    }
+
     func testSubscriptionsFocusChainAndRemoteBack() throws {
         let app = XCUIApplication()
         app.launchArguments = [
